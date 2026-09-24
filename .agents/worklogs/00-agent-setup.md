@@ -58,6 +58,7 @@ Membuang API level aplikasi (`dataforseo` dan `pexafy`) dari `.agents/mcp_config
   - Project Name: `WP Editorial Projects` (Region: `ap-south-1`)
   - Status Kredensial: Terverifikasi valid.
 - [`.env.example`](file:///d:/Antigravity/wp-autopost-dashboard/.env.example) diperbarui dengan standar key Supabase modern dan ter-commit ke Git.
+- Berkas [`.geminiignore`](file:///d:/Antigravity/wp-autopost-dashboard/.geminiignore) dan [`.antigravityignore`](file:///d:/Antigravity/wp-autopost-dashboard/.antigravityignore) dibuat dan dikomit untuk mengisolasi kredensial, dependensi, dan artefak build dari mesin AI context indexer.
 
 ---
 
