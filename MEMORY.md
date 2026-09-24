@@ -6,11 +6,10 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 ## 1. Status Proyek Saat Ini
 
-- **Tahap Selesai**: **Setup Ekosistem Agent & Blueprint Workspace** (Selesai & Disepakati).
-- **Catatan Worklog Lalu**: [`00-agent-setup.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md)
-- **Fase Aktif**: **Inisialisasi Proyek & Atomic Design System** (Tailwind CSS v4 + Shadcn UI + Atomic Components Architecture).
-- **Catatan Worklog Aktif**: [`01-project-initialization.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/01-project-initialization.md)
-- **Fase Berikutnya**: **Implementasi Database Supabase & Backend Core Logic** (Skema PostgreSQL, RLS, Crypto AES-256, & Adapter).
+- **Tahap Selesai**: **Implementasi MVP Minimal, Multi-Select Kategori WP Nyata, Resolusi Tag Otomatis, Engine AI Resmi via `@openrouter/agent` SDK, Tester Kunci AI, dan BYOK Settings**.
+- **Catatan Worklog Lalu**: [`00-agent-setup.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md), [`01-project-initialization.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/01-project-initialization.md), [`02-mvp-implementation.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/02-mvp-implementation.md), [`03-anti-slop-copywriting-revamp.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/03-anti-slop-copywriting-revamp.md), [`04-non-modal-and-ux-refinements.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/04-non-modal-and-ux-refinements.md), [`05-wp-categories-and-openrouter-agent.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/05-wp-categories-and-openrouter-agent.md)
+- **Fase Aktif**: **Persiapan Desain & Arsitektur AI Article Generation Orchestrator (Multi-Step / Agentic Pipeline)**.
+- **Fase Berikutnya**: **Implementasi Orchestrator Pipeline, Background Queue Worker, & Bulk Ingestion**.
 
 
 
@@ -38,8 +37,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
    - Checkbox master on/off dengan 3 opsi sumber: Unsplash (gratis otomatis), Manual/URL, atau AI Image Generation.
 10. **ADR-010 (Smart Humanized Drip-Feed Scheduler)**:
     - Penjadwalan bertahap berbasis jendela jam aktif dan pengacakan menit (*jitter*) untuk menghindari pola bot.
-11. **ADR-011 (Redirect Callback Authorization WP)**:
-    - Otorisasi WP via endpoint bawaan `authorize-application.php` dengan redirect callback (zero-credential copy-paste) + manual fallback.
+11. **ADR-011 (Redirect Callback Authorization WP - Selesai & Aktif)**:
+    - Otorisasi WP via endpoint bawaan `authorize-application.php` dengan redirect callback (zero-credential copy-paste) + manual fallback. Dilengkapi state token HMAC anti-CSRF dan auto-encryption AES-256-GCM.
 12. **ADR-012 (On-the-Fly Taxonomy Creation)**:
     - Kategori & tag WordPress dapat dipilih dari yang ada atau dibuat baru secara langsung di semua skenario ingesti (Modul 1, 2, 3) via WP REST API.
 13. **ADR-013 (Prompt Template Engine & Versioning)**:
@@ -48,6 +47,12 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - Tampilan antrean murni berbasis High-Performance Data Table (@tanstack/react-table + virtualisasi) tanpa opsi Kanban.
 15. **ADR-015 (35 Modular Internal REST API Endpoints)**:
     - Arsitektur backend modular dengan 35 API routes di `/api/...` siap digunakan frontend maupun headless client.
+16. **ADR-016 (Arsitektur Operasional Non-Modal & Persistensi Tema)**:
+    - Menghilangkan modal pop-up untuk alur kerja operasional utama (Tulis Cepat dijadikan halaman workspace dedikasi `/posts/new`, formulir website dijadikan kartu inline). Sinkronisasi tema light/dark dijamin persisten via script inline anti-flicker di `<head>` dan `useSyncExternalStore`.
+17. **ADR-017 (Multi-Select Kategori WP Nyata & Auto-Resolve Tag)**:
+    - Kategori WordPress di form Tulis Cepat diambil langsung dari WP REST API (`/wp-json/wp/v2/categories`) dengan multi-select dropdown tanpa izin membuat kategori baru. Tag diinput dengan pemisah koma dan otomatis dicocokkan atau dibuatkan ID-nya di WordPress sebelum artikel terbit.
+18. **ADR-018 (OpenRouter Agent SDK Engine & BYOK Management)**:
+    - Mesin generasi AI diintegrasikan menggunakan resmi `@openrouter/agent` SDK (`client.callModel`) dengan dukungan multi-model (GPT-OSS, Claude 3.5, Gemini 2.5 Flash, DeepSeek), sanitasi API key, endpoint diagnostik `/api/ai/test`, dan halaman Pengaturan AI.
 
 ---
 
