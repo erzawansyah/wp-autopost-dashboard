@@ -41,10 +41,18 @@ wp-autopost-dashboard/
 │   │   ├── layout/                 # Sidebar, Header, Global Site Switcher
 │   │   └── features/               # Komponen domain (QueueTable, IngestionWizard, BatchCard)
 │   ├── core/                       # Business Logic Murni (Framework Agnostic)
-│   │   ├── ai-providers/           # Adapter AI (OpenRouter default, OpenAI, Gemini, Anthropic)
+│   │   ├── writer/                 # System Writer & Pluggable Engine Hub
+│   │   │   ├── index.ts            # Facade Orchestrator: writer.run()
+│   │   │   ├── types/              # Kontrak data (contracts.ts, engine.ts)
+│   │   │   ├── engines/            # Registry & Pluggable Writing Engines (quick, deep, visual, etc.)
+│   │   │   ├── nodes/              # Reusable Workflow Nodes (drafter, outline, auditor, media-extractor)
+│   │   │   ├── tools/              # I/O Adapters (media, search, wp-media, taxonomy)
+│   │   │   ├── styles/             # Modular Style Rules (listicle.md, essay.md, default.md)
+│   │   │   ├── formatters/         # Gutenberg Block Serializer & Markdown Cleaner
+│   │   │   ├── services/           # LLM Provider Adapters & Style Resolver
+│   │   │   └── DOCUMENTATION_STANDARD.md # Standar penyusunan docs.md per komponen
 │   │   ├── wp-client/              # Client WordPress REST API (Posts, Media, Categories, Tags, Healthcheck)
 │   │   ├── ingestion/              # Adapter Ingestion (CSVParser, NicheIdeator, UrlExtractor)
-│   │   ├── generator/              # AI Article Composer, Anti-AI Humanizer, Media Matcher
 │   │   ├── prompt-templates/       # Prompt Template Engine (render, variabel injection, versioning)
 │   │   └── queue-engine/           # Queue Manager & Dispatcher (Immediate Batch vs Scheduled Cron)
 │   ├── lib/                        # Utilitas bersama (Supabase client, Crypto/AES-256, Logger, Sanitizer)
@@ -360,3 +368,66 @@ Alur render prompt saat eksekusi LLM oleh worker:
    ]
 6. Kirim ke AIProviderAdapter.chat(messages, { model, temperature, ... })
 ```
+
+---
+
+## 8. Arsitektur System Writer (Engine, Node, Tool, & Gutenberg Blocks)
+
+Arsitektur penulisan artikel pada `src/core/writer/` dirancang dengan prinsip **Open-Closed** (bebas menambah engine tanpa merombak orchestrator), alur kerja **Markdown-First**, dan serialisasi **Native WordPress Gutenberg Blocks**:
+
+```mermaid
+flowchart TD
+    subgraph Facade["1. Facade Orchestrator (writer.run)"]
+        REQ["WriterRequest (keyword, style, engine, etc.)"] --> VAL["Validasi Zod"]
+        VAL --> REG["EngineRegistry.get(engineId)"]
+        STYLE["StyleRuleResolver (styles/*.md)"] --> CTX["Rakit EngineContext"]
+        REG --> CTX
+    end
+
+    subgraph Hierarchy["2. Hirarki Komponen"]
+        ENGINE["WritingEngine (Orkestrator Alur)"]
+        NODE["Nodes (Unit Proses: outline, draft, audit, media)"]
+        TOOL["Tools (I/O Adapters: pexels, wp-media, tavily, scraper)"]
+        ENGINE --> NODE
+        NODE --> TOOL
+    end
+
+    subgraph Output["3. Markdown-First & Gutenberg Serialization"]
+        MD["Naskah Markdown Murni (Nol Dash, Anti-Slop)"]
+        SERIALIZER["markdownToGutenberg()"]
+        WP_BLOCKS["HTML Native Gutenberg Blocks (<!-- wp:... -->)"]
+        MD --> SERIALIZER --> WP_BLOCKS
+    end
+
+    CTX --> ENGINE
+    ENGINE --> MD
+    WP_BLOCKS --> WP_REST["WordPress REST API (/wp/v2/posts)"]
+```
+
+### A. Tiga Lapisan Arsitektur (Engine ➔ Node ➔ Tool)
+
+1. **Writing Engine (`src/core/writer/engines/`)**:
+   - Menentukan orkestrator alur kerja penulisan.
+   - Wajib mengimplementasikan interface `WritingEngine` dengan deklarasi `EngineCapabilities`.
+   - Menggunakan `EngineRegistry` terpusat (`register`, `get`, `list`).
+   - Contoh: `QuickEngine` (1-shot), `DeepResearchEngine` (StateGraph riset), `VisualStoryEngine` (penanaman gambar per H2).
+2. **Nodes (`src/core/writer/nodes/`)**:
+   - Unit fase proses modular yang membaca state, mengeksekusi logika domain/LLM, dan mengembalikan pembaruan naskah.
+   - Bersifat *reusable* lintas engine (misal: `outline-node`, `drafter-node`, `auditor-node`, `media-extractor-node`).
+3. **Tools (`src/core/writer/tools/`)**:
+   - Adapter I/O teknis stateless yang berinteraksi dengan API pihak ketiga atau WordPress REST API.
+   - Contoh: `tools/media/pexels.ts`, `tools/wp/media-uploader.ts`, `tools/search/tavily.ts`.
+
+### B. Alur Kerja Markdown-First & Native Gutenberg Blocks
+
+1. **Generasi Markdown**: AI LLM diinstruksikan menghasilkan keluaran Markdown murni (bukan tag HTML mentah). Hal ini menghemat konsumsi token ~30%, mencegah risiko tag HTML rusak/unclosed, dan memudahkan proses audit.
+2. **Gutenberg Block Serializer (`src/core/writer/formatters/gutenberg.ts`)**: Mengonversi Markdown secara deterministik menjadi markup komentar blok resmi WordPress (`<!-- wp:heading -->`, `<!-- wp:paragraph -->`, `<!-- wp:image {"id":...} -->`, `<!-- wp:list -->`, `<!-- wp:quote -->`, `<!-- wp:code -->`, `<!-- wp:separator -->`). Hasil postingan otomatis menjadi blok Gutenberg modern yang dapat diedit langsung di WP Admin.
+
+### C. Direktori Style Rules Modular (`src/core/writer/styles/`)
+
+Format penulisan disimpan terpisah dalam berkas Markdown (`listicle.md`, `essay.md`, `how-to-tutorial.md`, `in-depth-review.md`, `default.md`). `StyleRuleResolver` membaca berkas ini secara dinamis dan menginjeksinya ke prompt drafting.
+
+### D. Standar Dokumentasi Komponen (`docs.md` with YAML Frontmatter)
+
+Setiap Engine, Node, dan Tool **WAJIB** memiliki berkas `docs.md` di samping kodenya dengan metadata YAML frontmatter baku (id, name, type, version, status, capabilities, side_effects, inputs, outputs, dependencies) dan 6 bagian konten wajib (Ikhtisar, Alur Logika, Spesifikasi Parameter, Spesifikasi Output, Penanganan Error, Contoh Pemanggilan) sesuai panduan di [`src/core/writer/DOCUMENTATION_STANDARD.md`](file:///d:/Antigravity/wp-autopost-dashboard/src/core/writer/DOCUMENTATION_STANDARD.md).
+

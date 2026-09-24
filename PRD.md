@@ -401,38 +401,53 @@ Pengguna klik "+ Connect New Site"
 
 ---
 
-### D. AI Provider & Humanization Engine (OpenRouter BYOK)
+### D. System Writer Pipeline, Pluggable Engines & Native Gutenberg Blocks
 
-**Arsitektur Gateway**:
+Sistem pembuatan naskah artikel dibangun di atas arsitektur **System Writer** yang modular, berorientasi **Markdown-First**, dan menghasilkan format **Native WordPress Gutenberg Blocks**:
 
-- OpenRouter sebagai gateway default untuk mengakses model terdepan (Claude 3.5 Sonnet, GPT-4o, DeepSeek V3, Gemini 1.5 Pro).
-- Pola Adapter (`AIProviderAdapter`) agar extensible ke provider lain di masa depan.
+**1. Pluggable Engine Framework & Registry (Open-Closed Architecture)**:
+- Penulisan naskah tidak terkunci pada satu atau dua engine, melainkan menggunakan `EngineRegistry` dinamis di mana pengguna atau pengembang dapat menambah engine baru secara leluasa.
+- Setiap engine mengimplementasikan kontrak interface `WritingEngine` dengan deklarasi `EngineCapabilities` (riset live, in-content image injection, audit loop, estimasi durasi, dan tier model AI).
+- Contoh engine terdaftar:
+  * `quick`: Generasi instan 1-shot Markdown ke Gutenberg Blocks dengan anti-slop prompt v3.0.
+  * `deep-research`: Multi-step LangGraph StateGraph (Riset fakta eksternal → Outline → Drafting naskah → Audit loop).
+  * `visual-story`: Ekstraksi topik subheading (H2), pencarian foto bebas royalti, upload ke WP Media Library, dan penanaman blok gambar (`<!-- wp:image -->`) per subheading.
+  * `fact-checked`: Engine akurasi tinggi dengan sitasi sumber dan verifikasi data rujukan.
 
-**Konfigurasi Pengguna (Settings Page)**:
+**2. Alur Kerja Markdown-First & Native Gutenberg Block Serializer**:
+- Seluruh engine diwajibkan menghasilkan draf artikel dalam format **Markdown murni** terlebih dahulu:
+  * Menghemat konsumsi token prompt hingga ~30% (tanpa overhead penutup tag HTML).
+  * Nol risiko sintaks HTML rusak (tidak ada unclosed tags atau broken DOM tree).
+  * Memudahkan proses pembersihan anti-slop, ekstraksi subheading, dan audit sebelum publikasi.
+- **Gutenberg Block Serializer**: Naskah Markdown dikonversi secara deterministik menjadi markup komentar blok resmi WordPress (`<!-- wp:heading -->`, `<!-- wp:paragraph -->`, `<!-- wp:image -->`, `<!-- wp:list -->`, `<!-- wp:quote -->`, `<!-- wp:code -->`, `<!-- wp:separator -->`). Saat artikel dibuka di WordPress Admin, artikel langsung terbaca sebagai blok Gutenberg modern yang sepenuhnya dapat diedit.
 
-| Field             | Tipe                                              | Validasi                     | Default                       |
-| :---------------- | :------------------------------------------------ | :--------------------------- | :---------------------------- |
-| Provider          | Select (OpenRouter / OpenAI / Anthropic / Custom) | —                            | OpenRouter                    |
-| API Key           | Password input                                    | Format validasi per provider | —                             |
-| Default Model     | Select (dinamis berdasarkan provider)             | —                            | `anthropic/claude-3.5-sonnet` |
-| Base URL (custom) | Text input                                        | URL valid, HTTPS             | Per provider                  |
-| Test koneksi      | Button                                            | Verifikasi API key valid     | —                             |
+**3. Direktori Style Rules Modular (`src/core/writer/styles/`)**:
+- Format gaya penulisan dikelola sebagai berkas markdown terpisah:
+  * `default.md`: Artikel informatif mendalam.
+  * `listicle.md`: Format daftar terstruktur dengan penomoran H2 dan quick bullet takeaways.
+  * `essay.md`: Esai reflektif, hook naratif, argumentatif kritis, dan burstiness kalimat tinggi.
+  * `how-to-tutorial.md`: Panduan praktis bertahap dengan prasyarat dan troubleshooting.
+  * `in-depth-review.md`: Ulasan komprehensif produk/layanan dengan spesifikasi dan pro/kontra.
+- `StyleRuleResolver` secara dinamis membaca berkas aturan ini sesuai parameter `style` yang dipilih pengguna.
 
-**Anti-AI Humanization Filter**:
+**4. Anti-AI Humanization Filter (v3.0 Anti-Slop)**:
+- Kebijakan **Nol Dash**: Mengeliminasi seluruh em-dash (`—`) dan en-dash (`–`).
+- Mengeliminasi kata klise pembuka robotik (*"Di era digital saat ini...", "Dalam dunia yang serba cepat..."*).
+- Mengeliminasi metafora hampa korporat (*"menavigasi lanskap", "fondasi kokoh", "permadani"*).
+- Mengeliminasi pola *contrastive negation* (*"bukan sekadar X, melainkan Y"*).
+- Mengeliminasi *significance inflation* (*"revolusioner", "transformatif", "game-changer", "sangat krusial"*).
+- Guardrail otonom: Deteksi penolakan chatbot (*"Mohon maaf, data tidak ditemukan..."*) dengan auto-recovery generator.
 
-- Mengeliminasi kata-kata klise pembuka robotik (_"Di era digital saat ini...", "Dalam dunia yang serba cepat..."_).
-- Mengeliminasi metafora hampa korporat (_"menavigasi lanskap", "fondasi kokoh"_).
-- Mengeliminasi pola "contrastive negation" (_"bukan sekadar X, melainkan Y"_).
-- Mengeliminasi "significance inflation" (_"revolusioner", "transformatif", "game-changer"_).
-- Menyusun struktur paragraf dengan dinamika panjang kalimat (_burstiness_) alami dan heading informatif tanpa istilah generik.
-- Diimplementasikan sebagai post-processing layer dan/atau system prompt engineering, **bukan** sebagai penggantian model.
+**5. Standar Dokumentasi Komponen (`docs.md` with YAML Frontmatter)**:
+- Setiap Engine, Node, dan Tool **WAJIB** memiliki berkas `docs.md` dengan metadata YAML frontmatter baku (id, name, type, version, status, capabilities, side_effects, inputs, outputs, dependencies) dan 6 bagian konten wajib (Ikhtisar, Alur Logika, Spesifikasi Parameter, Spesifikasi Output, Penanganan Error, Contoh Pemanggilan).
 
 **Kriteria Penerimaan (AC)**:
 
 - AC-4D.1: API Key tersimpan terenkripsi dan tidak pernah ditampilkan ulang setelah disimpan.
-- AC-4D.2: Test koneksi AI menampilkan nama model dan saldo/kredit jika API mendukung.
-- AC-4D.3: Artikel yang dihasilkan lolos audit pola Anti-AI (tidak mengandung ≥ 3 pola klise dari daftar di atas).
-- AC-4D.4: Jika API Key invalid atau kuota habis, error message spesifik ditampilkan (bukan generic "Something went wrong").
+- AC-4D.2: Seluruh artikel yang terbit di WordPress mengandung blok komentar Gutenberg resmi dan dapat diedit blok per blok di WordPress Block Editor.
+- AC-4D.3: Artikel yang dihasilkan lolos audit pola Anti-AI (bebas dash, bebas kata klise terlarang, dan burstiness alami).
+- AC-4D.4: Sistem mendukung pemilihan gaya tulisan (`style`) dari direktori `styles/` dan menyesuaikan struktur naskah secara dinamis.
+- AC-4D.5: Setiap penambahan Tool, Node, atau Engine baru disertai berkas `docs.md` yang mematuhi standar DOCUMENTATION_STANDARD.md.
 
 ---
 
