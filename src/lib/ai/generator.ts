@@ -1,13 +1,16 @@
 /**
- * AI Article Generator via Official @openrouter/agent SDK
+ * AI Article Generator via Official @langchain/openrouter & @langchain/core
  * Mengadopsi prinsip ketat dari anti-slop-writing (v3.0):
  * - Nol dash (em dash dan en dash dilarang total).
  * - Tanpa klise AI (era digital, menyoroti, menggarisbawahi, bukan hanya X melainkan Y).
  * - Variasi ritme kalimat (burstiness tinggi, variasi pembuka kalimat).
  * - Bahasa Indonesia alami, luwes, lugas, dan berbobot.
+ * - Structured Output dengan fallback parsing yang resilient.
  */
 
-import { OpenRouter } from "@openrouter/agent"
+import { ChatOpenRouter, OpenRouterAuthError, OpenRouterRateLimitError } from "@langchain/openrouter"
+import { HumanMessage, SystemMessage } from "@langchain/core/messages"
+import { z } from "zod"
 
 export interface GenerateArticleParams {
   keyword: string
@@ -33,6 +36,20 @@ export const POPULAR_AI_MODELS = [
   { id: "deepseek/deepseek-chat", name: "DeepSeek V3 (Sangat Hemat)", provider: "DeepSeek" },
   { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B Instruct", provider: "Meta" },
 ]
+
+export const ArticleOutputSchema = z.object({
+  title: z
+    .string()
+    .describe("Judul artikel yang lugas, menarik, dan wajar (tanpa tanda kutip atau embel-embel bombastis)"),
+  excerpt: z
+    .string()
+    .describe("Ringkasan padat 1-2 kalimat untuk deskripsi artikel (maksimal 160 karakter)"),
+  contentHtml: z
+    .string()
+    .describe(
+      "Isi artikel lengkap dalam format HTML bersih menggunakan tag <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <blockquote>. DILARANG menggunakan tag <h1> atau <html>/<body>. Pastikan tidak ada karakter dash (—/–)."
+    ),
+})
 
 const ANTI_SLOP_SYSTEM_PROMPT = `Anda adalah penulis dan editor profesional Indonesia yang menulis artikel secara hidup, otentik, dan bersih dari segala pola klise buatan mesin (anti-slop).
 
@@ -77,7 +94,7 @@ export function getSanitizedApiKey(customApiKey?: string): string {
 }
 
 /**
- * Generate artikel berkualitas menggunakan @openrouter/agent SDK
+ * Generate artikel berkualitas menggunakan LangChain ChatOpenRouter
  */
 export async function generateArticle(params: GenerateArticleParams): Promise<GeneratedArticle> {
   const apiKey = getSanitizedApiKey(params.apiKey)
@@ -99,75 +116,106 @@ ${params.customBrief ? `- Catatan Khusus dari Pembaca: ${params.customBrief}` : 
 
 Tulislah dengan sudut pandang praktisi yang paham lapangan. Beri contoh nyata, tips praktis yang bisa langsung dicoba, dan hindari penjelasan berputar-putar. Ingat: nol em dash (—) dan nol en dash (–).`
 
-  let rawContent = ""
+  const chatModel = new ChatOpenRouter({
+    apiKey,
+    model,
+    temperature: 0.7,
+    siteUrl: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
+    siteName: process.env.OPENROUTER_APP_NAME || "WP Autopost Dashboard",
+  })
+
+  let title = ""
+  let contentHtml = ""
+  let excerpt = ""
 
   try {
-    const client = new OpenRouter({
-      apiKey,
-      httpReferer: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
-      appTitle: process.env.OPENROUTER_APP_NAME || "WP Autopost Dashboard",
-    })
+    // 1. Coba Structured Output Zod bawaan LangChain
+    let structuredResult: z.infer<typeof ArticleOutputSchema> | null = null
+    try {
+      const structuredModel = chatModel.withStructuredOutput(ArticleOutputSchema)
+      structuredResult = await structuredModel.invoke([
+        new SystemMessage(ANTI_SLOP_SYSTEM_PROMPT),
+        new HumanMessage(userPrompt),
+      ])
+    } catch {
+      // Fallback ke pemanggilan standar jika model tidak mendukung function/tool call
+      structuredResult = null
+    }
 
-    const result = client.callModel({
-      model,
-      instructions: ANTI_SLOP_SYSTEM_PROMPT,
-      input: userPrompt,
-    })
+    if (structuredResult && structuredResult.title && structuredResult.contentHtml) {
+      title = structuredResult.title
+      contentHtml = structuredResult.contentHtml
+      excerpt = structuredResult.excerpt || ""
+    } else {
+      // 2. Pemanggilan standar LangChain dengan JSON parsing
+      const response = await chatModel.invoke([
+        new SystemMessage(ANTI_SLOP_SYSTEM_PROMPT),
+        new HumanMessage(userPrompt),
+      ])
 
-    rawContent = await result.getText()
+      const rawContent =
+        typeof response.content === "string"
+          ? response.content
+          : Array.isArray(response.content)
+          ? response.content
+              .map((c) => (typeof c === "string" ? c : JSON.stringify(c)))
+              .join("\n")
+          : String(response.content)
+
+      let cleanJson = rawContent.trim()
+      if (cleanJson.startsWith("```json")) {
+        cleanJson = cleanJson.replace(/^```json\s*/, "").replace(/\s*```$/, "")
+      } else if (cleanJson.startsWith("```")) {
+        cleanJson = cleanJson.replace(/^```\s*/, "").replace(/\s*```$/, "")
+      }
+
+      try {
+        const parsed = JSON.parse(cleanJson)
+        title = parsed.title || params.keyword
+        contentHtml = parsed.contentHtml || `<p>${params.keyword}</p>`
+        excerpt = parsed.excerpt || ""
+      } catch {
+        title = params.keyword
+        contentHtml = `<h2>${params.keyword}</h2><p>${rawContent.replace(/\n\n/g, "</p><p>")}</p>`
+        excerpt = params.keyword
+      }
+    }
   } catch (err: unknown) {
-    const errorStr = String(err)
-    if (errorStr.includes("401") || errorStr.toLowerCase().includes("user not found")) {
+    if (
+      err instanceof OpenRouterAuthError ||
+      String(err).includes("401") ||
+      String(err).toLowerCase().includes("user not found")
+    ) {
       throw new Error(
         "Kunci API OpenRouter tidak valid atau ditolak oleh server (Error 401: User not found). Silakan periksa kembali API Key Anda di https://openrouter.ai/keys atau atur di Pengaturan AI."
       )
     }
-    if (errorStr.includes("402") || errorStr.toLowerCase().includes("insufficient_quota")) {
+    if (
+      err instanceof OpenRouterRateLimitError ||
+      String(err).includes("402") ||
+      String(err).toLowerCase().includes("insufficient_quota")
+    ) {
       throw new Error(
         "Saldo kredit akun OpenRouter Anda tidak mencukupi untuk memproses permintaan model ini."
       )
     }
-    const message = err instanceof Error ? err.message : "Kesalahan koneksi ke OpenRouter"
-    throw new Error(`Gagal menghubungi Agent OpenRouter: ${message}`)
+    const message = err instanceof Error ? err.message : "Kesalahan koneksi ke LangChain OpenRouter"
+    throw new Error(`Gagal menghubungi model AI: ${message}`)
   }
 
-  // Bersihkan respon JSON dari kemungkinan pembungkus markdown
-  let cleanJson = rawContent.trim()
-  if (cleanJson.startsWith("```json")) {
-    cleanJson = cleanJson.replace(/^```json\s*/, "").replace(/\s*```$/, "")
-  } else if (cleanJson.startsWith("```")) {
-    cleanJson = cleanJson.replace(/^```\s*/, "").replace(/\s*```$/, "")
-  }
+  // Pembersihan ekstra: pastikan tidak ada em dash atau en dash yang lolos
+  const sanitizedTitle = (title || params.keyword).replace(/[—–]/g, ", ")
+  const sanitizedHtml = (contentHtml || `<p>${params.keyword}</p>`).replace(/[—–]/g, ", ")
+  const sanitizedExcerpt = (excerpt || "").replace(/[—–]/g, ", ")
 
-  try {
-    const parsed = JSON.parse(cleanJson)
+  const wordCount = sanitizedHtml.replace(/<[^>]*>/g, " ").split(/\s+/).filter(Boolean).length
+  const readingTimeMinutes = Math.max(1, Math.ceil(wordCount / 200))
 
-    // Pembersihan ekstra: pastikan tidak ada em dash atau en dash yang lolos
-    const sanitizedTitle = (parsed.title || params.keyword).replace(/[—–]/g, ", ")
-    const sanitizedHtml = (parsed.contentHtml || `<p>${params.keyword}</p>`).replace(/[—–]/g, ", ")
-    const sanitizedExcerpt = (parsed.excerpt || "").replace(/[—–]/g, ", ")
-
-    const wordCount = sanitizedHtml.replace(/<[^>]*>/g, " ").split(/\s+/).filter(Boolean).length
-    const readingTimeMinutes = Math.max(1, Math.ceil(wordCount / 200))
-
-    return {
-      title: sanitizedTitle,
-      contentHtml: sanitizedHtml,
-      excerpt: sanitizedExcerpt,
-      readingTimeMinutes,
-      modelUsed: model,
-    }
-  } catch {
-    // Fallback jika parsing JSON gagal
-    const fallbackTitle = params.keyword.replace(/[—–]/g, ", ")
-    const cleanRaw = rawContent.replace(/[—–]/g, ", ")
-    const fallbackHtml = `<h2>${fallbackTitle}</h2><p>${cleanRaw.replace(/\n\n/g, "</p><p>")}</p>`
-    return {
-      title: fallbackTitle,
-      contentHtml: fallbackHtml,
-      excerpt: params.keyword,
-      readingTimeMinutes: 3,
-      modelUsed: model,
-    }
+  return {
+    title: sanitizedTitle,
+    contentHtml: sanitizedHtml,
+    excerpt: sanitizedExcerpt,
+    readingTimeMinutes,
+    modelUsed: model,
   }
 }

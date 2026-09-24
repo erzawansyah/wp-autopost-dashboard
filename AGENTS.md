@@ -19,9 +19,9 @@ Repositori ini dirancang dengan pendekatan **Hybrid**:
 - **Database & Autentikasi**: **PostgreSQL via Supabase** (Supabase Auth untuk manajemen multi-tenant, Row Level Security / RLS wajib aktif di semua tabel).
 - **Integrasi WordPress**: **WordPress REST API (`/wp-json/wp/v2/...`) + Application Passwords** bawaan WordPress.
   - _Prinsip Zero-Friction Onboarding_: **DILARANG** merancang fitur inti yang mengharuskan pengguna meng-install plugin custom atau mengedit kode PHP (`functions.php`) di sisi WordPress mereka saat pendaftaran. Semua koneksi dasar harus berjalan murni di atas WP REST API standar.
-- **AI Provider & LLM Gateway**: **OpenRouter-First + Pluggable Multi-Provider (BYOK)**
-  - Menggunakan **OpenRouter** sebagai gateway default aplikasi (akses ke model Claude, Gemini, GPT, DeepSeek via satu integrasi standar OpenAI-compatible).
-  - Dirancang dengan pola `AIProviderAdapter` agar pengguna dapat memasukkan API Key / Provider mereka sendiri (_Bring Your Own Key / BYOK_).
+- **AI Provider & LLM Gateway**: **LangChain & LangGraph (Multi-Provider & BYOK-First)**
+  - Menggunakan **`@langchain/openrouter`**, **`@langchain/core`**, dan **`@langchain/openai`** sebagai fondasi model agnostic (dapat mengarah ke OpenRouter, OpenAI, DeepSeek, Groq, Anthropic, atau Gemini via BYOK).
+  - Menggunakan **`@langchain/langgraph`** untuk mengorkestrasi state machine dan multi-step agentic article generation pipeline.
 - **Styling & UI Components**: **Tailwind CSS + Radix UI / Shadcn** dipandu oleh token desain di [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md).
 
 > **Prinsip Fleksibilitas (Living Blueprint)**:
@@ -84,8 +84,8 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
 10. **Kepatuhan Mutlak Terhadap PRD.md dan DESIGN.md**:
     - [`PRD.md`](file:///d:/Antigravity/wp-autopost-dashboard/PRD.md) adalah acuan mutlak logika bisnis, fungsionalitas, 9 status antrean, dan validasi form.
     - [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md) adalah acuan mutlak tata visual, hierarki Trello-Fluent, density 8/10, dan palet warna.
-11. **OpenRouter SDK & Matriks Penggunaan Skill (Action-to-Skill Routing)**:
-    - Seluruh interaksi AI gateway wajib menggunakan SDK resmi `@openrouter/agent` dan `@openrouter/sdk`.
+11. **LangChain & LangGraph Ecosystem & Matriks Penggunaan Skill (Action-to-Skill Routing)**:
+    - Pengembangan fitur AI dan pipeline orchestrator menggunakan ekosistem `@langchain/core`, `@langchain/openai`, dan `@langchain/langgraph`.
     - Setiap kali akan mengeksekusi jenis tugas teknis tertentu, Agent WAJIB membaca dan menerapkan panduan dari skill yang relevan sesuai matriks di [`.agents/rules/skills-routing-matrix.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/skills-routing-matrix.md).
 12. **Windows PowerShell Execution Standard (Anti-PSSecurityException)**:
     - Di sistem Windows, Agent WAJIB menyusun perintah shell menggunakan ekstensi `.cmd` secara eksplisit (`npx.cmd ...` dan `npm.cmd ...`) agar tidak terblokir oleh PowerShell script execution policy.

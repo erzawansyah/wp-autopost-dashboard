@@ -6,12 +6,10 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 ## 1. Status Proyek Saat Ini
 
-- **Tahap Selesai**: **Implementasi MVP Minimal, Multi-Select Kategori WP Nyata, Resolusi Tag Otomatis, Engine AI Resmi via `@openrouter/agent` SDK, Tester Kunci AI, dan BYOK Settings**.
-- **Catatan Worklog Lalu**: [`00-agent-setup.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md), [`01-project-initialization.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/01-project-initialization.md), [`02-mvp-implementation.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/02-mvp-implementation.md), [`03-anti-slop-copywriting-revamp.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/03-anti-slop-copywriting-revamp.md), [`04-non-modal-and-ux-refinements.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/04-non-modal-and-ux-refinements.md), [`05-wp-categories-and-openrouter-agent.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/05-wp-categories-and-openrouter-agent.md)
-- **Fase Aktif**: **Persiapan Desain & Arsitektur AI Article Generation Orchestrator (Multi-Step / Agentic Pipeline)**.
-- **Fase Berikutnya**: **Implementasi Orchestrator Pipeline, Background Queue Worker, & Bulk Ingestion**.
-
-
+- **Tahap Selesai**: **Implementasi MVP Minimal, Multi-Select Kategori WP Nyata, Resolusi Tag Otomatis, Migrasi Engine Tulis Cepat ke `@langchain/openrouter` & `@langchain/core`, Tester Kunci AI, dan BYOK Settings**.
+- **Catatan Worklog Lalu**: [`00-agent-setup.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md), [`01-project-initialization.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/01-project-initialization.md), [`02-mvp-implementation.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/02-mvp-implementation.md), [`03-anti-slop-copywriting-revamp.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/03-anti-slop-copywriting-revamp.md), [`04-non-modal-and-ux-refinements.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/04-non-modal-and-ux-refinements.md), [`05-wp-categories-and-openrouter-agent.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/05-wp-categories-and-openrouter-agent.md), [`06-langchain-skills-and-packages-migration.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/06-langchain-skills-and-packages-migration.md)
+- **Fase Aktif**: **Brainstorming & Desain Modular AI Article Generation Orchestrator (LangGraph Pipeline)**.
+- **Fase Berikutnya**: **Implementasi Modular Orchestrator Pipeline, Background Queue Worker, & Bulk Ingestion**.
 
 ---
 
@@ -53,6 +51,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - Kategori WordPress di form Tulis Cepat diambil langsung dari WP REST API (`/wp-json/wp/v2/categories`) dengan multi-select dropdown tanpa izin membuat kategori baru. Tag diinput dengan pemisah koma dan otomatis dicocokkan atau dibuatkan ID-nya di WordPress sebelum artikel terbit.
 18. **ADR-018 (OpenRouter Agent SDK Engine & BYOK Management)**:
     - Mesin generasi AI diintegrasikan menggunakan resmi `@openrouter/agent` SDK (`client.callModel`) dengan dukungan multi-model (GPT-OSS, Claude 3.5, Gemini 2.5 Flash, DeepSeek), sanitasi API key, endpoint diagnostik `/api/ai/test`, dan halaman Pengaturan AI.
+19. **ADR-019 (Transisi Engine Tulis Cepat & Skills ke LangChain `@langchain/openrouter`)**:
+    - Menggantikan skill-skill OpenRouter lama dengan 22 skills resmi LangChain (`@langchain/core`, `@langchain/openrouter`, `@langchain/langgraph`). Engine Tulis Cepat (`src/lib/ai/generator.ts`) dimigrasikan ke `ChatOpenRouter` dengan Zod structured output & fallback JSON parsing. Dependensi lama `@openrouter/agent` dihapus bersih.
 
 ---
 

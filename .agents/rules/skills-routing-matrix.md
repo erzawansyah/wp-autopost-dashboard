@@ -4,12 +4,13 @@ Dokumen ini adalah **Panduan Alur Operasional Baku**. Setiap kali AI Agent henda
 
 ---
 
-## 1. Standar AI Engine: OpenRouter SDK Resmi
+## 1. Standar AI Engine: LangChain & LangGraph TypeScript Ecosystem
 
-Sistem `wp-autopost-dashboard` menggunakan paket resmi OpenRouter:
-- **`@openrouter/agent`**: Untuk fitur agentic, pemanggilan `callModel`, tool calling, dan format converters.
-- **`@openrouter/sdk`**: Untuk platform API, pendaftaran model, kuota/kredit, dan OAuth.
-- Panduan implementasi wajib merujuk ke skill [`.agents/skills/openrouter-typescript-sdk`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/openrouter-typescript-sdk/SKILL.md).
+Sistem `wp-autopost-dashboard` menggunakan ekosistem LangChain & LangGraph:
+- **`@langchain/core`**: Untuk fondasi Runnables, Message structures, Prompts, Structured Output, dan BaseChatModel.
+- **`@langchain/openai`**: Driver fleksibel untuk memanggil berbagai provider AI yang kompatibel (OpenRouter, DeepSeek, Groq, OpenAI, Ollama) via satu antarmuka standar `ChatOpenAI`.
+- **`@langchain/langgraph`**: Untuk orkestrasi pipeline penulisan artikel multi-step (StateGraph, checkpoints, review/HITL).
+- Panduan implementasi wajib merujuk ke skill [`.agents/skills/langchain-fundamentals`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/langchain-fundamentals/SKILL.md) dan [`.agents/skills/langgraph-fundamentals`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/langgraph-fundamentals/SKILL.md).
 
 ---
 
@@ -24,11 +25,12 @@ Sistem `wp-autopost-dashboard` menggunakan paket resmi OpenRouter:
 | **E. Auth & Supabase Client** | Menyiapkan `@supabase/ssr` cookies, Server Actions, Realtime channel | `supabase` | [supabase/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/supabase/SKILL.md) |
 | **F. Integrasi WordPress REST API** | Endpoint `/wp/v2/posts`, taksonomi kategori/tag, Application Passwords | `wp-rest-api` | [wp-rest-api/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/wp-rest-api/SKILL.md) |
 | **G. Sandbox Uji Coba WP** | Menguji pipeline publishing tanpa server live atau WP Playground lokal | `wp-playground` & `blueprint` | [wp-playground/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/wp-playground/SKILL.md) & [blueprint/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/blueprint/SKILL.md) |
-| **H. OpenRouter AI Gateway** | Memanggil model LLM (Claude, GPT, Gemini, DeepSeek), tool calling, BYOK | `openrouter-typescript-sdk` & `openrouter-models` | [openrouter-typescript-sdk/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/openrouter-typescript-sdk/SKILL.md) & [openrouter-models/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/openrouter-models/SKILL.md) |
-| **I. Generate Featured Image AI** | Membuat gambar artikel via Image Generation API OpenRouter | `openrouter-images` | [openrouter-images/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/openrouter-images/SKILL.md) |
-| **J. Audit & Humanisasi Artikel** | Menghilangkan jejak pola klise robotik AI pada artikel yang digenerate | `anti-ai-editor` | [anti-ai-editor/SKILL.md](file:///C:/Users/MEW/.gemini/config/skills/anti-ai-editor/SKILL.md) |
-| **K. Tabel Antrean & Batch Virtual** | Sorting, filtering, paginasi, multi-row select pada tabel antrean ratusan post | `tanstack-table` | [tanstack-table/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/tanstack-table/SKILL.md) |
-| **L. Optimasi Performa Next.js** | Server Components vs Client Components, bundle splitting, hydration | `vercel-react-best-practices` | [vercel-react-best-practices/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/vercel-react-best-practices/SKILL.md) |
+| **H. LangChain Core & Agents** | Prompting, Structured JSON Output, BaseChatModel, LangChain Tools | `langchain-fundamentals` & `langchain-dependencies` | [langchain-fundamentals/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/langchain-fundamentals/SKILL.md) & [langchain-dependencies/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/langchain-dependencies/SKILL.md) |
+| **I. LangGraph Orchestrator** | StateGraph, alur multi-step artikel, state persistence & HITL | `langgraph-fundamentals` & `langgraph-persistence` | [langgraph-fundamentals/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/langgraph-fundamentals/SKILL.md) & [langgraph-persistence/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/langgraph-persistence/SKILL.md) |
+| **J. Parallel Swarm & Bulk Tasks** | Dispatch banyak pekerjaan batch bersamaan & agregasi hasil | `swarm` & `deep-agents-orchestration` | [swarm/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/swarm/SKILL.md) & [deep-agents-orchestration/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/deep-agents-orchestration/SKILL.md) |
+| **K. Audit & Humanisasi Artikel** | Menghilangkan jejak pola klise robotik AI pada artikel yang digenerate | `anti-ai-editor` | [anti-ai-editor/SKILL.md](file:///C:/Users/MEW/.gemini/config/skills/anti-ai-editor/SKILL.md) |
+| **L. Tabel Antrean & Batch Virtual** | Sorting, filtering, paginasi, multi-row select pada tabel antrean ratusan post | `tanstack-table` | [tanstack-table/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/tanstack-table/SKILL.md) |
+| **M. Optimasi Performa Next.js** | Server Components vs Client Components, bundle splitting, hydration | `vercel-react-best-practices` | [vercel-react-best-practices/SKILL.md](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/vercel-react-best-practices/SKILL.md) |
 
 ---
 
