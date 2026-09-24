@@ -70,6 +70,10 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
    - Semua kode TypeScript wajib memenuhi `strict: true`. Jangan gunakan `any` tanpa alasan teknis yang didokumentasikan.
 5. **Idempotency & Safe Retry**:
    - Kegagalan sinkronisasi WordPress (`failed_sync`) tidak boleh memicu pembuatan ulang konten AI (`generating_content`). Konten yang sudah siap langsung di-retry ke langkah `syncing_to_wp`.
+6. **No Autonomous Git Commits (Wajib Izin Pengguna)**:
+   - DILARANG KERAS menjalankan perintah `git commit` atau push secara otomatis tanpa instruksi eksplisit atau persetujuan langsung dari pengguna. Setiap perubahan file harus tetap berada di staging/working tree sampai pengguna menginstruksikan commit.
+7. **Sandbox Direktori `.workspaces/` (Zero Clutter Root)**:
+   - Dilarang meletakkan script ad-hoc, berkas pengujian API, scratch files, dump JSON/data sementara, atau mock media di root repository. Semua file pembantu/eksperimen non-aplikasi WAJIB ditaruh di dalam direktori `.workspaces/` (`.workspaces/scripts/`, `.workspaces/temp/`, `.workspaces/assets/`).
 
 ---
 

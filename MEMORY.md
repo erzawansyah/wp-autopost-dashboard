@@ -27,11 +27,14 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
    - MCP Server di `.agents/mcp_config.json` dibatasi hanya untuk alat bantu developer (`supabase`, `next-devtools`, `fetch`). API aplikasi (DataForSEO & Pexels) diisolasi di level kode runtime.
 6. **ADR-006 (Elevasi DESIGN.md & ARCHITECTURE.md ke Root)**:
    - Mengikuti konvensi industri Google Stitch / `ui-ux-pro-max`, `DESIGN.md` dan `ARCHITECTURE.md` diletakkan di root repositori.
+7. **ADR-007 (Sandbox Non-Aplikasi `.workspaces/`)**:
+   - Seluruh script pengujian, dump data scratch, atau mock media diisolasi di `.workspaces/` (di-ignore oleh Git dan AI) agar root aplikasi Next.js tetap bersih.
 
 ---
 
 ## 3. Technical Gotchas & Pelajaran Lapangan
 
+- **Strict No-Autonomous Commit**: Agent TIDAK BOLEH mengeksekusi `git commit` tanpa instruksi/persetujuan eksplisit dari Pengguna.
 - **Windows File Locking**: Di OS Windows, direktori kustomisasi yang sedang dipantau oleh *file watcher* IDE dapat terkunci (*EBUSY*). Jika folder kosong perlu dihapus, lakukan lewat file explorer IDE atau saat restart.
 - **Strict No-Commit Secrets**: File `.env.local` atau dump kredensial situs WP nyata tidak boleh ter-track oleh Git.
 - **User Communication Preference**: Bahasa Indonesia yang jelas, profesional, ringkas, tanpa basa-basi berlebihan (*no fluff*), tidak membuat asumsi sepihak, dan kode yang rapi sesuai konvensi.

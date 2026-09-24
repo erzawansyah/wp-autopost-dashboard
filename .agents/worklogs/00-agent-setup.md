@@ -60,6 +60,10 @@ Membuang API level aplikasi (`dataforseo` dan `pexafy`) dari `.agents/mcp_config
 - [`.env.example`](file:///d:/Antigravity/wp-autopost-dashboard/.env.example) diperbarui dengan standar key Supabase modern dan ter-commit ke Git.
 - Berkas [`.geminiignore`](file:///d:/Antigravity/wp-autopost-dashboard/.geminiignore) dan [`.antigravityignore`](file:///d:/Antigravity/wp-autopost-dashboard/.antigravityignore) dibuat dan dikomit untuk mengisolasi kredensial, dependensi, dan artefak build dari mesin AI context indexer.
 
+### F. Penegakan Kebijakan Git Commit & Sandbox `.workspaces/`
+- **Strict No-Autonomous Commit**: Dilarang mengeksekusi `git commit` tanpa instruksi eksplisit dari Pengguna (dicatat di `AGENTS.md` dan `MEMORY.md`).
+- **Sandbox Non-Aplikasi (`.workspaces/`)**: Dibuat direktori `.workspaces/` (`scripts/`, `temp/`, `assets/`) dan didaftarkan ke `.gitignore`, `.geminiignore`, dan `.antigravityignore` agar root aplikasi Next.js steril dari file uji coba ad-hoc.
+
 ---
 
 ## 3. Keputusan Desain Utama (ADR Summary)
@@ -68,6 +72,8 @@ Membuang API level aplikasi (`dataforseo` dan `pexafy`) dari `.agents/mcp_config
 - **ADR-003**: AI Gateway mengutamakan **OpenRouter-First** dengan arsitektur pluggable BYOK.
 - **ADR-004**: Penjadwalan berpusat pada **Database-First State Machine** dengan pemisahan status `failed_generation` vs `failed_sync` (cost-saver retry).
 - **ADR-005**: Tata kelola memori menggunakan kuartet file root (`AGENTS.md`, `ARCHITECTURE.md`, `DESIGN.md`, `MEMORY.md`) didukung worklog per fase di `.agents/worklogs/`.
+- **ADR-006**: Elevasi `DESIGN.md` dan `ARCHITECTURE.md` ke root workspace.
+- **ADR-007**: Isolasi artefak non-aplikasi (script test, dump, mock assets) ke sandbox `.workspaces/`.
 
 ---
 

@@ -25,6 +25,7 @@ dist/
 next-env.d.ts
 
 # 3. Logs, Temp Dumps, & Scratch Workspaces
+.workspaces/
 scratch/
 tmp/
 *.log
