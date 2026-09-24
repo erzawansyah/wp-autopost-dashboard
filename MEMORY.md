@@ -35,6 +35,16 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
    - Checkbox master on/off dengan 3 opsi sumber: Unsplash (gratis otomatis), Manual/URL, atau AI Image Generation.
 10. **ADR-010 (Smart Humanized Drip-Feed Scheduler)**:
     - Penjadwalan bertahap berbasis jendela jam aktif dan pengacakan menit (*jitter*) untuk menghindari pola bot.
+11. **ADR-011 (Redirect Callback Authorization WP)**:
+    - Otorisasi WP via endpoint bawaan `authorize-application.php` dengan redirect callback (zero-credential copy-paste) + manual fallback.
+12. **ADR-012 (On-the-Fly Taxonomy Creation)**:
+    - Kategori & tag WordPress dapat dipilih dari yang ada atau dibuat baru secara langsung di semua skenario ingesti (Modul 1, 2, 3) via WP REST API.
+13. **ADR-013 (Prompt Template Engine & Versioning)**:
+    - Pengguna dapat mengkustomisasi prompt per flow (`quick_post`, `bulk_post`, `niche_ideation`, `anti_ai_filter`) dengan placeholder dinamis, riwayat versi otomatis, dan rollback.
+14. **ADR-014 (Table-Only Queue View)**:
+    - Tampilan antrean murni berbasis High-Performance Data Table (@tanstack/react-table + virtualisasi) tanpa opsi Kanban.
+15. **ADR-015 (35 Modular Internal REST API Endpoints)**:
+    - Arsitektur backend modular dengan 35 API routes di `/api/...` siap digunakan frontend maupun headless client.
 
 ---
 

@@ -91,31 +91,36 @@ _Alur kerja cepat saat pengguna ingin menerbitkan atau mendrafkan satu artikel s
 
 **Input Pengguna**:
 
-| Field                           | Tipe                                       | Wajib | Validasi                          |
-| :------------------------------ | :----------------------------------------- | :---- | :-------------------------------- |
-| Website target                  | Select (dari daftar situs aktif)           | ✅    | Hanya situs berstatus `connected` |
-| Target keyword / judul          | Text input                                 | ✅    | Min 3 karakter, maks 200 karakter |
-| Instruksi khusus (custom brief) | Textarea                                   | ❌    | Maks 1.000 karakter               |
-| Kategori WP                     | Select (diambil via REST API situs target) | ❌    | Default: Uncategorized            |
-| Bahasa target                   | Select (`id` / `en`)                       | ❌    | Default: `id` (Indonesia)         |
-| Status aksi                     | Radio (`publish` / `draft`)                | ✅    | Default: `draft`                  |
-| Featured image                  | Toggle + source selector                   | ❌    | Lihat Modul Media Engine          |
+| Field                           | Tipe                                       | Wajib | Validasi / Keterangan                                                              |
+| :------------------------------ | :----------------------------------------- | :---- | :--------------------------------------------------------------------------------- |
+| Website target                  | Select (dari daftar situs aktif)           | ✅    | Hanya situs berstatus `connected`                                                  |
+| Target keyword / judul          | Text input                                 | ✅    | Min 3 karakter, maks 200 karakter                                                  |
+| Instruksi khusus (custom brief) | Textarea                                   | ❌    | Maks 1.000 karakter (menimpa default prompt template)                              |
+| Kategori WP                     | Combobox (Select / Create New)             | ❌    | Pilih dari kategori WP atau ketik nama kategori baru (auto-create di WP via REST) |
+| Tags WP                         | Multi-select Tag Input (Select / Type New) | ❌    | Pilih tag yang ada atau ketik tag baru (koma/Enter, auto-create di WP via REST)   |
+| Bahasa target                   | Select (`id` / `en`)                       | ❌    | Default: `id` (Indonesia)                                                          |
+| Status aksi                     | Radio (`publish` / `draft`)                | ✅    | Default: `draft`                                                                   |
+| Featured image                  | Toggle + source selector                   | ❌    | Lihat Modul Media Engine                                                           |
 
 **Proses Sistem**:
 
 1. Validasi situs target masih `connected` (healthcheck cepat jika `last_checked_at` > 15 menit).
-2. Membuat record `post_items` di Supabase dengan status `queued_input`.
-3. Memanggil AI Provider via OpenRouter untuk menghasilkan artikel lengkap terstruktur (Heading H2/H3, paragraf mengalir alami, bebas pola formulaik AI).
-4. Jika featured image aktif: mencari/generate dan upload media.
-5. Mengirim payload ke endpoint `/wp-json/wp/v2/posts` WordPress target.
-6. Mengembalikan tautan langsung ke live post atau draf di wp-admin WordPress.
+2. **Resolusi Taksonomi WP (Kategori & Tag)**:
+   - Jika pengguna memilih kategori yang ada: gunakan `wp_category_id`. Jika memasukkan kategori baru: panggil `POST /wp-json/wp/v2/categories` di WordPress target untuk membuat kategori dan mendapatkan ID baru.
+   - Untuk setiap tag yang dimasukkan: cocokkan dengan daftar tag WordPress situs target. Jika tag belum ada, panggil `POST /wp-json/wp/v2/tags` untuk auto-create dan peroleh `wp_tag_id`.
+3. Membuat record `post_items` di Supabase dengan status `queued_input` lengkap dengan kategori dan tag ID.
+4. Memanggil AI Provider via OpenRouter untuk menghasilkan artikel lengkap terstruktur (Heading H2/H3, paragraf mengalir alami, bebas pola formulaik AI).
+5. Jika featured image aktif: mencari/generate dan upload media ke WP Media Library.
+6. Mengirim payload ke endpoint `/wp-json/wp/v2/posts` WordPress target menyertakan `categories: [id]` dan `tags: [id1, id2, ...]`.
+7. Mengembalikan tautan langsung ke live post atau draf di wp-admin WordPress.
 
 **Kriteria Penerimaan (AC)**:
 
 - AC-1.1: Pengguna dapat membuat dan menerbitkan 1 artikel ke situs WordPress dalam < 3 menit dari awal input hingga tautan live.
-- AC-1.2: Dropdown kategori terisi otomatis dari REST API situs target (cache 1 jam).
-- AC-1.3: Artikel yang dihasilkan tidak mengandung pola klise AI (diverifikasi oleh Anti-AI Filter).
-- AC-1.4: Jika situs target `auth_error` atau `unreachable`, tombol submit di-disable dengan pesan error deskriptif.
+- AC-1.2: Dropdown kategori terisi otomatis dari REST API situs target (cache 1 jam), dan mendukung opsi pengetikan kategori baru secara instan.
+- AC-1.3: Pengguna dapat memilih tag yang sudah ada atau mengetikkan tag baru secara on-the-fly; sistem otomatis membuat tag tersebut di WordPress jika belum ada.
+- AC-1.4: Artikel yang dihasilkan tidak mengandung pola klise AI (diverifikasi oleh Anti-AI Filter).
+- AC-1.5: Jika situs target `auth_error` atau `unreachable`, tombol submit di-disable dengan pesan error deskriptif.
 
 ---
 
@@ -125,16 +130,18 @@ _Alur kerja otomatisasi masal untuk kampanye konten jangka panjang._
 
 **Input Pengguna**:
 
-| Field                   | Tipe                                       | Wajib       | Validasi                               |
-| :---------------------- | :----------------------------------------- | :---------- | :------------------------------------- |
-| Sumber input            | Tab switch: CSV Upload / Paste List        | ✅          | —                                      |
-| File CSV/XLSX           | File upload (drag & drop)                  | Kondisional | Maks 5MB, ekstensi `.csv` / `.xlsx`    |
-| Paste list              | Textarea (1 keyword/baris)                 | Kondisional | Min 1, maks 500 baris                  |
-| Column mapping (CSV)    | Interactive mapper                         | Kondisional | Kolom `target_keyword` wajib dipetakan |
-| Website target          | Select (global) atau per-baris             | ✅          | Minimal 1 situs aktif                  |
-| Execution mode          | Radio: Immediate / Scheduled Drip          | ✅          | Default: `scheduled_drip`              |
-| Jadwal (jika Scheduled) | Date picker + time window + kuota harian   | Kondisional | Lihat Scheduler spec                   |
-| AI Config override      | Expandable panel (model, tone, word count) | ❌          | Default dari user settings             |
+| Field                   | Tipe                                       | Wajib       | Validasi / Keterangan                                                          |
+| :---------------------- | :----------------------------------------- | :---------- | :----------------------------------------------------------------------------- |
+| Sumber input            | Tab switch: CSV Upload / Paste List        | ✅          | —                                                                              |
+| File CSV/XLSX           | File upload (drag & drop)                  | Kondisional | Maks 5MB, ekstensi `.csv` / `.xlsx`                                            |
+| Paste list              | Textarea (1 keyword/baris)                 | Kondisional | Min 1, maks 500 baris                                                          |
+| Column mapping (CSV)    | Interactive mapper                         | Kondisional | Kolom `target_keyword` wajib dipetakan; `category` & `tags` opsional dipetakan |
+| Default Batch Category  | Combobox (Select / Create New)             | ❌          | Fallback kategori jika kolom category kosong atau tidak dipetakan              |
+| Default Batch Tags      | Multi-select Tag Input                     | ❌          | Tag yang diaplikasikan ke seluruh artikel dalam batch                          |
+| Website target          | Select (global) atau per-baris             | ✅          | Minimal 1 situs aktif                                                          |
+| Execution mode          | Radio: Immediate / Scheduled Drip          | ✅          | Default: `scheduled_drip`                                                      |
+| Jadwal (jika Scheduled) | Date picker + time window + kuota harian   | Kondisional | Lihat Scheduler spec                                                           |
+| AI Config override      | Expandable panel (model, tone, word count) | ❌          | Menimpa default setting per-batch                                              |
 
 **Interactive Column Mapping (Detail UX)**:
 
@@ -142,23 +149,26 @@ _Alur kerja otomatisasi masal untuk kampanye konten jangka panjang._
 - Kolom terdeteksi ditampilkan sebagai dropdown mapping:
   - _Target Keyword_ (Wajib) — dropdown header kolom CSV
   - _Suggested Title_ (Opsional)
-  - _Category_ (Opsional)
+  - _Category_ (Opsional — jika belum ada di WP, otomatis dibuat saat sync)
+  - _Tags_ (Opsional — dipisahkan koma, jika belum ada di WP, otomatis dibuat saat sync)
   - _Target Site_ (Opsional, jika per-baris)
 - Tombol **"Konfirmasi & Masukkan ke Antrean"** aktif hanya setelah kolom wajib dipetakan.
 
 **Proses Penyimpanan & Penjadwalan**:
 
-1. Seluruh baris diparsing dan disimpan ke database Supabase (`post_items`) dengan status awal `queued_input`.
-2. Jika mode `immediate`: item langsung masuk ke worker queue.
-3. Jika mode `scheduled_drip`: terhubung dengan **Smart Humanized Drip-Feed Scheduler** — pengguna menentukan kuota publikasi per hari dan jendela jam aktif.
+1. Seluruh baris diparsing dan disimpan ke database Supabase (`content_batches` & `post_items`) dengan status awal `queued_input`.
+2. Resolusi kategori dan tags dilakukan per item atau saat sync ke WordPress (auto-create taxonomy via WP REST API jika `wp_category_id` atau `wp_tag_id` belum terdaftar di situs target).
+3. Jika mode `immediate`: item langsung masuk ke worker queue.
+4. Jika mode `scheduled_drip`: terhubung dengan **Smart Humanized Drip-Feed Scheduler** — pengguna menentukan kuota publikasi per hari dan jendela jam aktif.
 
 **Kriteria Penerimaan (AC)**:
 
 - AC-2.1: CSV dengan 100 baris berhasil diparse dan masuk antrean dalam < 10 detik.
-- AC-2.2: Column mapper menampilkan preview 5 baris pertama dengan benar termasuk Unicode/karakter non-Latin.
-- AC-2.3: Baris duplikat keyword (exact match) dideteksi dan ditandai dengan warning sebelum konfirmasi.
-- AC-2.4: Jika file CSV berisi > 500 baris, sistem menampilkan pesan batas dan menolak import.
-- AC-2.5: Progress real-time batch ditampilkan via Supabase Realtime subscription (update tanpa refresh).
+- AC-2.2: Column mapper menampilkan preview 5 baris pertama dengan benar termasuk Unicode/karakter non-Latin, dengan pemetaan kategori & tag.
+- AC-2.3: Jika nilai kategori atau tag dalam baris CSV belum ada di WordPress target, sistem otomatis membuatnya tanpa kegagalan sync.
+- AC-2.4: Baris duplikat keyword (exact match) dideteksi dan ditandai dengan warning sebelum konfirmasi.
+- AC-2.5: Jika file CSV berisi > 500 baris, sistem menampilkan pesan batas dan menolak import.
+- AC-2.6: Progress real-time batch ditampilkan via Supabase Realtime subscription (update tanpa refresh).
 
 ---
 
@@ -168,36 +178,41 @@ _Alur kerja satu-klik untuk mengisi konten website baru atau memulai kategori ni
 
 **Input Pengguna**:
 
-| Field               | Tipe                                     | Wajib | Validasi                          |
-| :------------------ | :--------------------------------------- | :---- | :-------------------------------- |
-| Situs target        | Select (dari daftar situs aktif)         | ✅    | Status `connected`                |
-| Niche / topik utama | Text input                               | ✅    | Min 5 karakter, maks 300 karakter |
-| Jumlah artikel      | Number input + preset buttons (10/20/50) | ✅    | Range: 5–100                      |
-| Bahasa target       | Select (`id` / `en`)                     | ✅    | Default: `id`                     |
-| Mode output         | Radio: Draft / Publish / Scheduled Drip  | ✅    | Default: `draft`                  |
+| Field                    | Tipe                                     | Wajib | Validasi / Keterangan                                                          |
+| :----------------------- | :--------------------------------------- | :---- | :----------------------------------------------------------------------------- |
+| Situs target             | Select (dari daftar situs aktif)         | ✅    | Status `connected`                                                             |
+| Niche / topik utama      | Text input                               | ✅    | Min 5 karakter, maks 300 karakter                                              |
+| Jumlah artikel           | Number input + preset buttons (10/20/50) | ✅    | Range: 5–100                                                                   |
+| Default Niche Category   | Combobox (Select / Create New)           | ❌    | Kategori umum untuk batch ini (bisa di-override per item di tabel review)      |
+| Bahasa target            | Select (`id` / `en`)                     | ✅    | Default: `id`                                                                  |
+| Mode output              | Radio: Draft / Publish / Scheduled Drip  | ✅    | Default: `draft`                                                               |
 
 **Proses Sistem (3 Tahap)**:
 
 1. **Topic Ideation Step** (AI-Driven):
    - AI meriset dan menyusun daftar keyword subtopik yang relevan, beragam, dan tidak tumpang tindih (_anti-cannibalization_).
-   - Setiap subtopik disertai: keyword utama, suggested title, perkiraan search intent, dan suggested category.
+   - Setiap subtopik disertai: keyword utama, suggested title, search intent, suggested category, dan suggested tags (2–4 tag relevan).
    - Durasi estimasi: 10–30 detik tergantung jumlah artikel.
 
 2. **Review & Konfirmasi** (Human-in-the-Loop):
    - Pengguna melihat daftar judul/keyword yang diusulkan dalam tabel interaktif.
-   - Aksi yang tersedia per item: ✏️ Edit judul/keyword, 🗑️ Hapus item, ➕ Tambah item manual.
-   - **Bulk actions**: Select All, Deselect All, Delete Selected.
+   - Kolom tabel review: Checkbox, Keyword, Title, Category (Combobox inline), Tags (Multi-tag chips inline), Search Intent.
+   - Pengguna bebas mengubah kategori (pilih yang ada atau ketik baru) dan menambah/menghapus tag per item.
+   - Aksi yang tersedia per item: ✏️ Edit inline, 🗑️ Hapus item, ➕ Tambah item manual.
+   - **Bulk actions**: Select All, Deselect All, Set Category for Selected, Delete Selected.
    - Tombol **"Setujui & Masukkan ke Antrean"** menampilkan konfirmasi jumlah final.
 
 3. **Queue Ingestion**:
    - Setelah disetujui, seluruh item otomatis masuk ke pipeline antrean dan dieksekusi sesuai mode target output.
+   - Kategori dan tag baru yang belum ada di WordPress akan otomatis di-create saat worker melakukan sinkronisasi.
 
 **Kriteria Penerimaan (AC)**:
 
-- AC-3.1: AI menghasilkan daftar keyword yang tidak tumpang tindih (similarity < 70% antar keyword).
-- AC-3.2: Pengguna dapat mengedit, menghapus, dan menambah item sebelum konfirmasi.
-- AC-3.3: Proses ideation menampilkan loading skeleton yang informatif selama AI bekerja.
-- AC-3.4: Jika AI gagal menghasilkan ideation (timeout/error), error message ditampilkan dengan opsi retry.
+- AC-3.1: AI menghasilkan daftar keyword yang tidak tumpang tindih (similarity < 70% antar keyword) lengkap dengan rekomendasi kategori dan tags.
+- AC-3.2: Pengguna dapat mengedit kategori dan tags secara inline (termasuk membuat baru) sebelum menyetujui antrean.
+- AC-3.3: Seluruh kategori dan tags baru yang dibuat berhasil didaftarkan di WordPress via REST API saat publikasi.
+- AC-3.4: Proses ideation menampilkan loading skeleton yang informatif selama AI bekerja.
+- AC-3.5: Jika AI gagal menghasilkan ideation (timeout/error), error message ditampilkan dengan opsi retry.
 
 ---
 
@@ -452,6 +467,62 @@ Setiap artikel dicatat statusnya di database Supabase sesuai siklus hidup beriku
 
 ---
 
+### F. Prompt Customization & Template Engine
+
+_Memberikan fleksibilitas penuh kepada pengguna untuk mengatur, menyempurnakan, dan menguji prompt AI untuk setiap alur kerja pembuatan konten._
+
+Setiap modul di dalam platform menggunakan alur eksekusi LLM yang berbeda. Pengguna dapat mengkustomisasi prompt ini melalui menu **Settings → Prompt Templates** atau memberikan instruksi khusus tambahan (_custom instructions override_) per-batch maupun per-artikel.
+
+**4 Template Bawaan (Factory Defaults)**:
+
+| Template ID | Alur Terkait | Fungsi Utama | Variabel yang Tersedia |
+| :--- | :--- | :--- | :--- |
+| `quick_post` | Modul 1: Quick Single Post | Menyusun 1 artikel lengkap berstruktur SEO mendalam dan format HTML | `{{keyword}}`, `{{target_site_name}}`, `{{category}}`, `{{tags}}`, `{{target_language}}`, `{{custom_instructions}}` |
+| `bulk_post` | Modul 2: Bulk Keyword Batch | Menghasilkan artikel batch dengan gaya konsisten dan integrasi taksonomi | `{{keyword}}`, `{{suggested_title}}`, `{{target_site_name}}`, `{{category}}`, `{{tags}}`, `{{target_language}}`, `{{custom_instructions}}` |
+| `niche_ideation` | Modul 3: Niche Auto-Genesis | Riset AI untuk memetakan subtopik, keyword, intent, kategori, dan tags | `{{niche}}`, `{{article_count}}`, `{{target_site_name}}`, `{{target_language}}`, `{{existing_categories}}` |
+| `anti_ai_filter` | Modul AI Engine (Post-process) | Memoles teks untuk mengeliminasi pola klise robotik dan menaikkan burstiness | `{{content}}`, `{{target_language}}` |
+
+**Komponen Konfigurasi Prompt per Template**:
+
+1. **System Prompt**: Mendefinisikan peran AI, persona, aturan struktur HTML (hanya gunakan `<h2>`, `<h3>`, `<p>`, `<ul>`, `<ol>`, `<blockquote>`), serta batasan gaya penulisan.
+2. **User Prompt Template**: Template instruksi yang menyertakan placeholder variabel dinamis (sintaks `{{variable_name}}`).
+3. **Custom Instructions (Global per User)**: Catatan panduan editorial pribadi yang otomatis disisipkan ke variabel `{{custom_instructions}}` jika tidak diisi spesifik di level batch.
+4. **Overrides Bertingkat**:
+   - Level Global User: dari menu Prompt Templates.
+   - Level Batch: kolom `custom_instructions_override` pada form Bulk/Niche.
+   - Level Item: kolom `custom_instructions_override` pada detail single post.
+
+**Fitur Manajemen & Keamanan Prompt**:
+
+- **Template Versioning Otomatis**: Setiap kali pengguna mengubah dan menyimpan template, sistem otomatis mencatat snapshot versi sebelumnya ke tabel `prompt_template_versions`.
+- **Riwayat Versi & One-Click Rollback**: Pengguna dapat melihat daftar riwayat revisi (timestamp, ringkasan perubahan) dan mengembalikan template ke versi sebelumnya dengan satu klik.
+- **Live Preview & Test Render**: Modal pengujian di mana pengguna dapat memasukkan dummy input dan melihat hasil interpolasi prompt sebelum disimpan.
+- **Factory Reset**: Tombol "Kembalikan ke Default" yang mengembalikan system prompt dan template ke standar optimal bawaan platform.
+
+**Kriteria Penerimaan (AC)**:
+
+- AC-4F.1: Pengguna dapat mengedit dan menyimpan system prompt serta user prompt template untuk ke-4 template inti.
+- AC-4F.2: Variabel dinamis `{{variable}}` berhasil diinterpolasi dengan data aktual saat eksekusi artikel.
+- AC-4F.3: Setiap penyimpanan perubahan memicu pembuatan entri riwayat versi baru tanpa menimpa data historis eksekusi sebelumnya.
+- AC-4F.4: Fitur Rollback sukses memulihkan template ke snapshot versi yang dipilih.
+- AC-4F.5: Fitur Factory Reset berhasil mengembalikan template ke kondisi default pabrikan.
+
+---
+
+### G. Internal REST API Architecture Foundation
+
+Untuk memastikan dashboard dapat beroperasi secara modular, decoupled, serta mendukung otomasi eksternal atau headless client di masa depan, seluruh fungsionalitas inti didukung oleh **35 Internal REST API Routes** yang terorganisir rapi (referensi lengkap: [`ARCHITECTURE.md` §7](file:///d:/Antigravity/wp-autopost-dashboard/ARCHITECTURE.md)):
+
+- **Sites API** (`/api/sites`): CRUD situs WP, healthcheck telemetry, dan fetch kategori/tags.
+- **WP Auth Callback** (`/api/sites/callback`): Penanganan redirect callback dari WordPress `authorize-application.php`.
+- **Content Ingestion API** (`/api/content`): Endpoint untuk Quick Post, Bulk CSV Import, dan Niche Genesis.
+- **Batch & Queue API** (`/api/batches`, `/api/queue`): Kontrol siklus hidup antrean, retry, dan bulk actions.
+- **Scheduler API** (`/api/scheduler`): Pengaturan drip-feed dan kalender jadwal.
+- **AI & Prompts API** (`/api/ai`, `/api/prompts`): Manajemen provider BYOK serta CRUD, versioning, preview, dan rollback prompt template.
+- **Cron & Webhook Endpoints** (`/api/cron/process-queue`, `/api/cron/healthcheck`): Endpoint terlindungi untuk worker background dan monitoring.
+
+---
+
 ## 5. Spesifikasi Layar & Halaman UI
 
 ### 5.1 Peta Navigasi (Sitemap)
@@ -463,16 +534,17 @@ Setiap artikel dicatat statusnya di database Supabase sesuai siklus hidup beriku
 
 /(dashboard)/
 ├── /                       → Dashboard Overview (KPI + Recent Activity)
-├── /sites                  → Daftar WordPress Sites + Add Site
+├── /sites                  → Daftar WordPress Sites + Add Site Modal
 │   └── /sites/[id]         → Detail & Settings per Situs
 ├── /create                 → Content Creation Hub (3 Tab Modul)
-│   ├── Tab: Quick Post     → Modul 1
-│   ├── Tab: Bulk Import    → Modul 2
-│   └── Tab: Niche Genesis  → Modul 3
-├── /queue                  → Queue Manager (Dual View: Kanban + Table)
+│   ├── Tab: Quick Post     → Modul 1 (Single Quick Post)
+│   ├── Tab: Bulk Import    → Modul 2 (CSV/List Bulk Pipeline)
+│   └── Tab: Niche Genesis  → Modul 3 (Niche Auto-Ideation)
+├── /queue                  → Queue Manager (High-Performance Data Table View)
 ├── /scheduler              → Scheduler Configuration & Calendar View
 └── /settings               → User Settings
-    ├── Tab: AI Provider    → BYOK Config
+    ├── Tab: AI Provider    → BYOK Config (OpenRouter / OpenAI / Claude)
+    ├── Tab: Prompt Templates → Kustomisasi & Riwayat Versi Prompt per Alur Modul
     ├── Tab: Profile        → Akun & Preferensi
     └── Tab: Billing        → Usage & Quota (post-MVP placeholder)
 ```
@@ -497,17 +569,40 @@ Setiap artikel dicatat statusnya di database Supabase sesuai siklus hidup beriku
 
 ### 5.3 Queue Manager (`/(dashboard)/queue`)
 
-**Dual View Toggle**:
+_Fokus penuh pada **High-Performance Data Table** untuk visibilitas maksimal terhadap antrean masal tanpa overhead visual Kanban._
 
-- **Kanban Board Mode**:
-  - Kolom per state: `Queued` → `Generating` → `Ready` → `Syncing` → `Done` / `Failed`.
-  - Kartu item menampilkan: keyword, situs target, waktu masuk, progress indicator.
-  - Drag-and-drop **tidak diimplementasikan** di MVP (status dikendalikan oleh state machine, bukan manual).
+**Fitur Utama Data Table**:
 
-- **Data Table Mode** (Default View):
-  - Kolom: Checkbox, Keyword, Site, Status Badge, Scheduled For, WP URL, Created, Actions.
-  - Features: Sticky header, column sorting, multi-select, filter by status/site, pagination (50/page).
-  - Bulk actions bar (muncul saat item terseleksi): Retry Selected, Delete Selected, Export CSV.
+1. **Status Filter Tabs (Metric Badges)**:
+   - Tab navigasi atas dengan badge hitungan real-time:
+     `Semua` | `Queued` | `Generating` | `Ready to Sync` | `Syncing` | `Published` | `Scheduled` | `Drafts` | `Failed`
+2. **Toolbar Pencarian & Pemfilteran**:
+   - **Search Bar**: Pencarian instan berdasarkan keyword atau judul artikel.
+   - **Site Filter Dropdown**: Filter antrean berdasarkan satu atau beberapa situs WordPress tertentu.
+   - **Mode Filter**: Filter berdasarkan Immediate vs Scheduled Drip.
+   - **Date Range Picker**: Filter rentang tanggal posting/pembuatan.
+3. **Struktur Kolom Data Table**:
+   - **Checkbox**: Pilihan multi-select baris (mendukung "Select All in Page" dan "Select All Matching Filter").
+   - **Keyword / Judul Artikel**: Teks keyword utama, judul yang diusulkan, disertai thumbnail mini featured image (jika ada).
+   - **Target Site**: Favicon dan nama domain WordPress yang dituju.
+   - **Taksonomi WP**: Badge Kategori dan chips Tag yang terhubung.
+   - **Status Badge**: Badge warna semantik sesuai state machine (`queued_input`, `generating_content`, `ready_to_sync`, `syncing_to_wp`, `published_on_wp`, `scheduled_on_wp`, `failed_generation`, `failed_sync`).
+   - **Jadwal / Waktu Terbit**: Estimasi tanggal & jam posting terformat (waktu lokal + tooltip ISO timestamp).
+   - **Actions Menu (Dropdown •••)**:
+     - _Quick Preview Konten_: Modal cepat melihat artikel yang sudah digenerate.
+     - _Retry Sync_: Muncul aktif hanya pada status `failed_sync` (tanpa regenerasi AI).
+     - _Edit Jadwal_: Ubah waktu publish yang direncanakan.
+     - _Buka di WordPress_: Tautan langsung ke live URL atau draf wp-admin.
+     - _Hapus dari Antrean_: Hapus record dari antrean.
+4. **Floating Bulk Action Bar** (Aktif saat 1 atau lebih baris dicentang):
+   - **Retry Selected**: Menjalankan ulang sync WordPress untuk semua item gagal yang dipilih.
+   - **Reschedule Selected**: Menggeser jendela jadwal untuk item-item terseleksi.
+   - **Change Category/Tags**: Memperbarui taksonomi secara serentak.
+   - **Delete Selected**: Menghapus item terpilih dari antrean.
+   - **Export to CSV**: Mengunduh daftar item terseleksi dalam format CSV.
+5. **Performa & Realtime**:
+   - Diimplementasikan menggunakan `@tanstack/react-table` dengan row virtualization agar lancar merender 1.000+ item.
+   - Pembaruan baris status secara instan tanpa reload halaman via **Supabase Realtime** subscription.
 
 ---
 
@@ -600,13 +695,15 @@ Fitur-fitur berikut secara eksplisit **TIDAK** termasuk dalam scope MVP dan akan
 | Area                  | Deliverable                                                                |
 | :-------------------- | :------------------------------------------------------------------------- |
 | Auth & Onboarding     | Supabase Auth (email/password), halaman login/register/forgot-password     |
-| Multi-Site Manager    | CRUD situs WP, test koneksi, healthcheck berkala, App Password terenkripsi |
-| Content Creation Hub  | 3 modul ingesti (Quick Single, Bulk CSV, Niche Auto-Genesis)               |
+| Multi-Site Manager    | Redirect callback auth, CRUD situs WP, healthcheck berkala, AES-256-GCM    |
+| Content Creation Hub  | 3 modul ingesti (Quick Single, Bulk CSV, Niche Genesis) + custom category & tags |
 | Media Engine          | Unsplash stock, Manual URL, AI Image Generation (toggle on/off)            |
 | AI Provider           | OpenRouter BYOK gateway, model selector, Anti-AI Humanization Filter       |
+| Prompt Customization  | Editor template prompt per modul, variable interpolation, versioning & rollback |
 | Queue & State Machine | Database-first queue, 9 states, cost-saver retry, real-time progress       |
 | Scheduler             | Smart Humanized Drip-Feed, jitter randomizer, timezone sync                |
-| Dashboard             | KPI cards, dual-view queue (Kanban + Table), recent activity               |
+| Dashboard & Queue UI  | KPI cards, high-performance Data Table queue with rich filters & bulk ops  |
+| Internal REST API     | 35 endpoints REST API modular (/api/sites, /api/queue, /api/prompts, dll.) |
 | Security              | AES-256-GCM, RLS, SSRF guard, XSS sanitization, webhook auth               |
 
 ### Fase 2 — Post-MVP
