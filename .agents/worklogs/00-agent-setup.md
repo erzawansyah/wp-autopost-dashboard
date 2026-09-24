@@ -51,6 +51,14 @@ Membuang API level aplikasi (`dataforseo` dan `pexafy`) dari `.agents/mcp_config
 - Verifikasi seluruh tautan markdown `file:///...` (100% valid dan resolving).
 - Verifikasi keamanan `.gitignore` dan pemindaian secret bocor (0 leaks terdeteksi).
 
+### E. Konfigurasi Environment & Pengujian Koneksi Supabase
+- Konfigurasi [`.env`](file:///d:/Antigravity/wp-autopost-dashboard/.env) selesai diisi oleh Pengguna.
+- Pengujian Management API ke Supabase berhasil:
+  - Project Ref: `ncifnitmdunnpgiycooz`
+  - Project Name: `WP Editorial Projects` (Region: `ap-south-1`)
+  - Status Kredensial: Terverifikasi valid.
+- [`.env.example`](file:///d:/Antigravity/wp-autopost-dashboard/.env.example) diperbarui dengan standar key Supabase modern dan ter-commit ke Git.
+
 ---
 
 ## 3. Keputusan Desain Utama (ADR Summary)
