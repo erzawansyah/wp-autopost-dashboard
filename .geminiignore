@@ -1,0 +1,43 @@
+# ==============================================================================
+# Antigravity & Gemini Codebase Exclusion Rules
+# Prevents sensitive credentials, heavy dependencies, and temporary artifacts
+# from leaking into the AI indexing engine and context window.
+# ==============================================================================
+
+# 1. Environment Variables & Secrets (CRITICAL: Zero Context Leaks)
+.env
+.env.*
+!.env.example
+*credential*.json
+*secrets*.json
+*.pem
+*.key
+
+# 2. Dependencies & Compiled Artifacts
+node_modules/
+.pnp
+.pnp.js
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# 3. Logs, Temp Dumps, & Scratch Workspaces
+scratch/
+tmp/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# 4. Version Control & OS System Files
+.git/
+.DS_Store
+Thumbs.db
+
+# 5. Supabase Local Metadata
+supabase/.branches/
+supabase/.temp/
