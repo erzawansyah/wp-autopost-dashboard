@@ -42,9 +42,10 @@ wp-autopost-dashboard/
 │   │   └── features/               # Komponen domain (QueueTable, IngestionWizard, BatchCard)
 │   ├── core/                       # Business Logic Murni (Framework Agnostic)
 │   │   ├── ai-providers/           # Adapter AI (OpenRouter default, OpenAI, Gemini, Anthropic)
-│   │   ├── wp-client/              # Client WordPress REST API (Posts, Media, Categories, Healthcheck)
+│   │   ├── wp-client/              # Client WordPress REST API (Posts, Media, Categories, Tags, Healthcheck)
 │   │   ├── ingestion/              # Adapter Ingestion (CSVParser, NicheIdeator, UrlExtractor)
 │   │   ├── generator/              # AI Article Composer, Anti-AI Humanizer, Media Matcher
+│   │   ├── prompt-templates/       # Prompt Template Engine (render, variabel injection, versioning)
 │   │   └── queue-engine/           # Queue Manager & Dispatcher (Immediate Batch vs Scheduled Cron)
 │   ├── lib/                        # Utilitas bersama (Supabase client, Crypto/AES-256, Logger, Sanitizer)
 │   └── types/                      # Definisi TypeScript & Supabase generated database types
@@ -67,9 +68,11 @@ erDiagram
     users ||--o{ wp_sites : owns
     users ||--o{ user_ai_providers : configures
     users ||--o{ content_batches : launches
+    users ||--o{ prompt_templates : customizes
     wp_sites ||--o{ content_batches : targets
     content_batches ||--o{ post_items : contains
     post_items ||--o{ execution_logs : logs
+    prompt_templates ||--o{ prompt_template_versions : tracks
 
     wp_sites {
         uuid id PK
@@ -97,6 +100,31 @@ erDiagram
         timestamp created_at
     }
 
+    prompt_templates {
+        uuid id PK
+        uuid user_id FK
+        text template_id "article_generation | niche_ideation"
+        text system_prompt
+        text user_prompt_template
+        text custom_instructions
+        jsonb required_variables "Daftar variabel wajib yang harus ada di template"
+        boolean is_default "true jika belum pernah diedit user"
+        timestamp updated_at
+        timestamp created_at
+    }
+
+    prompt_template_versions {
+        uuid id PK
+        uuid prompt_template_id FK
+        uuid user_id FK
+        int version_number
+        text system_prompt
+        text user_prompt_template
+        text custom_instructions
+        text change_note "Catatan perubahan opsional"
+        timestamp created_at
+    }
+
     content_batches {
         uuid id PK
         uuid user_id FK
@@ -106,6 +134,7 @@ erDiagram
         text execution_mode "immediate | scheduled_drip | wp_future"
         jsonb ai_config
         jsonb schedule_config
+        text custom_instructions_override "Override instruksi khusus per-batch"
         text status "draft | running | paused | completed | failed"
         int total_items
         int completed_items
@@ -126,6 +155,7 @@ erDiagram
         text featured_image_url
         jsonb categories
         jsonb tags
+        text custom_instructions_override "Override instruksi khusus per-item"
         text state "queued_input | generating_content | ready_to_sync | syncing_to_wp | published_on_wp | scheduled_on_wp | saved_draft_on_wp | failed_generation | failed_sync"
         timestamp scheduled_for
         bigint wp_post_id
@@ -148,6 +178,12 @@ erDiagram
         timestamp created_at
     }
 ```
+
+### Catatan Skema `prompt_templates`:
+- Setiap user mendapat satu baris per `template_id` (di-seed saat registrasi dengan nilai default platform).
+- Constraint `UNIQUE(user_id, template_id)` memastikan tidak ada duplikasi.
+- `prompt_template_versions` menyimpan riwayat setiap perubahan (auto-insert via trigger `BEFORE UPDATE` pada `prompt_templates`), memungkinkan rollback.
+- `content_batches.custom_instructions_override` dan `post_items.custom_instructions_override` menyimpan instruksi per-batch atau per-item yang di-append ke `custom_instructions` global saat prompt di-render.
 
 ---
 
@@ -197,16 +233,130 @@ stateDiagram-v2
 
 ## 6. Standar Integrasi WordPress REST API (Zero-Plugin)
 
-1. **Autentikasi**:
-   - Standar HTTP Basic Auth menggunakan kredensial bawaan **WordPress Application Passwords** (`Authorization: Basic base64(username:app_password)`).
+1. **Autentikasi (Dual-Mode: Redirect Callback + Manual Fallback)**:
+   - **Mode Utama — Redirect Authorization Flow** (WordPress ≥ 5.6):
+     - Dashboard mengarahkan browser pengguna ke `{wp_url}/wp-admin/authorize-application.php` dengan parameter `app_name`, `app_id` (UUID unik), `success_url`, dan `reject_url`.
+     - Jika pengguna belum login ke WordPress, WordPress menampilkan halaman login terlebih dahulu, lalu meneruskan ke halaman otorisasi.
+     - Jika pengguna menyetujui (*Approve*), WordPress membuat Application Password baru dan redirect ke `success_url` dengan `user_login` dan `password` sebagai query parameter.
+     - Dashboard meng-capture kredensial dari callback, mengenkripsi dengan AES-256-GCM, menyimpan ke Supabase, dan langsung menghapus parameter dari URL browser (`history.replaceState`) untuk mencegah kebocoran via browser history.
+     - Semua request API selanjutnya menggunakan HTTP Basic Auth: `Authorization: Basic base64(user_login:app_password)`.
+   - **Mode Fallback — Manual Paste**:
+     - Untuk WordPress versi < 5.6 atau jika `authorize-application.php` diblokir oleh plugin keamanan, pengguna dapat membuat Application Password secara manual di `wp-admin → Users → Profile → Application Passwords` dan menempelkannya di form dashboard.
+     - Tetap menggunakan HTTP Basic Auth standar.
+   - **CSRF Protection**: Dashboard menyimpan `state` token (UUID) di Supabase sebelum redirect, dan memverifikasi token ini saat menerima callback.
    - Pengguna tidak diwajibkan menginstal plugin kustom apa pun.
 2. **Pre-Flight Healthcheck (`GET /wp-json/wp/v2/users/me?context=edit`)**:
-   - Dijalankan saat pendaftaran situs baru atau verifikasi koneksi berkala.
+   - Dijalankan saat pendaftaran situs baru (setelah callback berhasil) atau verifikasi koneksi berkala.
    - Memastikan permalink aktif, otentikasi valid, dan akun memiliki hak akses (`publish_posts`, `upload_files`).
 3. **Pipeline Upload Media (`POST /wp-json/wp/v2/media`)**:
    - Gambar dari Pexels/AI diunduh ke buffer server dashboard, lalu diunggah via multipart form-data ke REST API WordPress beserta `alt_text` dan `caption`.
    - Mengambil `media_id` yang dikembalikan untuk disematkan sebagai `featured_media` pada artikel.
-4. **Manajemen Kategori & Tag**:
-   - Pencarian kategori: `GET /wp-json/wp/v2/categories?search={name}`.
-   - Jika belum ada, otomatis buat baru: `POST /wp-json/wp/v2/categories`.
-   - Hasil ID di-cache lokal untuk meminimalkan beban request ke server WordPress.
+4. **Manajemen Kategori & Tag (Auto-Create if Not Found)**:
+   - **Kategori**:
+     - Pencarian: `GET /wp-json/wp/v2/categories?search={name}`.
+     - Jika belum ada, otomatis buat baru: `POST /wp-json/wp/v2/categories` dengan payload `{ "name": "..." }`.
+     - ID yang dikembalikan digunakan pada field `categories: [id]` saat membuat post.
+   - **Tag**:
+     - Pencarian: `GET /wp-json/wp/v2/tags?search={name}`.
+     - Jika belum ada, otomatis buat baru: `POST /wp-json/wp/v2/tags` dengan payload `{ "name": "..." }`.
+     - ID yang dikembalikan digunakan pada field `tags: [id, ...]` saat membuat post.
+   - **Caching**: Hasil ID kategori dan tag di-cache lokal per situs (TTL: 1 jam) untuk meminimalkan beban request ke server WordPress. Cache di-invalidate setelah pembuatan kategori/tag baru berhasil.
+
+---
+
+## 7. Internal REST API Routes (Next.js Route Handlers)
+
+Semua endpoint di bawah ini diimplementasikan sebagai **Next.js Route Handlers** di `src/app/api/`. Setiap endpoint membutuhkan autentikasi Supabase (kecuali ditandai Public), dan RLS memastikan isolasi data per-user.
+
+### A. WordPress Sites (`/api/sites`)
+
+| Method | Path | Deskripsi | Auth |
+|:-------|:-----|:----------|:-----|
+| `GET` | `/api/sites` | Daftar semua situs WP milik user | User |
+| `POST` | `/api/sites` | Tambah situs baru (simpan kredensial terenkripsi) | User |
+| `GET` | `/api/sites/[id]` | Detail situs + health status | User |
+| `PATCH` | `/api/sites/[id]` | Update settings situs (max_concurrency, default category, dll.) | User |
+| `DELETE` | `/api/sites/[id]` | Hapus situs (soft delete / cascade post_items?) | User |
+| `POST` | `/api/sites/[id]/healthcheck` | Trigger healthcheck manual | User |
+| `GET` | `/api/sites/[id]/categories` | Fetch & cache daftar kategori WP | User |
+| `GET` | `/api/sites/[id]/tags` | Fetch & cache daftar tag WP | User |
+
+### B. WP Authorization Callback (`/api/sites/callback`)
+
+| Method | Path | Deskripsi | Auth |
+|:-------|:-----|:----------|:-----|
+| `GET` | `/api/sites/callback` | Menerima redirect callback dari `authorize-application.php` WordPress. Memvalidasi `state` token CSRF, mengenkripsi `user_login` & `password`, menyimpan ke DB, menjalankan healthcheck, lalu redirect ke dashboard. | User (via state token) |
+
+### C. Content Creation & Ingestion (`/api/content`)
+
+| Method | Path | Deskripsi | Auth |
+|:-------|:-----|:----------|:-----|
+| `POST` | `/api/content/quick-post` | Modul 1: Buat 1 artikel cepat (trigger LLM + sync WP) | User |
+| `POST` | `/api/content/bulk-import` | Modul 2: Parse CSV/paste list, simpan ke antrean | User |
+| `POST` | `/api/content/niche-ideation` | Modul 3 Tahap 1: Generate daftar subtopik dari niche via LLM | User |
+| `POST` | `/api/content/niche-confirm` | Modul 3 Tahap 2: Konfirmasi daftar subtopik, masukkan ke antrean | User |
+
+### D. Batch & Queue Management (`/api/batches`, `/api/queue`)
+
+| Method | Path | Deskripsi | Auth |
+|:-------|:-----|:----------|:-----|
+| `GET` | `/api/batches` | Daftar batch milik user (filter by status, site) | User |
+| `GET` | `/api/batches/[id]` | Detail batch + summary progress | User |
+| `POST` | `/api/batches/[id]/run` | Trigger immediate execution pada batch | User |
+| `POST` | `/api/batches/[id]/pause` | Pause batch yang sedang running | User |
+| `GET` | `/api/queue` | Daftar post_items (filter by state, site, batch) | User |
+| `POST` | `/api/queue/[id]/retry` | Retry item yang `failed_sync` atau `failed_generation` | User |
+| `DELETE` | `/api/queue/[id]` | Hapus item dari antrean (hanya jika belum dieksekusi) | User |
+| `POST` | `/api/queue/bulk-action` | Bulk retry / delete / update items terpilih | User |
+
+### E. Scheduler (`/api/scheduler`)
+
+| Method | Path | Deskripsi | Auth |
+|:-------|:-----|:----------|:-----|
+| `POST` | `/api/scheduler/generate-schedule` | Generate jadwal drip-feed (jitter + time window) untuk batch | User |
+| `GET` | `/api/scheduler/preview` | Preview kalender jadwal sebelum konfirmasi | User |
+
+### F. AI Provider & Prompt Templates (`/api/ai`)
+
+| Method | Path | Deskripsi | Auth |
+|:-------|:-----|:----------|:-----|
+| `GET` | `/api/ai/providers` | Daftar AI provider user | User |
+| `POST` | `/api/ai/providers` | Tambah/update provider (API key terenkripsi) | User |
+| `POST` | `/api/ai/providers/test` | Test koneksi & validasi API key | User |
+| `GET` | `/api/ai/prompt-templates` | Daftar semua prompt template user (per template_id) | User |
+| `GET` | `/api/ai/prompt-templates/[template_id]` | Detail satu prompt template beserta riwayat versi | User |
+| `PATCH` | `/api/ai/prompt-templates/[template_id]` | Update system_prompt / user_prompt / custom_instructions | User |
+| `POST` | `/api/ai/prompt-templates/[template_id]/preview` | Render prompt lengkap dengan dummy data untuk preview | User |
+| `POST` | `/api/ai/prompt-templates/[template_id]/reset` | Reset ke default platform (tanpa hapus custom_instructions) | User |
+| `POST` | `/api/ai/prompt-templates/[template_id]/rollback` | Rollback ke versi tertentu (by version_number) | User |
+
+### G. Cron & Webhook Triggers (`/api/cron`, `/api/webhooks`)
+
+| Method | Path | Deskripsi | Auth |
+|:-------|:-----|:----------|:-----|
+| `POST` | `/api/cron/process-queue` | Cron job: proses item antrean yang jatuh tempo (`scheduled_for <= NOW()`) | Cron Secret |
+| `POST` | `/api/cron/healthcheck-all` | Cron job: healthcheck berkala semua situs aktif | Cron Secret |
+| `POST` | `/api/webhooks/supabase` | Webhook receiver untuk Supabase Realtime events (opsional) | Webhook Signature |
+
+> **Autentikasi Cron/Webhook**: Semua endpoint cron/webhook memverifikasi `CRON_SECRET` atau `WEBHOOK_SIGNATURE` menggunakan `crypto.timingSafeEqual` sesuai standar di [`security.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/security.md).
+
+### H. Prompt Rendering Pipeline (Internal — Non-HTTP)
+
+Alur render prompt saat eksekusi LLM oleh worker:
+
+```
+1. Load prompt_templates WHERE user_id = ? AND template_id = ?
+2. Load custom_instructions_override dari content_batches (jika ada)
+3. Load custom_instructions_override dari post_items (jika ada)
+4. Render user_prompt_template:
+   - Ganti {{keyword}}, {{language}}, {{category}}, dll. dengan nilai aktual
+5. Compose final messages array:
+   [
+     { role: "system",  content: system_prompt },
+     { role: "user",    content: rendered_user_prompt
+                                + "\n\n" + global_custom_instructions
+                                + "\n\n" + batch_override (jika ada)
+                                + "\n\n" + item_override (jika ada) }
+   ]
+6. Kirim ke AIProviderAdapter.chat(messages, { model, temperature, ... })
+```

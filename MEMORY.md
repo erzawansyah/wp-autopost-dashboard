@@ -6,16 +6,17 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 ## 1. Status Proyek Saat Ini
 
-- **Tahap Selesai**: **Penyiapan & Modifikasi Ekosistem Agent (`.agents/`)** (Selesai & Terverifikasi).
+- **Tahap Selesai**: **Inisialisasi Next.js, Perombakan DESIGN.md, dan Penyusunan PRD.md** (Selesai & Disepakati).
 - **Catatan Worklog**: [`00-agent-setup.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md)
-- **Fase Selanjutnya (Di Sesi Berikutnya)**: **Inisialisasi Proyek** (Scaffolding Next.js di root workspace dengan pola `src/` dan migrasi/skema Supabase).
+- **Fase Aktif**: **Implementasi Database Supabase & Backend Core Logic** (Skema PostgreSQL, RLS, Crypto AES-256, & Adapter).
+
 
 ---
 
 ## 2. Catatan Keputusan Arsitektur yang Telah Disepakati (ADR Summary)
 
 1. **ADR-001 (Root Installation dengan `src/`)**:
-   - Next.js akan di-install di root workspace dengan opsi direktori `src/` (menolak subdirektori `./app`) demi kelancaran tooling Shadcn, Tailwind, dan Next.js App Router.
+   - Next.js di-install di root workspace dengan opsi direktori `src/` demi kelancaran tooling Shadcn, Tailwind, dan Next.js App Router.
 2. **ADR-002 (Zero-Plugin WP Onboarding)**:
    - Integrasi WordPress murni di atas REST API standar (`/wp-json/wp/v2/`) + Application Passwords bawaan. Dilarang mengharuskan pengguna memasang plugin custom di WordPress mereka.
 3. **ADR-003 (OpenRouter-First + Pluggable BYOK)**:
@@ -24,10 +25,16 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
    - Status antrean memisahkan `failed_generation` (error AI) dan `failed_sync` (error WP). Retry koneksi WP langsung mengulang dari `ready_to_sync` tanpa memanggil ulang LLM.
 5. **ADR-005 (Developer-Centric MCPs)**:
    - MCP Server di `.agents/mcp_config.json` dibatasi hanya untuk alat bantu developer (`supabase`, `next-devtools`, `fetch`). API aplikasi (DataForSEO & Pexels) diisolasi di level kode runtime.
-6. **ADR-006 (Elevasi DESIGN.md & ARCHITECTURE.md ke Root)**:
-   - Mengikuti konvensi industri Google Stitch / `ui-ux-pro-max`, `DESIGN.md` dan `ARCHITECTURE.md` diletakkan di root repositori.
+6. **ADR-006 (Elevasi DESIGN.md, ARCHITECTURE.md, & PRD.md ke Root)**:
+   - Mengikuti konvensi industri, dokumen acuan utama diletakkan di root repositori.
 7. **ADR-007 (Sandbox Non-Aplikasi `.workspaces/`)**:
-   - Isolasi berkas non-aplikasi ke `.workspaces/`: `scripts/` (khusus reusable + wajib dokumentasi header), `temp/` (skrip sekali pakai / akan dihapus), dan `assets/` (mock fixtures). Di-ignore oleh Git dan AI.
+   - Isolasi berkas non-aplikasi ke `.workspaces/`: `scripts/` (reusable), `temp/` (scratch), dan `assets/` (mock fixtures).
+8. **ADR-008 (3 Modul Ingesti Fleksibel)**:
+   - Modul 1: Quick Single Post (1 artikel instan); Modul 2: Bulk CSV/List (antrean terjadwal); Modul 3: Niche Auto-Genesis (seed inisialisasi website baru).
+9. **ADR-009 (Featured Image Tri-Mode Switcher)**:
+   - Checkbox master on/off dengan 3 opsi sumber: Unsplash (gratis otomatis), Manual/URL, atau AI Image Generation.
+10. **ADR-010 (Smart Humanized Drip-Feed Scheduler)**:
+    - Penjadwalan bertahap berbasis jendela jam aktif dan pengacakan menit (*jitter*) untuk menghindari pola bot.
 
 ---
 
