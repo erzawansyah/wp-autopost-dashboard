@@ -1,28 +1,12 @@
 /**
- * AI Article Writer via Official @langchain/openrouter & @langchain/core
- * Lokasi: src/core/writer.ts
+ * Backward compatibility wrapper untuk src/core/writer
+ * Meneruskan panggilan ke Facade Orchestrator baru di src/core/writer/index.ts
  */
 
-import { ChatOpenRouter, OpenRouterAuthError, OpenRouterRateLimitError } from "@langchain/openrouter"
-import { HumanMessage, SystemMessage } from "@langchain/core/messages"
-import { z } from "zod"
+import { run } from "./writer/index"
+import { getSanitizedApiKey } from "./writer/services/llm"
 
-export interface GenerateArticleParams {
-  keyword: string
-  category?: string
-  tags?: string
-  customBrief?: string
-  model?: string
-  apiKey?: string
-}
-
-export interface GeneratedArticle {
-  title: string
-  contentHtml: string
-  excerpt: string
-  readingTimeMinutes: number
-  modelUsed: string
-}
+export { run, getSanitizedApiKey }
 
 export const POPULAR_AI_MODELS = [
   { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Default - Cepat & Hemat)", provider: "OpenRouter" },
@@ -32,284 +16,63 @@ export const POPULAR_AI_MODELS = [
   { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B Instruct", provider: "Meta" },
 ]
 
-export const ArticleOutputSchema = z.object({
-  title: z
-    .string()
-    .describe("Judul artikel yang lugas, menarik, dan wajar (tanpa tanda kutip atau embel-embel bombastis)"),
-  excerpt: z
-    .string()
-    .describe("Ringkasan padat 1-2 kalimat untuk deskripsi artikel (maksimal 160 karakter)"),
-  contentHtml: z
-    .string()
-    .describe(
-      "Isi artikel lengkap dalam format HTML bersih (h2, h3, p, ul, ol, li, blockquote). Tanpa tag h1 atau html/body."
-    ),
-})
+export interface LegacyGenerateParams {
+  keyword: string
+  category?: string
+  tags?: string
+  customBrief?: string
+  model?: string
+  apiKey?: string
+  style?: string
+}
 
-/**
- * Normalisasi dan bersihkan API key dari kemungkinan karakter kutip atau whitespace
- */
-export function getSanitizedApiKey(customApiKey?: string): string {
-  const rawKey = customApiKey || process.env.OPENROUTER_API_KEY || ""
-  return rawKey.trim().replace(/^["']|["']$/g, "")
+export interface LegacyGeneratedArticle {
+  title: string
+  contentHtml: string
+  excerpt: string
+  readingTimeMinutes: number
+  modelUsed: string
+  markdownContent?: string
 }
 
 /**
- * Deteksi jika respon LLM merupakan penolakan chatbot / permintaan klarifikasi data
+ * Adapter fungsi lama generateArticle ke arsitektur baru writer.run()
  */
-function isChatbotRefusal(text: string): boolean {
-  const lower = text.toLowerCase()
-  const refusalPhrases = [
-    "mohon maaf",
-    "maaf, saya tidak",
-    "tidak dapat menemukan informasi",
-    "apakah anda memiliki",
-    "mohon berikan daftarnya",
-    "sebagai model ai",
-    "data terbatas",
-    "informasi spesifik mengenai",
-    "saya memerlukan informasi yang lebih rinci",
-    "tidak bisa memberikan contoh",
-  ]
-  return refusalPhrases.some((phrase) => lower.includes(phrase))
-}
-
-const SYSTEM_PROMPT = `Anda adalah penulis dan editor profesional Indonesia yang menulis artikel secara hidup, otentik, dan bersih dari segala pola klise buatan mesin (anti-slop).
-
-PANDUAN GAYA BAHASA (ANTI-SLOP WRITING v3.0):
-
-1. KEBIJAKAN TANDA BACA (NOL DASH):
-- DILARANG TOTAL menggunakan em dash (—) maupun en dash (–). Nol dash di seluruh tulisan.
-- Ganti dengan tanda titik untuk memecah kalimat, koma jika masih satu alur, atau tanda kurung untuk catatan tambahan.
-- Jangan gunakan titik dua berlebihan di setiap paragraf.
-
-2. LARANGAN KATA DAN FRASE KLISE (BANLIST):
-- JANGAN gunakan pembuka klise: "Di era digital yang serba cepat ini", "Dalam lanskap modern", "Seiring perkembangan zaman", "Perlu diketahui bahwa", "Tidak dapat dipungkiri".
-- JANGAN gunakan penutup klise: "Kesimpulannya", "Sebagai penutup", "Dapat disimpulkan bahwa", "Pada akhirnya", "Satu hal yang pasti".
-- JANGAN gunakan kata penggelembung: "sangat krusial", "sangat penting", "sangat signifikan", "fundamental", "luar biasa", "mendalam", "berperan penting".
-- JANGAN gunakan kata kerja analitis berlebihan: "menyelami", "menyoroti", "menggarisbawahi", "memfasilitasi", "mengoptimalkan", "mengedepankan", "mewujudkan".
-- JANGAN gunakan kalke bahasa asing yang aneh: "lanskap" (figuratif), "permadani" (tapestry), "ekosistem" (figuratif).
-- HINDARI kata "merupakan" berulang-ulang. Gunakan kata kerja aktif langsung atau "adalah".
-- HINDARI pola kontras palsu: "bukan sekadar X melainkan Y" atau "tidak hanya X tetapi juga Y". Langsung sebutkan apa intinya.
-- HINDARI anak kalimat sambungan di akhir: jangan akhiri kalimat dengan ", yang menunjukkan..." atau ", menggarisbawahi pentingnya...".
-
-3. STRUKTUR & RITME KALIMAT (BURSTINESS):
-- Campurkan kalimat pendek tegas (3-7 kata) dengan kalimat yang lebih panjang mengalir (15-25 kata).
-- Jangan buat tiga kalimat berturut-turut dengan panjang yang sama persis.
-- Variasikan kata pertama tiap kalimat. Jangan terus-terusan mengawali kalimat dengan "Hal ini", "Ini", "Dalam", "Selain itu", atau "Dengan".
-- Buat paragraf yang utuh dan mengalir wajar, jangan potong-potong menjadi satu kalimat per baris layaknya spam media sosial.
-
-4. ATURAN MUTLAK PERILAKU PENULIS (AUTONOMOUS PUBLISHER):
-- ANDA ADALAH MESIN PENERBIT ARTIKEL OTOMATIS SIAP TAYANG, BUKAN CHATBOT PERCAKAPAN.
-- DILARANG KERAS berbicara kepada pengguna, meminta maaf, atau membuat alasan teknis (seperti "Mohon maaf data tidak ditemukan", "Data terbatas", "Sebagai AI", "Apakah Anda punya daftar nama...").
-- DILARANG meminta pengguna memberikan daftar atau informasi tambahan.
-- Sintesiskan pengetahuan ensiklopedis dan pemahaman kontekstual Anda tentang topik, letak geografis, karakteristik daerah, tren industri, atau ulasan logis untuk menyusun artikel yang utuh, menarik, dan informatif (minimal 700 - 1200 kata).
-- ARTIKEL HARUS SELESAI, TUNTAS, DAN SIAP TAMPIL DI WEBSITE WORDPRESS TANPA PERLU EDITAN TAMBAHAN.
-
-5. FORMAT KELUARAN (STRICT JSON VALID):
-Kembalikan respon HANYA berupa JSON valid tanpa blok pembungkus markdown (\`\`\`json) dengan struktur:
-{
-  "title": "Judul artikel yang lugas, menarik, dan wajar (tanpa tanda kutip atau embel-embel bombastis)",
-  "excerpt": "Ringkasan padat 1-2 kalimat untuk deskripsi artikel (maksimal 160 karakter)",
-  "contentHtml": "Isi artikel lengkap dalam format HTML bersih menggunakan tag <h2>, <h3>, <p>, <ul>, <ol>, <li>, <strong>, <blockquote>. DILARANG menggunakan tag <h1> atau <html>/<body>. Pastikan tidak ada karakter dash (—/–)."
-}`
-
-function buildUserPrompt(params: GenerateArticleParams): string {
-  const parts = [
-    `Tolong tulis artikel lengkap dan berbobot (sekitar 700 sampai 1000 kata) tentang topik berikut:`,
-    `- Topik / Kata Kunci: ${params.keyword}`,
-  ]
-
-  if (params.category) {
-    parts.push(`- Kategori: ${params.category}`)
-  }
-  if (params.tags) {
-    parts.push(`- Tag: ${params.tags}`)
-  }
-  if (params.customBrief) {
-    parts.push(`- Catatan Khusus dari Pembaca: ${params.customBrief}`)
-  }
-
-  parts.push(
-    `Tulislah dengan sudut pandang praktisi yang paham lapangan. Beri contoh nyata, tips praktis yang bisa langsung dicoba, dan hindari penjelasan berputar-putar. Selesaikan artikel secara tuntas dari awal hingga akhir, jangan meminta data tambahan ke pembaca. Ingat: nol em dash (—) dan nol en dash (–).`
-  )
-
-  return parts.join("\n")
-}
-
-/**
- * Generate / Write artikel berkualitas menggunakan LangChain ChatOpenRouter
- */
-export async function generateArticle(params: GenerateArticleParams): Promise<GeneratedArticle> {
-  const apiKey = getSanitizedApiKey(params.apiKey)
-
-  if (!apiKey) {
-    throw new Error(
-      "Kunci API OpenRouter belum dikonfigurasi. Harap masukkan API Key di file .env (OPENROUTER_API_KEY) atau di menu Pengaturan AI."
-    )
-  }
-
-  const model =
-    params.model || process.env.OPENROUTER_DEFAULT_MODEL || "openai/gpt-oss-120b"
-
-  const userPrompt = buildUserPrompt(params)
-
-  const chatModel = new ChatOpenRouter({
-    apiKey,
-    model,
-    temperature: 0.7,
-    siteUrl: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
-    siteName: process.env.OPENROUTER_APP_NAME || "WP Autopost Dashboard",
+export async function generateArticle(params: LegacyGenerateParams): Promise<LegacyGeneratedArticle> {
+  const result = await run({
+    engine: "quick",
+    content: {
+      keyword: params.keyword,
+      brief: params.customBrief,
+      style: params.style || "default",
+      language: "id",
+    },
+    site: {
+      siteId: "00000000-0000-0000-0000-000000000000",
+      wpSiteId: "00000000-0000-0000-0000-000000000000",
+    },
+    publishing: {
+      mode: "draft",
+      categoryIds: [],
+      tagNames: params.tags ? params.tags.split(",").map((t) => t.trim()) : [],
+    },
+    model: params.model,
+    apiKey: params.apiKey,
+    customInstructions: params.customBrief,
   })
 
-  let title = ""
-  let contentHtml = ""
-  let excerpt = ""
-
-  try {
-    // 1. Coba Structured Output Zod bawaan LangChain
-    let structuredResult: z.infer<typeof ArticleOutputSchema> | null = null
-    try {
-      const structuredModel = chatModel.withStructuredOutput(ArticleOutputSchema)
-      structuredResult = await structuredModel.invoke([
-        new SystemMessage(SYSTEM_PROMPT),
-        new HumanMessage(userPrompt),
-      ])
-    } catch {
-      structuredResult = null
-    }
-
-    if (structuredResult && structuredResult.title && structuredResult.contentHtml) {
-      title = structuredResult.title
-      contentHtml = structuredResult.contentHtml
-      excerpt = structuredResult.excerpt || ""
-    } else {
-      // 2. Pemanggilan standar LangChain dengan JSON parsing
-      const response = await chatModel.invoke([
-        new SystemMessage(SYSTEM_PROMPT),
-        new HumanMessage(userPrompt),
-      ])
-
-      const rawContent =
-        typeof response.content === "string"
-          ? response.content
-          : Array.isArray(response.content)
-          ? response.content
-              .map((c) => (typeof c === "string" ? c : JSON.stringify(c)))
-              .join("\n")
-          : String(response.content)
-
-      let cleanJson = rawContent.trim()
-      if (cleanJson.startsWith("```json")) {
-        cleanJson = cleanJson.replace(/^```json\s*/, "").replace(/\s*```$/, "")
-      } else if (cleanJson.startsWith("```")) {
-        cleanJson = cleanJson.replace(/^```\s*/, "").replace(/\s*```$/, "")
-      }
-
-      try {
-        const parsed = JSON.parse(cleanJson)
-        title = parsed.title || params.keyword
-        contentHtml = parsed.contentHtml || `<p>${params.keyword}</p>`
-        excerpt = parsed.excerpt || ""
-      } catch {
-        title = params.keyword
-        contentHtml = `<h2>${params.keyword}</h2>\n<p>${rawContent.replace(
-          /\n\n/g,
-          "</p>\n<p>"
-        )}</p>`
-        excerpt = params.keyword
-      }
-    }
-
-    // Guardrail: Jika terdeteksi penolakan chatbot / konten terlalu pendek
-    if (isChatbotRefusal(contentHtml) || contentHtml.length < 350) {
-      console.warn("Terdeteksi penolakan chatbot / konten terlalu singkat. Menjalankan fallback sintesis artikel langsung...")
-      try {
-        const recoveryResponse = await chatModel.invoke([
-          new SystemMessage(SYSTEM_PROMPT),
-          new HumanMessage(
-            `Sebagai publisher otonom, tulis artikel blog utuh dan mendalam (minimal 700 - 1000 kata) tentang topik: "${params.keyword}". ` +
-            `DILARANG KERAS meminta maaf atau meminta pengguna memberikan data tambahan! ` +
-            `Gunakan pemahaman mendalam Anda tentang topik, karakteristik tempat/objek, suasana, dan rekomendasi pengalaman terbaik. ` +
-            `Format keluaran WAJIB objek JSON valid: { "title": "...", "excerpt": "...", "contentHtml": "..." }.`
-          ),
-        ])
-
-        const recoveryRaw =
-          typeof recoveryResponse.content === "string"
-            ? recoveryResponse.content
-            : Array.isArray(recoveryResponse.content)
-            ? recoveryResponse.content
-                .map((c) => (typeof c === "string" ? c : JSON.stringify(c)))
-                .join("\n")
-            : String(recoveryResponse.content)
-
-        let recoveryJson = recoveryRaw.trim()
-        if (recoveryJson.startsWith("```json")) {
-          recoveryJson = recoveryJson.replace(/^```json\s*/, "").replace(/\s*```$/, "")
-        } else if (recoveryJson.startsWith("```")) {
-          recoveryJson = recoveryJson.replace(/^```\s*/, "").replace(/\s*```$/, "")
-        }
-
-        try {
-          const parsedRecovery = JSON.parse(recoveryJson)
-          if (parsedRecovery.title && parsedRecovery.contentHtml && !isChatbotRefusal(parsedRecovery.contentHtml)) {
-            title = parsedRecovery.title
-            contentHtml = parsedRecovery.contentHtml
-            excerpt = parsedRecovery.excerpt || ""
-          }
-        } catch {
-          if (!isChatbotRefusal(recoveryRaw)) {
-            title = params.keyword
-            contentHtml = `<h2>${params.keyword}</h2>\n<p>${recoveryRaw.replace(
-              /\n\n/g,
-              "</p>\n<p>"
-            )}</p>`
-          }
-        }
-      } catch (recoveryErr) {
-        console.warn("Gagal mengeksekusi recovery generator:", recoveryErr)
-      }
-    }
-  } catch (err: unknown) {
-    if (
-      err instanceof OpenRouterAuthError ||
-      String(err).includes("401") ||
-      String(err).toLowerCase().includes("user not found")
-    ) {
-      throw new Error(
-        "Kunci API OpenRouter tidak valid atau ditolak oleh server (Error 401: User not found). Silakan periksa kembali API Key Anda di https://openrouter.ai/keys atau atur di Pengaturan AI."
-      )
-    }
-    if (
-      err instanceof OpenRouterRateLimitError ||
-      String(err).includes("402") ||
-      String(err).toLowerCase().includes("insufficient_quota")
-    ) {
-      throw new Error(
-        "Saldo kredit akun OpenRouter Anda tidak mencukupi untuk memproses permintaan model ini."
-      )
-    }
-    const message = err instanceof Error ? err.message : "Kesalahan koneksi ke LangChain OpenRouter"
-    throw new Error(`Gagal menghubungi model AI: ${message}`)
+  if (!result.success || !result.article) {
+    throw new Error(result.error?.message || "Gagal menghasilkan artikel melalui System Writer")
   }
 
-  // Pembersihan ekstra: pastikan tidak ada em dash atau en dash yang lolos
-  const sanitizedTitle = (title || params.keyword).replace(/[—–]/g, ", ")
-  const sanitizedHtml = (contentHtml || `<p>${params.keyword}</p>`).replace(/[—–]/g, ", ")
-  const sanitizedExcerpt = (excerpt || "").replace(/[—–]/g, ", ")
-
-  const wordCount = sanitizedHtml.replace(/<[^>]*>/g, " ").split(/\s+/).filter(Boolean).length
-  const readingTimeMinutes = Math.max(1, Math.ceil(wordCount / 200))
-
   return {
-    title: sanitizedTitle,
-    contentHtml: sanitizedHtml,
-    excerpt: sanitizedExcerpt,
-    readingTimeMinutes,
-    modelUsed: model,
+    title: result.article.title,
+    contentHtml: result.article.contentHtml,
+    excerpt: result.article.excerpt,
+    readingTimeMinutes: result.article.readingTimeMinutes,
+    modelUsed: result.execution.modelUsed,
+    markdownContent: result.article.markdownContent,
   }
 }
 
-// Alias untuk fleksibilitas penamaan
 export const writeArticle = generateArticle

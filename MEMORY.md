@@ -8,8 +8,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 - **Tahap Selesai**: **Implementasi MVP Minimal, Multi-Select Kategori WP Nyata, Resolusi Tag Otomatis, Migrasi Engine Tulis Cepat ke `@langchain/openrouter` & `@langchain/core`, Tester Kunci AI, dan BYOK Settings**.
 - **Catatan Worklog Lalu**: [`00-agent-setup.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md), [`01-project-initialization.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/01-project-initialization.md), [`02-mvp-implementation.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/02-mvp-implementation.md), [`03-anti-slop-copywriting-revamp.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/03-anti-slop-copywriting-revamp.md), [`04-non-modal-and-ux-refinements.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/04-non-modal-and-ux-refinements.md), [`05-wp-categories-and-openrouter-agent.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/05-wp-categories-and-openrouter-agent.md), [`06-langchain-skills-and-packages-migration.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/06-langchain-skills-and-packages-migration.md), [`07-prompt-directory-and-template-engine.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/07-prompt-directory-and-template-engine.md), [`08-direct-prompt-system-reset.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/08-direct-prompt-system-reset.md)
-- **Fase Aktif**: **Direct Structured Prompt System (Fast & High-Quality)**.
-- **Fase Berikutnya**: **Background Queue Worker & Bulk Ingestion**.
+- **Fase Aktif**: **Brainstorming & Perencanaan Arsitektur System Writer (Multi-Step Pipeline, Gutenberg Blocks, Research, & Pluggable Skills)**.
+- **Fase Berikutnya**: **Implementasi Modular System Writer, Background Queue Worker, & Bulk Ingestion**.
 
 ---
 
@@ -55,8 +55,10 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - Menggantikan skill-skill OpenRouter lama dengan 22 skills resmi LangChain (`@langchain/core`, `@langchain/openrouter`, `@langchain/langgraph`). Engine Tulis Cepat (`src/lib/ai/generator.ts`) dimigrasikan ke `ChatOpenRouter` dengan Zod structured output & fallback JSON parsing. Dependensi lama `@openrouter/agent` dihapus bersih.
 20. **ADR-020 (Direktori Prompt Terpisah & Template Engine Dinamis `${{key}}`)**:
     - Seluruh prompt sistem dan pengguna dipindahkan dari hardcoded string ke direktori `src/core/prompts/` (`system/` dan `user/`). Disediakan parser `renderPrompt` berbasis sintaks `${{key}}` dengan fitur auto-strip pada baris variabel kosong guna mendukung modularitas agent skills di masa depan.
-21. **ADR-021 (Penyederhanaan Engine AI ke Prompt Tunggal Terstruktur)**:
-    - Sesuai arahan pengguna setelah evaluasi hasil lapangan, sistem orkestrasi tool-calling yang rumit dan rentan penolakan chatbot di-reset. Mesin penulisan artikel disederhanakan kembali ke pendekatan prompt langsung terstruktur (`ChatOpenRouter` + direktori `src/core/prompts/`) yang stabil, cepat, dan fokus menghasilkan artikel utuh siap tayang tanpa loop alat eksternal.
+21. **ADR-021 (Konsolidasi Baseline Writer di `src/core/writer.ts`)**:
+    - Sesuai evaluasi pengujian lapangan, eksperimen tool-calling yang berbelit di-reset. Mesin penulisan artikel dikonsolidasikan ke `src/core/writer.ts` dengan self-contained prompt, guardrail anti-penolakan chatbot, dan structured output stabil sebagai baseline sebelum merancang ulang arsitektur system writer secara komprehensif.
+22. **ADR-022 (Extensible System Writer, Markdown-First, Gutenberg Blocks, & Style Rules)**:
+    - Merancang ulang arsitektur writer menjadi facade modular (`writer.run()`), pluggable `EngineRegistry` dengan protokol `WritingEngine` terbuka, alur kerja Markdown-First untuk efisiensi token & audit, native WordPress Gutenberg Block Serializer (`<!-- wp:... -->`), direktori style rules terpisah (`src/core/writer/styles/`), dan integrasi ke route `/api/posts/quick`.
 
 ---
 

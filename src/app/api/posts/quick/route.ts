@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { decryptCredential } from "@/lib/crypto"
-import { generateArticle } from "@/core/writer"
+import { run } from "@/core/writer"
 import { createWordPressPost, resolveOrCreateWordPressTags } from "@/lib/wordpress/client"
 
 export async function POST(request: Request) {
@@ -28,6 +28,8 @@ export async function POST(request: Request) {
       actionStatus = "draft",
       aiModel,
       apiKey,
+      engine = "quick",
+      style = "default",
     } = body
 
     if (!siteId || !keyword?.trim()) {
@@ -76,6 +78,12 @@ export async function POST(request: Request) {
       ? [String(category).trim()]
       : []
 
+    const selectedCategoryIds: number[] = Array.isArray(category_ids)
+      ? category_ids
+          .map((id: unknown) => Number(id))
+          .filter((id: number) => !isNaN(id) && id > 0)
+      : []
+
     const { data: initialPost, error: insertPostError } = await supabase
       .from("post_items")
       .insert({
@@ -106,20 +114,42 @@ export async function POST(request: Request) {
       user_id: user.id,
       step: "generation",
       level: "info",
-      message: `Memulai pembuatan artikel AI untuk kata kunci: ${keyword}`,
+      message: `Memulai pembuatan artikel AI via System Writer (${engine}, style: ${style}) untuk kata kunci: ${keyword}`,
     })
 
-    // 3. Generate konten dengan AI OpenRouter
+    // 3. Generate konten dengan System Writer Facade (Markdown-first -> Gutenberg Blocks)
     let generated
+    let executionInfo
     try {
-      generated = await generateArticle({
-        keyword: keyword.trim(),
-        category: categoryList.length > 0 ? categoryList.join(", ") : undefined,
-        tags: tagList.length > 0 ? tagList.join(", ") : undefined,
-        customBrief,
+      const writerResult = await run({
+        engine: engine || "quick",
+        content: {
+          keyword: keyword.trim(),
+          brief: customBrief,
+          style: style || "default",
+          language: "id",
+        },
+        site: {
+          siteId: site.id,
+          wpSiteId: site.id,
+          baseUrl: site.base_url,
+        },
+        publishing: {
+          mode: actionStatus,
+          categoryIds: selectedCategoryIds,
+          tagNames: tagList,
+        },
         model: aiModel || undefined,
         apiKey: apiKey || undefined,
+        customInstructions: customBrief,
       })
+
+      if (!writerResult.success || !writerResult.article) {
+        throw new Error(writerResult.error?.message || "Gagal menghasilkan naskah artikel")
+      }
+
+      generated = writerResult.article
+      executionInfo = writerResult.execution
     } catch (aiErr: unknown) {
       const errMsg = aiErr instanceof Error ? aiErr.message : "Kesalahan AI OpenRouter"
       await supabase
@@ -162,7 +192,7 @@ export async function POST(request: Request) {
       user_id: user.id,
       step: "post_creation",
       level: "info",
-      message: `Menyelesaikan tag dan mengirim artikel ke WordPress REST API (${actionStatus})...`,
+      message: `Menyelesaikan tag dan mengirim artikel Gutenberg Blocks ke WordPress REST API (${actionStatus})...`,
     })
 
     // Selesaikan atau buat tag otomatis di WordPress
@@ -180,13 +210,7 @@ export async function POST(request: Request) {
       }
     }
 
-    const selectedCategoryIds: number[] = Array.isArray(category_ids)
-      ? category_ids
-          .map((id: unknown) => Number(id))
-          .filter((id: number) => !isNaN(id) && id > 0)
-      : []
-
-    // 5. Kirim artikel ke WordPress REST API
+    // 5. Kirim artikel ke WordPress REST API (isi contentHtml adalah native Gutenberg Blocks)
     const wpResult = await createWordPressPost({
       baseUrl: site.base_url,
       username: site.wp_username,
@@ -202,7 +226,7 @@ export async function POST(request: Request) {
     })
 
     if (!wpResult.ok) {
-      // Catat failed_sync (konten AI tetap tersimpan aman di database!)
+      // Catat failed_sync (konten AI dan Gutenberg Blocks tetap tersimpan aman di database!)
       await supabase
         .from("post_items")
         .update({
@@ -247,7 +271,7 @@ export async function POST(request: Request) {
       user_id: user.id,
       step: "status_sync",
       level: "info",
-      message: `Artikel sukses terkirim ke WordPress (${finalState}) dengan ID ${wpResult.wpPostId}`,
+      message: `Artikel sukses terkirim ke WordPress (${finalState}) dengan ID ${wpResult.wpPostId} sebagai blok Gutenberg`,
       details: { url: wpResult.wpPostUrl },
     })
 
@@ -259,11 +283,11 @@ export async function POST(request: Request) {
       wpPostId: wpResult.wpPostId,
       wpPostUrl: wpResult.wpPostUrl,
       readingTimeMinutes: generated.readingTimeMinutes,
-      modelUsed: generated.modelUsed,
+      modelUsed: executionInfo?.modelUsed || aiModel,
       message:
         actionStatus === "publish"
-          ? "Artikel berhasil diterbitkan ke WordPress secara live!"
-          : "Artikel berhasil disimpan sebagai draft di WordPress!",
+          ? "Artikel berhasil diterbitkan ke WordPress secara live sebagai Gutenberg Blocks!"
+          : "Artikel berhasil disimpan sebagai draft di WordPress sebagai Gutenberg Blocks!",
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
