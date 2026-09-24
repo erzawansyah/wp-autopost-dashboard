@@ -20,6 +20,7 @@ dist/
 *.pem
 *.key
 .workspaces/
+.agents/
 tmp/
 scratch/
 .playwright-mcp/
