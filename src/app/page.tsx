@@ -1,27 +1,340 @@
+"use client"
+
 import * as React from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { EmptyState } from "@/components/molecules/empty-state"
-import { Layers } from "lucide-react"
+import { KPISummaryGrid } from "@/components/organisms/kpi-summary-grid"
+import { QueueDataTable, QueueTableItem } from "@/components/organisms/queue-data-table"
+import { Button } from "@/components/atoms/button"
+import {
+  Layers,
+  Sparkles,
+  Globe,
+  Plus,
+  RefreshCw,
+  Loader2,
+  ArrowRight,
+} from "lucide-react"
+
+interface DashboardPost {
+  id: string
+  title: string | null
+  target_keyword: string
+  state: QueueTableItem["status"]
+  wp_target_status: string
+  wp_post_id: number | null
+  wp_post_url: string | null
+  scheduled_for: string | null
+  retry_count: number
+  last_error: string | null
+  created_at: string
+  categories: string[]
+  tags: string[]
+  wp_sites: {
+    id: string
+    site_name: string
+    base_url: string
+  } | null
+}
+
+interface DashboardSite {
+  id: string
+  site_name: string
+  base_url: string
+  status: string
+}
+
+interface DashboardUser {
+  id: string
+  email: string
+}
 
 export default function HomePage() {
+  const router = useRouter()
+  const [posts, setPosts] = React.useState<DashboardPost[]>([])
+  const [sites, setSites] = React.useState<DashboardSite[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [currentUser, setCurrentUser] = React.useState<DashboardUser | null>(null)
+
+  // Fetch initial data
+  const loadData = React.useCallback(async () => {
+    try {
+      setIsLoading(true)
+
+      const authRes = await fetch("/api/auth/me")
+      const authData = await authRes.json()
+      setCurrentUser(authData.user)
+
+      if (!authData.user) {
+        setIsLoading(false)
+        return
+      }
+
+      const [sitesRes, postsRes] = await Promise.all([
+        fetch("/api/sites"),
+        fetch("/api/posts?limit=50"),
+      ])
+
+      if (sitesRes.ok) {
+        const sitesData = await sitesRes.json()
+        setSites(sitesData.sites || [])
+      }
+
+      if (postsRes.ok) {
+        const postsData = await postsRes.json()
+        setPosts(postsData.posts || [])
+      }
+    } catch (err) {
+      console.error("Gagal mengambil data dashboard:", err)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    let isMounted = true
+
+    const fetchInitialData = async () => {
+      try {
+        const authRes = await fetch("/api/auth/me")
+        const authData = await authRes.json()
+        if (!isMounted) return
+
+        setCurrentUser(authData.user)
+
+        if (!authData.user) {
+          setIsLoading(false)
+          return
+        }
+
+        const [sitesRes, postsRes] = await Promise.all([
+          fetch("/api/sites"),
+          fetch("/api/posts?limit=50"),
+        ])
+
+        if (!isMounted) return
+
+        if (sitesRes.ok) {
+          const sitesData = await sitesRes.json()
+          setSites(sitesData.sites || [])
+        }
+
+        if (postsRes.ok) {
+          const postsData = await postsRes.json()
+          setPosts(postsData.posts || [])
+        }
+      } catch (err) {
+        console.error("Gagal mengambil data dashboard:", err)
+      } finally {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    fetchInitialData()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  // Transform posts data to QueueTableItem format
+  const tableItems: QueueTableItem[] = React.useMemo(() => {
+    return posts.map((p) => {
+      const site = p.wp_sites || { site_name: "WordPress", base_url: "-" }
+      return {
+        id: p.id,
+        title: p.title || p.target_keyword,
+        targetKeyword: p.target_keyword,
+        siteName: site.site_name,
+        siteDomain: site.base_url ? site.base_url.replace(/^https?:\/\//, "") : "-",
+        category: p.categories && p.categories.length > 0 ? p.categories[0] : "Umum",
+        status: p.state,
+        wpPostUrl: p.wp_post_url || undefined,
+        scheduledFor: p.scheduled_for
+          ? new Date(p.scheduled_for).toLocaleDateString("id-ID")
+          : undefined,
+        lastError: p.last_error || undefined,
+      }
+    })
+  }, [posts])
+
+  // Hitung metrik ringkasan
+  const kpis = React.useMemo(() => {
+    const published = posts.filter((p) => p.state === "published_on_wp").length
+    const drafts = posts.filter((p) => p.state === "saved_draft_on_wp").length
+    const inQueue = posts.filter((p) =>
+      ["queued_input", "generating_content", "ready_to_sync", "syncing_to_wp"].includes(p.state)
+    ).length
+    const successRate =
+      posts.length > 0
+        ? `${Math.round(((published + drafts) / posts.length) * 100)}%`
+        : "100%"
+
+    return {
+      publishedCount: published,
+      queuedCount: inQueue + drafts,
+      connectedSitesCount: sites.length,
+      retrySavedTokens: successRate,
+    }
+  }, [posts, sites])
+
+  // Handle post deletion
+  const handleDeletePost = async (id: string) => {
+    if (!confirm("Hapus artikel ini dari daftar?")) return
+    try {
+      const res = await fetch(`/api/posts/${id}`, { method: "DELETE" })
+      if (res.ok) {
+        setPosts((prev) => prev.filter((item) => item.id !== id))
+      } else {
+        alert("Gagal menghapus artikel.")
+      }
+    } catch {
+      alert("Terjadi gangguan jaringan saat menghapus artikel.")
+    }
+  }
+
+  // Jika user belum login, tampilkan layar sambutan ramah
+  if (!isLoading && !currentUser) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-muted/20">
+        <div className="max-w-md w-full p-8 rounded-2xl border border-border/80 bg-card shadow-sm flex flex-col items-center text-center gap-5">
+          <div className="size-12 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground shadow-xs">
+            <Sparkles className="size-6 text-accent" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">
+              Tulis &amp; Kirim Artikel ke WordPress
+            </h1>
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">
+              Bikin artikel dengan bahasa yang enak dibaca dan mengalir wajar, lalu kirim ke beberapa blog WordPress sekaligus. Tanpa perlu pasang plugin tambahan.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2.5 w-full pt-2">
+            <Button asChild size="sm" className="flex-1 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold cursor-pointer">
+              <Link href="/login">Masuk ke Akun</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="flex-1 text-xs font-semibold cursor-pointer">
+              <Link href="/login?tab=register">Bikin Akun Baru</Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <DashboardLayout>
       <div className="flex flex-col gap-6">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-foreground">
-            WP Autopost & Multi-Site Dashboard
-          </h1>
-          <p className="text-xs text-muted-foreground mt-1">
-            Platform otomatisasi konten multi-situs WordPress siap dihubungkan ke skema database Supabase.
-          </p>
+        {/* Header Title & Actions */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
+              <Sparkles className="size-5 text-accent" />
+              <span>Dashboard Penerbitan</span>
+            </h1>
+            <p className="text-xs text-muted-foreground mt-1">
+              Pantau draf, jadwal tayang, dan riwayat artikel di semua blog WordPress Anda.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadData}
+              disabled={isLoading}
+              className="cursor-pointer gap-1.5 text-xs border-border/80"
+            >
+              <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+              <span>Segarkan</span>
+            </Button>
+
+            <Button
+              size="sm"
+              asChild
+              className="cursor-pointer gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-2xs font-semibold"
+            >
+              <Link href="/posts/new">
+                <Plus className="size-3.5 text-accent" />
+                <span>Tulis Cepat</span>
+              </Link>
+            </Button>
+          </div>
         </div>
 
-        <EmptyState
-          icon={Layers}
-          title="Belum Ada Data Antrean"
-          description="Dashboard siap menerima data live dari database Supabase dan integrasi WordPress REST API."
-          actionLabel="+ Quick Single Post"
+        {/* Step 1 Onboarding Banner jika belum ada situs terdaftar */}
+        {sites.length === 0 && !isLoading && (
+          <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center text-primary shrink-0 mt-0.5">
+                <Globe className="size-4" />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs font-bold text-foreground">
+                  Langkah Awal: Sambungkan Blog WordPress Anda
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  Masukkan alamat web dan Application Password blog Anda agar artikel bisa langsung dikirim ke WordPress.
+                </span>
+              </div>
+            </div>
+            <Button asChild size="sm" className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shrink-0 cursor-pointer">
+              <Link href="/sites" className="flex items-center gap-1.5">
+                <span>Sambungkan Blog Sekarang</span>
+                <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
+          </div>
+        )}
+
+        {/* KPI Metrics Grid */}
+        <KPISummaryGrid
+          publishedCount={kpis.publishedCount}
+          queuedCount={kpis.queuedCount}
+          connectedSitesCount={kpis.connectedSitesCount}
+          retrySavedTokens={kpis.retrySavedTokens}
         />
+
+        {/* Queue Table or Empty State */}
+        {isLoading ? (
+          <div className="flex items-center justify-center p-12 text-muted-foreground gap-2 text-xs">
+            <Loader2 className="size-4 animate-spin text-primary" />
+            <span>Memuat daftar artikel...</span>
+          </div>
+        ) : posts.length === 0 ? (
+          <EmptyState
+            icon={Layers}
+            title="Belum ada artikel di daftar"
+            description="Mulai tulis artikel pertama Anda. Anda bisa menyimpannya sebagai draf di WordPress atau langsung menayangkannya."
+            actionLabel="Tulis Artikel Pertama"
+            onAction={() => {
+              router.push("/posts/new")
+            }}
+          />
+        ) : (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="size-4 text-primary" />
+                <h2 className="text-sm font-semibold text-foreground">
+                  Daftar Artikel ({posts.length})
+                </h2>
+              </div>
+              <span className="text-[11px] text-muted-foreground">
+                Status pengiriman &amp; tautan pos
+              </span>
+            </div>
+
+            <QueueDataTable
+              items={tableItems}
+              onDeleteItem={handleDeletePost}
+            />
+          </div>
+        )}
       </div>
     </DashboardLayout>
   )
