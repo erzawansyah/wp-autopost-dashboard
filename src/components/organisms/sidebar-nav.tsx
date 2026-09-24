@@ -5,14 +5,13 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
   LayoutDashboard,
+  PenLine,
   Layers,
   Globe,
   SlidersHorizontal,
   Bot,
   Settings,
   Sparkles,
-  ChevronRight,
-  ExternalLink,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
@@ -22,7 +21,7 @@ interface NavItem {
   href: string
   icon: React.ComponentType<{ className?: string }>
   badge?: string
-  isExternal?: boolean
+  isComingSoon?: boolean
 }
 
 const navItems: NavItem[] = [
@@ -32,31 +31,42 @@ const navItems: NavItem[] = [
     icon: LayoutDashboard,
   },
   {
-    title: "Antrean & Batch",
-    href: "/queue",
-    icon: Layers,
-    badge: "12",
+    title: "Tulis Cepat",
+    href: "/posts/new",
+    icon: PenLine,
   },
   {
-    title: "WordPress Sites",
+    title: "Daftar Website",
     href: "/sites",
     icon: Globe,
-    badge: "4",
   },
   {
-    title: "Prompt Templates",
+    title: "Antrean Pos",
+    href: "/queue",
+    icon: Layers,
+    badge: "Segera",
+    isComingSoon: true,
+  },
+  {
+    title: "Format Tulisan",
     href: "/prompts",
     icon: SlidersHorizontal,
+    badge: "Segera",
+    isComingSoon: true,
   },
   {
-    title: "AI Providers (BYOK)",
+    title: "Kunci API AI",
     href: "/settings/ai",
     icon: Bot,
+    badge: "Segera",
+    isComingSoon: true,
   },
   {
-    title: "Pengaturan Sistem",
+    title: "Setelan",
     href: "/settings",
     icon: Settings,
+    badge: "Segera",
+    isComingSoon: true,
   },
 ]
 
@@ -68,14 +78,14 @@ export function SidebarNav() {
       {/* Brand Header */}
       <div className="h-16 px-5 border-b border-sidebar-border flex items-center gap-3">
         <div className="size-9 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-xs">
-          <Sparkles className="size-5 text-accent animate-pulse" />
+          <Sparkles className="size-5 text-accent" />
         </div>
         <div className="flex flex-col min-w-0">
           <span className="text-sm font-bold text-sidebar-foreground tracking-tight truncate">
             WP Autopost
           </span>
-          <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">
-            Multi-Site Publisher
+          <span className="text-[10px] text-muted-foreground font-medium tracking-wide">
+            Kelola pos banyak web
           </span>
         </div>
       </div>
@@ -83,7 +93,7 @@ export function SidebarNav() {
       {/* Navigation List */}
       <div className="flex-1 py-4 px-3 flex flex-col gap-1 overflow-y-auto">
         <div className="px-3 pb-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-          Navigasi Utama
+          Menu
         </div>
         {navItems.map((item) => {
           const isActive = pathname === item.href
@@ -97,7 +107,8 @@ export function SidebarNav() {
                 "flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all group",
                 isActive
                   ? "bg-sidebar-primary text-sidebar-primary-foreground font-semibold shadow-2xs"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                item.isComingSoon && !isActive && "opacity-60 hover:opacity-100"
               )}
             >
               <div className="flex items-center gap-2.5 min-w-0">
@@ -115,10 +126,10 @@ export function SidebarNav() {
                 <Badge
                   variant={isActive ? "secondary" : "outline"}
                   className={cn(
-                    "text-[10px] h-4 px-1.5 font-mono",
+                    "text-[10px] h-4 px-1.5 font-normal tracking-wide",
                     isActive
                       ? "bg-primary-foreground/20 text-primary-foreground border-transparent"
-                      : "text-muted-foreground border-border/80"
+                      : "text-muted-foreground border-border/70 bg-muted/40"
                   )}
                 >
                   {item.badge}
@@ -129,21 +140,21 @@ export function SidebarNav() {
         })}
       </div>
 
-      {/* Bottom Health & System State */}
+      {/* Bottom Status Card */}
       <div className="p-4 border-t border-sidebar-border flex flex-col gap-3 bg-muted/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
             <span className="text-[11px] font-medium text-foreground/80">
-              Worker Engine Active
+              Koneksi normal
             </span>
           </div>
           <span className="text-[10px] font-mono text-muted-foreground">v0.1.0</span>
         </div>
         <div className="p-2.5 rounded-lg border border-border/70 bg-card text-[11px] flex flex-col gap-1">
-          <span className="font-semibold text-foreground">Anti-AI Writing Guard</span>
+          <span className="font-semibold text-foreground">Gaya Tulisan Wajar</span>
           <span className="text-muted-foreground text-[10px] leading-tight">
-            Filter pola klise aktif di seluruh modul
+            Artikel bersih dari pola klise dan format kaku buatan AI
           </span>
         </div>
       </div>

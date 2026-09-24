@@ -15,8 +15,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "WP Autopost & Multi-Site Content Dashboard",
-  description: "Automated, intelligent multi-site content generation and scheduling for WordPress",
+  title: "WP Autopost | Kelola & Terbitkan Artikel WordPress",
+  description: "Tulis dan terbitkan artikel ke beberapa blog WordPress sekaligus dengan gaya bahasa natural.",
 };
 
 export default function RootLayout({
@@ -27,8 +27,27 @@ export default function RootLayout({
   return (
     <html
       lang="id"
+      suppressHydrationWarning
       className={`${plusJakartaSans.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const storedTheme = localStorage.getItem('theme');
+                if (storedTheme === 'dark') {
+                  document.documentElement.classList.add('dark');
+                } else if (storedTheme === 'light') {
+                  document.documentElement.classList.remove('dark');
+                } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                  document.documentElement.classList.add('dark');
+                }
+              } catch (_) {}
+            `,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col font-sans bg-background text-foreground">
         {children}
       </body>

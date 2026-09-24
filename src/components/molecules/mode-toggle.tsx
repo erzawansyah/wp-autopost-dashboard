@@ -5,34 +5,56 @@ import { Moon, Sun } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import { cn } from "@/lib/utils"
 
+const themeListeners = new Set<() => void>()
+
+function subscribe(callback: () => void) {
+  themeListeners.add(callback)
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === "theme") {
+      callback()
+    }
+  }
+  window.addEventListener("storage", onStorage)
+  return () => {
+    themeListeners.delete(callback)
+    window.removeEventListener("storage", onStorage)
+  }
+}
+
+function getSnapshot(): boolean {
+  if (typeof document === "undefined") return false
+  return document.documentElement.classList.contains("dark")
+}
+
+function getServerSnapshot(): boolean {
+  return false
+}
+
 interface ModeToggleProps {
   className?: string
 }
 
 export function ModeToggle({ className }: ModeToggleProps) {
-  const [isDark, setIsDark] = React.useState<boolean>(false)
-
-  React.useEffect(() => {
-    // Check initial dark mode from DOM or localStorage
-    const isDarkMode =
-      document.documentElement.classList.contains("dark") ||
-      window.matchMedia("(prefers-color-scheme: dark)").matches
-    setIsDark(isDarkMode)
-    if (isDarkMode) {
-      document.documentElement.classList.add("dark")
-    }
-  }, [])
+  const isDark = React.useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 
   const toggleTheme = () => {
     const nextDark = !isDark
-    setIsDark(nextDark)
     if (nextDark) {
       document.documentElement.classList.add("dark")
-      localStorage.setItem("theme", "dark")
+      try {
+        localStorage.setItem("theme", "dark")
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
     } else {
       document.documentElement.classList.remove("dark")
-      localStorage.setItem("theme", "light")
+      try {
+        localStorage.setItem("theme", "light")
+      } catch {
+        // Abaikan jika localStorage diblokir
+      }
     }
+    themeListeners.forEach((listener) => listener())
   }
 
   return (
@@ -41,13 +63,14 @@ export function ModeToggle({ className }: ModeToggleProps) {
       size="icon"
       onClick={toggleTheme}
       className={cn("size-9 rounded-lg border-border/80 text-foreground cursor-pointer shadow-2xs", className)}
-      aria-label="Toggle tema gelap/terang"
-      title={isDark ? "Beralih ke Mode Terang" : "Beralih ke Mode Gelap"}
+      aria-label="Toggle tema gelap atau terang"
+      title={isDark ? "Beralih ke mode terang" : "Beralih ke mode gelap"}
+      suppressHydrationWarning
     >
       {isDark ? (
         <Sun className="size-4 text-amber-400 transition-transform duration-200" />
       ) : (
-        <Moon className="size-4 text-slate-700 transition-transform duration-200" />
+        <Moon className="size-4 text-slate-700 dark:text-slate-300 transition-transform duration-200" />
       )}
     </Button>
   )

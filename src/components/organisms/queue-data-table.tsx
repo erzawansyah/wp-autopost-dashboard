@@ -19,10 +19,7 @@ import {
   ExternalLink,
   RefreshCw,
   MoreVertical,
-  Filter,
-  Trash2,
   Play,
-  Layers,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -106,7 +103,7 @@ export function QueueDataTable({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onClear={() => setSearchQuery("")}
-            placeholder="Cari artikel, keyword, situs..."
+            placeholder="Cari judul, topik, atau nama website..."
           />
         </div>
 
@@ -114,10 +111,10 @@ export function QueueDataTable({
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
           {[
             { id: "all", label: "Semua" },
-            { id: "generating_content", label: "AI Generating" },
-            { id: "ready_to_sync", label: "Siap Sync" },
-            { id: "published_on_wp", label: "Terbit" },
-            { id: "failed_sync", label: "Gagal Sync" },
+            { id: "generating_content", label: "Sedang Ditulis" },
+            { id: "ready_to_sync", label: "Siap Kirim" },
+            { id: "published_on_wp", label: "Sudah Terbit" },
+            { id: "failed_sync", label: "Gagal Kirim" },
           ].map((filter) => (
             <Button
               key={filter.id}
@@ -137,7 +134,7 @@ export function QueueDataTable({
         <div className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-primary/10 border border-primary/20 text-xs animate-in fade-in duration-200">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-primary">
-              {selectedIds.length} item dipilih
+              {selectedIds.length} artikel dipilih
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -149,7 +146,7 @@ export function QueueDataTable({
                 className="cursor-pointer gap-1.5"
               >
                 <Play className="size-3" />
-                Jalankan Sekarang
+                Kirim Sekarang
               </Button>
             )}
             <Button
@@ -158,7 +155,7 @@ export function QueueDataTable({
               onClick={() => setSelectedIds([])}
               className="cursor-pointer"
             >
-              Batalkan Pilihan
+              Batal Pilih
             </Button>
           </div>
         </div>
@@ -176,9 +173,9 @@ export function QueueDataTable({
                   aria-label="Pilih semua baris"
                 />
               </TableHead>
-              <TableHead className="text-xs font-semibold">Judul & Keyword</TableHead>
-              <TableHead className="text-xs font-semibold">Website Target</TableHead>
-              <TableHead className="text-xs font-semibold">Status Pipeline</TableHead>
+              <TableHead className="text-xs font-semibold">Judul &amp; Topik</TableHead>
+              <TableHead className="text-xs font-semibold">Website Tujuan</TableHead>
+              <TableHead className="text-xs font-semibold">Status</TableHead>
               <TableHead className="text-xs font-semibold">Kategori</TableHead>
               <TableHead className="text-xs font-semibold text-right">Aksi</TableHead>
             </TableRow>
@@ -188,8 +185,8 @@ export function QueueDataTable({
               <TableRow>
                 <TableCell colSpan={6} className="h-64 text-center">
                   <EmptyState
-                    title="Tidak ada item antrean yang cocok"
-                    description="Coba ubah kata kunci pencarian atau reset filter status antrean Anda."
+                    title="Tidak ada artikel yang cocok"
+                    description="Coba ubah kata kunci pencarian atau ganti filter status di atas."
                   />
                 </TableCell>
               </TableRow>
@@ -220,7 +217,7 @@ export function QueueDataTable({
                         </span>
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                           <span className="font-mono bg-muted/60 px-1 rounded">
-                            KW: {item.targetKeyword}
+                            Topik: {item.targetKeyword}
                           </span>
                           {item.wordCount && (
                             <span>{item.wordCount.toLocaleString()} kata</span>
@@ -233,7 +230,7 @@ export function QueueDataTable({
                         </div>
                         {item.lastError && (
                           <span className="text-[10px] text-destructive font-medium truncate max-w-sm mt-0.5">
-                            Error: {item.lastError}
+                            Kendala: {item.lastError}
                           </span>
                         )}
                       </div>
@@ -255,7 +252,7 @@ export function QueueDataTable({
                     {/* Category Col */}
                     <TableCell>
                       <span className="text-xs text-muted-foreground bg-secondary/80 px-2 py-0.5 rounded-md font-medium">
-                        {item.category || "Uncategorized"}
+                        {item.category || "Umum"}
                       </span>
                     </TableCell>
 
@@ -273,7 +270,7 @@ export function QueueDataTable({
                               href={item.wpPostUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              title="Buka Post Live di WordPress"
+                              title="Buka di WordPress"
                             >
                               <ExternalLink className="size-3.5" />
                             </a>
@@ -286,7 +283,7 @@ export function QueueDataTable({
                             size="icon-xs"
                             onClick={() => onRetryItem(item.id)}
                             className="size-7 text-destructive border-destructive/30 hover:bg-destructive/10"
-                            title="Retry Sinkronisasi WP (Cost-Saver)"
+                            title="Kirim ulang ke WordPress"
                           >
                             <RefreshCw className="size-3.5" />
                           </Button>
@@ -303,18 +300,25 @@ export function QueueDataTable({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="text-xs">
-                            <DropdownMenuItem className="cursor-pointer">
-                              Lihat Konten Lengkap
-                            </DropdownMenuItem>
-                            <DropdownMenuItem className="cursor-pointer">
-                              Edit Prompt Override
-                            </DropdownMenuItem>
+                            {item.wpPostUrl && (
+                              <DropdownMenuItem asChild className="cursor-pointer">
+                                <a
+                                  href={item.wpPostUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex items-center gap-1.5"
+                                >
+                                  <ExternalLink className="size-3.5" />
+                                  <span>Buka di WordPress</span>
+                                </a>
+                              </DropdownMenuItem>
+                            )}
                             {item.status === "failed_sync" && (
                               <DropdownMenuItem
                                 onClick={() => onRetryItem && onRetryItem(item.id)}
                                 className="cursor-pointer text-primary"
                               >
-                                Retry Sync ke WordPress
+                                Coba Kirim Ulang
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuSeparator />
@@ -322,7 +326,7 @@ export function QueueDataTable({
                               onClick={() => onDeleteItem && onDeleteItem(item.id)}
                               className="cursor-pointer text-destructive focus:text-destructive"
                             >
-                              Hapus dari Antrean
+                              Hapus dari Daftar
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

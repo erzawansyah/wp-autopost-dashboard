@@ -1,7 +1,9 @@
 "use client"
 
 import * as React from "react"
-import { Globe, Plus, Sparkles, Upload, User, Bell } from "lucide-react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { Globe, LogOut } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import { ModeToggle } from "@/components/molecules/mode-toggle"
 import {
@@ -11,83 +13,146 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/atoms/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/atoms/dropdown-menu"
 
 interface TopNavbarProps {
-  onOpenQuickPost?: () => void
-  onOpenBulkBatch?: () => void
   selectedSite?: string
   onSelectSite?: (siteId: string) => void
 }
 
 export function TopNavbar({
-  onOpenQuickPost,
-  onOpenBulkBatch,
   selectedSite = "all",
   onSelectSite,
 }: TopNavbarProps) {
+  const router = useRouter()
+  const [currentUser, setCurrentUser] = React.useState<{ id: string; email: string } | null>(null)
+  const [sites, setSites] = React.useState<Array<{ id: string; site_name: string }>>([])
+
+  React.useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.user) {
+          setCurrentUser(data.user)
+        }
+      })
+      .catch(() => {})
+
+    fetch("/api/sites")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.sites) {
+          setSites(data.sites)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleSignOut = async () => {
+    try {
+      await fetch("/api/auth/signout", { method: "POST" })
+      router.push("/login")
+      router.refresh()
+    } catch {
+      router.push("/login")
+    }
+  }
+
   return (
     <header className="h-16 px-6 border-b border-border/80 bg-card/60 backdrop-blur-md flex items-center justify-between gap-4 sticky top-0 z-30">
       {/* Left: Global Site Selector & Context */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
           <Globe className="size-4 text-primary" />
-          <span>Situs Aktif:</span>
+          <span>Pilih website:</span>
         </div>
         <Select
           value={selectedSite}
           onValueChange={(val) => onSelectSite && onSelectSite(val)}
         >
-          <SelectTrigger className="h-9 w-48 text-xs font-medium bg-background border-border/80 shadow-2xs">
-            <SelectValue placeholder="Pilih Situs WordPress" />
+          <SelectTrigger className="h-9 w-52 text-xs font-medium bg-background border-border/80 shadow-2xs">
+            <SelectValue placeholder="Semua Website" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Semua Situs (Multi-Site)</SelectItem>
-            <SelectItem value="site-1">Nusantara Living (ID)</SelectItem>
-            <SelectItem value="site-2">Finansial Kita</SelectItem>
-            <SelectItem value="site-3">Otomotif Trend</SelectItem>
-            <SelectItem value="site-4">Tech Warta Digital</SelectItem>
+            <SelectItem value="all">Semua Website</SelectItem>
+            {sites.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.site_name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
 
-      {/* Right: Quick Action CTAs & Controls */}
+      {/* Right: Actions & User Controls */}
       <div className="flex items-center gap-2.5">
-        {onOpenBulkBatch && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onOpenBulkBatch}
-            className="cursor-pointer gap-2 border-border/80 text-xs font-semibold shadow-2xs hover:bg-secondary"
-          >
-            <Upload className="size-3.5 text-muted-foreground" />
-            <span>Bulk CSV Batch</span>
-          </Button>
-        )}
-
-        {onOpenQuickPost && (
-          <Button
-            variant="default"
-            size="sm"
-            onClick={onOpenQuickPost}
-            className="cursor-pointer gap-2 text-xs font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-2xs"
-          >
-            <Plus className="size-3.5 text-accent" />
-            <span>Quick Single Post</span>
-          </Button>
-        )}
-
-        <div className="h-4 w-px bg-border mx-1" />
-
         <ModeToggle />
 
-        {/* User Profile Avatar */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-9 rounded-full bg-muted/60 text-muted-foreground hover:text-foreground cursor-pointer"
-        >
-          <User className="size-4" />
-        </Button>
+        {/* User Auth Dropdown */}
+        {currentUser ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9 rounded-full bg-primary/10 text-primary font-bold text-xs hover:bg-primary/20 cursor-pointer"
+                title={currentUser.email}
+              >
+                {currentUser.email.slice(0, 2).toUpperCase()}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 text-xs">
+              <DropdownMenuLabel className="font-normal">
+                <div className="flex flex-col space-y-1">
+                  <p className="text-xs font-medium leading-none text-foreground">Akun</p>
+                  <p className="text-[11px] leading-none text-muted-foreground truncate font-mono">
+                    {currentUser.email}
+                  </p>
+                </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild className="cursor-pointer">
+                <Link href="/sites" className="flex items-center gap-2">
+                  <Globe className="size-3.5" />
+                  <span>Kelola Website ({sites.length})</span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={handleSignOut}
+                className="cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10 flex items-center gap-2"
+              >
+                <LogOut className="size-3.5" />
+                <span>Keluar</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="outline"
+              size="xs"
+              asChild
+              className="text-xs cursor-pointer"
+            >
+              <Link href="/login">Masuk</Link>
+            </Button>
+            <Button
+              size="xs"
+              asChild
+              className="text-xs cursor-pointer bg-primary hover:bg-primary/90 text-primary-foreground"
+            >
+              <Link href="/login?tab=register">Daftar</Link>
+            </Button>
+          </div>
+        )}
       </div>
     </header>
   )

@@ -1,5 +1,6 @@
 import * as React from "react"
 import { Label } from "@/components/atoms/label"
+import { HelpTooltip } from "@/components/molecules/help-tooltip"
 import { cn } from "@/lib/utils"
 
 interface FormFieldProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -8,6 +9,7 @@ interface FormFieldProps extends React.HTMLAttributes<HTMLDivElement> {
   required?: boolean
   error?: string
   hint?: string
+  tooltip?: React.ReactNode
   children: React.ReactNode
 }
 
@@ -17,6 +19,7 @@ export function FormField({
   required,
   error,
   hint,
+  tooltip,
   children,
   className,
   ...props
@@ -27,10 +30,11 @@ export function FormField({
         <div className="flex items-center justify-between">
           <Label
             htmlFor={id}
-            className="text-xs font-semibold text-foreground/90 select-none flex items-center gap-1"
+            className="text-xs font-semibold text-foreground/90 select-none flex items-center gap-1.5"
           >
-            {label}
+            <span>{label}</span>
             {required && <span className="text-destructive">*</span>}
+            {tooltip && <HelpTooltip content={tooltip} />}
           </Label>
         </div>
       )}

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/atoms/select"
-import { Upload, FileText, Clock, Zap, AlertCircle } from "lucide-react"
+import { Upload, FileText, Clock, Zap } from "lucide-react"
 
 interface BulkBatchModalProps {
   open: boolean
@@ -91,7 +91,6 @@ export function BulkBatchModal({
       }
       setIsSubmitting(false)
       onOpenChange(false)
-      // Reset
       setPastedKeywords("")
       setFileName(null)
       setFileKeywords([])
@@ -104,25 +103,23 @@ export function BulkBatchModal({
         <DialogHeader>
           <div className="flex items-center gap-2 text-primary font-bold text-sm mb-1">
             <Upload className="size-4 text-accent" />
-            <span>Modul 2: Bulk Keyword Batch</span>
+            <span>Impor Banyak Topik</span>
           </div>
-          <DialogTitle className="text-lg">Impor & Jadwalkan Antrean Masal</DialogTitle>
+          <DialogTitle className="text-lg">Kirim Banyak Topik Sekaligus</DialogTitle>
           <DialogDescription className="text-xs">
-            Unggah berkas CSV atau tempel daftar kata kunci untuk diproduksi dan dijadwalkan secara bertahap.
+            Unggah berkas CSV atau tempel daftar topik untuk dibuat dan dijadwalkan secara teratur.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4 py-2">
           {/* Target Website Selector */}
-          <FormField label="Website Target WordPress" required>
+          <FormField label="Pilih Website Tujuan" required>
             <Select value={siteId} onValueChange={setSiteId}>
               <SelectTrigger className="h-9 text-xs">
                 <SelectValue placeholder="Pilih situs target" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="site-1">Nusantara Living (nusantaraliving.co.id)</SelectItem>
-                <SelectItem value="site-2">Finansial Kita (finansialkita.com)</SelectItem>
-                <SelectItem value="site-3">Otomotif Trend (otomotiftrend.id)</SelectItem>
+                <SelectItem value="site-1">Blog Utama</SelectItem>
               </SelectContent>
             </Select>
           </FormField>
@@ -136,23 +133,23 @@ export function BulkBatchModal({
             <TabsList className="grid grid-cols-2 w-full h-9">
               <TabsTrigger value="paste" className="text-xs gap-1.5 cursor-pointer">
                 <FileText className="size-3.5" />
-                <span>Paste Daftar Baris</span>
+                <span>Tempel Daftar Baris</span>
               </TabsTrigger>
               <TabsTrigger value="csv" className="text-xs gap-1.5 cursor-pointer">
                 <Upload className="size-3.5" />
-                <span>Unggah File CSV / XLSX</span>
+                <span>Unggah Berkas CSV</span>
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="paste" className="mt-3">
               <FormField
-                label="Daftar Kata Kunci (1 Keyword per Baris)"
-                hint="Maksimal 500 keyword per batch"
+                label="Daftar Topik (1 Topik per Baris)"
+                hint="Bisa sampai 500 topik sekaligus"
               >
                 <Textarea
                   value={pastedKeywords}
                   onChange={(e) => setPastedKeywords(e.target.value)}
-                  placeholder="panduan investasi emas 2026&#10;reksadana syariah pemula&#10;strategi dividen saham bbri"
+                  placeholder="panduan investasi emas pemula&#10;reksadana syariah terbaik&#10;cara buka rekening saham online"
                   rows={6}
                   className="font-mono text-xs resize-none"
                 />
@@ -166,7 +163,7 @@ export function BulkBatchModal({
                   {fileName ? fileName : "Klik atau seret berkas CSV ke sini"}
                 </span>
                 <span className="text-[11px] text-muted-foreground mb-3">
-                  Format .csv atau .xlsx (Maks 5MB)
+                  Format .csv atau .txt (Maksimal 5MB)
                 </span>
                 <input
                   type="file"
@@ -182,7 +179,7 @@ export function BulkBatchModal({
                   onClick={() => document.getElementById("csv-file-input")?.click()}
                   className="cursor-pointer"
                 >
-                  Pilih File Dari Komputer
+                  Pilih Berkas dari Komputer
                 </Button>
               </div>
             </TabsContent>
@@ -190,7 +187,7 @@ export function BulkBatchModal({
 
           {/* Keyword Counter Feedback */}
           <div className="flex items-center justify-between text-xs px-3 py-2 rounded-lg bg-secondary/60">
-            <span className="text-muted-foreground">Jumlah Keyword Terdeteksi:</span>
+            <span className="text-muted-foreground">Jumlah topik terdeteksi:</span>
             <span className="font-mono font-bold text-foreground">
               {activeKeywords.length} artikel
             </span>
@@ -198,7 +195,7 @@ export function BulkBatchModal({
 
           {/* Execution Mode Selector */}
           <div className="p-3 rounded-lg border border-border/70 bg-card flex flex-col gap-2">
-            <span className="text-xs font-semibold">Mode Penjadwalan & Penerbitan</span>
+            <span className="text-xs font-semibold">Pilihan Waktu Tayang</span>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 type="button"
@@ -212,10 +209,10 @@ export function BulkBatchModal({
                 <Clock className="size-4 text-accent mt-0.5 shrink-0" />
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold text-foreground">
-                    Smart Drip-Feed (Humanized)
+                    Tayang Bertahap
                   </span>
                   <span className="text-[10px] text-muted-foreground leading-tight">
-                    Jeda acak 15-45 mnt di jam aktif untuk mencegah jejak bot Google
+                    Rilis dengan jeda alami 15-45 menit di jam aktif agar ritme blog tampak wajar
                   </span>
                 </div>
               </button>
@@ -232,10 +229,10 @@ export function BulkBatchModal({
                 <Zap className="size-4 text-primary mt-0.5 shrink-0" />
                 <div className="flex flex-col">
                   <span className="text-xs font-semibold text-foreground">
-                    Immediate Sequential
+                    Proses Berurutan
                   </span>
                   <span className="text-[10px] text-muted-foreground leading-tight">
-                    Proses langsung antrean dengan throttling aman (maks 2 paralel)
+                    Tulis dan kirim langsung satu per satu tanpa menunggu jadwal
                   </span>
                 </div>
               </button>
@@ -248,7 +245,7 @@ export function BulkBatchModal({
               variant="outline"
               size="sm"
               onClick={() => onOpenChange(false)}
-              className="cursor-pointer"
+              className="cursor-pointer text-xs"
             >
               Batal
             </Button>
@@ -256,14 +253,9 @@ export function BulkBatchModal({
               type="submit"
               size="sm"
               disabled={isSubmitting || activeKeywords.length === 0}
-              className="cursor-pointer gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="cursor-pointer gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-2xs font-semibold"
             >
-              <Upload className="size-3.5" />
-              <span>
-                {isSubmitting
-                  ? "Menambahkan Batch..."
-                  : `Jadwalkan ${activeKeywords.length} Artikel`}
-              </span>
+              <span>{isSubmitting ? "Menyimpan ke Antrean..." : "Mulai Jadwalkan"}</span>
             </Button>
           </DialogFooter>
         </form>
