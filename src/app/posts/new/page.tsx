@@ -30,7 +30,6 @@ import {
   Plus,
   Send,
   Bot,
-  Settings2,
   ChevronDown,
   ChevronUp,
 } from "lucide-react"
@@ -117,10 +116,13 @@ export default function NewPostPage() {
   }, [router])
 
   React.useEffect(() => {
-    const savedKey = localStorage.getItem("custom_openrouter_api_key") || ""
-    const savedModel = localStorage.getItem("custom_openrouter_model") || "openai/gpt-oss-120b"
-    if (savedKey) setCustomApiKey(savedKey)
-    if (savedModel) setAiModel(savedModel)
+    const handle = requestAnimationFrame(() => {
+      const savedKey = localStorage.getItem("custom_openrouter_api_key") || ""
+      const savedModel = localStorage.getItem("custom_openrouter_model") || "openai/gpt-oss-120b"
+      if (savedKey) setCustomApiKey(savedKey)
+      if (savedModel) setAiModel(savedModel)
+    })
+    return () => cancelAnimationFrame(handle)
   }, [])
 
   const handleSiteChange = (newSiteId: string) => {

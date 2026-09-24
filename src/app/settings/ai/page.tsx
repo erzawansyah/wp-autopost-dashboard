@@ -24,7 +24,6 @@ import {
   ExternalLink,
   ShieldCheck,
   RefreshCw,
-  Sparkles,
   ArrowLeft,
 } from "lucide-react"
 
@@ -50,10 +49,13 @@ export default function AiSettingsPage() {
 
   React.useEffect(() => {
     // Muat API key dan model dari localStorage jika ada
-    const savedKey = localStorage.getItem("custom_openrouter_api_key") || ""
-    const savedModel = localStorage.getItem("custom_openrouter_model") || "openai/gpt-oss-120b"
-    if (savedKey) setApiKey(savedKey)
-    if (savedModel) setSelectedModel(savedModel)
+    const handle = requestAnimationFrame(() => {
+      const savedKey = localStorage.getItem("custom_openrouter_api_key") || ""
+      const savedModel = localStorage.getItem("custom_openrouter_model") || "openai/gpt-oss-120b"
+      if (savedKey) setApiKey(savedKey)
+      if (savedModel) setSelectedModel(savedModel)
+    })
+    return () => cancelAnimationFrame(handle)
   }, [])
 
   const handleTestConnection = async () => {
