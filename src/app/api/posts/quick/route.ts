@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { decryptCredential } from "@/lib/crypto"
-import { generateArticle } from "@/lib/ai/generator"
+import { generateArticle } from "@/core/writer"
 import { createWordPressPost, resolveOrCreateWordPressTags } from "@/lib/wordpress/client"
 
 export async function POST(request: Request) {
