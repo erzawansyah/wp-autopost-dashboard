@@ -76,22 +76,39 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
    - Dilarang keras meletakkan script ad-hoc, pengujian API, berkas dump sementara, atau mock media di root repository aplikasi. Semua berkas non-aplikasi WAJIB mengikuti taksonomi sandbox `.workspaces/`:
      - **`.workspaces/scripts/` (Reusable Scripts Only)**: Tempat menyimpan skrip otomasi/diagnostik yang **dapat digunakan berulang kali** (misal: uji koneksi API, seed data, verifikasi token). Setiap skrip di folder ini **WAJIB** menyertakan panduan/header dokumentasi yang jelas (*tujuan, prasyarat `.env`, cara eksekusi, dan contoh output*) serta didaftarkan di [`.workspaces/scripts/README.md`](file:///d:/Antigravity/wp-autopost-dashboard/.workspaces/scripts/README.md).
      - **`.workspaces/temp/` (Disposable / Scratch Only)**: Tempat skrip sekali pakai yang **akan dihapus setelah pengujian selesai**, dump respons JSON mentah, atau log scratch sementara.
-     - **`.workspaces/assets/` (Mock & Test Fixtures)**: Berkas statis untuk keperluan pengujian lokal (contoh CSV/Excel untuk uji parser batch, dummy image untuk uji upload WP media).
+      - **`.workspaces/assets/` (Mock & Test Fixtures)**: Berkas statis untuk keperluan pengujian lokal (contoh CSV/Excel untuk uji parser batch, dummy image untuk uji upload WP media).
+8. **Atomic Design Thinking (Wajib Komponen Modular Dulu)**:
+   - Dilarang membuat kode antarmuka monolitik di file halaman (`page.tsx`). Setiap kali merancang fitur UI, bedah dan bangun komponen modularnya terlebih dahulu (`atoms`, `molecules`, `organisms`, `templates`). File halaman hanya bertindak sebagai orkestrator data dan tata letak deklaratif. Patuhi [`.agents/rules/atomic-design-and-styling.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/atomic-design-and-styling.md).
+9. **Modular Tailwind CSS (Strict Zero Arbitrary Hex)**:
+   - DILARANG KERAS menggunakan arbitrary hex values (`text-[#881337]`, `bg-[#0F172A]`, dll.). Seluruh pewarnaan dan styling wajib menggunakan token semantik terdaftar (`bg-primary`, `text-muted-foreground`, `border-border`, dll.) yang telah ditetapkan di [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md) dan [`src/app/globals.css`](file:///d:/Antigravity/wp-autopost-dashboard/src/app/globals.css).
+10. **Kepatuhan Mutlak Terhadap PRD.md dan DESIGN.md**:
+    - [`PRD.md`](file:///d:/Antigravity/wp-autopost-dashboard/PRD.md) adalah acuan mutlak logika bisnis, fungsionalitas, 9 status antrean, dan validasi form.
+    - [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md) adalah acuan mutlak tata visual, hierarki Trello-Fluent, density 8/10, dan palet warna.
+11. **OpenRouter SDK & Matriks Penggunaan Skill (Action-to-Skill Routing)**:
+    - Seluruh interaksi AI gateway wajib menggunakan SDK resmi `@openrouter/agent` dan `@openrouter/sdk`.
+    - Setiap kali akan mengeksekusi jenis tugas teknis tertentu, Agent WAJIB membaca dan menerapkan panduan dari skill yang relevan sesuai matriks di [`.agents/rules/skills-routing-matrix.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/skills-routing-matrix.md).
+12. **Windows PowerShell Execution Standard (Anti-PSSecurityException)**:
+    - Di sistem Windows, Agent WAJIB menyusun perintah shell menggunakan ekstensi `.cmd` secara eksplisit (`npx.cmd ...` dan `npm.cmd ...`) agar tidak terblokir oleh PowerShell script execution policy.
+    - Dilindungi oleh lifecycle safety hook **`windows-command-normalizer`** di [`.agents/hooks.json`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/hooks.json) yang otomatis mengalihkan perintah `npx`/`npm` ke versi `.cmd`. Patuhi [`.agents/rules/windows-shell-execution.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/windows-shell-execution.md).
 
 ---
 
 ## 5. Peta Dokumentasi & Blueprint Workspace
 
-| Dokumen / Folder                                                                                      | Lokasi            | Cakupan & Fungsi                                                                                                    |
-| :---------------------------------------------------------------------------------------------------- | :---------------- | :------------------------------------------------------------------------------------------------------------------ |
-| [`ARCHITECTURE.md`](file:///d:/Antigravity/wp-autopost-dashboard/ARCHITECTURE.md)                     | Root              | Struktur folder repo, skema PostgreSQL Supabase, _State Machine_ Batch/Queue, dan kontrak WP REST API.              |
-| [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md)                                 | Root              | _Design System_ (Google Stitch / `ui-ux-pro-max`), tema Dark/Light, token warna, tipografi, dan pola UX multi-site. |
-| [`MEMORY.md`](file:///d:/Antigravity/wp-autopost-dashboard/MEMORY.md)                                 | Root              | _Living Memory_, status milestone aktif, keputusan arsitektur (ADR), gotchas, dan indeks worklog.                   |
-| [`.agents/rules/security.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/security.md) | `.agents/rules/`  | Standar keamanan SaaS Multi-Tenant, RLS Supabase, enkripsi Application Password, dan proteksi SSRF/XSS.             |
-| [`.agents/mcp_config.json`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/mcp_config.json)     | `.agents/`        | Konfigurasi MCP Server developer (Supabase, Next-DevTools, Fetch).                                                  |
-| [`.agents/skills/`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/README.md)            | `.agents/skills/` | Direktori penyimpanan _Skills_ lokal maupun hasil instalasi dari registry `skills.sh`.                              |
-| [`.agents/worklogs/`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md) | `.agents/worklogs/`| Catatan progres detail per fase/milestone untuk menjaga efisiensi token context window.                             |
-| [`.agents/hooks.json`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/hooks.json)               | `.agents/`        | Lifecycle safety hooks untuk mencegah kebocoran kredensial sebelum tool dijalankan.                                 |
+| Dokumen / Folder                                                                                                    | Lokasi            | Cakupan & Fungsi                                                                                                    |
+| :------------------------------------------------------------------------------------------------------------------ | :---------------- | :------------------------------------------------------------------------------------------------------------------ |
+| [`PRD.md`](file:///d:/Antigravity/wp-autopost-dashboard/PRD.md)                                                     | Root              | Spesifikasi kebutuhan produk lengkap, alur 3 modul ingesti, 9-state queue, edge cases, dan NFR.                    |
+| [`ARCHITECTURE.md`](file:///d:/Antigravity/wp-autopost-dashboard/ARCHITECTURE.md)                                   | Root              | Struktur folder repo, skema PostgreSQL Supabase, _State Machine_ Batch/Queue, dan kontrak WP REST API.              |
+| [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md)                                               | Root              | _Design System_ (Google Stitch / `ui-ux-pro-max`), tema Dark/Light, token warna, tipografi, dan pola UX multi-site. |
+| [`MEMORY.md`](file:///d:/Antigravity/wp-autopost-dashboard/MEMORY.md)                                               | Root              | _Living Memory_, status milestone aktif, keputusan arsitektur (ADR), gotchas, dan indeks worklog.                   |
+| [`.agents/rules/security.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/security.md)               | `.agents/rules/`  | Standar keamanan SaaS Multi-Tenant, RLS Supabase, enkripsi Application Password, dan proteksi SSRF/XSS.             |
+| [`.agents/rules/atomic-design-and-styling.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/atomic-design-and-styling.md) | `.agents/rules/`  | Pedoman metodologi Atomic Design dan larangan arbitrary hex code pada styling Tailwind CSS v4.                     |
+| [`.agents/rules/skills-routing-matrix.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/skills-routing-matrix.md) | `.agents/rules/`  | Matriks pemetaan jenis pekerjaan ke Skill wajib (Shadcn, Supabase, WP REST, OpenRouter SDK, TanStack, dll.).         |
+| [`.agents/rules/windows-shell-execution.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/windows-shell-execution.md) | `.agents/rules/`  | Standar eksekusi perintah shell Windows (`npx.cmd`/`npm.cmd`) untuk mencegah `PSSecurityException`.                 |
+| [`.agents/mcp_config.json`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/mcp_config.json)                   | `.agents/`        | Konfigurasi MCP Server developer (Supabase, Next-DevTools, Fetch).                                                  |
+| [`.agents/skills/`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/skills/README.md)                          | `.agents/skills/` | Direktori penyimpanan _Skills_ lokal maupun hasil instalasi dari registry `skills.sh`.                              |
+| [`.agents/worklogs/`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md)               | `.agents/worklogs/`| Catatan progres detail per fase/milestone untuk menjaga efisiensi token context window.                             |
+| [`.agents/hooks.json`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/hooks.json)                             | `.agents/`        | Lifecycle safety hooks untuk mencegah kebocoran kredensial dan normalisasi perintah shell Windows.                  |
 
 <!-- BEGIN:nextjs-agent-rules -->
 
