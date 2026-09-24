@@ -53,6 +53,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - Mesin generasi AI diintegrasikan menggunakan resmi `@openrouter/agent` SDK (`client.callModel`) dengan dukungan multi-model (GPT-OSS, Claude 3.5, Gemini 2.5 Flash, DeepSeek), sanitasi API key, endpoint diagnostik `/api/ai/test`, dan halaman Pengaturan AI.
 19. **ADR-019 (Transisi Engine Tulis Cepat & Skills ke LangChain `@langchain/openrouter`)**:
     - Menggantikan skill-skill OpenRouter lama dengan 22 skills resmi LangChain (`@langchain/core`, `@langchain/openrouter`, `@langchain/langgraph`). Engine Tulis Cepat (`src/lib/ai/generator.ts`) dimigrasikan ke `ChatOpenRouter` dengan Zod structured output & fallback JSON parsing. Dependensi lama `@openrouter/agent` dihapus bersih.
+20. **ADR-020 (Direktori Prompt Terpisah & Template Engine Dinamis `${{key}}`)**:
+    - Seluruh prompt sistem dan pengguna dipindahkan dari hardcoded string ke direktori `src/core/prompts/` (`system/` dan `user/`). Disediakan parser `renderPrompt` berbasis sintaks `${{key}}` dengan fitur auto-strip pada baris variabel kosong guna mendukung modularitas agent skills di masa depan.
 
 ---
 
