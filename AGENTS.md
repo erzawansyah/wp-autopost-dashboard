@@ -73,7 +73,10 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
 6. **No Autonomous Git Commits (Wajib Izin Pengguna)**:
    - DILARANG KERAS menjalankan perintah `git commit` atau push secara otomatis tanpa instruksi eksplisit atau persetujuan langsung dari pengguna. Setiap perubahan file harus tetap berada di staging/working tree sampai pengguna menginstruksikan commit.
 7. **Sandbox Direktori `.workspaces/` (Zero Clutter Root)**:
-   - Dilarang meletakkan script ad-hoc, berkas pengujian API, scratch files, dump JSON/data sementara, atau mock media di root repository. Semua file pembantu/eksperimen non-aplikasi WAJIB ditaruh di dalam direktori `.workspaces/` (`.workspaces/scripts/`, `.workspaces/temp/`, `.workspaces/assets/`).
+   - Dilarang keras meletakkan script ad-hoc, pengujian API, berkas dump sementara, atau mock media di root repository aplikasi. Semua berkas non-aplikasi WAJIB mengikuti taksonomi sandbox `.workspaces/`:
+     - **`.workspaces/scripts/` (Reusable Scripts Only)**: Tempat menyimpan skrip otomasi/diagnostik yang **dapat digunakan berulang kali** (misal: uji koneksi API, seed data, verifikasi token). Setiap skrip di folder ini **WAJIB** menyertakan panduan/header dokumentasi yang jelas (*tujuan, prasyarat `.env`, cara eksekusi, dan contoh output*) serta didaftarkan di [`.workspaces/scripts/README.md`](file:///d:/Antigravity/wp-autopost-dashboard/.workspaces/scripts/README.md).
+     - **`.workspaces/temp/` (Disposable / Scratch Only)**: Tempat skrip sekali pakai yang **akan dihapus setelah pengujian selesai**, dump respons JSON mentah, atau log scratch sementara.
+     - **`.workspaces/assets/` (Mock & Test Fixtures)**: Berkas statis untuk keperluan pengujian lokal (contoh CSV/Excel untuk uji parser batch, dummy image untuk uji upload WP media).
 
 ---
 

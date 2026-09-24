@@ -28,7 +28,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 6. **ADR-006 (Elevasi DESIGN.md & ARCHITECTURE.md ke Root)**:
    - Mengikuti konvensi industri Google Stitch / `ui-ux-pro-max`, `DESIGN.md` dan `ARCHITECTURE.md` diletakkan di root repositori.
 7. **ADR-007 (Sandbox Non-Aplikasi `.workspaces/`)**:
-   - Seluruh script pengujian, dump data scratch, atau mock media diisolasi di `.workspaces/` (di-ignore oleh Git dan AI) agar root aplikasi Next.js tetap bersih.
+   - Isolasi berkas non-aplikasi ke `.workspaces/`: `scripts/` (khusus reusable + wajib dokumentasi header), `temp/` (skrip sekali pakai / akan dihapus), dan `assets/` (mock fixtures). Di-ignore oleh Git dan AI.
 
 ---
 
