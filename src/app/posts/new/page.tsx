@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/atoms/select"
 import { Switch } from "@/components/atoms/switch"
+import { WritingProgressPanel } from "@/components/organisms/writing-progress-panel"
 import {
   Sparkles,
   ArrowLeft,
@@ -69,7 +70,9 @@ export default function NewPostPage() {
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = React.useState(false)
-  const [progressStep, setProgressStep] = React.useState<string | null>(null)
+  const [stageIndex, setStageIndex] = React.useState(0)
+  const [elapsedMs, setElapsedMs] = React.useState(0)
+  const [failedAtStage, setFailedAtStage] = React.useState(false)
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
   const [completedResult, setCompletedResult] = React.useState<{
     title: string
@@ -147,17 +150,24 @@ export default function NewPostPage() {
     }
 
     setIsSubmitting(true)
-    setProgressStep("Menghubungi AI dan meriset struktur pembahasan...")
+    setStageIndex(0)
+    setFailedAtStage(false)
+    setElapsedMs(0)
+
+    const startedAt = Date.now()
+    const timers: number[] = []
+
+    const elapsedTimer = window.setInterval(() => {
+      setElapsedMs(Date.now() - startedAt)
+    }, 250)
+
+    // Karena API merespons setelah seluruh proses selesai, kemajuan tahap
+    // ditampilkan sebagai perkiraan berdasarkan durasi tipikal tiap tahap.
+    timers.push(window.setTimeout(() => setStageIndex(1), 3500))
+    timers.push(window.setTimeout(() => setStageIndex(2), 9000))
+    timers.push(window.setTimeout(() => setStageIndex(3), 13000))
 
     try {
-      setTimeout(() => {
-        setProgressStep("Menulis konten dengan bahasa wajar & menyusun subjudul...")
-      }, 3000)
-
-      setTimeout(() => {
-        setProgressStep("Mempersiapkan gambar sampul & sinkronisasi ke WordPress...")
-      }, 8000)
-
       const res = await fetch("/api/posts/quick", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -179,10 +189,12 @@ export default function NewPostPage() {
       const data = await res.json()
 
       if (!res.ok) {
+        setFailedAtStage(true)
         setErrorMsg(data.error || "Gagal membuat artikel.")
         return
       }
 
+      setStageIndex(4)
       setCompletedResult({
         title: data.title || keyword,
         state: data.state || "syncing_to_wp",
@@ -191,10 +203,12 @@ export default function NewPostPage() {
         message: data.message || "Artikel berhasil dibuat dan dikirim ke WordPress!",
       })
     } catch {
+      setFailedAtStage(true)
       setErrorMsg("Terjadi gangguan jaringan saat memproses artikel.")
     } finally {
+      timers.forEach((timer) => window.clearTimeout(timer))
+      window.clearInterval(elapsedTimer)
       setIsSubmitting(false)
-      setProgressStep(null)
     }
   }
 
@@ -253,25 +267,14 @@ export default function NewPostPage() {
           </div>
         )}
 
-        {/* Status Processing Card (Saat Memproses) */}
+        {/* Status Processing Panel (Saat Memproses) */}
         {isSubmitting && (
-          <Card className="border-primary/40 bg-primary/5 shadow-xs animate-in fade-in-50">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2 text-primary font-semibold">
-                <Loader2 className="size-4 animate-spin" />
-                <span>Sedang Memproses Tulisan</span>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2.5 text-xs">
-              <div className="p-3 rounded-lg bg-card border border-border/80 flex items-center justify-between">
-                <span className="text-muted-foreground text-[11px]">Tahap saat ini:</span>
-                <span className="font-semibold text-foreground">{progressStep}</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                AI sedang menyusun artikel dengan struktur subjudul rapi, contoh nyata, dan bebas frasa klise. Mohon tunggu beberapa saat.
-              </p>
-            </CardContent>
-          </Card>
+          <WritingProgressPanel
+            activeIndex={stageIndex}
+            elapsedMs={elapsedMs}
+            failed={failedAtStage}
+            className="animate-in fade-in-50"
+          />
         )}
 
         {/* Completed Result Card (Setelah Berhasil) */}
