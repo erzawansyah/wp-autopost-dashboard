@@ -48,6 +48,10 @@ export function normalizeAndValidateWpUrl(rawUrl: string): { valid: boolean; nor
       return { valid: false, error: "Protokol website wajib HTTP atau HTTPS." }
     }
 
+    if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") {
+      return { valid: false, error: "Website WordPress produksi wajib menggunakan HTTPS." }
+    }
+
     const hostname = parsed.hostname.toLowerCase()
 
     // Proteksi SSRF untuk environment non-development
@@ -447,5 +451,4 @@ export async function resolveOrCreateWordPressTags(params: {
 
   return tagIds
 }
-
 

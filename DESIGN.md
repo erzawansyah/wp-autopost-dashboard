@@ -93,7 +93,7 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
     --muted: #ebeff4;
     --muted-foreground: #64748b;
     --border: #e2e8f0;
-    --input: #e2e8f0;
+    --input: #cbd5e1;
     --ring: #881337;
     --success: #059669;
     --warning: #f59e0b;
@@ -121,7 +121,7 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
     --muted: #1f293d;
     --muted-foreground: #94a3b8;
     --border: #25334d;
-    --input: #25334d;
+    --input: #334155;
     --ring: #fbbf24;
     --success: #10b981;
     --warning: #fbbf24;

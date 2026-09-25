@@ -26,14 +26,14 @@ export function MetricCard({
   className,
 }: MetricCardProps) {
   return (
-    <Card className={cn("overflow-hidden border border-border/70 shadow-2xs hover:shadow-xs transition-shadow", className)}>
-      <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-4">
+    <Card className={cn("group overflow-hidden border border-border/80 bg-card/90 shadow-2xs transition-all hover:-translate-y-0.5 hover:shadow-md", className)}>
+      <CardContent className="flex items-center justify-between gap-4 p-4 sm:p-5">
         <div className="flex flex-col gap-1 min-w-0">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">
+           <p className="truncate font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
             {title}
           </p>
           <div className="flex items-baseline gap-2">
-            <span className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground font-mono">
+             <span className="font-mono text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
               {value}
             </span>
             {trend && (
@@ -53,8 +53,8 @@ export function MetricCard({
             <p className="text-xs text-muted-foreground truncate">{subtitle}</p>
           )}
         </div>
-        <div className={cn("p-2.5 rounded-xl shrink-0 flex items-center justify-center", iconColorClass)}>
-          <Icon className="size-5 sm:size-6" />
+         <div className={cn("flex size-10 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-105", iconColorClass)}>
+           <Icon className="size-4 sm:size-5" />
         </div>
       </CardContent>
     </Card>

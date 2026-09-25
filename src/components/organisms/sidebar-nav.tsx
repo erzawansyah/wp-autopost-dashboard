@@ -11,10 +11,12 @@ import {
   SlidersHorizontal,
   Bot,
   Settings,
-  Sparkles,
+  WandSparkles,
+  ChevronRight,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip"
 
 interface NavItem {
   title: string
@@ -25,44 +27,36 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  { title: "Ringkasan", href: "/", icon: LayoutDashboard },
+  { title: "Tulis artikel", href: "/posts/new", icon: PenLine },
   {
-    title: "Dashboard",
-    href: "/",
-    icon: LayoutDashboard,
-  },
-  {
-    title: "Tulis Cepat",
-    href: "/posts/new",
-    icon: PenLine,
-  },
-  {
-    title: "Daftar Website",
+    title: "Website",
     href: "/sites",
     icon: Globe,
   },
   {
-    title: "Antrean Pos",
+    title: "Antrean artikel",
     href: "/queue",
     icon: Layers,
     badge: "Segera",
     isComingSoon: true,
   },
   {
-    title: "Format Tulisan",
+    title: "Format tulisan",
     href: "/prompts",
     icon: SlidersHorizontal,
     badge: "Segera",
     isComingSoon: true,
   },
   {
-    title: "Kunci API AI",
+    title: "Provider AI",
     href: "/settings/ai",
     icon: Bot,
     badge: "Segera",
     isComingSoon: true,
   },
   {
-    title: "Setelan",
+    title: "Pengaturan",
     href: "/settings",
     icon: Settings,
     badge: "Segera",
@@ -74,43 +68,40 @@ export function SidebarNav() {
   const pathname = usePathname()
 
   return (
-    <aside className="w-64 border-r border-border/80 bg-sidebar flex flex-col shrink-0 min-h-screen">
+    <aside className="sticky top-0 flex h-screen max-h-screen w-[68px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:w-[248px]">
       {/* Brand Header */}
-      <div className="h-16 px-5 border-b border-sidebar-border flex items-center gap-3">
-        <div className="size-9 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-xs">
-          <Sparkles className="size-5 text-accent" />
-        </div>
-        <div className="flex flex-col min-w-0">
-          <span className="text-sm font-bold text-sidebar-foreground tracking-tight truncate">
-            WP Autopost
-          </span>
-          <span className="text-[10px] text-muted-foreground font-medium tracking-wide">
-            Kelola pos banyak web
-          </span>
+      <div className="border-b border-sidebar-border px-3 py-5 lg:px-5">
+        <div className="flex items-center gap-3">
+          <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-xs">
+            <WandSparkles className="size-4 text-accent" />
+          </div>
+          <div className="hidden min-w-0 flex-col lg:flex">
+            <span className="truncate text-[13px] font-bold tracking-tight text-sidebar-foreground">WP Autopost</span>
+            <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">Publishing desk</span>
+          </div>
         </div>
       </div>
 
       {/* Navigation List */}
-      <div className="flex-1 py-4 px-3 flex flex-col gap-1 overflow-y-auto">
-        <div className="px-3 pb-2 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-          Menu
-        </div>
+      <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-2 py-6 lg:px-3">
+        <div>
+          <div className="hidden px-3 pb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">Workspace</div>
         {navItems.map((item) => {
           const isActive = pathname === item.href
           const Icon = item.icon
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all group",
+          const link = (
+              <Link
+                href={item.href}
+                aria-label={item.title}
+                className={cn(
+                "group flex items-center justify-center rounded-md px-3 py-2.5 text-[12px] font-medium transition-all lg:justify-between",
                 isActive
                   ? "bg-sidebar-primary text-sidebar-primary-foreground font-semibold shadow-2xs"
                   : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 item.isComingSoon && !isActive && "opacity-60 hover:opacity-100"
-              )}
-            >
+                )}
+              >
               <div className="flex items-center gap-2.5 min-w-0">
                 <Icon
                   className={cn(
@@ -120,7 +111,7 @@ export function SidebarNav() {
                       : "text-muted-foreground group-hover:text-sidebar-foreground"
                   )}
                 />
-                <span className="truncate">{item.title}</span>
+                <span className="hidden truncate lg:block">{item.title}</span>
               </div>
               {item.badge && (
                 <Badge
@@ -135,25 +126,37 @@ export function SidebarNav() {
                   {item.badge}
                 </Badge>
               )}
-            </Link>
+              {isActive && !item.badge && <ChevronRight className="size-3.5 opacity-70" />}
+              </Link>
+          )
+
+          return (
+            <React.Fragment key={item.href}>
+              <div className="lg:hidden">
+                <Tooltip>
+                  <TooltipTrigger asChild>{link}</TooltipTrigger>
+                  <TooltipContent side="right" align="center">{item.title}</TooltipContent>
+                </Tooltip>
+              </div>
+              <div className="hidden lg:block">{link}</div>
+            </React.Fragment>
           )
         })}
+        </div>
       </div>
 
       {/* Bottom Status Card */}
-      <div className="p-4 border-t border-sidebar-border flex flex-col gap-3 bg-muted/20">
+      <div className="flex flex-col gap-3 border-t border-sidebar-border bg-muted/20 p-2 lg:p-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
-            <span className="text-[11px] font-medium text-foreground/80">
-              Koneksi normal
-            </span>
+            <span className="hidden text-[11px] font-medium text-foreground/80 lg:block">Semua sistem normal</span>
           </div>
           <span className="text-[10px] font-mono text-muted-foreground">v0.1.0</span>
         </div>
         <div className="p-2.5 rounded-lg border border-border/70 bg-card text-[11px] flex flex-col gap-1">
-          <span className="font-semibold text-foreground">Gaya Tulisan Wajar</span>
-          <span className="text-muted-foreground text-[10px] leading-tight">
+          <span className="flex items-center gap-1.5 font-semibold text-foreground"><WandSparkles className="size-3 text-ai-process" /><span className="hidden lg:inline">Natural writing</span></span>
+          <span className="hidden text-muted-foreground text-[10px] leading-tight lg:block">
             Artikel bersih dari pola klise dan format kaku buatan AI
           </span>
         </div>

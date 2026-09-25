@@ -182,7 +182,7 @@ export async function POST(request: Request) {
         title: generated.title,
         content_html: generated.contentHtml,
         excerpt: generated.excerpt,
-        state: "syncing_to_wp",
+        state: "ready_to_sync",
         updated_at: new Date().toISOString(),
       })
       .eq("id", postId)
@@ -194,6 +194,13 @@ export async function POST(request: Request) {
       level: "info",
       message: `Menyelesaikan tag dan mengirim artikel Gutenberg Blocks ke WordPress REST API (${actionStatus})...`,
     })
+
+    // Pindahkan ke tahap sinkronisasi setelah konten siap disimpan.
+    await supabase
+      .from("post_items")
+      .update({ state: "syncing_to_wp", updated_at: new Date().toISOString() })
+      .eq("id", postId)
+      .eq("user_id", user.id)
 
     // Selesaikan atau buat tag otomatis di WordPress
     let resolvedTagIds: number[] = []
@@ -255,7 +262,11 @@ export async function POST(request: Request) {
     }
 
     // 6. Sinkronisasi sukses!
-    const finalState = actionStatus === "publish" ? "published_on_wp" : "saved_draft_on_wp"
+    const finalState = actionStatus === "publish"
+      ? "published_on_wp"
+      : actionStatus === "future"
+        ? "scheduled_on_wp"
+        : "saved_draft_on_wp"
     await supabase
       .from("post_items")
       .update({

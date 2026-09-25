@@ -166,8 +166,8 @@ export function WPCategorySelect({
             type="button"
             disabled={disabled || !siteId || isLoading}
             className={cn(
-              "flex min-h-9 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-1.5 text-xs shadow-xs transition-colors",
-              "focus-visible:border-ring focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+              "flex min-h-9 w-full items-center justify-between rounded-md border border-input bg-card text-foreground dark:bg-background/80 px-3 py-1.5 text-xs shadow-2xs transition-all hover:border-foreground/30 dark:hover:border-foreground/40",
+              "focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25",
               "disabled:cursor-not-allowed disabled:opacity-50",
               errorMsg && "border-destructive/60"
             )}

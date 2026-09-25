@@ -197,6 +197,21 @@ export default function HomePage() {
     }
   }
 
+  const handleRetryPost = async (id: string) => {
+    try {
+      const res = await fetch(`/api/posts/${id}`, { method: "POST" })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || "Gagal mengirim ulang artikel ke WordPress.")
+        return
+      }
+
+      await loadData()
+    } catch {
+      alert("Terjadi gangguan jaringan saat mengirim ulang artikel.")
+    }
+  }
+
   // Jika user belum login, tampilkan layar sambutan ramah
   if (!isLoading && !currentUser) {
     return (
@@ -232,12 +247,15 @@ export default function HomePage() {
         {/* Header Title & Actions */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
-              <Sparkles className="size-5 text-accent" />
-              <span>Dashboard Penerbitan</span>
+             <div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+               <span className="size-1.5 rounded-full bg-primary" />
+               <span>Publishing desk / overview</span>
+             </div>
+             <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
+               <span>Ruang kerja penerbitan</span>
             </h1>
             <p className="text-xs text-muted-foreground mt-1">
-              Pantau draf, jadwal tayang, dan riwayat artikel di semua blog WordPress Anda.
+               Pantau apa yang sedang ditulis, apa yang siap dikirim, dan apa yang sudah terbit—dalam satu pandangan.
             </p>
           </div>
 
@@ -275,7 +293,7 @@ export default function HomePage() {
               </div>
               <div className="flex flex-col gap-0.5">
                 <span className="text-xs font-bold text-foreground">
-                  Langkah Awal: Sambungkan Blog WordPress Anda
+                   Mulai dari satu website WordPress
                 </span>
                 <span className="text-[11px] text-muted-foreground">
                   Masukkan alamat web dan Application Password blog Anda agar artikel bisa langsung dikirim ke WordPress.
@@ -331,6 +349,7 @@ export default function HomePage() {
 
             <QueueDataTable
               items={tableItems}
+              onRetryItem={handleRetryPost}
               onDeleteItem={handleDeletePost}
             />
           </div>

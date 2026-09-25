@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "holver/gpt-5.6-luna",
+  "providers": {
+    "holver": {
+      "name": "HolverAI",
+      "env": [
+        "HOLVERAI_API_KEY"
+      ],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "https://api.holver.id/v1"
+      },
+      "models": {
+        "gpt-5.6-luna": {
+          "name": "GPT-5.6 Luna",
+          "modelID": "gpt-5.6-luna"
+        },
+        "gpt-6-luna": {
+          "name": "GPT-6 Luna",
+          "modelID": "gpt-6-luna"
+        },
+        "gpt-5.6-terra": {
+          "name": "GPT-5.6 Terra",
+          "modelID": "gpt-5.6-terra"
+        }
+      }
+    }
+  }
+}

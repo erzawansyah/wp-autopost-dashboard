@@ -27,7 +27,7 @@ export function SearchInput({
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        className="pl-9 pr-9 h-9 text-sm rounded-lg bg-background border-border/80 focus-visible:ring-1 focus-visible:ring-primary shadow-2xs"
+        className="pl-9 pr-9 h-9 text-sm rounded-lg"
         {...props}
       />
       {hasValue && onClear && (

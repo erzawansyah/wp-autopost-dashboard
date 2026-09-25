@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Globe, LogOut } from "lucide-react"
+import { Globe, LogOut, Plus, Command } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import { ModeToggle } from "@/components/molecules/mode-toggle"
 import {
@@ -66,18 +66,18 @@ export function TopNavbar({
   }
 
   return (
-    <header className="h-16 px-6 border-b border-border/80 bg-card/60 backdrop-blur-md flex items-center justify-between gap-4 sticky top-0 z-30">
+    <header className="sticky top-0 z-30 flex min-h-[68px] items-center justify-between gap-4 border-b border-border/80 bg-background/85 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
       {/* Left: Global Site Selector & Context */}
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-          <Globe className="size-4 text-primary" />
-          <span>Pilih website:</span>
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-2 text-xs font-medium text-muted-foreground sm:flex">
+            <Globe className="size-3.5 text-primary" />
+            <span>Workspace</span>
         </div>
         <Select
           value={selectedSite}
           onValueChange={(val) => onSelectSite && onSelectSite(val)}
         >
-          <SelectTrigger className="h-9 w-52 text-xs font-medium bg-background border-border/80 shadow-2xs">
+          <SelectTrigger className="h-9 w-44 border-border/80 bg-card text-xs font-semibold shadow-2xs sm:w-52">
             <SelectValue placeholder="Semua Website" />
           </SelectTrigger>
           <SelectContent>
@@ -93,6 +93,12 @@ export function TopNavbar({
 
       {/* Right: Actions & User Controls */}
       <div className="flex items-center gap-2.5">
+        <Button asChild size="sm" className="hidden cursor-pointer gap-1.5 bg-primary text-xs font-semibold text-primary-foreground shadow-2xs hover:bg-primary/90 sm:flex">
+          <Link href="/posts/new"><Plus className="size-3.5 text-accent" />Artikel baru</Link>
+        </Button>
+        <div className="hidden items-center gap-1 rounded-md border border-border/80 bg-card px-2 py-1.5 text-muted-foreground md:flex">
+          <Command className="size-3" /><span className="font-mono text-[10px]">K</span>
+        </div>
         <ModeToggle />
 
         {/* User Auth Dropdown */}

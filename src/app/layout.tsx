@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { TooltipProvider } from "@/components/atoms/tooltip";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-sans",
@@ -49,7 +50,9 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col font-sans bg-background text-foreground">
-        {children}
+        <TooltipProvider delayDuration={180} skipDelayDuration={120}>
+          {children}
+        </TooltipProvider>
       </body>
     </html>
   );

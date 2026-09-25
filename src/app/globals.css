@@ -26,7 +26,7 @@
     --muted-foreground: #64748b;
 
     --border: #e2e8f0;
-    --input: #e2e8f0;
+    --input: #cbd5e1;
     --ring: #881337;
 
     --success: #059669;
@@ -71,7 +71,7 @@
     --muted-foreground: #94a3b8;
 
     --border: #25334d;
-    --input: #25334d;
+    --input: #334155;
     --ring: #fbbf24;
 
     --success: #10b981;
@@ -99,6 +99,19 @@
     background-color: var(--background);
     color: var(--foreground);
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+    color: var(--foreground);
+  }
+
+  button,
+  a,
+  input,
+  textarea,
+  select {
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -146,4 +159,13 @@
 
   --font-sans: var(--font-sans), "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-mono), "JetBrains Mono", monospace;
+}
+
+@layer utilities {
+  .dashboard-grid {
+    background-image: linear-gradient(to right, color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, var(--border) 45%, transparent) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: linear-gradient(to bottom, black, transparent 78%);
+  }
 }

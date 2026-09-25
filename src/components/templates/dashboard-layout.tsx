@@ -17,7 +17,8 @@ export function DashboardLayout({
   onSelectSite,
 }: DashboardLayoutProps) {
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="relative flex min-h-screen bg-background text-foreground">
+      <div aria-hidden="true" className="dashboard-grid pointer-events-none absolute inset-x-0 top-0 h-96 opacity-40" />
       {/* Static Sidebar Navigation */}
       <SidebarNav />
 
@@ -28,8 +29,8 @@ export function DashboardLayout({
           onSelectSite={onSelectSite}
         />
 
-        <main className="flex-1 p-6 overflow-y-auto">
-          <div className="max-w-7xl mx-auto flex flex-col gap-6">
+        <main className="relative flex-1 overflow-y-auto px-4 py-5 sm:px-6 lg:px-8">
+          <div className="mx-auto flex max-w-[1440px] flex-col gap-7">
             {children}
           </div>
         </main>
