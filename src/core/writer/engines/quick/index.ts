@@ -1,14 +1,14 @@
 import { z } from "zod"
 import { WritingEngine, EngineContext, EngineResult, EngineCapabilities } from "../../types/engine"
 import { GeneratedArticle, WriterError } from "../../types/contracts"
-import { markdownToGutenberg } from "../../formatters/gutenberg"
+import { markdownToGutenberg } from "../../../shared/formatters/gutenberg"
 import {
   cleanMarkdown,
   calculateWordCount,
   createSlug,
   extractSubheadings,
   sanitizeDashes,
-} from "../../formatters/markdown-cleaner"
+} from "../../../shared/formatters/markdown-cleaner"
 
 const QuickOutputSchema = z.object({
   title: z

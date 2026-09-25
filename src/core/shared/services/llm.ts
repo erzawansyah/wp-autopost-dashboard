@@ -1,7 +1,17 @@
 import { ChatOpenRouter, OpenRouterAuthError, OpenRouterRateLimitError } from "@langchain/openrouter"
 import { HumanMessage, SystemMessage } from "@langchain/core/messages"
 import { z } from "zod"
-import { LlmServiceInterface } from "../types/engine"
+
+export interface LlmServiceInterface {
+  generate(params: {
+    systemPrompt: string
+    userPrompt: string
+    model?: string
+    temperature?: number
+    outputSchema?: z.ZodTypeAny
+    maxTokens?: number
+  }): Promise<{ content: string; tokenUsage: { prompt: number; completion: number; total: number } }>
+}
 
 export function getSanitizedApiKey(customApiKey?: string): string {
   const rawKey = customApiKey || process.env.OPENROUTER_API_KEY || ""

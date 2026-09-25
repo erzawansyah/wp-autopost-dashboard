@@ -421,7 +421,7 @@ Sistem pembuatan naskah artikel dibangun di atas arsitektur **System Writer** ya
   * Memudahkan proses pembersihan anti-slop, ekstraksi subheading, dan audit sebelum publikasi.
 - **Gutenberg Block Serializer**: Naskah Markdown dikonversi secara deterministik menjadi markup komentar blok resmi WordPress (`<!-- wp:heading -->`, `<!-- wp:paragraph -->`, `<!-- wp:image -->`, `<!-- wp:list -->`, `<!-- wp:quote -->`, `<!-- wp:code -->`, `<!-- wp:separator -->`). Saat artikel dibuka di WordPress Admin, artikel langsung terbaca sebagai blok Gutenberg modern yang sepenuhnya dapat diedit.
 
-**3. Direktori Style Rules Modular (`src/core/styles/`)**:
+**3. Direktori Style Rules Modular (`src/core/writer/styles/`)**:
 - Format gaya penulisan dikelola sebagai berkas markdown terpisah:
   * `default.md`: Artikel informatif mendalam.
   * `listicle.md`: Format daftar terstruktur dengan penomoran H2 dan quick bullet takeaways.

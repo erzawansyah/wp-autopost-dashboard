@@ -91,9 +91,9 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
     - Di sistem Windows, Agent WAJIB menyusun perintah shell menggunakan ekstensi `.cmd` secara eksplisit (`npx.cmd ...` dan `npm.cmd ...`) agar tidak terblokir oleh PowerShell script execution policy.
     - Dilindungi oleh lifecycle safety hook **`windows-command-normalizer`** di [`.agents/hooks.json`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/hooks.json) yang otomatis mengalihkan perintah `npx`/`npm` ke versi `.cmd`. Patuhi [`.agents/rules/windows-shell-execution.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/windows-shell-execution.md).
 13. **Standardisasi Komponen System Writer (Markdown-First, Gutenberg, & Wajib `docs.md`)**:
-    - Seluruh pengembangan fitur pembuatan artikel wajib mengikuti arsitektur modular di `src/core/` (hirarki: Engine ➔ Node ➔ Tool).
+    - Seluruh pengembangan fitur pembuatan artikel wajib mengikuti arsitektur modular di `src/core/writer/` (hirarki: Engine ➔ Node ➔ Tool).
     - AI LLM diwajibkan menulis naskah dalam format **Markdown murni** terlebih dahulu, kemudian dikonversi deterministik ke **Native WordPress Gutenberg Blocks** (`<!-- wp:... -->`) sebelum dikirim ke WP REST API.
-    - Setiap penambahan Engine (`engines/`), Node (`nodes/`), maupun Tool (`tools/`) **WAJIB** menyertakan berkas `docs.md` yang memuat metadata YAML frontmatter baku dan 6 bagian konten wajib. Patuhi [`.agents/rules/writer-components-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/writer-components-standard.md) dan [`src/core/DOCUMENTATION_STANDARD.md`](file:///d:/Antigravity/wp-autopost-dashboard/src/core/DOCUMENTATION_STANDARD.md).
+    - Setiap penambahan Engine (`engines/`), Node (`nodes/`), maupun Tool (`tools/`) **WAJIB** menyertakan berkas `docs.md` yang memuat metadata YAML frontmatter baku dan 6 bagian konten wajib. Patuhi [`.agents/rules/writer-components-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/writer-components-standard.md) dan [`src/core/shared/DOCUMENTATION_STANDARD.md`](file:///d:/Antigravity/wp-autopost-dashboard/src/core/shared/DOCUMENTATION_STANDARD.md).
 
 ---
 

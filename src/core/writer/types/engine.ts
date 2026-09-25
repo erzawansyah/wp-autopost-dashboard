@@ -32,16 +32,8 @@ export interface PromptConfig {
   variables: Record<string, string>
 }
 
-export interface LlmServiceInterface {
-  generate(params: {
-    systemPrompt: string
-    userPrompt: string
-    model?: string
-    temperature?: number
-    outputSchema?: z.ZodTypeAny
-    maxTokens?: number
-  }): Promise<{ content: string; tokenUsage: { prompt: number; completion: number; total: number } }>
-}
+import { LlmServiceInterface } from "../../shared/services/llm"
+export type { LlmServiceInterface }
 
 /** Konteks eksekusi yang diterima setiap engine */
 export interface EngineContext {

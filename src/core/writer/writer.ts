@@ -7,7 +7,7 @@ import {
 } from "./types/contracts"
 import { EngineContext, PromptConfig } from "./types/engine"
 import { EngineRegistry } from "./engines"
-import { OpenRouterLlmService, getSanitizedApiKey } from "../shared/services/llm"
+import { OpenRouterLlmService } from "../shared/services/llm"
 import { StyleRuleResolver } from "./services/style-resolver"
 
 /**

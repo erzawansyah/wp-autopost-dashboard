@@ -10,19 +10,25 @@ Setiap komponen yang berdiri sendiri **WAJIB** berada di dalam foldernya masing-
 
 ```text
 src/core/
-├── writer.ts                   # Orchestrator facade utama
-├── engines/
-│   └── <nama-engine>/
+├── shared/
+│   └── tools/<nama-tool>/
 │       ├── index.ts
 │       └── docs.md             <-- WAJIB ADA
-├── nodes/
-│   └── <nama-node>/
+├── writer/
+│   ├── engines/<nama-engine>/
+│   │   ├── index.ts
+│   │   └── docs.md             <-- WAJIB ADA
+│   └── nodes/<nama-node>/
 │       ├── index.ts
 │       └── docs.md             <-- WAJIB ADA
-└── tools/
-    └── <nama-tool>/
-        ├── index.ts
-        └── docs.md             <-- WAJIB ADA
+├── rewriter/
+│   ├── engines/<nama-engine>/
+│   │   └── docs.md
+│   └── nodes/<nama-node>/
+│       └── docs.md
+└── link-auditor/
+    └── engines/<nama-engine>/
+        └── docs.md
 ```
 
 ---
@@ -72,7 +78,7 @@ inputs:
     type: "string"
     required: false
     default: "default"
-    description: "Format aturan gaya naskah dari src/core/styles/."
+    description: "Format aturan gaya naskah dari src/core/writer/styles/."
 
 # Kontrak Output
 outputs:
@@ -87,8 +93,8 @@ outputs:
 dependencies:
   - "@langchain/openrouter"
   - "zod"
-  - "src/core/formatters/gutenberg"
-  - "src/core/services/style-resolver"
+  - "src/core/shared/formatters/gutenberg"
+  - "src/core/writer/services/style-resolver"
 ---
 ```
 
