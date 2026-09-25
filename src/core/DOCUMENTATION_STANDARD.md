@@ -1,6 +1,6 @@
 # Standar Dokumentasi Komponen System Writer (DOCUMENTATION_STANDARD.md)
 
-Dokumen ini adalah **pedoman resmi** untuk penyusunan berkas `docs.md` pada setiap unit **Engine**, **Node**, dan **Tool** di dalam `src/core/writer/`.
+Dokumen ini adalah **pedoman resmi** untuk penyusunan berkas `docs.md` pada setiap unit **Engine**, **Node**, dan **Tool** di dalam `src/core/`.
 
 ---
 
@@ -9,7 +9,8 @@ Dokumen ini adalah **pedoman resmi** untuk penyusunan berkas `docs.md` pada seti
 Setiap komponen yang berdiri sendiri **WAJIB** berada di dalam foldernya masing-masing dan menyertakan berkas `docs.md` tepat di samping kode sumbernya:
 
 ```text
-src/core/writer/
+src/core/
+├── writer.ts                   # Orchestrator facade utama
 ├── engines/
 │   └── <nama-engine>/
 │       ├── index.ts
@@ -71,7 +72,7 @@ inputs:
     type: "string"
     required: false
     default: "default"
-    description: "Format aturan gaya naskah dari src/core/writer/styles/."
+    description: "Format aturan gaya naskah dari src/core/styles/."
 
 # Kontrak Output
 outputs:
@@ -86,8 +87,8 @@ outputs:
 dependencies:
   - "@langchain/openrouter"
   - "zod"
-  - "src/core/writer/formatters/gutenberg"
-  - "src/core/writer/services/style-resolver"
+  - "src/core/formatters/gutenberg"
+  - "src/core/services/style-resolver"
 ---
 ```
 

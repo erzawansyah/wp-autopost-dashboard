@@ -29,7 +29,7 @@ inputs:
     type: "string"
     required: false
     default: "default"
-    description: "Nama berkas aturan gaya bahasa di src/core/writer/styles/ (e.g. 'listicle', 'essay', 'how-to-tutorial', 'in-depth-review')."
+    description: "Nama berkas aturan gaya bahasa di src/core/styles/ (e.g. 'listicle', 'essay', 'how-to-tutorial', 'in-depth-review')."
   - name: "request.content.brief"
     type: "string"
     required: false
@@ -74,9 +74,9 @@ outputs:
 dependencies:
   - "@langchain/openrouter"
   - "zod"
-  - "src/core/writer/formatters/gutenberg"
-  - "src/core/writer/formatters/markdown-cleaner"
-  - "src/core/writer/services/style-resolver"
+  - "src/core/formatters/gutenberg"
+  - "src/core/formatters/markdown-cleaner"
+  - "src/core/services/style-resolver"
 ---
 
 # Tulis Cepat (Quick Engine)
