@@ -9,7 +9,6 @@ import {
   Layers,
   Globe,
   SlidersHorizontal,
-  Bot,
   Settings,
   WandSparkles,
   ChevronRight,
@@ -49,18 +48,9 @@ const navItems: NavItem[] = [
     isComingSoon: true,
   },
   {
-    title: "Provider AI",
-    href: "/settings/ai",
-    icon: Bot,
-    badge: "Segera",
-    isComingSoon: true,
-  },
-  {
     title: "Pengaturan",
     href: "/settings",
     icon: Settings,
-    badge: "Segera",
-    isComingSoon: true,
   },
 ]
 

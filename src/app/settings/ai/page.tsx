@@ -262,9 +262,9 @@ export default function AiSettingsPage() {
                   asChild
                   className="cursor-pointer text-xs text-muted-foreground hover:text-foreground"
                 >
-                  <Link href="/" className="flex items-center gap-1.5">
+                  <Link href="/settings" className="flex items-center gap-1.5">
                     <ArrowLeft className="size-3.5" />
-                    <span>Kembali ke Dashboard</span>
+                    <span>Kembali ke Pengaturan</span>
                   </Link>
                 </Button>
 
