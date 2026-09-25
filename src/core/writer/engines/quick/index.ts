@@ -93,11 +93,9 @@ export class QuickEngine implements WritingEngine {
 
     const targetWordCount = ctx.request.content.wordCountTarget || 800
 
-    // Susun System Prompt lengkap dengan injeksi Style Rules
+    // Susun System Prompt
     const fullSystemPrompt = [
       BASE_SYSTEM_PROMPT,
-      "\n--- PANDUAN FORMAT & GAYA KHUSUS ---",
-      ctx.promptConfig.styleInstructions,
       "\n--- FORMAT KELUARAN (STRICT JSON) ---",
       'Kembalikan respon berupa JSON valid: { "title": "Judul lugas tanpa embel-embel", "excerpt": "Ringkasan 1-2 kalimat (maksimal 160 karakter)", "markdownContent": "Isi artikel lengkap dalam format Markdown murni..." }',
     ].join("\n\n")

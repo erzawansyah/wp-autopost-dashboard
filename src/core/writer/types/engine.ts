@@ -27,12 +27,11 @@ export interface EngineCapabilities {
 export interface PromptConfig {
   systemPrompt: string
   userPromptTemplate: string
-  styleInstructions: string
   customInstructions?: string
   variables: Record<string, string>
 }
 
-import { LlmServiceInterface } from "../../shared/services/llm"
+import { LlmServiceInterface } from "@/lib/ai/openrouter"
 export type { LlmServiceInterface }
 
 /** Konteks eksekusi yang diterima setiap engine */

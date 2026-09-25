@@ -383,10 +383,9 @@ Arsitektur penulisan artikel pada `src/core/writer/` dirancang dengan prinsip **
 ```mermaid
 flowchart TD
     subgraph Facade["1. Facade Orchestrator (src/core/writer/writer.ts)"]
-        REQ["WriterRequest (keyword, style, engine, etc.)"] --> VAL["Validasi Zod"]
+        REQ["WriterRequest (keyword, engine, etc.)"] --> VAL["Validasi Zod"]
         VAL --> REG["EngineRegistry.get(engineId)"]
-        STYLE["StyleRuleResolver (styles/*.md)"] --> CTX["Rakit EngineContext"]
-        REG --> CTX
+        REG --> CTX["Rakit EngineContext"]
     end
 
     subgraph Hierarchy["2. Hirarki Komponen"]
@@ -420,19 +419,15 @@ flowchart TD
    - Unit fase proses modular yang membaca state, mengeksekusi logika domain/LLM, dan mengembalikan pembaruan naskah.
    - Bersifat *reusable* lintas engine dalam domain writer (misal: `outline-node`, `drafter-node`, `auditor-node`, `media-extractor-node`).
 3. **Shared Tools (`src/core/shared/tools/`)**:
-   - Adapter I/O teknis stateless yang berinteraksi dengan API pihak ketiga atau WordPress REST API, dan dapat dipakai bersama oleh domain `writer`, `rewriter`, maupun `link-auditor`.
+   - Adapter I/O teknis stateless yang berinteraksi dengan API pihak ketiga atau WordPress REST API, dan dapat dipakai bersama oleh domain `writer`.
    - Contoh: `tools/media/pexels.ts`, `tools/wp/media-uploader.ts`, `tools/search/tavily.ts`.
 
 ### B. Alur Kerja Markdown-First & Native Gutenberg Blocks
 
 1. **Generasi Markdown**: AI LLM diinstruksikan menghasilkan keluaran Markdown murni (bukan tag HTML mentah). Hal ini menghemat konsumsi token ~30%, mencegah risiko tag HTML rusak/unclosed, dan memudahkan proses audit.
-2. **Gutenberg Block Serializer (`src/core/shared/formatters/gutenberg.ts`)**: Mengonversi Markdown secara deterministik menjadi markup komentar blok resmi WordPress (`<!-- wp:heading -->`, `<!-- wp:paragraph -->`, `<!-- wp:image {"id":...} -->`, `<!-- wp:list -->`, `<!-- wp:quote -->`, `<!-- wp:code -->`, `<!-- wp:separator -->`). Dipakai bersama oleh domain `writer` dan `rewriter`.
+2. **Gutenberg Block Serializer (`src/core/shared/formatters/gutenberg.ts`)**: Mengonversi Markdown secara deterministik menjadi markup komentar blok resmi WordPress (`<!-- wp:heading -->`, `<!-- wp:paragraph -->`, `<!-- wp:image {"id":...} -->`, `<!-- wp:list -->`, `<!-- wp:quote -->`, `<!-- wp:code -->`, `<!-- wp:separator -->`).
 
-### C. Direktori Style Rules Modular (`src/core/writer/styles/`)
-
-Format penulisan disimpan terpisah dalam berkas Markdown (`listicle.md`, `essay.md`, `how-to-tutorial.md`, `in-depth-review.md`, `default.md`). `StyleRuleResolver` membaca berkas ini secara dinamis dan menginjeksinya ke prompt drafting.
-
-### D. Standar Dokumentasi Komponen (`docs.md` with YAML Frontmatter)
+### C. Standar Dokumentasi Komponen (`docs.md` with YAML Frontmatter)
 
 Setiap Engine, Node, dan Tool **WAJIB** memiliki berkas `docs.md` di samping kodenya dengan metadata YAML frontmatter baku (id, name, type, version, status, capabilities, side_effects, inputs, outputs, dependencies) dan 6 bagian konten wajib (Ikhtisar, Alur Logika, Spesifikasi Parameter, Spesifikasi Output, Penanganan Error, Contoh Pemanggilan) sesuai panduan di [`src/core/shared/DOCUMENTATION_STANDARD.md`](file:///d:/Antigravity/wp-autopost-dashboard/src/core/shared/DOCUMENTATION_STANDARD.md).
 

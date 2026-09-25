@@ -25,11 +25,6 @@ inputs:
     type: "string"
     required: true
     description: "Kata kunci atau topik artikel yang akan ditulis."
-  - name: "request.content.style"
-    type: "string"
-    required: false
-    default: "default"
-    description: "Nama berkas aturan gaya bahasa di src/core/writer/styles/ (e.g. 'listicle', 'essay', 'how-to-tutorial', 'in-depth-review')."
   - name: "request.content.brief"
     type: "string"
     required: false
@@ -76,7 +71,7 @@ dependencies:
   - "zod"
   - "src/core/shared/formatters/gutenberg"
   - "src/core/shared/formatters/markdown-cleaner"
-  - "src/core/writer/services/style-resolver"
+  - "src/lib/ai/openrouter"
 ---
 
 # Tulis Cepat (Quick Engine)
@@ -95,15 +90,12 @@ Engine ini sangat cocok untuk:
 sequenceDiagram
     participant Facade as Writer Facade
     participant Engine as QuickEngine
-    participant Style as StyleRuleResolver
     participant LLM as OpenRouter LLM
     participant Cleaner as Markdown Cleaner
     participant G as Gutenberg Serializer
 
     Facade->>Engine: execute(context)
-    Engine->>Style: getStyleInstruction(styleName)
-    Style-->>Engine: Konten style rule (misal listicle.md)
-    Engine->>Engine: Rakit System Prompt (Anti-Slop v3.0 + Style Rule)
+    Engine->>Engine: Rakit System Prompt (Anti-Slop v3.0)
     Engine->>LLM: generate({ systemPrompt, userPrompt, schema: QuickOutputSchema })
     LLM-->>Engine: Respon JSON { title, excerpt, markdownContent }
     
@@ -124,7 +116,6 @@ sequenceDiagram
 | Parameter | Tipe | Wajib | Default | Keterangan |
 | :--- | :--- | :--- | :--- | :--- |
 | `keyword` | `string` | **Ya** | - | Topik atau kata kunci utama artikel. |
-| `style` | `string` | Tidak | `"default"` | Pilihan style dari direktori `styles/` (`listicle`, `essay`, `how-to-tutorial`, dll.). |
 | `brief` | `string` | Tidak | `undefined` | Instruksi tambahan dari pengguna. |
 | `wordCountTarget` | `number` | Tidak | `800` | Target jumlah kata minimal naskah. |
 | `language` | `"id" \| "en"` | Tidak | `"id"` | Bahasa target penulisan. |

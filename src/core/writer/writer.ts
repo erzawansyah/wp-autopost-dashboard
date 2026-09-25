@@ -7,8 +7,7 @@ import {
 } from "./types/contracts"
 import { EngineContext, PromptConfig } from "./types/engine"
 import { EngineRegistry } from "./engines"
-import { OpenRouterLlmService } from "../shared/services/llm"
-import { StyleRuleResolver } from "./services/style-resolver"
+import { OpenRouterLlmService } from "@/lib/ai/openrouter"
 
 /**
  * Pintu masuk utama (Facade Orchestrator) untuk penulisan artikel.
@@ -72,22 +71,17 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
     }
   }
 
-  // 3. Muat instruksi gaya bahasa dari direktori styles/
-  const styleInstructions = StyleRuleResolver.getStyleInstruction(request.content.style)
-
-  // 4. Siapkan LLM Service & Engine Context
+  // 3. Siapkan LLM Service & Engine Context
   const llmService = new OpenRouterLlmService(request.apiKey, request.model)
 
   const promptConfig: PromptConfig = {
     systemPrompt: "",
     userPromptTemplate: "",
-    styleInstructions,
     customInstructions: request.customInstructions,
     variables: {
       keyword: request.content.keyword,
       title: request.content.title || "",
       language: request.content.language,
-      style: request.content.style,
       brief: request.content.brief || "",
     },
   }
@@ -155,8 +149,7 @@ export * from "./types/engine"
 export * from "./engines"
 export * from "../shared/formatters/gutenberg"
 export * from "../shared/formatters/markdown-cleaner"
-export * from "./services/style-resolver"
-export * from "../shared/services/llm"
+export * from "@/lib/ai/openrouter"
 
 export const POPULAR_AI_MODELS = [
   { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Default - Cepat & Hemat)", provider: "OpenRouter" },
