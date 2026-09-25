@@ -7,7 +7,7 @@ import {
 } from "./types/contracts"
 import { EngineContext, PromptConfig } from "./types/engine"
 import { EngineRegistry } from "./engines"
-import { OpenRouterLlmService } from "./services/llm"
+import { OpenRouterLlmService, getSanitizedApiKey } from "../shared/services/llm"
 import { StyleRuleResolver } from "./services/style-resolver"
 
 /**
@@ -153,10 +153,10 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
 export * from "./types/contracts"
 export * from "./types/engine"
 export * from "./engines"
-export * from "./formatters/gutenberg"
-export * from "./formatters/markdown-cleaner"
+export * from "../shared/formatters/gutenberg"
+export * from "../shared/formatters/markdown-cleaner"
 export * from "./services/style-resolver"
-export * from "./services/llm"
+export * from "../shared/services/llm"
 
 export const POPULAR_AI_MODELS = [
   { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Default - Cepat & Hemat)", provider: "OpenRouter" },

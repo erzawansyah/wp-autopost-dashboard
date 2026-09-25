@@ -3,10 +3,10 @@ import path from "path"
 
 /**
  * Service untuk memuat dan mengelola aturan gaya bahasa penulisan (Style Rules)
- * Berkas disimpan di src/core/styles/
+ * Berkas disimpan di src/core/writer/styles/
  */
 export class StyleRuleResolver {
-  private static STYLES_DIR = path.join(process.cwd(), "src/core/styles")
+  private static STYLES_DIR = path.join(process.cwd(), "src/core/writer/styles")
 
   /**
    * Mengambil konten instruksi gaya bahasa berdasarkan nama style.
