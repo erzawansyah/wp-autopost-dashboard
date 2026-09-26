@@ -6,10 +6,11 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 ## 1. Status Proyek Saat Ini
 
-- **Tahap Selesai**: **Implementasi MVP Minimal, Multi-Select Kategori WP Nyata, Resolusi Tag Otomatis, Migrasi Engine Tulis Cepat ke `@langchain/openrouter` & `@langchain/core`, Tester Kunci AI, dan BYOK Settings**.
-- **Catatan Worklog Lalu**: [`00-agent-setup.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md), [`01-project-initialization.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/01-project-initialization.md), [`02-mvp-implementation.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/02-mvp-implementation.md), [`03-anti-slop-copywriting-revamp.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/03-anti-slop-copywriting-revamp.md), [`04-non-modal-and-ux-refinements.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/04-non-modal-and-ux-refinements.md), [`05-wp-categories-and-openrouter-agent.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/05-wp-categories-and-openrouter-agent.md), [`06-langchain-skills-and-packages-migration.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/06-langchain-skills-and-packages-migration.md), [`07-prompt-directory-and-template-engine.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/07-prompt-directory-and-template-engine.md), [`08-direct-prompt-system-reset.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/08-direct-prompt-system-reset.md)
-- **Fase Aktif**: **Brainstorming & Perencanaan Arsitektur System Writer (Multi-Step Pipeline, Gutenberg Blocks, Research, & Pluggable Skills)**.
-- **Fase Berikutnya**: **Implementasi Modular System Writer, Background Queue Worker, & Bulk Ingestion**.
+- **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag Otomatis, BYOK Settings, Rombak UI Editorial (sidebar sticky/tooltip global/konsolidasi menu Pengaturan), Retry Sinkronisasi WP Tanpa Regenerasi AI, dan Progress Panel Tulis Cepat**.
+- **Catatan Worklog**: [`00`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md) · [`01`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/01-project-initialization.md) · [`02`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/02-mvp-implementation.md) · [`03`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/03-anti-slop-copywriting-revamp.md) · [`04`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/04-non-modal-and-ux-refinements.md) · [`05`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/05-wp-categories-and-openrouter-agent.md) · [`06`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/06-langchain-skills-and-packages-migration.md) · [`07`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/07-prompt-directory-and-template-engine.md) · [`08`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/08-direct-prompt-system-reset.md) · [`09`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/09-ui-rombak-retry-flow-progress.md) *(terbaru)*
+- **Fase Aktif**: **Progress Tulis Cepat (saat ini masih estimasi, bukan real-time)**.
+- **Fase Berikutnya**: **Progress Realtime via Worker + Supabase Realtime, Rekonsiliasi `supabase/migrations/`, Background Queue Worker, & Bulk Ingestion**.
+- **Ketiga halaman berikut masih `ComingSoonView`**: `/queue`, `/prompts`, `/settings` (kartu utama sudah ada, isinya menyusul).
 
 ---
 
@@ -59,6 +60,12 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - Sesuai evaluasi pengujian lapangan, eksperimen tool-calling yang berbelit di-reset. Mesin penulisan artikel dikonsolidasikan ke `src/core/writer.ts` dengan self-contained prompt, guardrail anti-penolakan chatbot, dan structured output stabil sebagai baseline sebelum merancang ulang arsitektur system writer secara komprehensif.
 22. **ADR-022 (Extensible System Writer, Markdown-First, Gutenberg Blocks, & Style Rules)**:
     - Merancang ulang arsitektur writer menjadi facade modular (`writer.run()`), pluggable `EngineRegistry` dengan protokol `WritingEngine` terbuka, alur kerja Markdown-First untuk efisiensi token & audit, native WordPress Gutenberg Block Serializer (`<!-- wp:... -->`), direktori style rules terpisah (`src/core/writer/styles/`), dan integrasi ke route `/api/posts/quick`.
+23. **ADR-023 (Retry Sinkronisasi via `POST /api/posts/[id]`)**:
+    - Retry artikel `failed_sync`/`ready_to_sync` memakai `content_html` yang sudah tersimpan, tanpa memanggil LLM ulang. Query selalu difilter `user_id`; transisi `future` → `scheduled_on_wp`.
+24. **ADR-024 (Satu `TooltipProvider` Global)**:
+    - `TooltipProvider` dipindah ke `layout.tsx` (`delayDuration=180`). `HelpTooltip` tidak lagi membuat provider sendiri, dan native `title` pada rail sidebar diganti Radix tooltip agar perilaku helper seragam.
+25. **ADR-025 (Konsolidasi Menu Provider AI ke `/settings`)**:
+    - Item sidebar `Provider AI` dihapus; akses API key melalui kartu di halaman `/settings` → `/settings/ai`. Hierarki navigasi kembali ke satu induk Pengaturan.
 
 ---
 
@@ -68,6 +75,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 - **Windows File Locking**: Di OS Windows, direktori kustomisasi yang sedang dipantau oleh *file watcher* IDE dapat terkunci (*EBUSY*). Jika folder kosong perlu dihapus, lakukan lewat file explorer IDE atau saat restart.
 - **Strict No-Commit Secrets**: File `.env.local` atau dump kredensial situs WP nyata tidak boleh ter-track oleh Git.
 - **User Communication Preference**: Bahasa Indonesia yang jelas, profesional, ringkas, tanpa basa-basi berlebihan (*no fluff*), tidak membuat asumsi sepihak, dan kode yang rapi sesuai konvensi.
+- **Progress Tulis Cepat Masih Estimasi**: `/api/posts/quick` hanya membalas sekali di akhir proses, jadi tahap dijalankan timer internal (3.5s/9s/13s). Jangan mengklaim ini real-time; untuk itu perlu worker + Supabase Realtime (`execution_logs` sudah siap sebagai sumbernya).
+- **`npm.cmd run lint` Kadang > 2 menit**: jalankan dengan timeout 300000ms, jangan diasumsikan gagal bila kelamaan.
 
 ---
 
