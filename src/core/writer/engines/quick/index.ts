@@ -1,12 +1,6 @@
 import { StateGraph, START, END } from "@langchain/langgraph"
-import {
-  WritingEngine,
-  EngineContext,
-  EngineResult,
-  EngineCapabilities,
-  WriterStateAnnotation,
-  WriterState,
-} from "../../types/engine"
+import { WriterStateAnnotation, WritingEngine } from "../../types/engine"
+import { defineEngine } from "../../../shared/factories/engine-factory"
 import { taxonomyResolverNode } from "../../nodes/taxonomy-resolver"
 import { articleDrafterNode } from "../../nodes/article-drafter"
 import { qualityCheckerNode } from "../../nodes/quality-checker"
@@ -37,76 +31,31 @@ export function createQuickGraph() {
 }
 
 /**
- * QuickEngine yang diorkestrasi sepenuhnya oleh LangGraph StateGraph
+ * QuickEngine yang didefinisikan secara deklaratif dan reusable via defineEngine factory.
  */
-export class QuickEngine implements WritingEngine {
-  readonly id = "quick"
-  readonly name = "Tulis Cepat (1-Shot LangGraph)"
-  readonly description = "Menghasilkan artikel utuh secara cepat menggunakan orkestrator LangGraph StateGraph."
-  readonly version = "1.0.0"
-
-  readonly capabilities: EngineCapabilities = {
+export const quickEngine = defineEngine({
+  id: "quick",
+  name: "Tulis Cepat (1-Shot LangGraph)",
+  description: "Menghasilkan artikel utuh secara cepat menggunakan orkestrator LangGraph StateGraph.",
+  version: "1.0.0",
+  capabilities: {
     supportsResearch: false,
     supportsInContentImages: false,
     supportsAudit: false,
     estimatedDurationSeconds: 15,
     recommendedModelTier: "fast",
-  }
+  },
+  graph: createQuickGraph(),
+})
 
-  private graph = createQuickGraph()
-
-  async execute(ctx: EngineContext): Promise<EngineResult> {
-    try {
-      const initialState: Partial<WriterState> = {
-        context: ctx,
-        categoryIds: ctx.request.publishing.categoryIds || [],
-        tagNames: ctx.request.publishing.tagNames || [],
-        authorId: ctx.request.publishing.authorId ?? undefined,
-        nodesExecuted: [],
-        warnings: [],
-      }
-
-      const finalState = await this.graph.invoke(initialState)
-
-      if (finalState.error || !finalState.article) {
-        return {
-          success: false,
-          nodesExecuted: finalState.nodesExecuted,
-          nodeLogs: finalState.nodeLogs || [],
-          warnings: finalState.warnings,
-          error: finalState.error || {
-            code: "GENERATION_FAILED",
-            message: "QuickEngine LangGraph gagal menghasilkan naskah artikel.",
-            retryable: true,
-          },
-        }
-      }
-
-      return {
-        success: true,
-        article: finalState.article,
-        nodesExecuted: finalState.nodesExecuted,
-        nodeLogs: finalState.nodeLogs || [],
-        categoryIds: finalState.categoryIds || [],
-        tagIds: finalState.tagIds || [],
-        authorDetail: finalState.authorDetail,
-        tokenUsage: finalState.tokenUsage,
-        warnings: finalState.warnings,
-      }
-    } catch (err: unknown) {
-      const errorMsg = err instanceof Error ? err.message : "Kesalahan runtime pada QuickEngine LangGraph"
-      return {
-        success: false,
-        nodesExecuted: ["quick_engine_runtime"],
-        nodeLogs: [],
-        warnings: [],
-        error: {
-          code: "LANGGRAPH_EXECUTION_ERROR",
-          message: errorMsg,
-          node: "quick_engine",
-          retryable: true,
-        },
-      }
-    }
-  }
+/**
+ * Class wrapper untuk kompatibilitas penuh dengan kode eksisting (`new QuickEngine()`)
+ */
+export class QuickEngine implements WritingEngine {
+  readonly id = quickEngine.id
+  readonly name = quickEngine.name
+  readonly description = quickEngine.description
+  readonly version = quickEngine.version
+  readonly capabilities = quickEngine.capabilities
+  execute = quickEngine.execute
 }
