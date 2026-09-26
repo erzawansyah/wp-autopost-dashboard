@@ -14,7 +14,9 @@ export interface WPTagItem {
 
 export interface GetTagsResult {
   ok: boolean
-  /** Format string ringkas hemat token: "tag1 (23), tag2 (40), dst" */
+  /** Format string bernomor terstruktur */
+  tags_string: string
+  /** Format string ringkas: "tag1 (23), tag2 (40), dst" */
   tagsString: string
   /** Format objek terstruktur */
   tags: WPTagItem[]
@@ -24,13 +26,12 @@ export interface GetTagsResult {
 
 /**
  * Universal Tool: get_tags
- * Mengambil seluruh tag dari WordPress dan mengembalikannya sebagai string padat hemat token:
- * "tag1 (id1), tag2 (id2), tag3 (id3)" untuk diumpankan ke prompt LLM.
+ * Mengambil seluruh tag dari WordPress dan mengembalikannya sebagai tags_string siap baca.
  */
 export async function getTags(params: GetTagsParams): Promise<GetTagsResult> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
-    return { ok: false, tagsString: "", tags: [], totalCount: 0, error: error || "Alamat URL WordPress tidak valid." }
+    return { ok: false, tags_string: "", tagsString: "", tags: [], totalCount: 0, error: error || "Alamat URL WordPress tidak valid." }
   }
 
   const perPage = params.perPage || 100
@@ -55,6 +56,7 @@ export async function getTags(params: GetTagsParams): Promise<GetTagsResult> {
     if (!res.ok) {
       return {
         ok: false,
+        tags_string: "",
         tagsString: "",
         tags: [],
         totalCount: 0,
@@ -64,7 +66,7 @@ export async function getTags(params: GetTagsParams): Promise<GetTagsResult> {
 
     const data = await res.json()
     if (!Array.isArray(data)) {
-      return { ok: false, tagsString: "", tags: [], totalCount: 0, error: "Format data tag tidak valid." }
+      return { ok: false, tags_string: "", tagsString: "", tags: [], totalCount: 0, error: "Format data tag tidak valid." }
     }
 
     const tags: WPTagItem[] = data.map((item: any) => ({
@@ -75,17 +77,24 @@ export async function getTags(params: GetTagsParams): Promise<GetTagsResult> {
         .trim(),
     }))
 
-    // Format string padat hemat token: "tag1 (23), tag2 (40), dst"
+    // Format string ringkas
     const tagsString = tags.map((t) => `${t.name} (${t.id})`).join(", ")
+
+    // Format string bernomor terstruktur
+    const tags_string = tags.length === 0
+      ? "Daftar tag yang tersedia di WordPress: (Tidak ada tag ditemukan)"
+      : `Daftar tag yang tersedia di WordPress:\n` +
+        tags.map((t, idx) => `${idx + 1}. ${t.name} [ID: ${t.id}]`).join("\n")
 
     return {
       ok: true,
+      tags_string,
       tagsString,
       tags,
       totalCount: tags.length,
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Gangguan jaringan"
-    return { ok: false, tagsString: "", tags: [], totalCount: 0, error: `Gagal mengakses tag WordPress: ${message}` }
+    return { ok: false, tags_string: "", tagsString: "", tags: [], totalCount: 0, error: `Gagal mengakses tag WordPress: ${message}` }
   }
 }

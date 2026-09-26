@@ -43,8 +43,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
   const [selectedSiteId, setSelectedSiteId] = React.useState<string>(sites[0]?.id || "")
   
   // Custom params state
-  const [tagListInput, setTagListInput] = React.useState("teknologi, panduan-ai, tips-wordpress")
-  const [authorIdInput, setAuthorIdInput] = React.useState("1")
+  const [tagListInput, setTagListInput] = React.useState("Teknologi, Panduan AI, Tips WordPress")
   const [postTitleInput, setPostTitleInput] = React.useState("Artikel Uji Coba Lab System Writer")
   const [postContentInput, setPostContentInput] = React.useState(
     "<!-- wp:paragraph -->\n<p>Ini adalah paragraf pengujian yang dikirim langsung dari Test Bench Laboratorium.</p>\n<!-- /wp:paragraph -->"
@@ -71,8 +70,6 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
 
     if (selectedToolId === "create_tags") {
       params.tags = tagListInput.split(",").map((t) => t.trim()).filter(Boolean)
-    } else if (selectedToolId === "get_author") {
-      params.requestedAuthorId = authorIdInput ? Number(authorIdInput) : undefined
     } else if (selectedToolId === "wordpress_publisher") {
       params.title = postTitleInput
       params.contentHtml = postContentInput
@@ -173,26 +170,23 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
 
             {/* Parameter Spesifik Tool */}
             {selectedToolId === "create_tags" && (
-              <FormField label="Daftar Tag (pisahkan koma)" id="tag-input">
+              <FormField label="Daftar Nama Tag Baru (Nama Resmi, bukan slug — pisahkan koma)" id="tag-input">
                 <Input
                   id="tag-input"
                   value={tagListInput}
                   onChange={(e) => setTagListInput(e.target.value)}
-                  placeholder="tag1, tag2, tag3"
+                  placeholder="Teknologi, Panduan AI, Tips WordPress"
                 />
+                <span className="text-[11px] text-muted-foreground">
+                  Gunakan nama formal dengan huruf kapital sesuai keinginan. WordPress akan otomatis membuatkan slug yang sesuai.
+                </span>
               </FormField>
             )}
 
             {selectedToolId === "get_author" && (
-              <FormField label="Requested Author ID (Opsional)" id="author-id-input">
-                <Input
-                  id="author-id-input"
-                  type="number"
-                  value={authorIdInput}
-                  onChange={(e) => setAuthorIdInput(e.target.value)}
-                  placeholder="1"
-                />
-              </FormField>
+              <div className="rounded-md border border-border/80 bg-muted/20 p-3 text-xs text-muted-foreground leading-relaxed">
+                Tool ini secara otomatis mengambil seluruh pengguna WordPress yang memiliki hak kepenulisan (author/editor/administrator) beserta bio dan ID mereka untuk dicocokkan dengan persona artikel.
+              </div>
             )}
 
             {selectedToolId === "wordpress_publisher" && (

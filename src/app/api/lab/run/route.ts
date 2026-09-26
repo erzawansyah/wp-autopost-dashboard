@@ -163,11 +163,25 @@ export async function POST(request: Request) {
 
       switch (targetId) {
         case "get_categories": {
-          toolOutput = await getCategories(activeCredentials)
+          const res = await getCategories(activeCredentials)
+          if (!res.ok) {
+            return NextResponse.json(
+              { ok: false, error: res.error || "Gagal memuat kategori dari WordPress.", durationMs: Date.now() - startTime },
+              { status: 400 }
+            )
+          }
+          toolOutput = res.categories_string
           break
         }
         case "get_tags": {
-          toolOutput = await getTags(activeCredentials)
+          const res = await getTags(activeCredentials)
+          if (!res.ok) {
+            return NextResponse.json(
+              { ok: false, error: res.error || "Gagal memuat tag dari WordPress.", durationMs: Date.now() - startTime },
+              { status: 400 }
+            )
+          }
+          toolOutput = res.tags_string
           break
         }
         case "create_tags": {
@@ -175,12 +189,29 @@ export async function POST(request: Request) {
             ? params.tags
             : typeof params.tags === "string"
             ? params.tags.split(",").map((t: string) => t.trim()).filter(Boolean)
-            : ["test-tag-antigravity"]
-          toolOutput = await createTags({ ...activeCredentials, tagNames })
+            : ["Panduan AI", "Tips WordPress"]
+          const res = await createTags({ ...activeCredentials, tagNames })
+          if (!res.ok) {
+            return NextResponse.json(
+              { ok: false, error: res.error || "Gagal membuat tag di WordPress.", durationMs: Date.now() - startTime },
+              { status: 400 }
+            )
+          }
+          const createdString = `Hasil Pembuatan Tag WordPress:\n` +
+            res.tags.map((t, idx) => `${idx + 1}. ${t.name} [ID: ${t.id}] ${t.isNew ? "(Tag Baru Dibuat)" : "(Tag Sudah Ada Sebelumnya)"}`).join("\n") +
+            `\n\nTotal tag diproses: ${res.tags.length} (${res.createdCount} tag baru).`
+          toolOutput = createdString
           break
         }
         case "get_author": {
-          toolOutput = await getAuthor(activeCredentials)
+          const res = await getAuthor(activeCredentials)
+          if (!res.ok) {
+            return NextResponse.json(
+              { ok: false, error: res.error || "Gagal memuat daftar author dari WordPress.", durationMs: Date.now() - startTime },
+              { status: 400 }
+            )
+          }
+          toolOutput = res.authors_string
           break
         }
         case "wordpress_publisher": {
@@ -190,7 +221,7 @@ export async function POST(request: Request) {
             excerpt: params.excerpt,
             slug: params.slug,
           }
-          toolOutput = await publishPostToWordPress({
+          const res = await publishPostToWordPress({
             ...activeCredentials,
             article,
             metadata: {
@@ -199,6 +230,16 @@ export async function POST(request: Request) {
               tagNames: params.tagNames,
             },
           })
+          if (!res.ok) {
+            return NextResponse.json(
+              { ok: false, error: res.error || "Gagal memposting ke WordPress.", durationMs: Date.now() - startTime },
+              { status: 400 }
+            )
+          }
+          toolOutput = `Hasil Publikasi WordPress:\n` +
+            `- Status: ${res.status}\n` +
+            `- ID Post: ${res.wpPostId}\n` +
+            `- URL Post: ${res.wpPostUrl || "(Belum ada URL)"}`
           break
         }
         default:
@@ -293,18 +334,23 @@ export async function POST(request: Request) {
               request: createMockWriterRequest({
                 content: {
                   keyword: params.keyword || "tips optimasi website wordpress",
+                  title: params.title || undefined,
                   brief: params.brief || "Tuliskan tips praktis dan ringkas.",
                   language: params.language || "id",
-                  style: "default",
-                  wordCountTarget: params.wordCountTarget || 800,
+                  style: params.style || "default",
+                  wordCountTarget: params.wordCountTarget ? Number(params.wordCountTarget) : 800,
                 },
+                customInstructions: params.customInstructions,
+                model: model || params.model,
+                temperature: params.temperature !== undefined ? Number(params.temperature) : 0.7,
               }),
               llmService,
               promptConfig: {
                 systemPrompt: "",
                 userPromptTemplate: "",
                 variables: {
-                  authorName: "Redaksi Editorial",
+                  authorName: params.authorName || "Redaksi Editorial",
+                  authorBio: params.authorBio || "",
                 },
               },
             },
@@ -325,6 +371,7 @@ export async function POST(request: Request) {
                   language: "id",
                   style: "default",
                 },
+                model: model || params.model,
               }),
               llmService,
               promptConfig: {
@@ -334,7 +381,7 @@ export async function POST(request: Request) {
               },
             },
             rawTitle: params.title || "Panduan Lengkap Pemanfaatan AI Modern",
-            rawMarkdown: params.contentText || "Ini adalah konten artikel naskah yang lengkap dan mendalam.",
+            rawMarkdown: params.rawMarkdown || params.contentText || "",
           })
 
           const checked = await qualityCheckerNode(mockState)
@@ -346,7 +393,8 @@ export async function POST(request: Request) {
         case "gutenberg_formatter": {
           const mockState = createMockWriterState({
             rawTitle: params.title || "Judul Pengujian Formatter",
-            rawMarkdown: params.markdownContent || "# Judul Artikel\n\nParagraf teks utama.\n\n- Poin pertama\n- Poin kedua\n",
+            rawExcerpt: params.excerpt || "",
+            rawMarkdown: params.rawMarkdown || params.markdownContent || "# Judul Artikel\n\nParagraf teks utama.\n\n- Poin pertama\n- Poin kedua\n",
           })
 
           const formatted = await gutenbergFormatterNode(mockState)

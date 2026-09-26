@@ -39,20 +39,18 @@ export async function GET() {
       {
         id: "create_tags",
         name: "Buat Tag Baru (create_tags)",
-        description: "Membuat tag baru di WordPress jika belum ada, atau mengembalikan ID tag jika sudah ada.",
+        description: "Membuat tag baru di WordPress berdasarkan nama resmi jika belum ada, atau mengembalikan ID tag jika sudah ada.",
         requiresSite: true,
         defaultParams: {
-          tags: ["teknologi", "panduan-ai", "tutorial-wordpress"],
+          tags: ["Teknologi", "Panduan AI", "Tips WordPress"],
         },
       },
       {
         id: "get_author",
-        name: "Pilih Penulis (get_author)",
-        description: "Mengambil daftar user WordPress dengan role author/editor/administrator dan memilih author terbaik (menghindari 'admin').",
+        name: "Daftar Penulis (get_author)",
+        description: "Mengambil daftar seluruh pengguna WordPress dengan role author/editor/administrator beserta ID dan bio mereka.",
         requiresSite: true,
-        defaultParams: {
-          requestedAuthorId: 1,
-        },
+        defaultParams: {},
       },
       {
         id: "wordpress_publisher",
@@ -63,7 +61,7 @@ export async function GET() {
           title: "Artikel Uji Coba Lab System Writer",
           contentHtml: "<!-- wp:paragraph -->\n<p>Ini adalah paragraf pengujian yang dikirim langsung dari Test Bench Laboratorium.</p>\n<!-- /wp:paragraph -->",
           status: "draft",
-          tagNames: ["test-lab", "antigravity"],
+          tagNames: ["Panduan AI", "Tutorial WordPress"],
         },
       },
     ]

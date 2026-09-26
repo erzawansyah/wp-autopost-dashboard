@@ -16,6 +16,7 @@ export interface WPAuthorDetail {
 export interface GetAuthorResult {
   ok: boolean
   authors: WPAuthorDetail[]
+  authors_string: string
   error?: string
 }
 
@@ -27,7 +28,7 @@ export interface GetAuthorResult {
 export async function getAuthor(params: GetAuthorParams): Promise<GetAuthorResult> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
-    return { ok: false, authors: [], error: error || "Alamat URL WordPress tidak valid." }
+    return { ok: false, authors: [], authors_string: "", error: error || "Alamat URL WordPress tidak valid." }
   }
 
   // Ambil users dengan role yang memiliki hak menulis (default per_page=100)
@@ -53,13 +54,14 @@ export async function getAuthor(params: GetAuthorParams): Promise<GetAuthorResul
       return {
         ok: false,
         authors: [],
+        authors_string: "",
         error: `Gagal memuat daftar author dari WordPress (HTTP ${res.status}).`,
       }
     }
 
     const data = await res.json()
     if (!Array.isArray(data)) {
-      return { ok: false, authors: [], error: "Format respons author tidak valid." }
+      return { ok: false, authors: [], authors_string: "", error: "Format respons author tidak valid." }
     }
 
     const authors: WPAuthorDetail[] = data.map((item: any) => ({
@@ -72,9 +74,19 @@ export async function getAuthor(params: GetAuthorParams): Promise<GetAuthorResul
       slug: String(item.slug || ""),
     }))
 
-    return { ok: true, authors }
+    const authors_string = authors.length === 0
+      ? "Daftar penulis yang tersedia di WordPress: (Tidak ada user penulis ditemukan)"
+      : `Daftar penulis yang tersedia di WordPress:\n` +
+        authors
+          .map((a, idx) => {
+            const bio = a.author_bio ? `: ${a.author_bio}` : ""
+            return `${idx + 1}. ${a.author_name} [ID: ${a.author_id}] (Slug: ${a.slug})${bio}`
+          })
+          .join("\n")
+
+    return { ok: true, authors, authors_string }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Gangguan jaringan"
-    return { ok: false, authors: [], error: `Gagal mengakses data author WordPress: ${message}` }
+    return { ok: false, authors: [], authors_string: "", error: `Gagal mengakses data author WordPress: ${message}` }
   }
 }
