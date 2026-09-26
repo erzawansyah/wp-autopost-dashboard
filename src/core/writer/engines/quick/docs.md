@@ -67,48 +67,48 @@ outputs:
     description: "Daftar teks seluruh heading H2 dan H3 yang ada di dalam naskah."
 
 dependencies:
+  - "@langchain/langgraph"
   - "@langchain/openrouter"
   - "zod"
-  - "src/core/shared/formatters/gutenberg"
-  - "src/core/shared/formatters/markdown-cleaner"
-  - "src/lib/ai/openrouter"
+  - "src/core/writer/nodes/taxonomy-resolver"
+  - "src/core/writer/nodes/article-drafter"
+  - "src/core/writer/nodes/quality-checker"
+  - "src/core/writer/nodes/gutenberg-formatter"
 ---
 
 # Tulis Cepat (Quick Engine)
 
 ## 1. Ikhtisar & Tujuan
 
-`QuickEngine` adalah mesin generasi artikel instan yang dirancang untuk kecepatan tinggi dan efisiensi biaya. Engine ini menggunakan strategi **1-shot generation** yang dipadukan dengan pendekatan **Markdown-First** dan **Native Gutenberg Block Serialization**.
+`QuickEngine` adalah mesin generasi artikel instan yang dirancang untuk kecepatan tinggi dan efisiensi biaya. Engine ini mengorkestrasi node-node modular independen menggunakan **LangGraph StateGraph** dengan gerbang keputusan mutu (*quality gatekeeper*) sebelum diunggah ke WordPress.
 
 Engine ini sangat cocok untuk:
 - Modul "Tulis Cepat" di mana pengguna menginginkan draf siap tayang dalam waktu kurang dari 20 detik.
 - Eksekusi batch masal ratusan artikel yang memprioritaskan konsumsi token rendah dan stabilitas tinggi.
 
+### Node yang Digunakan (Node Composition)
+
+Karena setiap Node di `src/core/writer/nodes/` bersifat modular dan *engine-agnostic* (dapat dipakai ulang lintas engine), `QuickEngine` mengombinasikan node-node berikut:
+
+| Urutan | Node yang Dipakai | Lokasi | Peran dalam QuickEngine |
+| :---: | :--- | :--- | :--- |
+| **Tahap 1** | `taxonomy-resolver` | `src/core/writer/nodes/taxonomy-resolver` | Mengisi kategori, tag, dan author default jika tidak diisi pengguna. |
+| **Tahap 2** | `article-drafter` | `src/core/writer/nodes/article-drafter` | Menulis naskah utuh 1-shot format Markdown murni (Anti-Slop v3.0). |
+| **Tahap 3** | `quality-checker` | `src/core/writer/nodes/quality-checker` | **Pengambil Keputusan (LLM Gatekeeper)**: Memeriksa kelayakan naskah; jika penolakan AI, hentikan alur (*stop*). |
+| **Tahap 4** | `gutenberg-formatter` | `src/core/writer/nodes/gutenberg-formatter` | Sanitasi dash, ekstraksi metrik, dan serialisasi deterministik ke blok Gutenberg resmi. |
+
+*(Catatan: `input-validator` dijalankan di pintu gerbang Facade Orchestrator `writer.run()` sebelum masuk ke engine).*
+
 ## 2. Cara Kerja & Alur Logika (Workflow)
 
 ```mermaid
-sequenceDiagram
-    participant Facade as Writer Facade
-    participant Engine as QuickEngine
-    participant LLM as OpenRouter LLM
-    participant Cleaner as Markdown Cleaner
-    participant G as Gutenberg Serializer
-
-    Facade->>Engine: execute(context)
-    Engine->>Engine: Rakit System Prompt (Anti-Slop v3.0)
-    Engine->>LLM: generate({ systemPrompt, userPrompt, schema: QuickOutputSchema })
-    LLM-->>Engine: Respon JSON { title, excerpt, markdownContent }
-    
-    alt Terdeteksi Penolakan Chatbot atau Konten < 350 Karakter
-        Engine->>LLM: Eksekusi Recovery Generator ("Sebagai publisher otonom...")
-        LLM-->>Engine: Respon Recovery Naskah Utuh
-    end
-
-    Engine->>Cleaner: cleanMarkdown() & sanitizeDashes()
-    Cleaner-->>Engine: Markdown bersih, nol-dash
-    Engine->>G: markdownToGutenberg(cleanedMarkdown)
-    G-->>Engine: HTML dengan blok resmi <!-- wp:... -->
-    Engine-->>Facade: EngineResult { success: true, article, ... }
+flowchart LR
+    START([START]) --> N_Tax["taxonomy_resolver"]
+    N_Tax --> N_Draft["article_drafter"]
+    N_Draft --> N_QC{"quality_checker<br/>(LLM Decision)"}
+    N_QC -- "Ditolak / Penolakan AI" --> END_STOP([STOP / END])
+    N_QC -- "Layak Terbit" --> N_Fmt["gutenberg_formatter"]
+    N_Fmt --> END_OK([END])
 ```
 
 ## 3. Spesifikasi Parameter (Inputs & Options)

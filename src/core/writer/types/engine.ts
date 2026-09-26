@@ -83,3 +83,62 @@ export interface WritingEngine {
    */
   execute(context: EngineContext): Promise<EngineResult>
 }
+
+import { Annotation } from "@langchain/langgraph"
+
+/**
+ * Skema State Terpadu LangGraph untuk Seluruh Writing Engine
+ */
+export const WriterStateAnnotation = Annotation.Root({
+  // Input Context
+  context: Annotation<EngineContext>({
+    reducer: (prev, next) => next ?? prev,
+  }),
+  // Taxonomy Metadata
+  categoryIds: Annotation<number[]>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => [],
+  }),
+  tagNames: Annotation<string[]>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => [],
+  }),
+  authorId: Annotation<number | undefined>({
+    reducer: (prev, next) => next ?? prev,
+  }),
+  // Raw Draft dari LLM
+  rawTitle: Annotation<string>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => "",
+  }),
+  rawExcerpt: Annotation<string>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => "",
+  }),
+  rawMarkdown: Annotation<string>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => "",
+  }),
+  tokenUsage: Annotation<{ prompt: number; completion: number; total: number } | undefined>({
+    reducer: (prev, next) => next ?? prev,
+  }),
+  // Formatted Article Siap WordPress
+  article: Annotation<GeneratedArticle | undefined>({
+    reducer: (prev, next) => next ?? prev,
+  }),
+  // Observabilitas & Logs
+  nodesExecuted: Annotation<string[]>({
+    reducer: (prev, next) => prev.concat(next),
+    default: () => [],
+  }),
+  warnings: Annotation<string[]>({
+    reducer: (prev, next) => prev.concat(next),
+    default: () => [],
+  }),
+  error: Annotation<WriterError | undefined>({
+    reducer: (prev, next) => next ?? prev,
+  }),
+})
+
+export type WriterState = typeof WriterStateAnnotation.State
+

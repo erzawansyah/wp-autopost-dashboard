@@ -9,6 +9,8 @@ import { EngineContext, PromptConfig } from "./types/engine"
 import { EngineRegistry } from "./engines"
 import { OpenRouterLlmService } from "@/lib/ai/openrouter"
 
+import { executeInputValidator } from "./nodes/input-validator"
+
 /**
  * Pintu masuk utama (Facade Orchestrator) untuk penulisan artikel.
  * Menghubungkan seluruh modul aplikasi ke engine penulisan yang dipilih.
@@ -18,31 +20,30 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
   const rawObj = (typeof rawRequest === "object" && rawRequest !== null ? rawRequest : {}) as Record<string, unknown>
   const requestId = (rawObj.requestId as string) || crypto.randomUUID()
 
-  // 1. Validasi input request dengan Zod
-  const parseResult = WriterRequestSchema.safeParse(rawRequest)
-  if (!parseResult.success) {
-    const errorMsg = parseResult.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")
+  // 1. Validasi input request menggunakan Node Input Validator
+  const validation = executeInputValidator(rawRequest)
+  if (!validation.isValid || !validation.sanitizedRequest) {
     return {
       success: false,
       status: "failed",
       execution: {
         engine: "unknown",
-        nodesExecuted: ["validate_input"],
+        nodesExecuted: ["input_validator"],
         durationMs: Date.now() - startTime,
         retries: 0,
         modelUsed: "none",
         warnings: [],
       },
       error: {
-        code: "INVALID_INPUT",
-        message: `Validasi parameter gagal: ${errorMsg}`,
+        code: validation.error?.code || "INVALID_INPUT",
+        message: validation.error?.message || "Validasi parameter gagal",
         retryable: false,
       },
     }
   }
 
   const request: WriterRequest = {
-    ...parseResult.data,
+    ...validation.sanitizedRequest,
     requestId,
   }
 
@@ -147,6 +148,12 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
 export * from "./types/contracts"
 export * from "./types/engine"
 export * from "./engines"
+export * from "./nodes/input-validator"
+export * from "./nodes/taxonomy-resolver"
+export * from "./nodes/article-drafter"
+export * from "./nodes/quality-checker"
+export * from "./nodes/gutenberg-formatter"
+export * from "../shared/tools/wordpress-publisher"
 export * from "../shared/formatters/gutenberg"
 export * from "../shared/formatters/markdown-cleaner"
 export * from "@/lib/ai/openrouter"

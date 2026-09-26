@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { decryptCredential } from "@/lib/crypto"
-import { run } from "@/core/writer"
-import { createWordPressPost, resolveOrCreateWordPressTags } from "@/lib/wordpress/client"
+import { run, publishPostToWordPress } from "@/core/writer"
+
 
 export async function POST(request: Request) {
   try {
@@ -202,33 +202,21 @@ export async function POST(request: Request) {
       .eq("id", postId)
       .eq("user_id", user.id)
 
-    // Selesaikan atau buat tag otomatis di WordPress
-    let resolvedTagIds: number[] = []
-    if (tagList.length > 0) {
-      try {
-        resolvedTagIds = await resolveOrCreateWordPressTags({
-          baseUrl: site.base_url,
-          username: site.wp_username,
-          applicationPassword: plainPassword,
-          tagNames: tagList,
-        })
-      } catch (tagErr) {
-        console.warn("Gagal menyelesaikan tag WordPress:", tagErr)
-      }
-    }
-
-    // 5. Kirim artikel ke WordPress REST API (isi contentHtml adalah native Gutenberg Blocks)
-    const wpResult = await createWordPressPost({
+    // 5. Kirim artikel ke WordPress REST API via publishPostToWordPress tool
+    const wpResult = await publishPostToWordPress({
       baseUrl: site.base_url,
       username: site.wp_username,
       applicationPassword: plainPassword,
-      post: {
+      article: {
         title: generated.title,
-        content: generated.contentHtml,
+        contentHtml: generated.contentHtml,
         excerpt: generated.excerpt,
+        slug: generated.slug,
+      },
+      metadata: {
         status: actionStatus,
-        categories: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
-        tags: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
+        categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
+        tagNames: tagList,
       },
     })
 
