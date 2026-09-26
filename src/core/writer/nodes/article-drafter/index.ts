@@ -142,23 +142,39 @@ export async function executeArticleDrafter(
   };
 }
 
+import { defineNode } from "../../utils/node-factory"
+
 /**
  * Node LangGraph resmi untuk Article Drafter
- * Langsung menerima dan memperbarui WriterState.
+ * Didefinisikan secara deklaratif via defineNode factory.
  */
-export async function articleDrafterNode(
-  state: WriterState,
-): Promise<Partial<WriterState>> {
-  if (state.error) {
-    return {};
-  }
+export const articleDrafterNode = defineNode({
+  id: "article_drafter",
+  label: "Penulisan Naskah Anti-Slop",
+  isAiNode: true,
+  extractLogInput: (state) => ({
+    keyword: state.context.request.content.keyword,
+    model: state.context.request.model || "default",
+    language: state.context.request.content.language || "id",
+    wordCountTarget: state.context.request.content.wordCountTarget || 800,
+    brief: state.context.request.content.brief || null,
+    customInstructions: state.context.promptConfig?.customInstructions || null,
+  }),
+  extractLogOutput: (output) => {
+    const wordCount = output.rawMarkdown ? output.rawMarkdown.trim().split(/\s+/).length : 0
+    return {
+      title: output.rawTitle,
+      excerpt: output.rawExcerpt,
+      wordCountEstimate: wordCount,
+      charactersCount: output.rawMarkdown?.length || 0,
+      tokenUsage: output.tokenUsage || null,
+    }
+  },
 
-  const start = Date.now();
-  const keyword = state.context.request.content.keyword;
-  const model = state.context.request.model || "default";
-  const wordCountTarget = state.context.request.content.wordCountTarget || 800;
+  async run(state, { logMessage }) {
+    const keyword = state.context.request.content.keyword
+    const wordCountTarget = state.context.request.content.wordCountTarget || 800
 
-  try {
     const drafterResult = await executeArticleDrafter({
       keyword,
       language: state.context.request.content.language,
@@ -166,80 +182,21 @@ export async function articleDrafterNode(
       title: state.context.request.content.title,
       brief: state.context.request.content.brief,
       author: state.authorDetail,
-      customInstructions: state.context.promptConfig.customInstructions,
+      customInstructions: state.context.promptConfig?.customInstructions,
       model: state.context.request.model,
       temperature: state.context.request.temperature,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       llmService: state.context.llmService as any,
-    });
+    })
 
-    const durationMs = Date.now() - start;
-    const wordCount = drafterResult.rawMarkdown.trim().split(/\s+/).length;
-    console.log(
-      `[Writer Node: article_drafter] Input: { keyword: "${keyword}", model: "${model}", target: ${wordCountTarget} } -> Output: { title: "${drafterResult.rawTitle}", wordCount: ${wordCount} } (${durationMs}ms)`,
-    );
+    const wordCount = drafterResult.rawMarkdown.trim().split(/\s+/).length
+    logMessage(`Naskah selesai ditulis (~${wordCount} kata)`)
 
     return {
       rawTitle: drafterResult.rawTitle,
       rawExcerpt: drafterResult.rawExcerpt,
       rawMarkdown: drafterResult.rawMarkdown,
       tokenUsage: drafterResult.tokenUsage,
-      nodesExecuted: ["article_drafter"],
-      nodeLogs: [
-        {
-          node: "article_drafter",
-          label: "Penulisan Naskah Anti-Slop",
-          status: "success",
-          durationMs,
-          input: {
-            keyword,
-            model,
-            language: state.context.request.content.language || "id",
-            wordCountTarget,
-            brief: state.context.request.content.brief || null,
-            customInstructions:
-              state.context.promptConfig.customInstructions || null,
-          },
-          output: {
-            title: drafterResult.rawTitle,
-            excerpt: drafterResult.rawExcerpt,
-            wordCountEstimate: wordCount,
-            charactersCount: drafterResult.rawMarkdown.length,
-            tokenUsage: drafterResult.tokenUsage || null,
-          },
-          message: `Naskah selesai ditulis (~${wordCount} kata)`,
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    };
-  } catch (err: unknown) {
-    const durationMs = Date.now() - start;
-    const errorMsg =
-      err instanceof Error ? err.message : "Kesalahan eksekusi drafter LLM";
-    console.error(
-      `[Writer Node: article_drafter] GAGAL: ${errorMsg} (${durationMs}ms)`,
-    );
-
-    return {
-      error: {
-        code: "GENERATION_ERROR",
-        message: errorMsg,
-        node: "article_drafter",
-        retryable: true,
-      },
-      nodesExecuted: ["article_drafter"],
-      nodeLogs: [
-        {
-          node: "article_drafter",
-          label: "Penulisan Naskah Anti-Slop",
-          status: "error",
-          durationMs,
-          input: { keyword, model, wordCountTarget },
-          output: { error: errorMsg },
-          message: `Gagal menghasilkan naskah: ${errorMsg}`,
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    };
-  }
-}
+    }
+  },
+})

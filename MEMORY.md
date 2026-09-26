@@ -68,6 +68,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - Item sidebar `Provider AI` dihapus; akses API key melalui kartu di halaman `/settings` → `/settings/ai`. Hierarki navigasi kembali ke satu induk Pengaturan.
 26. **ADR-026 (Arsitektur Node AI & Prompt Templating `prompt.md`)**:
     - Node berbasis AI (`taxonomy-resolver`, `article-drafter`, `quality-checker`) menggunakan berkas `prompt.md` terpisah dengan frontmatter YAML/TOML di awal (nama node, deskripsi, variabel) dan section tags `[SYSTEM_PROMPT]` serta `[USER_PROMPT]` dengan interpolasi `{{var}}`. Dimuat runtime via `loadNodePrompt()` (`prompt-loader.ts`). Berkas `docs.md` boilerplate yang membingungkan dihapus total. Telemetri live per-node dipancarkan ke browser console (`console.group`/`console.log`).
+27. **ADR-027 (Functional Factory `defineNode` untuk Boilerplate-Free Nodes)**:
+    - Seluruh node modular dibungkus dengan factory `defineNode()` (`src/core/writer/utils/node-factory.ts`). Mengeliminasi boilerplate berulang (timer durasi, auto-load prompt, try-catch, formatting `WriterError` via `NodeError`, dan telemetri `nodeLogs` + `nodesExecuted`). Sepenuhnya stateless, bebas risiko mutable state (`this`), dan 100% kompatibel dengan LangGraph.
 
 ---
 

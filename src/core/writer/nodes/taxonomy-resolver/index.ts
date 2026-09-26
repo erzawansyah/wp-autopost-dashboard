@@ -119,241 +119,198 @@ export function executeTaxonomyResolver(input: TaxonomyResolverInput): TaxonomyR
   }
 }
 
-import { loadNodePrompt } from "../../utils/prompt-loader"
+import { defineNode } from "../../utils/node-factory"
 
 /**
  * Node LangGraph resmi untuk Taxonomy Resolver
- * Mengambil data live dari WordPress (categories, tags, authors), mengevaluasi kecocokan dengan LLM via prompt.md,
- * membuat tag baru jika belum ada, dan menyiapkan metadata untuk pembuatan draf serta pengiriman WordPress.
+ * Didefinisikan secara deklaratif via defineNode factory.
  */
-export async function taxonomyResolverNode(state: WriterState): Promise<Partial<WriterState>> {
-  const start = Date.now()
-  const warnings: string[] = []
+export const taxonomyResolverNode = defineNode({
+  id: "taxonomy_resolver",
+  label: "Resolusi Taksonomi & Metadata",
+  isAiNode: true,
+  extractLogInput: (state) => ({
+    keyword: state.context.request.content.keyword,
+    inputCategoryIds: state.categoryIds,
+    inputTagNames: state.tagNames,
+    inputAuthorId: state.authorId,
+  }),
+  extractLogOutput: (output) => ({
+    resolvedCategoryIds: output.categoryIds,
+    resolvedTagNames: output.tagNames,
+    resolvedTagIds: output.tagIds,
+    resolvedAuthorId: output.authorId,
+  }),
 
-  const keyword = state.context.request.content.keyword
-  const brief = state.context.request.content.brief || ""
-  const siteConfig = state.context.request.site
-  const userCategoryIds = state.categoryIds && state.categoryIds.length > 0 ? state.categoryIds : []
-  const userTagNames = state.tagNames && state.tagNames.length > 0 ? state.tagNames : []
-  const userAuthorId = state.authorId
+  async run(state, { prompt, llm, logMessage, addWarning }) {
+    const keyword = state.context.request.content.keyword
+    const brief = state.context.request.content.brief || ""
+    const siteConfig = state.context.request.site
+    const userCategoryIds = state.categoryIds && state.categoryIds.length > 0 ? state.categoryIds : []
+    const userTagNames = state.tagNames && state.tagNames.length > 0 ? state.tagNames : []
+    const userAuthorId = state.authorId
 
-  // Cek apakah kredensial WordPress tersedia untuk pemanggilan tools live
-  const hasWpCredentials =
-    Boolean(siteConfig?.baseUrl) &&
-    Boolean(siteConfig?.username) &&
-    Boolean(siteConfig?.applicationPassword)
+    // Cek apakah kredensial WordPress tersedia untuk pemanggilan tools live
+    const hasWpCredentials =
+      Boolean(siteConfig?.baseUrl) &&
+      Boolean(siteConfig?.username) &&
+      Boolean(siteConfig?.applicationPassword)
 
-  // Jika input pengguna belum lengkap (kategori kosong atau author belum ditentukan) dan kredensial WP ada
-  if (hasWpCredentials && (userCategoryIds.length === 0 || !userAuthorId)) {
-    try {
-      const baseUrl = siteConfig.baseUrl!
-      const username = siteConfig.username!
-      const applicationPassword = siteConfig.applicationPassword!
+    // Jika input pengguna belum lengkap (kategori kosong atau author belum ditentukan) dan kredensial WP ada
+    if (hasWpCredentials && (userCategoryIds.length === 0 || !userAuthorId)) {
+      try {
+        const baseUrl = siteConfig.baseUrl!
+        const username = siteConfig.username!
+        const applicationPassword = siteConfig.applicationPassword!
 
-      // 1. Panggil tools eksternal secara paralel
-      const [categoriesRes, tagsRes, authorsRes] = await Promise.all([
-        getCategories({ baseUrl, username, applicationPassword }),
-        getTags({ baseUrl, username, applicationPassword }),
-        getAuthor({ baseUrl, username, applicationPassword }),
-      ])
+        // 1. Panggil tools eksternal secara paralel
+        const [categoriesRes, tagsRes, authorsRes] = await Promise.all([
+          getCategories({ baseUrl, username, applicationPassword }),
+          getTags({ baseUrl, username, applicationPassword }),
+          getAuthor({ baseUrl, username, applicationPassword }),
+        ])
 
-      const categories = categoriesRes.ok ? categoriesRes.categories : []
-      const tagsString = tagsRes.ok ? tagsRes.tagsString : ""
-      const authors = authorsRes.ok ? authorsRes.authors : []
+        const categories = categoriesRes.ok ? categoriesRes.categories : []
+        const tagsString = tagsRes.ok ? tagsRes.tagsString : ""
+        const authors = authorsRes.ok ? authorsRes.authors : []
 
-      if (categories.length > 0 && authors.length > 0) {
-        // 2. Susun prompt dinamis via template prompt.md
-        const categoriesList = categories
-          .map((c) => `- ID ${c.id}: "${c.name}" (Slug: ${c.slug}, Deskripsi: ${c.description || "Tanpa deskripsi"})`)
-          .join("\n")
+        if (categories.length > 0 && authors.length > 0) {
+          // 2. Susun prompt dinamis via template prompt.md
+          const categoriesList = categories
+            .map((c) => `- ID ${c.id}: "${c.name}" (Slug: ${c.slug}, Deskripsi: ${c.description || "Tanpa deskripsi"})`)
+            .join("\n")
 
-        const authorsList = authors
-          .map((a) => `- ID ${a.author_id}: "${a.author_name}" (Slug: ${a.slug}, Bio: ${a.author_bio || "Penulis blog"})`)
-          .join("\n")
+          const authorsList = authors
+            .map((a) => `- ID ${a.author_id}: "${a.author_name}" (Slug: ${a.slug}, Bio: ${a.author_bio || "Penulis blog"})`)
+            .join("\n")
 
-        const promptTemplate = loadNodePrompt("taxonomy-resolver")
-        const systemPrompt = promptTemplate.renderSystemPrompt()
-        const userPrompt = promptTemplate.renderUserPrompt({
-          keyword,
-          brief: brief || "Tidak ada catatan khusus",
-          categoriesList,
-          tagsSummary: tagsString || "(Belum ada tag)",
-          authorsList,
-        })
+          const systemPrompt = prompt?.renderSystemPrompt() || ""
+          const userPrompt = prompt?.renderUserPrompt({
+            keyword,
+            brief: brief || "Tidak ada catatan khusus",
+            categoriesList,
+            tagsSummary: tagsString || "(Belum ada tag)",
+            authorsList,
+          }) || ""
 
-        const evaluation = await state.context.llmService.generate({
-          systemPrompt,
-          userPrompt,
-          model: state.context.request.model,
-          temperature: 0.1,
-          outputSchema: TaxonomySelectionSchema,
-        })
+          const evaluation = await llm.generate({
+            systemPrompt,
+            userPrompt,
+            model: state.context.request.model,
+            temperature: 0.1,
+            outputSchema: TaxonomySelectionSchema,
+          })
 
-        let selection: TaxonomySelection | null = null
-        try {
-          let cleanJson = evaluation.content.trim()
-          if (cleanJson.startsWith("```json")) {
-            cleanJson = cleanJson.replace(/^```json\s*/, "").replace(/\s*```$/, "")
-          } else if (cleanJson.startsWith("```")) {
-            cleanJson = cleanJson.replace(/^```\s*/, "").replace(/\s*```$/, "")
-          }
-          selection = JSON.parse(cleanJson) as TaxonomySelection
-        } catch {
-          // Fallback parsing jika format string
-        }
-
-        if (selection) {
-          // Kategori: Utamakan input manual user jika ada, jika tidak gunakan hasil LLM
-          let resolvedCategoryIds: number[] = userCategoryIds.length > 0
-            ? [...userCategoryIds]
-            : [selection.selectedCategoryId, ...(selection.additionalCategoryIds || [])]
-
-          // Tag: Cek apakah perlu membuat tag baru via create_tags tool
-          let finalTagIds: number[] = [...(selection.matchedTagIds || [])]
-          let createdTagNames: string[] = []
-
-          if (selection.newTagsToCreate && selection.newTagsToCreate.length > 0) {
-            const createRes = await createTags({
-              baseUrl,
-              username,
-              applicationPassword,
-              tagNames: selection.newTagsToCreate,
-            })
-            if (createRes.ok && createRes.tagIds.length > 0) {
-              finalTagIds = Array.from(new Set([...finalTagIds, ...createRes.tagIds]))
-              createdTagNames = createRes.tags.map((t) => t.name)
+          let selection: TaxonomySelection | null = null
+          try {
+            let cleanJson = evaluation.content.trim()
+            if (cleanJson.startsWith("```json")) {
+              cleanJson = cleanJson.replace(/^```json\s*/, "").replace(/\s*```$/, "")
+            } else if (cleanJson.startsWith("```")) {
+              cleanJson = cleanJson.replace(/^```\s*/, "").replace(/\s*```$/, "")
             }
+            selection = JSON.parse(cleanJson) as TaxonomySelection
+          } catch {
+            // Fallback parsing jika format string
           }
 
-          // Author: Pilih author_id hasil seleksi (utamakan bukan admin)
-          const resolvedAuthorId = userAuthorId || selection.selectedAuthorId
-          const selectedAuthorObj =
-            authors.find((a) => a.author_id === resolvedAuthorId) ||
-            authors.find((a) => !a.author_name.toLowerCase().includes("admin")) ||
-            authors[0]
+          if (selection) {
+            // Kategori: Utamakan input manual user jika ada, jika tidak gunakan hasil LLM
+            let resolvedCategoryIds: number[] = userCategoryIds.length > 0
+              ? [...userCategoryIds]
+              : [selection.selectedCategoryId, ...(selection.additionalCategoryIds || [])]
 
-          const authorDetail = selectedAuthorObj
-            ? {
-                id: selectedAuthorObj.author_id,
-                name: selectedAuthorObj.author_name,
-                bio: selectedAuthorObj.author_bio,
+            // Tag: Cek apakah perlu membuat tag baru via create_tags tool
+            let finalTagIds: number[] = [...(selection.matchedTagIds || [])]
+            let createdTagNames: string[] = []
+
+            if (selection.newTagsToCreate && selection.newTagsToCreate.length > 0) {
+              const createRes = await createTags({
+                baseUrl,
+                username,
+                applicationPassword,
+                tagNames: selection.newTagsToCreate,
+              })
+              if (createRes.ok && createRes.tagIds.length > 0) {
+                finalTagIds = Array.from(new Set([...finalTagIds, ...createRes.tagIds]))
+                createdTagNames = createRes.tags.map((t) => t.name)
               }
-            : undefined
+            }
 
-          // Sinkronkan ke promptConfig variables agar article-drafter dapat menyesuaikan gaya penulisan author
-          if (authorDetail) {
-            state.context.promptConfig.variables.authorName = authorDetail.name
-            if (authorDetail.bio) {
-              state.context.promptConfig.variables.authorBio = authorDetail.bio
+            // Author: Pilih author_id hasil seleksi (utamakan bukan admin)
+            const resolvedAuthorId = userAuthorId || selection.selectedAuthorId
+            const selectedAuthorObj =
+              authors.find((a) => a.author_id === resolvedAuthorId) ||
+              authors.find((a) => !a.author_name.toLowerCase().includes("admin")) ||
+              authors[0]
+
+            const authorDetail = selectedAuthorObj
+              ? {
+                  id: selectedAuthorObj.author_id,
+                  name: selectedAuthorObj.author_name,
+                  bio: selectedAuthorObj.author_bio,
+                }
+              : undefined
+
+            // Sinkronkan ke promptConfig variables agar article-drafter dapat menyesuaikan gaya penulisan author
+            if (authorDetail && state.context?.promptConfig?.variables) {
+              state.context.promptConfig.variables.authorName = authorDetail.name
+              if (authorDetail.bio) {
+                state.context.promptConfig.variables.authorBio = authorDetail.bio
+              }
+            }
+
+            // Sinkronkan ke request context untuk konsistensi pipeline
+            if (state.context?.request?.publishing) {
+              state.context.request.publishing.categoryIds = resolvedCategoryIds
+              state.context.request.publishing.tagNames = userTagNames.length > 0 ? userTagNames : createdTagNames
+              state.context.request.publishing.authorId = resolvedAuthorId
+            }
+
+            logMessage(`Taksonomi cerdas dipetakan: Kategori [${resolvedCategoryIds.join(", ")}], Author ${selectedAuthorObj?.author_name}`)
+
+            return {
+              categoryIds: resolvedCategoryIds,
+              tagNames: userTagNames.length > 0 ? userTagNames : createdTagNames,
+              tagIds: finalTagIds,
+              authorId: resolvedAuthorId,
+              authorDetail,
             }
           }
-
-          // Sinkronkan ke request context untuk konsistensi pipeline
-          state.context.request.publishing.categoryIds = resolvedCategoryIds
-          state.context.request.publishing.tagNames = userTagNames.length > 0 ? userTagNames : createdTagNames
-          state.context.request.publishing.authorId = resolvedAuthorId
-
-          const durationMs = Date.now() - start
-          console.log(
-            `[Writer Node: taxonomy_resolver] LLM Resolved: Categories: [${resolvedCategoryIds.join(", ")}], Author: ${selectedAuthorObj?.author_name} (ID ${resolvedAuthorId}), Tags: ${finalTagIds.length} tags (${durationMs}ms)`
-          )
-
-          return {
-            categoryIds: resolvedCategoryIds,
-            tagNames: userTagNames.length > 0 ? userTagNames : createdTagNames,
-            tagIds: finalTagIds,
-            authorId: resolvedAuthorId,
-            authorDetail,
-            nodesExecuted: ["taxonomy_resolver"],
-            nodeLogs: [
-              {
-                node: "taxonomy_resolver",
-                label: "Resolusi Taksonomi & Metadata",
-                status: "success",
-                durationMs,
-                input: {
-                  keyword,
-                  userCategoryIds,
-                  userTagNames,
-                  userAuthorId,
-                  availableCategoriesCount: categories.length,
-                  availableAuthorsCount: authors.length,
-                },
-                output: {
-                  selectedCategories: resolvedCategoryIds,
-                  selectedAuthor: {
-                    id: resolvedAuthorId,
-                    name: selectedAuthorObj?.author_name,
-                    bio: selectedAuthorObj?.author_bio || null,
-                  },
-                  matchedTagIds: selection.matchedTagIds,
-                  newTagsCreated: createdTagNames,
-                  finalTagIds,
-                  reasoning: selection.reasoning,
-                },
-                message: `Taksonomi cerdas dipetakan: Kategori [${resolvedCategoryIds.join(", ")}], Author ${selectedAuthorObj?.author_name}`,
-                timestamp: new Date().toISOString(),
-              },
-            ],
-            warnings,
-          }
         }
+      } catch (err) {
+        console.warn("[taxonomy_resolver] Gagal menggunakan tools WP/LLM, beralih ke fallback deterministik:", err)
+        addWarning("Koneksi tools WordPress gagal, menggunakan resolusi taksonomi cadangan.")
       }
-    } catch (err) {
-      console.warn("[taxonomy_resolver] Gagal menggunakan tools WP/LLM, beralih ke fallback deterministik:", err)
-      warnings.push("Koneksi tools WordPress gagal, menggunakan resolusi taksonomi cadangan.")
     }
-  }
 
-  // Fallback deterministik jika tools tidak dapat dipanggil atau unit test
-  const fallback = executeTaxonomyResolver({
-    keyword,
-    categoryIds: userCategoryIds,
-    tagNames: userTagNames,
-    authorId: userAuthorId,
-  })
+    // Fallback deterministik jika tools tidak dapat dipanggil atau unit test
+    const fallback = executeTaxonomyResolver({
+      keyword,
+      categoryIds: userCategoryIds,
+      tagNames: userTagNames,
+      authorId: userAuthorId,
+    })
 
-  state.context.request.publishing.categoryIds = fallback.categoryIds
-  state.context.request.publishing.tagNames = fallback.tagNames
-  if (fallback.authorId) {
-    state.context.request.publishing.authorId = fallback.authorId
-  }
+    if (state.context?.request?.publishing) {
+      state.context.request.publishing.categoryIds = fallback.categoryIds
+      state.context.request.publishing.tagNames = fallback.tagNames
+      if (fallback.authorId) {
+        state.context.request.publishing.authorId = fallback.authorId
+      }
+    }
 
-  const durationMs = Date.now() - start
-  console.log(
-    `[Writer Node: taxonomy_resolver] Fallback Resolved: Categories: [${fallback.categoryIds.join(", ")}], Tags: [${fallback.tagNames.join(", ")}] (${durationMs}ms)`
-  )
+    logMessage(
+      fallback.isAutoResolved
+        ? "Taksonomi dilengkapi secara otomatis (mode fallback)"
+        : "Taksonomi sesuai input pengguna"
+    )
 
-  return {
-    categoryIds: fallback.categoryIds,
-    tagNames: fallback.tagNames,
-    tagIds: [],
-    authorId: fallback.authorId,
-    nodesExecuted: ["taxonomy_resolver"],
-    nodeLogs: [
-      {
-        node: "taxonomy_resolver",
-        label: "Resolusi Taksonomi & Metadata",
-        status: "success",
-        durationMs,
-        input: {
-          keyword,
-          inputCategoryIds: userCategoryIds,
-          inputTagNames: userTagNames,
-          inputAuthorId: userAuthorId,
-        },
-        output: {
-          resolvedCategoryIds: fallback.categoryIds,
-          resolvedTagNames: fallback.tagNames,
-          resolvedAuthorId: fallback.authorId,
-          isAutoResolved: fallback.isAutoResolved,
-        },
-        message: fallback.isAutoResolved
-          ? "Taksonomi dilengkapi secara otomatis (mode fallback)"
-          : "Taksonomi sesuai input pengguna",
-        timestamp: new Date().toISOString(),
-      },
-    ],
-    warnings,
-  }
-}
+    return {
+      categoryIds: fallback.categoryIds,
+      tagNames: fallback.tagNames,
+      tagIds: [],
+      authorId: fallback.authorId,
+    }
+  },
+})
