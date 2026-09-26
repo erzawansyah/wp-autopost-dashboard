@@ -119,26 +119,11 @@ export function executeTaxonomyResolver(input: TaxonomyResolverInput): TaxonomyR
   }
 }
 
-const TAXONOMY_RESOLVER_SYSTEM_PROMPT = `Anda adalah manajer editorial dan taksonomi profesional website WordPress.
-Tugas Anda adalah memetakan artikel baru ke kategori yang tepat, tag yang relevan, serta memilih author yang paling cocok secara semantik.
-
-ATURAN PEMILIHAN (STRICT RULES):
-1. KATEGORI (WAJIB):
-- Anda WAJIB memilih 1 ID kategori utama dari daftar kategori yang tersedia.
-- Jika topik relevan dengan kategori lain, masukkan ID-nya ke additionalCategoryIds.
-
-2. TAGS (FLEKSIBEL):
-- Cocokkan tag dari daftar tag yang sudah ada jika relevan (masukkan ke matchedTagIds).
-- Boleh kosong jika tidak ada yang cocok.
-- Jika TIDAK ADA tag yang cocok atau artikel membutuhkan tag baru yang spesifik, buat 1-3 nama tag baru yang padat di newTagsToCreate.
-
-3. AUTHOR (WAJIB & HINDARI ADMIN):
-- Pilih author_id yang kapasitas, keahlian, atau bio profilnya paling cocok dengan topik artikel.
-- ATURAN PENTING: SEBISA MUNGKIN HINDARI memilih akun yang bernama, berslug, atau ber-bio 'admin' jika tersedia akun author/penulis lain!`
+import { loadNodePrompt } from "../../utils/prompt-loader"
 
 /**
  * Node LangGraph resmi untuk Taxonomy Resolver
- * Mengambil data live dari WordPress (categories, tags, authors), mengevaluasi kecocokan dengan LLM,
+ * Mengambil data live dari WordPress (categories, tags, authors), mengevaluasi kecocokan dengan LLM via prompt.md,
  * membuat tag baru jika belum ada, dan menyiapkan metadata untuk pembuatan draf serta pengiriman WordPress.
  */
 export async function taxonomyResolverNode(state: WriterState): Promise<Partial<WriterState>> {
@@ -177,26 +162,27 @@ export async function taxonomyResolverNode(state: WriterState): Promise<Partial<
       const authors = authorsRes.ok ? authorsRes.authors : []
 
       if (categories.length > 0 && authors.length > 0) {
-        // 2. Susun prompt untuk LLM Structured Output
-        const userPrompt = [
-          `Tolong petakan taksonomi dan author yang tepat untuk artikel berikut:`,
-          `- Kata Kunci / Topik: "${keyword}"`,
-          brief ? `- Catatan Brief: "${brief}"` : "",
-          `\n--- DAFTAR KATEGORI TERSEDIA DI WORDPRESS ---`,
-          categories
-            .map((c) => `- ID ${c.id}: "${c.name}" (Slug: ${c.slug}, Deskripsi: ${c.description || "Tanpa deskripsi"})`)
-            .join("\n"),
-          `\n--- DAFTAR TAG YANG SUDAH ADA DI WORDPRESS (Ringkas) ---`,
-          tagsString || "(Belum ada tag)",
-          `\n--- DAFTAR PENULIS (AUTHORS) DI WORDPRESS ---`,
-          authors
-            .map((a) => `- ID ${a.author_id}: "${a.author_name}" (Slug: ${a.slug}, Bio: ${a.author_bio || "Penulis blog"})`)
-            .join("\n"),
-          `\nPilihlah kategori yang wajib terisi, tag yang cocok (atau buat baru jika belum ada), dan pilih author yang paling kompeten (utamakan bukan akun admin jika ada author lain).`,
-        ].filter(Boolean).join("\n")
+        // 2. Susun prompt dinamis via template prompt.md
+        const categoriesList = categories
+          .map((c) => `- ID ${c.id}: "${c.name}" (Slug: ${c.slug}, Deskripsi: ${c.description || "Tanpa deskripsi"})`)
+          .join("\n")
+
+        const authorsList = authors
+          .map((a) => `- ID ${a.author_id}: "${a.author_name}" (Slug: ${a.slug}, Bio: ${a.author_bio || "Penulis blog"})`)
+          .join("\n")
+
+        const promptTemplate = loadNodePrompt("taxonomy-resolver")
+        const systemPrompt = promptTemplate.renderSystemPrompt()
+        const userPrompt = promptTemplate.renderUserPrompt({
+          keyword,
+          brief: brief || "Tidak ada catatan khusus",
+          categoriesList,
+          tagsSummary: tagsString || "(Belum ada tag)",
+          authorsList,
+        })
 
         const evaluation = await state.context.llmService.generate({
-          systemPrompt: TAXONOMY_RESOLVER_SYSTEM_PROMPT,
+          systemPrompt,
           userPrompt,
           model: state.context.request.model,
           temperature: 0.1,

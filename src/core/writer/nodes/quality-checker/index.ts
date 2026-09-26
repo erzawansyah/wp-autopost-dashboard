@@ -14,22 +14,11 @@ export const QualityCheckSchema = z.object({
 
 export type QualityCheckResult = z.infer<typeof QualityCheckSchema>
 
-const QUALITY_EVALUATOR_PROMPT = `Anda adalah kurator dan penilai kelayakan artikel publikasi otomatis.
-Tugas utama Anda adalah menyaring dan mencegah penolakan chatbot agar tidak terbit ke blog WordPress.
-
-Kriteria PENOLAKAN (isAcceptable = false):
-1. Penolakan Chatbot: Model AI menolak menulis naskah, meminta maaf karena data terbatas, atau menolak permintaan ("Maaf, saya tidak dapat menemukan data...", "Sebagai model AI saya tidak bisa...").
-2. Asisten Percakapan: Teks berupa sapaan interaktif chatbot ("Halo! Tentu saya bisa bantu...", "Ada hal lain yang ingin Anda ketahui?").
-3. Meminta Klarifikasi: Model AI meminta pengguna memberikan URL atau masukan data tambahan.
-4. Teks Kosong / Tidak Membahas Topik sama sekali.
-
-Kriteria KELAYAKAN (isAcceptable = true):
-1. Teks adalah naskah artikel blog informatif, panduan praktis, ulasan, atau tips yang membahas topik yang diminta.
-2. Selama naskah adalah artikel pembahasan dan BUKAN kalimat penolakan atau basa-basi asisten chatbot, Anda WAJIB meloloskannya (isAcceptable = true).`
+import { loadNodePrompt } from "../../utils/prompt-loader"
 
 /**
  * Node Pengambil Keputusan: Quality Checker (LLM Decision Gatekeeper)
- * Mengevaluasi naskah hasil drafter menggunakan LLM sebelum lanjut ke tahap format dan posting WordPress.
+ * Mengevaluasi naskah hasil drafter menggunakan LLM via prompt.md sebelum lanjut ke tahap format dan posting WordPress.
  */
 export async function qualityCheckerNode(state: WriterState): Promise<Partial<WriterState>> {
   if (state.error) {
@@ -67,22 +56,20 @@ export async function qualityCheckerNode(state: WriterState): Promise<Partial<Wr
   }
 
   try {
-    // Evaluasi seluruh naskah tanpa pemotongan liar yang dapat menyebabkan false-positive
+    // Evaluasi seluruh naskah tanpa pemotongan liar via template prompt.md
     const contentText = state.rawMarkdown.trim()
+    const promptTemplate = loadNodePrompt("quality-checker")
 
-    const evaluationPrompt = [
-      `Silakan periksa naskah artikel berikut:`,
-      `- Kata Kunci / Topik: "${keyword}"`,
-      `- Judul Draf: "${title}"`,
-      `--- NASKAH ARTIKEL LENGKAP ---`,
+    const systemPrompt = promptTemplate.renderSystemPrompt()
+    const userPrompt = promptTemplate.renderUserPrompt({
+      keyword,
+      title,
       contentText,
-      `--- AKHIR NASKAH ARTIKEL ---`,
-      `Apakah naskah di atas merupakan artikel blog yang sah dan layak dipublikasikan (isAcceptable = true), atau teks penolakan chatbot percakapan (isAcceptable = false)? Berikan alasan singkat Anda.`,
-    ].join("\n\n")
+    })
 
     const evaluation = await state.context.llmService.generate({
-      systemPrompt: QUALITY_EVALUATOR_PROMPT,
-      userPrompt: evaluationPrompt,
+      systemPrompt,
+      userPrompt,
       model: state.context?.request?.model,
       temperature: 0.1, // Suhu rendah untuk determinisme evaluasi
       outputSchema: QualityCheckSchema,
