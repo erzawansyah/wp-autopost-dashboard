@@ -63,7 +63,58 @@ export function LabNodesRunner({ nodes, sites }: LabNodesRunnerProps) {
 
   // Content & Formatter fields
   const [markdownInput, setMarkdownInput] = React.useState(
-    "# Panduan Praktis SEO WordPress untuk Pemula\n\nOptimasi mesin pencari merupakan fondasi penting agar website Anda ditemukan oleh audiens yang tepat.\n\n## 1. Riset Kata Kunci Berbasis Niat Cari\n\nSebelum mulai menulis, pahami apa yang dicari pembaca.\n\n- Gunakan kata kunci bervolume terukur\n- Sesuaikan konten dengan solusi nyata\n\n> Konten yang baik adalah konten yang menyelesaikan masalah pembaca tanpa bertele-tele.\n\n## 2. Struktur Heading yang Rapi\n\nPastikan struktur H2 dan H3 tersusun logis dan mudah dipindai mata."
+    `# Panduan Praktis SEO & Optimasi WordPress
+
+Optimasi mesin pencari merupakan fondasi krusial agar website Anda ditemukan oleh audiens yang tepat di mesin pencari.
+
+## 1. Perbandingan Strategi Konten
+
+Berikut adalah tabel perbandingan performa antara posting manual versus otomatisasi:
+
+| Indikator | Metode Manual | Otomasi Cerdas |
+| :--- | :---: | ---: |
+| Efisiensi Waktu | 3 Jam/Artikel | < 1 Menit |
+| Konsistensi Jadwal | Rentan Tertunda | Terjadwal Presisi |
+| Optimasi Gutenberg | Manual Block | Blok Standar Resmi |
+
+## 2. Kutipan Inspiratif & Catatan Penting
+
+> Kualitas sebuah tulisan tidak dinilai dari berapa panjang kalimatnya, melainkan seberapa cepat ia memberikan solusi bagi pembaca.
+> — Redaksi Editorial
+
+> [!TIP]
+> Bersihkan cache WordPress setelah memperbarui artikel agar blok-blok baru langsung ter-render dengan sempurna di frontend.
+
+## 3. Contoh Cuplikan Kode Otomasi
+
+Berikut adalah contoh skrip hook WordPress untuk optimasi kecepatan:
+
+\`\`\`typescript
+interface PostPayload {
+  title: string;
+  status: "draft" | "publish";
+  categories: number[];
+}
+
+console.log("Sistem autopost siap mempublikasikan artikel!");
+\`\`\`
+
+:::details Tanya Jawab: Apakah blok Gutenberg ini aman untuk tema apapun?
+Ya! Seluruh blok yang dihasilkan menggunakan format komentar resmi WordPress (<!-- wp:table -->, <!-- wp:quote -->, dll.) sehingga 100% kompatibel dan mengikuti desain tema aktif tanpa memerlukan plugin tambahan.
+:::
+
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+
+[👉 Coba Auto-Posting Sekarang](https://example.com/demo){.button}
+
+## 4. Daftar Fitur Utama
+
+- Kemampuan Penulisan AI
+  - Mode Tulis Cepat (1-Shot)
+  - Mode Riset Komprehensif
+- Manajemen Multi-Situs
+
+Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bilangan eksponen 10^3^, serta tombol pintasan [[Ctrl]] + [[S]] untuk menyimpan naskah.`
   )
   const [excerptInput, setExcerptInput] = React.useState(
     "Panduan lengkap optimasi SEO WordPress untuk pemula mulai dari riset kata kunci hingga struktur konten."
@@ -153,6 +204,8 @@ export function LabNodesRunner({ nodes, sites }: LabNodesRunnerProps) {
     }
 
     try {
+      const savedKey = typeof window !== "undefined" ? localStorage.getItem("custom_openrouter_api_key") || undefined : undefined
+
       const res = await fetch("/api/lab/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -161,6 +214,7 @@ export function LabNodesRunner({ nodes, sites }: LabNodesRunnerProps) {
           targetId: selectedNodeId,
           siteId: activeNode?.requiresSite ? selectedSiteId : undefined,
           model: aiModel,
+          apiKey: savedKey,
           params,
         }),
       })

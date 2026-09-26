@@ -14,7 +14,30 @@ export interface LlmServiceInterface {
 }
 
 export function getSanitizedApiKey(customApiKey?: string): string {
-  const rawKey = customApiKey || process.env.OPENROUTER_API_KEY || ""
+  if (customApiKey && customApiKey.trim()) {
+    return customApiKey.trim().replace(/^["']|["']$/g, "")
+  }
+
+  let rawKey = process.env.OPENROUTER_API_KEY || ""
+
+  // Jika di server Node.js lokal, baca langsung berkas .env agar perubahan kunci langsung aktif tanpa perlu me-restart server
+  if (typeof window === "undefined") {
+    try {
+      const fs = require("fs")
+      const path = require("path")
+      const envPath = path.resolve(process.cwd(), ".env")
+      if (fs.existsSync(envPath)) {
+        const content = fs.readFileSync(envPath, "utf8")
+        const match = content.match(/^OPENROUTER_API_KEY\s*=\s*(.+)$/m)
+        if (match && match[1]) {
+          rawKey = match[1].trim()
+        }
+      }
+    } catch {
+      // Abaikan jika fs tidak dapat diakses
+    }
+  }
+
   return rawKey.trim().replace(/^["']|["']$/g, "")
 }
 

@@ -4,8 +4,10 @@
  */
 
 export function sanitizeDashes(text: string): string {
-  // Ganti em-dash (—) dan en-dash (–) dengan koma atau tanda kurung sesuai kaidah anti-slop
-  return text.replace(/[—–]/g, ", ")
+  // Lindungi atribusi sitasi kutipan (misal: > — Penulis) dengan mengubahnya ke format standar (> -- Penulis)
+  let result = text.replace(/(^|\n)>\s*[—–]\s*/g, "$1> -- ")
+  // Ganti em-dash (—) dan en-dash (–) naratif dengan koma atau jeda kalimat sesuai kaidah anti-slop
+  return result.replace(/[—–]/g, ", ")
 }
 
 export function cleanMarkdown(rawMarkdown: string): string {

@@ -67,6 +67,8 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
     setDurationMs(null)
 
     try {
+      const savedKey = typeof window !== "undefined" ? localStorage.getItem("custom_openrouter_api_key") || undefined : undefined
+
       const res = await fetch("/api/lab/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -75,6 +77,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
           targetId: selectedEngineId,
           siteId: selectedSiteId || undefined,
           model: aiModel,
+          apiKey: savedKey,
           params: {
             keyword,
             brief,

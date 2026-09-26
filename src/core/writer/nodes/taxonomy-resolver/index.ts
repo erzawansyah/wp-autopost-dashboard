@@ -278,9 +278,10 @@ export const taxonomyResolverNode = defineNode({
             }
           }
         }
-      } catch (err) {
-        console.warn("[taxonomy_resolver] Gagal menggunakan tools WP/LLM, beralih ke fallback deterministik:", err)
-        addWarning("Koneksi tools WordPress gagal, menggunakan resolusi taksonomi cadangan.")
+      } catch (err: unknown) {
+        const errorMsg = err instanceof Error ? err.message : "Kesalahan tidak diketahui"
+        console.warn("[taxonomy_resolver] Gagal menggunakan tools WP/LLM, beralih ke fallback deterministik:", errorMsg)
+        addWarning(`Resolusi taksonomi otomatis gagal (${errorMsg}), beralih ke taksonomi cadangan.`)
       }
     }
 
