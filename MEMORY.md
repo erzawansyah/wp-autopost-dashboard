@@ -6,11 +6,11 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 ## 1. Status Proyek Saat Ini
 
-- **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag Otomatis, BYOK Settings, Rombak UI Editorial (sidebar sticky/tooltip global/konsolidasi menu Pengaturan), Retry Sinkronisasi WP Tanpa Regenerasi AI, dan Progress Panel Tulis Cepat**.
-- **Catatan Worklog**: [`00`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/00-agent-setup.md) · [`01`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/01-project-initialization.md) · [`02`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/02-mvp-implementation.md) · [`03`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/03-anti-slop-copywriting-revamp.md) · [`04`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/04-non-modal-and-ux-refinements.md) · [`05`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/05-wp-categories-and-openrouter-agent.md) · [`06`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/06-langchain-skills-and-packages-migration.md) · [`07`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/07-prompt-directory-and-template-engine.md) · [`08`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/08-direct-prompt-system-reset.md) · [`09`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/09-ui-rombak-retry-flow-progress.md) · [`10`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/10-prompt-loader-and-node-architecture.md) *(terbaru)*
-- **Fase Aktif**: **Progress Tulis Cepat (saat ini masih estimasi, bukan real-time)**.
-- **Fase Berikutnya**: **Progress Realtime via Worker + Supabase Realtime, Rekonsiliasi `supabase/migrations/`, Background Queue Worker, & Bulk Ingestion**.
-- **Ketiga halaman berikut masih `ComingSoonView`**: `/queue`, `/prompts`, `/settings` (kartu utama sudah ada, isinya menyusul).
+- **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag Otomatis, BYOK Settings, Rombak UI Editorial, Retry Sinkronisasi WP, Refaktor Factory System Writer, Reset UI Tulis Cepat, dan Laboratorium Pengujian (/lab)**.
+- **Catatan Worklog**: [`00`-`08`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`09`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/09-ui-rombak-retry-flow-progress.md) · [`10`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/10-prompt-loader-and-node-architecture.md) · [`11`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/11-writer-lab-and-quick-writer-reset.md) *(terbaru)*
+- **Fase Aktif**: **Pematangan Bottom-Up & Perombakan UI Tulis Cepat via Atomic Design**.
+- **Fase Berikutnya**: **Perakitan Modular UI Tulis Cepat, Background Queue Worker, & Rekonsiliasi Supabase Migrations**.
+- **Halaman yang Masih `ComingSoonView`**: `/queue`, `/prompts`, `/settings` (sub-halaman menyusul).
 
 ---
 
@@ -69,9 +69,10 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 26. **ADR-026 (Arsitektur Node AI & Prompt Templating `prompt.md`)**:
     - Node berbasis AI (`taxonomy-resolver`, `article-drafter`, `quality-checker`) menggunakan berkas `prompt.md` terpisah dengan frontmatter YAML/TOML di awal (nama node, deskripsi, variabel) dan section tags `[SYSTEM_PROMPT]` serta `[USER_PROMPT]` dengan interpolasi `{{var}}`. Dimuat runtime via `loadNodePrompt()` (`prompt-loader.ts`). Berkas `docs.md` boilerplate yang membingungkan dihapus total. Telemetri live per-node dipancarkan ke browser console (`console.group`/`console.log`).
 27. **ADR-027 (Shared Factories `defineNode` & `defineEngine` di `src/core/shared/factories/`)**:
-    - Fondasi orkestrasi LangGraph dipusatkan di `src/core/shared/factories/` agar reusable lintas domain (`writer`, `rewriter`, `ideator`).
-    - `defineNode()` mengeliminasi boilerplate timer, auto-load `prompt.md`, error-handling via `NodeError`, dan telemetri `nodeLogs`.
-    - `defineEngine()` membungkus LangGraph StateGraph, mengotomatiskan mapping context ➔ initialState ➔ `graph.invoke()` ➔ `EngineResult` extraction. Sepenuhnya stateless dan 100% kompatibel dengan LangGraph.
+    - Fondasi orkestrasi LangGraph dipusatkan di `src/core/shared/factories/` (`defineNode`, `defineEngine`) bebas boilerplate, stateless, dan 100% kompatibel LangGraph.
+28. **ADR-028 (Laboratorium & Test Bench Modular `/lab` serta Reset UI Tulis Cepat)**:
+    - Sesuai metodologi pematangan bottom-up (Tool ➔ Node ➔ Engine), UI Tulis Cepat (`/posts/new`) dikosongkan dari kode monolitik lama untuk disiapkan perombakan via Atomic Design.
+    - Dibuat rute `/lab` dan API `/api/lab/registry` & `/api/lab/run` untuk pengujian independen interaktif Tool WP, Node LangGraph, dan Engine secara transparan.
 
 ---
 

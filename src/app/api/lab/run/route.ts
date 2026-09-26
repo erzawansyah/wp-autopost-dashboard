@@ -1,0 +1,435 @@
+import { NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
+import { decryptCredential } from "@/lib/crypto"
+import { getCategories } from "@/core/shared/tools/get-categories"
+import { getTags } from "@/core/shared/tools/get-tags"
+import { createTags } from "@/core/shared/tools/create-tags"
+import { getAuthor } from "@/core/shared/tools/get-author"
+import { publishPostToWordPress } from "@/core/shared/tools/wordpress-publisher"
+
+import { executeInputValidator } from "@/core/writer/nodes/input-validator"
+import { taxonomyResolverNode } from "@/core/writer/nodes/taxonomy-resolver"
+import { articleDrafterNode } from "@/core/writer/nodes/article-drafter"
+import { qualityCheckerNode } from "@/core/writer/nodes/quality-checker"
+import { gutenbergFormatterNode } from "@/core/writer/nodes/gutenberg-formatter"
+import { run } from "@/core/writer"
+import { OpenRouterLlmService } from "@/lib/ai/openrouter"
+import { WriterState } from "@/core/writer/types/engine"
+import { WriterRequest } from "@/core/writer/types/contracts"
+
+function createMockWriterRequest(overrides?: Partial<WriterRequest>): WriterRequest {
+  return {
+    engine: "quick",
+    content: {
+      keyword: "panduan seo wordpress",
+      language: "id",
+      style: "default",
+      wordCountTarget: 800,
+      ...overrides?.content,
+    },
+    site: {
+      siteId: "00000000-0000-0000-0000-000000000000",
+      wpSiteId: "00000000-0000-0000-0000-000000000000",
+      ...overrides?.site,
+    },
+    publishing: {
+      mode: "draft",
+      categoryIds: [],
+      tagNames: [],
+      ...overrides?.publishing,
+    },
+    ...overrides,
+  }
+}
+
+function createMockWriterState(overrides?: Partial<WriterState>): WriterState {
+  return {
+    context: {
+      request: createMockWriterRequest(),
+      llmService: new OpenRouterLlmService(),
+      promptConfig: {
+        systemPrompt: "",
+        userPromptTemplate: "",
+        variables: {},
+      },
+    },
+    categoryIds: [],
+    tagNames: [],
+    tagIds: [],
+    authorId: undefined,
+    authorDetail: undefined,
+    rawTitle: "",
+    rawExcerpt: "",
+    rawMarkdown: "",
+    tokenUsage: undefined,
+    article: undefined,
+    nodesExecuted: [],
+    nodeLogs: [],
+    warnings: [],
+    error: undefined,
+    ...overrides,
+  }
+}
+
+export async function POST(request: Request) {
+  const startTime = Date.now()
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const { type, targetId, siteId, params = {}, apiKey, model } = body
+
+    if (!type || !targetId) {
+      return NextResponse.json(
+        { ok: false, error: "Parameter 'type' dan 'targetId' wajib diisi." },
+        { status: 400 }
+      )
+    }
+
+    // Resolusi kredensial WordPress jika siteId diberikan
+    let wpCredentials: {
+      siteId: string
+      wpSiteId: string
+      baseUrl: string
+      username: string
+      applicationPassword: string
+    } | null = null
+
+    if (siteId) {
+      const { data: site, error: siteErr } = await supabase
+        .from("wp_sites")
+        .select("id, site_name, base_url, wp_username, encrypted_app_password")
+        .eq("id", siteId)
+        .eq("user_id", user.id)
+        .single()
+
+      if (siteErr || !site) {
+        return NextResponse.json(
+          { ok: false, error: "Situs WordPress yang dipilih tidak ditemukan." },
+          { status: 404 }
+        )
+      }
+
+      try {
+        const plainPassword = decryptCredential(site.encrypted_app_password)
+        wpCredentials = {
+          siteId: site.id,
+          wpSiteId: site.id,
+          baseUrl: site.base_url,
+          username: site.wp_username,
+          applicationPassword: plainPassword,
+        }
+      } catch {
+        return NextResponse.json(
+          { ok: false, error: "Gagal mendekripsi kata sandi aplikasi situs WordPress." },
+          { status: 500 }
+        )
+      }
+    }
+
+    // ==========================================
+    // 1. PENGUJIAN TIPE: TOOL
+    // ==========================================
+    if (type === "tool") {
+      const activeCredentials = wpCredentials || (params.baseUrl && params.username && params.applicationPassword
+        ? {
+            siteId: "00000000-0000-0000-0000-000000000000",
+            wpSiteId: "00000000-0000-0000-0000-000000000000",
+            baseUrl: params.baseUrl,
+            username: params.username,
+            applicationPassword: params.applicationPassword,
+          }
+        : null)
+
+      if (!activeCredentials) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Tool memerlukan situs WordPress yang terhubung atau kredensial manual (baseUrl, username, applicationPassword).",
+          },
+          { status: 400 }
+        )
+      }
+
+      let toolOutput: unknown = null
+
+      switch (targetId) {
+        case "get_categories": {
+          toolOutput = await getCategories(activeCredentials)
+          break
+        }
+        case "get_tags": {
+          toolOutput = await getTags(activeCredentials)
+          break
+        }
+        case "create_tags": {
+          const tagNames = Array.isArray(params.tags)
+            ? params.tags
+            : typeof params.tags === "string"
+            ? params.tags.split(",").map((t: string) => t.trim()).filter(Boolean)
+            : ["test-tag-antigravity"]
+          toolOutput = await createTags({ ...activeCredentials, tagNames })
+          break
+        }
+        case "get_author": {
+          toolOutput = await getAuthor(activeCredentials)
+          break
+        }
+        case "wordpress_publisher": {
+          const article = {
+            title: params.title || "Artikel Pengujian Lab Antigravity",
+            contentHtml: params.contentHtml || "<p>Paragraf pengujian dari Developer Test Bench.</p>",
+            excerpt: params.excerpt,
+            slug: params.slug,
+          }
+          toolOutput = await publishPostToWordPress({
+            ...activeCredentials,
+            article,
+            metadata: {
+              status: params.status || "draft",
+              categoryIds: params.categoryIds,
+              tagNames: params.tagNames,
+            },
+          })
+          break
+        }
+        default:
+          return NextResponse.json(
+            { ok: false, error: `Tool target '${targetId}' tidak dikenal.` },
+            { status: 400 }
+          )
+      }
+
+      return NextResponse.json({
+        ok: true,
+        type: "tool",
+        targetId,
+        durationMs: Date.now() - startTime,
+        result: toolOutput,
+      })
+    }
+
+    // ==========================================
+    // 2. PENGUJIAN TIPE: NODE
+    // ==========================================
+    if (type === "node") {
+      let nodeOutput: unknown = null
+      let nodeLogs: unknown[] = []
+
+      // Inisialisasi LLM service jika node membutuhkan AI
+      const llmService = new OpenRouterLlmService(
+        apiKey || process.env.OPENROUTER_API_KEY,
+        model || "openai/gpt-oss-120b"
+      )
+
+      switch (targetId) {
+        case "input_validator": {
+          const validationResult = executeInputValidator(
+            createMockWriterRequest({
+              content: {
+                keyword: params.keyword || "panduan seo wordpress",
+                brief: params.brief,
+                language: params.targetLanguage || "id",
+                style: params.style || "default",
+                wordCountTarget: params.wordCountTarget || 800,
+              },
+              publishing: {
+                mode: params.mode || "draft",
+                categoryIds: [],
+                tagNames: [],
+              },
+              customInstructions: params.customInstructions,
+            })
+          )
+          nodeOutput = validationResult
+          break
+        }
+
+        case "taxonomy_resolver": {
+          const mockState = createMockWriterState({
+            context: {
+              request: createMockWriterRequest({
+                content: {
+                  keyword: params.keyword || "panduan wordpress",
+                  brief: params.brief,
+                  language: "id",
+                  style: "default",
+                },
+                publishing: {
+                  mode: "draft",
+                  categoryIds: params.userCategoryIds || [],
+                  tagNames: params.userTagNames || [],
+                },
+                site: wpCredentials || undefined,
+              }),
+              llmService,
+              promptConfig: {
+                systemPrompt: "",
+                userPromptTemplate: "",
+                variables: {},
+              },
+            },
+            categoryIds: params.userCategoryIds || [],
+            tagNames: params.userTagNames || [],
+          })
+
+          const resolved = await taxonomyResolverNode(mockState)
+          nodeOutput = resolved
+          nodeLogs = mockState.nodeLogs || []
+          break
+        }
+
+        case "article_drafter": {
+          const mockState = createMockWriterState({
+            context: {
+              request: createMockWriterRequest({
+                content: {
+                  keyword: params.keyword || "tips optimasi website wordpress",
+                  brief: params.brief || "Tuliskan tips praktis dan ringkas.",
+                  language: params.language || "id",
+                  style: "default",
+                  wordCountTarget: params.wordCountTarget || 800,
+                },
+              }),
+              llmService,
+              promptConfig: {
+                systemPrompt: "",
+                userPromptTemplate: "",
+                variables: {
+                  authorName: "Redaksi Editorial",
+                },
+              },
+            },
+          })
+
+          const drafted = await articleDrafterNode(mockState)
+          nodeOutput = drafted
+          nodeLogs = mockState.nodeLogs || []
+          break
+        }
+
+        case "quality_checker": {
+          const mockState = createMockWriterState({
+            context: {
+              request: createMockWriterRequest({
+                content: {
+                  keyword: params.keyword || "panduan ai",
+                  language: "id",
+                  style: "default",
+                },
+              }),
+              llmService,
+              promptConfig: {
+                systemPrompt: "",
+                userPromptTemplate: "",
+                variables: {},
+              },
+            },
+            rawTitle: params.title || "Panduan Lengkap Pemanfaatan AI Modern",
+            rawMarkdown: params.contentText || "Ini adalah konten artikel naskah yang lengkap dan mendalam.",
+          })
+
+          const checked = await qualityCheckerNode(mockState)
+          nodeOutput = checked
+          nodeLogs = mockState.nodeLogs || []
+          break
+        }
+
+        case "gutenberg_formatter": {
+          const mockState = createMockWriterState({
+            rawTitle: params.title || "Judul Pengujian Formatter",
+            rawMarkdown: params.markdownContent || "# Judul Artikel\n\nParagraf teks utama.\n\n- Poin pertama\n- Poin kedua\n",
+          })
+
+          const formatted = await gutenbergFormatterNode(mockState)
+          nodeOutput = formatted
+          nodeLogs = mockState.nodeLogs || []
+          break
+        }
+
+        default:
+          return NextResponse.json(
+            { ok: false, error: `Node target '${targetId}' tidak dikenal.` },
+            { status: 400 }
+          )
+      }
+
+      return NextResponse.json({
+        ok: true,
+        type: "node",
+        targetId,
+        durationMs: Date.now() - startTime,
+        result: nodeOutput,
+        nodeLogs,
+      })
+    }
+
+    // ==========================================
+    // 3. PENGUJIAN TIPE: ENGINE
+    // ==========================================
+    if (type === "engine") {
+      const sitePayload = wpCredentials
+        ? {
+            siteId: siteId || "00000000-0000-0000-0000-000000000000",
+            wpSiteId: siteId || "00000000-0000-0000-0000-000000000000",
+            baseUrl: wpCredentials.baseUrl,
+            username: wpCredentials.username,
+            applicationPassword: wpCredentials.applicationPassword,
+          }
+        : {
+            siteId: "00000000-0000-0000-0000-000000000000",
+            wpSiteId: "00000000-0000-0000-0000-000000000000",
+          }
+
+      const writerResult = await run({
+        engine: targetId || "quick",
+        content: {
+          keyword: params.keyword || "cara memulai blog wordpress",
+          brief: params.brief,
+          style: params.style || "default",
+          language: params.language || "id",
+        },
+        site: sitePayload,
+        publishing: {
+          mode: params.actionStatus || "draft",
+          categoryIds: params.categoryIds || [],
+          tagNames: params.tagNames || [],
+        },
+        model: model || params.model || undefined,
+        apiKey: apiKey || params.apiKey || undefined,
+        customInstructions: params.customInstructions || params.brief,
+      })
+
+      return NextResponse.json({
+        ok: writerResult.success,
+        type: "engine",
+        targetId,
+        durationMs: Date.now() - startTime,
+        result: writerResult,
+      })
+    }
+
+    return NextResponse.json(
+      { ok: false, error: `Tipe eksekusi '${type}' tidak didukung (harus 'tool', 'node', atau 'engine').` },
+      { status: 400 }
+    )
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal Server Error"
+    return NextResponse.json(
+      {
+        ok: false,
+        error: message,
+        durationMs: Date.now() - startTime,
+      },
+      { status: 500 }
+    )
+  }
+}

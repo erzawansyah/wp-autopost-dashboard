@@ -12,6 +12,7 @@ import {
   Settings,
   WandSparkles,
   ChevronRight,
+  FlaskConical,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
@@ -32,6 +33,12 @@ const navItems: NavItem[] = [
     title: "Website",
     href: "/sites",
     icon: Globe,
+  },
+  {
+    title: "Laboratorium",
+    href: "/lab",
+    icon: FlaskConical,
+    badge: "Lab",
   },
   {
     title: "Antrean artikel",
