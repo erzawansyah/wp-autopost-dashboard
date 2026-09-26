@@ -22,6 +22,7 @@ export interface WPCreatePostPayload {
   status?: "draft" | "publish" | "future"
   categories?: number[]
   tags?: number[]
+  author?: number
 }
 
 export interface WPCreatePostResult {
@@ -81,7 +82,7 @@ export function normalizeAndValidateWpUrl(rawUrl: string): { valid: boolean; nor
 /**
  * Buat header Basic Auth dari WordPress username dan application password
  */
-function makeAuthHeader(username: string, appPassword: string): string {
+export function makeAuthHeader(username: string, appPassword: string): string {
   // Application password WordPress sering kali memiliki spasi pemisah (e.g. abcd efgh 1234), hapus spasi jika ada
   const cleanPassword = appPassword.replace(/\s+/g, "")
   const token = Buffer.from(`${username.trim()}:${cleanPassword}`).toString("base64")
@@ -192,6 +193,9 @@ export async function createWordPressPost(params: {
     }
     if (params.post.tags && params.post.tags.length > 0) {
       payload.tags = params.post.tags
+    }
+    if (params.post.author) {
+      payload.author = params.post.author
     }
 
     const res = await fetch(endpoint, {

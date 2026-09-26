@@ -58,6 +58,10 @@ export async function gutenbergFormatterNode(state: WriterState): Promise<Partia
     return {}
   }
 
+  const start = Date.now()
+  const rawTitle = state.rawTitle
+  const rawMarkdownLength = state.rawMarkdown?.length || 0
+
   try {
     const formatted = executeGutenbergFormatter({
       rawTitle: state.rawTitle,
@@ -65,12 +69,43 @@ export async function gutenbergFormatterNode(state: WriterState): Promise<Partia
       rawMarkdown: state.rawMarkdown,
     })
 
+    const durationMs = Date.now() - start
+    console.log(
+      `[Writer Node: gutenberg_formatter] Input: { rawMarkdown: ${rawMarkdownLength} chars } -> Output: { wordCount: ${formatted.article.wordCount}, subheadings: ${formatted.article.subheadings.length} } (${durationMs}ms)`
+    )
+
     return {
       article: formatted.article,
       nodesExecuted: ["gutenberg_formatter"],
+      nodeLogs: [
+        {
+          node: "gutenberg_formatter",
+          label: "Serialisasi Blok Gutenberg",
+          status: "success",
+          durationMs,
+          input: {
+            rawTitle,
+            rawMarkdownLength,
+            rawExcerptLength: state.rawExcerpt?.length || 0,
+          },
+          output: {
+            cleanTitle: formatted.article.title,
+            slug: formatted.article.slug,
+            wordCount: formatted.article.wordCount,
+            readingTimeMinutes: formatted.article.readingTimeMinutes,
+            subheadingsCount: formatted.article.subheadings.length,
+            contentHtmlLength: formatted.article.contentHtml.length,
+          },
+          message: `Konversi selesai: ${formatted.article.wordCount} kata, ~${formatted.article.readingTimeMinutes} menit baca`,
+          timestamp: new Date().toISOString(),
+        },
+      ],
     }
   } catch (err: unknown) {
+    const durationMs = Date.now() - start
     const errorMsg = err instanceof Error ? err.message : "Kesalahan format Gutenberg"
+    console.error(`[Writer Node: gutenberg_formatter] GAGAL: ${errorMsg} (${durationMs}ms)`)
+
     return {
       error: {
         code: "FORMATTER_ERROR",
@@ -78,6 +113,19 @@ export async function gutenbergFormatterNode(state: WriterState): Promise<Partia
         node: "gutenberg_formatter",
         retryable: false,
       },
+      nodesExecuted: ["gutenberg_formatter"],
+      nodeLogs: [
+        {
+          node: "gutenberg_formatter",
+          label: "Serialisasi Blok Gutenberg",
+          status: "error",
+          durationMs,
+          input: { rawTitle, rawMarkdownLength },
+          output: { error: errorMsg },
+          message: `Gagal mengonversi blok Gutenberg: ${errorMsg}`,
+          timestamp: new Date().toISOString(),
+        },
+      ],
     }
   }
 }

@@ -22,6 +22,7 @@ export interface ArticleDrafterInput {
   wordCountTarget?: number
   title?: string
   brief?: string
+  author?: { name: string; bio?: string }
   customInstructions?: string
   model?: string
   temperature?: number
@@ -94,12 +95,17 @@ export async function executeArticleDrafter(input: ArticleDrafterInput): Promise
   if (input.brief) {
     userPromptParts.push(`- Catatan Khusus: ${input.brief}`)
   }
+  if (input.author) {
+    userPromptParts.push(
+      `- Penulis Artikel: ${input.author.name}${input.author.bio ? ` (${input.author.bio})` : ""}`
+    )
+  }
   if (input.customInstructions) {
     userPromptParts.push(`- Instruksi Tambahan: ${input.customInstructions}`)
   }
 
   userPromptParts.push(
-    `Tulislah dengan sudut pandang praktisi yang paham lapangan. Beri contoh nyata, tips praktis yang bisa langsung dicoba, dan selesaikan artikel secara tuntas dari awal hingga akhir. Ingat: format Markdown murni, nol em dash (—), dan nol en dash (–).`
+    `Tulislah dengan sudut pandang praktisi yang paham lapangan (sesuaikan dengan persona penulis di atas jika ada). Beri contoh nyata, tips praktis yang bisa langsung dicoba, dan selesaikan artikel secara tuntas dari awal hingga akhir. Ingat: format Markdown murni, nol em dash (—), dan nol en dash (–).`
   )
 
   const userPrompt = userPromptParts.join("\n")
@@ -109,6 +115,7 @@ export async function executeArticleDrafter(input: ArticleDrafterInput): Promise
     userPrompt,
     model: input.model,
     temperature: input.temperature ?? 0.7,
+    maxTokens: 4096,
     outputSchema: DrafterOutputSchema,
   })
 
@@ -130,7 +137,17 @@ export async function executeArticleDrafter(input: ArticleDrafterInput): Promise
     parsedExcerpt = parsed.excerpt || ""
     parsedMarkdown = parsed.markdownContent || parsed.content || parsedMarkdown
   } catch {
-    // Fallback jika respons teks langsung
+    // Fallback jika respons JSON terpotong penutupnya: coba ekstrak markdownContent dengan regex
+    const contentMatch = response.content.match(/"markdownContent"\s*:\s*"([\s\S]*)/)
+    if (contentMatch && contentMatch[1]) {
+      try {
+        // Coba unescape karakter string JSON
+        const rawContentStr = contentMatch[1].replace(/",?\s*\}?\s*$/, "")
+        parsedMarkdown = JSON.parse(`"${rawContentStr.replace(/"/g, '\\"')}"`)
+      } catch {
+        parsedMarkdown = contentMatch[1].replace(/",?\s*\}?\s*$/, "").replace(/\\n/g, "\n")
+      }
+    }
   }
 
   return {
@@ -150,18 +167,30 @@ export async function articleDrafterNode(state: WriterState): Promise<Partial<Wr
     return {}
   }
 
+  const start = Date.now()
+  const keyword = state.context.request.content.keyword
+  const model = state.context.request.model || "default"
+  const wordCountTarget = state.context.request.content.wordCountTarget || 800
+
   try {
     const drafterResult = await executeArticleDrafter({
-      keyword: state.context.request.content.keyword,
+      keyword,
       language: state.context.request.content.language,
-      wordCountTarget: state.context.request.content.wordCountTarget || 800,
+      wordCountTarget,
       title: state.context.request.content.title,
       brief: state.context.request.content.brief,
+      author: state.authorDetail,
       customInstructions: state.context.promptConfig.customInstructions,
       model: state.context.request.model,
       temperature: state.context.request.temperature,
       llmService: state.context.llmService as any,
     })
+
+    const durationMs = Date.now() - start
+    const wordCount = drafterResult.rawMarkdown.trim().split(/\s+/).length
+    console.log(
+      `[Writer Node: article_drafter] Input: { keyword: "${keyword}", model: "${model}", target: ${wordCountTarget} } -> Output: { title: "${drafterResult.rawTitle}", wordCount: ${wordCount} } (${durationMs}ms)`
+    )
 
     return {
       rawTitle: drafterResult.rawTitle,
@@ -169,9 +198,37 @@ export async function articleDrafterNode(state: WriterState): Promise<Partial<Wr
       rawMarkdown: drafterResult.rawMarkdown,
       tokenUsage: drafterResult.tokenUsage,
       nodesExecuted: ["article_drafter"],
+      nodeLogs: [
+        {
+          node: "article_drafter",
+          label: "Penulisan Naskah Anti-Slop",
+          status: "success",
+          durationMs,
+          input: {
+            keyword,
+            model,
+            language: state.context.request.content.language || "id",
+            wordCountTarget,
+            brief: state.context.request.content.brief || null,
+            customInstructions: state.context.promptConfig.customInstructions || null,
+          },
+          output: {
+            title: drafterResult.rawTitle,
+            excerpt: drafterResult.rawExcerpt,
+            wordCountEstimate: wordCount,
+            charactersCount: drafterResult.rawMarkdown.length,
+            tokenUsage: drafterResult.tokenUsage || null,
+          },
+          message: `Naskah selesai ditulis (~${wordCount} kata)`,
+          timestamp: new Date().toISOString(),
+        },
+      ],
     }
   } catch (err: unknown) {
+    const durationMs = Date.now() - start
     const errorMsg = err instanceof Error ? err.message : "Kesalahan eksekusi drafter LLM"
+    console.error(`[Writer Node: article_drafter] GAGAL: ${errorMsg} (${durationMs}ms)`)
+
     return {
       error: {
         code: "GENERATION_ERROR",
@@ -179,6 +236,19 @@ export async function articleDrafterNode(state: WriterState): Promise<Partial<Wr
         node: "article_drafter",
         retryable: true,
       },
+      nodesExecuted: ["article_drafter"],
+      nodeLogs: [
+        {
+          node: "article_drafter",
+          label: "Penulisan Naskah Anti-Slop",
+          status: "error",
+          durationMs,
+          input: { keyword, model, wordCountTarget },
+          output: { error: errorMsg },
+          message: `Gagal menghasilkan naskah: ${errorMsg}`,
+          timestamp: new Date().toISOString(),
+        },
+      ],
     }
   }
 }

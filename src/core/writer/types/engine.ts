@@ -5,6 +5,7 @@ import {
   ArticleSource,
   InContentImage,
   WriterError,
+  NodeExecutionLog,
 } from "./contracts"
 
 // ============================================================
@@ -49,6 +50,10 @@ export interface EngineResult {
   sources?: ArticleSource[]
   inContentImages?: InContentImage[]
   nodesExecuted: string[]
+  nodeLogs?: NodeExecutionLog[]
+  categoryIds?: number[]
+  tagIds?: number[]
+  authorDetail?: { id: number; name: string; bio?: string }
   tokenUsage?: { prompt: number; completion: number; total: number }
   warnings: string[]
   error?: WriterError
@@ -103,7 +108,14 @@ export const WriterStateAnnotation = Annotation.Root({
     reducer: (prev, next) => next ?? prev,
     default: () => [],
   }),
+  tagIds: Annotation<number[]>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => [],
+  }),
   authorId: Annotation<number | undefined>({
+    reducer: (prev, next) => next ?? prev,
+  }),
+  authorDetail: Annotation<{ id: number; name: string; bio?: string } | undefined>({
     reducer: (prev, next) => next ?? prev,
   }),
   // Raw Draft dari LLM
@@ -128,6 +140,10 @@ export const WriterStateAnnotation = Annotation.Root({
   }),
   // Observabilitas & Logs
   nodesExecuted: Annotation<string[]>({
+    reducer: (prev, next) => prev.concat(next),
+    default: () => [],
+  }),
+  nodeLogs: Annotation<NodeExecutionLog[]>({
     reducer: (prev, next) => prev.concat(next),
     default: () => [],
   }),

@@ -21,6 +21,10 @@ import {
 import { Switch } from "@/components/atoms/switch"
 import { WritingProgressPanel } from "@/components/organisms/writing-progress-panel"
 import {
+  NodeExecutionLogsViewer,
+  type NodeExecutionLogItem,
+} from "@/components/organisms/node-execution-logs-viewer"
+import {
   Sparkles,
   ArrowLeft,
   ExternalLink,
@@ -79,8 +83,10 @@ export default function NewPostPage() {
     state: string
     wpPostUrl?: string
     readingTimeMinutes?: number
+    modelUsed?: string
     message: string
   } | null>(null)
+  const [executionNodeLogs, setExecutionNodeLogs] = React.useState<NodeExecutionLogItem[]>([])
 
   // Fetch sites
   React.useEffect(() => {
@@ -138,6 +144,7 @@ export default function NewPostPage() {
     e.preventDefault()
     setErrorMsg(null)
     setCompletedResult(null)
+    setExecutionNodeLogs([])
 
     if (!keyword.trim()) {
       setErrorMsg("Topik atau kata kunci utama wajib diisi.")
@@ -161,11 +168,16 @@ export default function NewPostPage() {
       setElapsedMs(Date.now() - startedAt)
     }, 250)
 
-    // Karena API merespons setelah seluruh proses selesai, kemajuan tahap
-    // ditampilkan sebagai perkiraan berdasarkan durasi tipikal tiap tahap.
-    timers.push(window.setTimeout(() => setStageIndex(1), 3500))
+    // Kemajuan tahap LangGraph Quick Writer (5 tahap):
+    // 0: Resolusi taksonomi & metadata (input-validator + taxonomy-resolver)
+    // 1: Menulis naskah anti-slop (article-drafter)
+    // 2: Evaluasi kelayakan & mutu (quality-checker gatekeeper)
+    // 3: Serialisasi blok Gutenberg (gutenberg-formatter)
+    // 4: Mengirim ke WordPress (wordpress-publisher tool)
+    timers.push(window.setTimeout(() => setStageIndex(1), 2000))
     timers.push(window.setTimeout(() => setStageIndex(2), 9000))
-    timers.push(window.setTimeout(() => setStageIndex(3), 13000))
+    timers.push(window.setTimeout(() => setStageIndex(3), 13500))
+    timers.push(window.setTimeout(() => setStageIndex(4), 16000))
 
     try {
       const res = await fetch("/api/posts/quick", {
@@ -188,18 +200,47 @@ export default function NewPostPage() {
 
       const data = await res.json()
 
+      if (data.nodeLogs && Array.isArray(data.nodeLogs)) {
+        setExecutionNodeLogs(data.nodeLogs)
+
+        // Cetak telemetri per node langsung ke Browser Console untuk inspeksi instan
+        console.group(
+          "%c🚀 [Quick Writer Pipeline] Telemetri Eksekusi Per Node",
+          "color: #881337; font-weight: bold; font-size: 13px;"
+        )
+        data.nodeLogs.forEach((log: any, idx: number) => {
+          const isSuccess = log.status === "success"
+          const icon = isSuccess ? "✅" : "❌"
+          const statusColor = isSuccess ? "color: #10B981;" : "color: #EF4444;"
+
+          console.group(
+            `${icon} %cNode [${idx + 1}/${data.nodeLogs.length}]: ${log.label} (${log.node}) %c[${log.durationMs || 0}ms]`,
+            `${statusColor} font-weight: bold;`,
+            "color: #6B7280; font-weight: normal; font-size: 11px;"
+          )
+          console.log("%c📥 INPUT (Yang Diterima Node):", "color: #2563EB; font-weight: bold;", log.input)
+          console.log("%c📤 OUTPUT (Yang Dikeluarkan Node):", "color: #059669; font-weight: bold;", log.output)
+          if (log.message) {
+            console.log("%cℹ️ CATATAN:", "color: #D97706;", log.message)
+          }
+          console.groupEnd()
+        })
+        console.groupEnd()
+      }
+
       if (!res.ok) {
         setFailedAtStage(true)
         setErrorMsg(data.error || "Gagal membuat artikel.")
         return
       }
 
-      setStageIndex(4)
+      setStageIndex(5)
       setCompletedResult({
         title: data.title || keyword,
         state: data.state || "syncing_to_wp",
         wpPostUrl: data.wpPostUrl,
         readingTimeMinutes: data.readingTimeMinutes || 4,
+        modelUsed: data.modelUsed,
         message: data.message || "Artikel berhasil dibuat dan dikirim ke WordPress!",
       })
     } catch {
@@ -214,6 +255,7 @@ export default function NewPostPage() {
 
   const handleReset = () => {
     setCompletedResult(null)
+    setExecutionNodeLogs([])
     setKeyword("")
     setSelectedCategoryIds([])
     setSelectedCategoryNames([])
@@ -267,12 +309,13 @@ export default function NewPostPage() {
           </div>
         )}
 
-        {/* Status Processing Panel (Saat Memproses) */}
-        {isSubmitting && (
+        {/* Status Processing Panel (Saat Memproses atau Terhenti) */}
+        {(isSubmitting || (failedAtStage && !completedResult)) && (
           <WritingProgressPanel
             activeIndex={stageIndex}
             elapsedMs={elapsedMs}
             failed={failedAtStage}
+            errorDetail={failedAtStage ? errorMsg : undefined}
             className="animate-in fade-in-50"
           />
         )}
@@ -290,13 +333,25 @@ export default function NewPostPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-4">
-              <div className="p-4 rounded-lg bg-card border border-border/80 text-xs flex flex-col gap-1.5">
-                <span className="text-[11px] text-muted-foreground uppercase font-semibold">Judul Terbit:</span>
+              <div className="p-4 rounded-lg bg-card border border-border/80 text-xs flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[11px] text-muted-foreground uppercase font-semibold">Judul Terbit:</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="inline-flex items-center rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                      Gutenberg Native Blocks
+                    </span>
+                    {completedResult.modelUsed && (
+                      <span className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[10px] font-mono text-muted-foreground">
+                        {completedResult.modelUsed}
+                      </span>
+                    )}
+                  </div>
+                </div>
                 <span className="font-bold text-foreground text-sm leading-snug">
                   {completedResult.title}
                 </span>
                 {completedResult.readingTimeMinutes && (
-                  <span className="text-[11px] text-muted-foreground mt-1">
+                  <span className="text-[11px] text-muted-foreground">
                     Estimasi waktu baca: ~{completedResult.readingTimeMinutes} menit
                   </span>
                 )}
@@ -332,6 +387,15 @@ export default function NewPostPage() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Telemetri Node Inspector: Input & Output per Node */}
+        {executionNodeLogs.length > 0 && (
+          <NodeExecutionLogsViewer
+            logs={executionNodeLogs}
+            defaultOpen={failedAtStage}
+            className="animate-in fade-in-50"
+          />
         )}
 
         {/* Main Spacious Form Card */}

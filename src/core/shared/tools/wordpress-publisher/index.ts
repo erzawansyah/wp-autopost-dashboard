@@ -19,6 +19,7 @@ export interface WordPressPublishParams {
     status?: "draft" | "publish" | "future"
     categoryIds?: number[]
     tagNames?: string[]
+    tagIds?: number[]
     authorId?: number
   }
 }
@@ -33,15 +34,17 @@ export interface WordPressPublishResult {
 
 /**
  * Universal Tool: WordPress Publisher
- * Memposting artikel naskah Gutenberg Blocks ke WordPress REST API dengan resolusi tag otomatis.
+ * Memposting artikel naskah Gutenberg Blocks ke WordPress REST API dengan resolusi tag dan author otomatis.
  */
 export async function publishPostToWordPress(
   params: WordPressPublishParams
 ): Promise<WordPressPublishResult> {
-  let resolvedTagIds: number[] = []
+  let resolvedTagIds: number[] = params.metadata?.tagIds && params.metadata.tagIds.length > 0
+    ? [...params.metadata.tagIds]
+    : []
 
-  // Selesaikan / buat tag jika ada tagNames
-  if (params.metadata?.tagNames && params.metadata.tagNames.length > 0) {
+  // Selesaikan / buat tag jika ada tagNames dan belum ada tagIds
+  if (resolvedTagIds.length === 0 && params.metadata?.tagNames && params.metadata.tagNames.length > 0) {
     try {
       resolvedTagIds = await resolveOrCreateWordPressTags({
         baseUrl: params.baseUrl,
@@ -64,6 +67,7 @@ export async function publishPostToWordPress(
         ? params.metadata.categoryIds
         : undefined,
     tags: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
+    author: params.metadata?.authorId,
   }
 
   const wpResult: WPCreatePostResult = await createWordPressPost({

@@ -43,6 +43,8 @@ export const WriterRequestSchema = z.object({
     siteId: z.string().uuid(),
     wpSiteId: z.string().uuid(),
     baseUrl: z.string().url().optional(),
+    username: z.string().optional(),
+    applicationPassword: z.string().optional(),
   }),
 
   publishing: PublishIntentSchema.default({ mode: "draft", categoryIds: [], tagNames: [] }),
@@ -99,14 +101,28 @@ export interface WpEnrichment {
   categories: number[]
   tags: number[]
   author?: number
+  authorDetail?: { id: number; name: string; bio?: string }
   featuredMedia?: number
   inContentImages?: InContentImage[]
+}
+
+/** Log telemetri per node untuk observabilitas mendalam input & output */
+export interface NodeExecutionLog {
+  node: string
+  label: string
+  status: "success" | "error" | "skipped"
+  durationMs: number
+  input: Record<string, unknown>
+  output: Record<string, unknown>
+  message?: string
+  timestamp: string
 }
 
 /** Trace eksekusi untuk observability */
 export interface ExecutionTrace {
   engine: string
   nodesExecuted: string[]
+  nodeLogs?: NodeExecutionLog[]
   durationMs: number
   retries: number
   tokenUsage?: { prompt: number; completion: number; total: number }

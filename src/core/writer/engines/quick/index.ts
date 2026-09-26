@@ -72,6 +72,7 @@ export class QuickEngine implements WritingEngine {
         return {
           success: false,
           nodesExecuted: finalState.nodesExecuted,
+          nodeLogs: finalState.nodeLogs || [],
           warnings: finalState.warnings,
           error: finalState.error || {
             code: "GENERATION_FAILED",
@@ -85,6 +86,10 @@ export class QuickEngine implements WritingEngine {
         success: true,
         article: finalState.article,
         nodesExecuted: finalState.nodesExecuted,
+        nodeLogs: finalState.nodeLogs || [],
+        categoryIds: finalState.categoryIds || [],
+        tagIds: finalState.tagIds || [],
+        authorDetail: finalState.authorDetail,
         tokenUsage: finalState.tokenUsage,
         warnings: finalState.warnings,
       }
@@ -93,6 +98,7 @@ export class QuickEngine implements WritingEngine {
       return {
         success: false,
         nodesExecuted: ["quick_engine_runtime"],
+        nodeLogs: [],
         warnings: [],
         error: {
           code: "LANGGRAPH_EXECUTION_ERROR",

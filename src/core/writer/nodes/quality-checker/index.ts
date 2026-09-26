@@ -14,17 +14,18 @@ export const QualityCheckSchema = z.object({
 
 export type QualityCheckResult = z.infer<typeof QualityCheckSchema>
 
-const QUALITY_EVALUATOR_PROMPT = `Anda adalah kurator dan pemeriksa mutu artikel penerbitan otomatis.
-Tugas Anda adalah mengevaluasi apakah teks yang dihasilkan AI adalah naskah artikel utuh yang layak diterbitkan ke WordPress, ATAU teks penolakan chatbot percakapan.
+const QUALITY_EVALUATOR_PROMPT = `Anda adalah kurator dan penilai kelayakan artikel publikasi otomatis.
+Tugas utama Anda adalah menyaring dan mencegah penolakan chatbot agar tidak terbit ke blog WordPress.
 
-Kriteria Penolakan (isAcceptable = false):
-- Model AI meminta maaf atau beralasan tidak dapat menemukan data.
-- Model AI menyatakan dirinya sebagai model AI/chatbot percakapan ("Sebagai model bahasa AI...").
-- Model AI meminta pengguna memberikan klarifikasi atau daftar tambahan.
-- Naskah terputus parah atau tidak berupa artikel blog.
+Kriteria PENOLAKAN (isAcceptable = false):
+1. Penolakan Chatbot: Model AI menolak menulis naskah, meminta maaf karena data terbatas, atau menolak permintaan ("Maaf, saya tidak dapat menemukan data...", "Sebagai model AI saya tidak bisa...").
+2. Asisten Percakapan: Teks berupa sapaan interaktif chatbot ("Halo! Tentu saya bisa bantu...", "Ada hal lain yang ingin Anda ketahui?").
+3. Meminta Klarifikasi: Model AI meminta pengguna memberikan URL atau masukan data tambahan.
+4. Teks Kosong / Tidak Membahas Topik sama sekali.
 
-Kriteria Kelayakan (isAcceptable = true):
-- Teks berupa artikel blog lengkap yang membahas topik secara langsung.`
+Kriteria KELAYAKAN (isAcceptable = true):
+1. Teks adalah naskah artikel blog informatif, panduan praktis, ulasan, atau tips yang membahas topik yang diminta.
+2. Selama naskah adalah artikel pembahasan dan BUKAN kalimat penolakan atau basa-basi asisten chatbot, Anda WAJIB meloloskannya (isAcceptable = true).`
 
 /**
  * Node Pengambil Keputusan: Quality Checker (LLM Decision Gatekeeper)
@@ -35,8 +36,13 @@ export async function qualityCheckerNode(state: WriterState): Promise<Partial<Wr
     return {}
   }
 
+  const start = Date.now()
+  const keyword = state.context?.request?.content?.keyword || ""
+  const title = state.rawTitle || ""
+
   // Jika naskah kosong
   if (!state.rawMarkdown || state.rawMarkdown.trim().length === 0) {
+    const durationMs = Date.now() - start
     return {
       error: {
         code: "EMPTY_CONTENT",
@@ -45,27 +51,39 @@ export async function qualityCheckerNode(state: WriterState): Promise<Partial<Wr
         retryable: true,
       },
       nodesExecuted: ["quality_checker"],
+      nodeLogs: [
+        {
+          node: "quality_checker",
+          label: "Evaluasi Kelayakan & Mutu",
+          status: "error",
+          durationMs,
+          input: { keyword, title },
+          output: { error: "Naskah kosong" },
+          message: "Evaluasi gagal karena naskah kosong",
+          timestamp: new Date().toISOString(),
+        },
+      ],
     }
   }
 
   try {
-    // Ambil sampel naskah untuk evaluasi efisien token (maksimal 1500 karakter awal)
-    const contentSample = state.rawMarkdown.slice(0, 1500)
+    // Evaluasi seluruh naskah tanpa pemotongan liar yang dapat menyebabkan false-positive
+    const contentText = state.rawMarkdown.trim()
 
     const evaluationPrompt = [
-      `Silakan evaluasi naskah berikut:`,
-      `- Kata Kunci / Topik: "${state.context.request.content.keyword}"`,
-      `- Judul Draf: "${state.rawTitle}"`,
-      `--- AWAL SAMPEL NASKAH ---`,
-      contentSample,
-      `--- AKHIR SAMPEL NASKAH ---`,
-      `Tentukan apakah naskah ini layak lolos ke WordPress (isAcceptable = true) atau merupakan teks penolakan/basa-basi chatbot (isAcceptable = false).`,
+      `Silakan periksa naskah artikel berikut:`,
+      `- Kata Kunci / Topik: "${keyword}"`,
+      `- Judul Draf: "${title}"`,
+      `--- NASKAH ARTIKEL LENGKAP ---`,
+      contentText,
+      `--- AKHIR NASKAH ARTIKEL ---`,
+      `Apakah naskah di atas merupakan artikel blog yang sah dan layak dipublikasikan (isAcceptable = true), atau teks penolakan chatbot percakapan (isAcceptable = false)? Berikan alasan singkat Anda.`,
     ].join("\n\n")
 
     const evaluation = await state.context.llmService.generate({
       systemPrompt: QUALITY_EVALUATOR_PROMPT,
       userPrompt: evaluationPrompt,
-      model: state.context.request.model,
+      model: state.context?.request?.model,
       temperature: 0.1, // Suhu rendah untuk determinisme evaluasi
       outputSchema: QualityCheckSchema,
     })
@@ -89,6 +107,11 @@ export async function qualityCheckerNode(state: WriterState): Promise<Partial<Wr
       reason = "Evaluator merespons di luar skema baku, lolos dengan default."
     }
 
+    const durationMs = Date.now() - start
+    console.log(
+      `[Writer Node: quality_checker] Input: { title: "${title}" } -> Output: { isAcceptable: ${isAcceptable}, reason: "${reason}" } (${durationMs}ms)`
+    )
+
     if (!isAcceptable) {
       return {
         error: {
@@ -99,18 +122,72 @@ export async function qualityCheckerNode(state: WriterState): Promise<Partial<Wr
           details: { reason },
         },
         nodesExecuted: ["quality_checker"],
+        nodeLogs: [
+          {
+            node: "quality_checker",
+            label: "Evaluasi Kelayakan & Mutu",
+            status: "error",
+            durationMs,
+            input: {
+              keyword,
+              title,
+              markdownLength: contentText.length,
+            },
+            output: {
+              isAcceptable: false,
+              reason,
+              decision: "DITOLAK - Eksekusi dihentikan (tidak dikirim ke WP)",
+            },
+            message: `Evaluasi ditolak: ${reason}`,
+            timestamp: new Date().toISOString(),
+          },
+        ],
         warnings: [`Evaluator mendeteksi penolakan: ${reason}`],
       }
     }
 
     return {
       nodesExecuted: ["quality_checker"],
+      nodeLogs: [
+        {
+          node: "quality_checker",
+          label: "Evaluasi Kelayakan & Mutu",
+          status: "success",
+          durationMs,
+          input: {
+            keyword,
+            title,
+            markdownLength: contentText.length,
+          },
+          output: {
+            isAcceptable: true,
+            reason,
+            decision: "LOLOS - Lanjut ke serialisasi Gutenberg & WordPress",
+          },
+          message: `Naskah dinyatakan layak: ${reason}`,
+          timestamp: new Date().toISOString(),
+        },
+      ],
     }
   } catch (err: unknown) {
+    const durationMs = Date.now() - start
     const errorMsg = err instanceof Error ? err.message : "Kesalahan saat evaluasi mutu naskah"
-    // Jika panggilan LLM evaluator gagal jaringan, berikan peringatan namun jangan hentikan proses jika konten ada
+    console.warn(`[Writer Node: quality_checker] Warning: Evaluator gagal (${errorMsg}), naskah tetap diloloskan (${durationMs}ms)`)
+
     return {
       nodesExecuted: ["quality_checker"],
+      nodeLogs: [
+        {
+          node: "quality_checker",
+          label: "Evaluasi Kelayakan & Mutu",
+          status: "success",
+          durationMs,
+          input: { keyword, title },
+          output: { warning: errorMsg, fallback: "Lolos otomatis" },
+          message: `Evaluator dilewati karena kendala jaringan: ${errorMsg}`,
+          timestamp: new Date().toISOString(),
+        },
+      ],
       warnings: [`Gagal menjalankan evaluator mutu (${errorMsg}), melanjutkan dengan naskah yang ada.`],
     }
   }

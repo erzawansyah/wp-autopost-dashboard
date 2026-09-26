@@ -120,7 +120,13 @@ export function QuickSingleModal({
     setIsSubmitting(true)
     setErrorMsg(null)
     setCompletedResult(null)
-    setProgressStep("Menulis artikel dengan sudut pandang praktis...")
+    setProgressStep("1/5: Resolusi taksonomi & metadata...")
+
+    const timers: number[] = []
+    timers.push(window.setTimeout(() => setProgressStep("2/5: Menulis naskah anti-slop..."), 2000))
+    timers.push(window.setTimeout(() => setProgressStep("3/5: Evaluasi kelayakan & mutu konten..."), 9000))
+    timers.push(window.setTimeout(() => setProgressStep("4/5: Serialisasi blok native Gutenberg..."), 13500))
+    timers.push(window.setTimeout(() => setProgressStep("5/5: Mengirim ke WordPress REST API..."), 16000))
 
     try {
       const res = await fetch("/api/posts/quick", {
@@ -140,6 +146,31 @@ export function QuickSingleModal({
 
       const data = await res.json()
 
+      if (data.nodeLogs && Array.isArray(data.nodeLogs)) {
+        console.group(
+          "%c🚀 [Quick Writer Pipeline] Telemetri Eksekusi Per Node",
+          "color: #881337; font-weight: bold; font-size: 13px;"
+        )
+        data.nodeLogs.forEach((log: any, idx: number) => {
+          const isSuccess = log.status === "success"
+          const icon = isSuccess ? "✅" : "❌"
+          const statusColor = isSuccess ? "color: #10B981;" : "color: #EF4444;"
+
+          console.group(
+            `${icon} %cNode [${idx + 1}/${data.nodeLogs.length}]: ${log.label} (${log.node}) %c[${log.durationMs || 0}ms]`,
+            `${statusColor} font-weight: bold;`,
+            "color: #6B7280; font-weight: normal; font-size: 11px;"
+          )
+          console.log("%c📥 INPUT (Yang Diterima Node):", "color: #2563EB; font-weight: bold;", log.input)
+          console.log("%c📤 OUTPUT (Yang Dikeluarkan Node):", "color: #059669; font-weight: bold;", log.output)
+          if (log.message) {
+            console.log("%cℹ️ CATATAN:", "color: #D97706;", log.message)
+          }
+          console.groupEnd()
+        })
+        console.groupEnd()
+      }
+
       if (!res.ok) {
         setErrorMsg(data.error || "Gagal memproses artikel.")
         return
@@ -151,8 +182,8 @@ export function QuickSingleModal({
         wpPostUrl: data.wpPostUrl,
         message:
           actionStatus === "publish"
-            ? "Artikel berhasil tayang di blog WordPress Anda."
-            : "Artikel berhasil disimpan sebagai draf di WordPress.",
+            ? "Artikel berhasil tayang di blog WordPress Anda sebagai Gutenberg Blocks."
+            : "Artikel berhasil disimpan sebagai draf di WordPress sebagai Gutenberg Blocks.",
       })
 
       if (onSuccess) {
@@ -162,6 +193,7 @@ export function QuickSingleModal({
       const msg = err instanceof Error ? err.message : "Gangguan jaringan saat memproses artikel"
       setErrorMsg(msg)
     } finally {
+      timers.forEach((t) => window.clearTimeout(t))
       setIsSubmitting(false)
       setProgressStep(null)
     }

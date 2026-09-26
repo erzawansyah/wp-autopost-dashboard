@@ -120,6 +120,9 @@ export async function POST(request: Request) {
     // 3. Generate konten dengan System Writer Facade (Markdown-first -> Gutenberg Blocks)
     let generated
     let executionInfo
+    let nodeLogs: any[] = []
+    let resolvedEnrichment: any = null
+
     try {
       const writerResult = await run({
         engine: engine || "quick",
@@ -133,6 +136,8 @@ export async function POST(request: Request) {
           siteId: site.id,
           wpSiteId: site.id,
           baseUrl: site.base_url,
+          username: site.wp_username,
+          applicationPassword: plainPassword,
         },
         publishing: {
           mode: actionStatus,
@@ -144,7 +149,22 @@ export async function POST(request: Request) {
         customInstructions: customBrief,
       })
 
+      nodeLogs = writerResult.execution?.nodeLogs || []
+      resolvedEnrichment = writerResult.enrichment
+
       if (!writerResult.success || !writerResult.article) {
+        // Simpan log dari node-node yang sempat berjalan sebelum error
+        for (const log of nodeLogs) {
+          await supabase.from("execution_logs").insert({
+            post_item_id: postId,
+            user_id: user.id,
+            step: log.node,
+            level: log.status === "error" ? "error" : "info",
+            message: `[${log.label}] ${log.message || "Selesai"}`,
+            details: { input: log.input, output: log.output, durationMs: log.durationMs },
+          })
+        }
+
         throw new Error(writerResult.error?.message || "Gagal menghasilkan naskah artikel")
       }
 
@@ -170,10 +190,23 @@ export async function POST(request: Request) {
       })
 
       return NextResponse.json(
-        { error: `Gagal membuat artikel AI: ${errMsg}`, postId },
+        { error: `Gagal membuat artikel AI: ${errMsg}`, postId, nodeLogs },
         { status: 502 }
       )
     }
+
+    // Resolusi final kategori, tags, dan author dari System Writer
+    const resolvedCategoryIds: number[] =
+      resolvedEnrichment?.categories && resolvedEnrichment.categories.length > 0
+        ? resolvedEnrichment.categories
+        : selectedCategoryIds
+
+    const resolvedTagIds: number[] =
+      resolvedEnrichment?.tags && resolvedEnrichment.tags.length > 0
+        ? resolvedEnrichment.tags
+        : []
+
+    const resolvedAuthorId: number | undefined = resolvedEnrichment?.author
 
     // 4. Update status post_items ke ready_to_sync / syncing_to_wp
     await supabase
@@ -182,6 +215,8 @@ export async function POST(request: Request) {
         title: generated.title,
         content_html: generated.contentHtml,
         excerpt: generated.excerpt,
+        categories: resolvedCategoryIds.map(String),
+        tags: resolvedTagIds.length > 0 ? resolvedTagIds.map(String) : tagList,
         state: "ready_to_sync",
         updated_at: new Date().toISOString(),
       })
@@ -203,6 +238,7 @@ export async function POST(request: Request) {
       .eq("user_id", user.id)
 
     // 5. Kirim artikel ke WordPress REST API via publishPostToWordPress tool
+    const wpPublishStart = Date.now()
     const wpResult = await publishPostToWordPress({
       baseUrl: site.base_url,
       username: site.wp_username,
@@ -215,10 +251,54 @@ export async function POST(request: Request) {
       },
       metadata: {
         status: actionStatus,
-        categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
+        categoryIds: resolvedCategoryIds.length > 0 ? resolvedCategoryIds : undefined,
+        tagIds: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
         tagNames: tagList,
+        authorId: resolvedAuthorId,
       },
     })
+    const wpPublishDuration = Date.now() - wpPublishStart
+
+    const wpPublishLog = {
+      node: "wordpress_publisher",
+      label: "Pengiriman ke WordPress REST API",
+      status: (wpResult.ok ? "success" : "error") as "success" | "error",
+      durationMs: wpPublishDuration,
+      input: {
+        baseUrl: site.base_url,
+        username: site.wp_username,
+        actionStatus,
+        categoryIds: resolvedCategoryIds,
+        tagIds: resolvedTagIds,
+        tagNames: tagList,
+        authorId: resolvedAuthorId,
+        title: generated.title,
+      },
+      output: wpResult.ok
+        ? { wpPostId: wpResult.wpPostId, wpPostUrl: wpResult.wpPostUrl, status: actionStatus, authorId: resolvedAuthorId }
+        : { error: wpResult.error },
+      message: wpResult.ok
+        ? `Artikel sukses terkirim ke WordPress dengan ID ${wpResult.wpPostId}`
+        : `Gagal mengirim ke WordPress: ${wpResult.error}`,
+    }
+
+    const allNodeLogs = [...nodeLogs, wpPublishLog]
+
+    // Simpan semua log per node ke tabel execution_logs Supabase
+    for (const log of allNodeLogs) {
+      await supabase.from("execution_logs").insert({
+        post_item_id: postId,
+        user_id: user.id,
+        step: log.node,
+        level: log.status === "error" ? "error" : "info",
+        message: `[${log.label}] ${log.message || "Selesai"}`,
+        details: {
+          input: log.input,
+          output: log.output,
+          durationMs: log.durationMs,
+        },
+      })
+    }
 
     if (!wpResult.ok) {
       // Catat failed_sync (konten AI dan Gutenberg Blocks tetap tersimpan aman di database!)
@@ -244,6 +324,7 @@ export async function POST(request: Request) {
           error: `Artikel berhasil di-generate, namun gagal disinkronkan ke WordPress: ${wpResult.error}`,
           postId,
           generatedTitle: generated.title,
+          nodeLogs: allNodeLogs,
         },
         { status: 502 }
       )
@@ -283,6 +364,7 @@ export async function POST(request: Request) {
       wpPostUrl: wpResult.wpPostUrl,
       readingTimeMinutes: generated.readingTimeMinutes,
       modelUsed: executionInfo?.modelUsed || aiModel,
+      nodeLogs: allNodeLogs,
       message:
         actionStatus === "publish"
           ? "Artikel berhasil diterbitkan ke WordPress secara live sebagai Gutenberg Blocks!"

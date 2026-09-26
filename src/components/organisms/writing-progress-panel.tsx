@@ -7,9 +7,10 @@ import {
   Blocks,
   CheckCircle2,
   CircleDashed,
-  FileText,
   Loader2,
   PenLine,
+  ShieldCheck,
+  Tags,
   TriangleAlert,
   UploadCloud,
 } from "lucide-react"
@@ -23,27 +24,33 @@ export interface WritingStage {
 
 export const WRITING_STAGES: WritingStage[] = [
   {
-    id: "brief",
-    label: "Menyusun brief & struktur",
-    hint: "Topik dipetakan menjadi kerangka tulisan",
-    icon: FileText,
+    id: "taxonomy",
+    label: "Resolusi taksonomi & metadata",
+    hint: "Validasi schema, pemetaan kategori, dan ekstraksi tag",
+    icon: Tags,
   },
   {
     id: "draft",
-    label: "Menulis naskah",
-    hint: "Bahasa mengalir, bebas frasa klise",
+    label: "Menulis naskah anti-slop",
+    hint: "Bahasa mengalir wajar, bebas frasa klise dan tanda em dash",
     icon: PenLine,
   },
   {
+    id: "quality",
+    label: "Evaluasi kelayakan & mutu",
+    hint: "Audit mandiri LLM memastikan artikel layak dan bukan penolakan",
+    icon: ShieldCheck,
+  },
+  {
     id: "blocks",
-    label: "Merapikan blok Gutenberg",
-    hint: "Markdown dikonversi ke blok native WP",
+    label: "Serialisasi blok Gutenberg",
+    hint: "Markdown dikonversi deterministik ke blok native WordPress",
     icon: Blocks,
   },
   {
     id: "sync",
     label: "Mengirim ke WordPress",
-    hint: "Resolusi tag, kategori, dan unggah pos",
+    hint: "Unggah konten sebagai pos draf atau terbit via REST API",
     icon: UploadCloud,
   },
 ]
@@ -52,6 +59,7 @@ interface WritingProgressPanelProps {
   activeIndex: number
   elapsedMs: number
   failed?: boolean
+  errorDetail?: string | null
   className?: string
 }
 
@@ -66,6 +74,7 @@ export function WritingProgressPanel({
   activeIndex,
   elapsedMs,
   failed = false,
+  errorDetail,
   className,
 }: WritingProgressPanelProps) {
   const total = WRITING_STAGES.length
@@ -215,9 +224,19 @@ export function WritingProgressPanel({
           })}
         </ol>
 
+        {failed && errorDetail && (
+          <div className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+            <TriangleAlert className="size-4 shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-semibold">Catatan Evaluasi / Galat:</span>
+              <span className="text-[11px] leading-relaxed text-destructive/90">{errorDetail}</span>
+            </div>
+          </div>
+        )}
+
         <p className="border-t border-border/70 pt-3 text-[11px] leading-relaxed text-muted-foreground">
           {failed
-            ? "Artikel yang sudah tersusun tetap tersimpan di antrean. Anda dapat mengirim ulang tanpa memanggil AI kembali."
+            ? "Artikel yang sudah tersusun tetap tersimpan di antrean. Anda dapat memeriksa catatan galat di atas atau mengirim ulang."
             : "Jangan tutup halaman ini. Artikel akan langsung dikirim ke WordPress begitu seluruh tahap selesai."}
         </p>
       </CardContent>

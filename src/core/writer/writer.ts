@@ -21,7 +21,23 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
   const requestId = (rawObj.requestId as string) || crypto.randomUUID()
 
   // 1. Validasi input request menggunakan Node Input Validator
+  const validatorStart = Date.now()
   const validation = executeInputValidator(rawRequest)
+  const validatorDuration = Date.now() - validatorStart
+
+  const validatorLog = {
+    node: "input_validator",
+    label: "Validasi Schema & Sanitasi",
+    status: (validation.isValid ? "success" : "error") as "success" | "error",
+    durationMs: validatorDuration,
+    input: rawObj,
+    output: validation.isValid
+      ? { sanitized: validation.sanitizedRequest }
+      : { error: validation.error },
+    message: validation.isValid ? "Payload valid dan tersanitasi" : `Validasi gagal: ${validation.error?.message}`,
+    timestamp: new Date().toISOString(),
+  }
+
   if (!validation.isValid || !validation.sanitizedRequest) {
     return {
       success: false,
@@ -29,6 +45,7 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
       execution: {
         engine: "unknown",
         nodesExecuted: ["input_validator"],
+        nodeLogs: [validatorLog],
         durationMs: Date.now() - startTime,
         retries: 0,
         modelUsed: "none",
@@ -58,7 +75,20 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
       status: "failed",
       execution: {
         engine: targetEngineId,
-        nodesExecuted: ["resolve_engine"],
+        nodesExecuted: ["input_validator", "resolve_engine"],
+        nodeLogs: [
+          validatorLog,
+          {
+            node: "resolve_engine",
+            label: "Pencarian Engine",
+            status: "error",
+            durationMs: 1,
+            input: { targetEngineId },
+            output: { availableEngines: available },
+            message: `Engine "${targetEngineId}" tidak ditemukan`,
+            timestamp: new Date().toISOString(),
+          },
+        ],
         durationMs: Date.now() - startTime,
         retries: 0,
         modelUsed: "none",
@@ -95,6 +125,7 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
 
   // 5. Eksekusi Engine (Menghasilkan naskah Markdown & Gutenberg Blocks)
   const engineResult = await engine.execute(engineContext)
+  const combinedNodeLogs = [validatorLog, ...(engineResult.nodeLogs || [])]
 
   if (!engineResult.success || !engineResult.article) {
     return {
@@ -103,6 +134,7 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
       execution: {
         engine: engine.id,
         nodesExecuted: engineResult.nodesExecuted,
+        nodeLogs: combinedNodeLogs,
         durationMs: Date.now() - startTime,
         retries: 0,
         tokenUsage: engineResult.tokenUsage,
@@ -118,10 +150,16 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
   }
 
   // 6. Enrichment Metadata WordPress
+  const resolvedCategories =
+    engineResult.categoryIds && engineResult.categoryIds.length > 0
+      ? engineResult.categoryIds
+      : (request.publishing.categoryIds || [])
+
   const enrichment: WpEnrichment = {
-    categories: request.publishing.categoryIds || [],
-    tags: [],
-    author: request.publishing.authorId ?? undefined,
+    categories: resolvedCategories,
+    tags: engineResult.tagIds || [],
+    author: request.publishing.authorId ?? engineResult.authorDetail?.id ?? undefined,
+    authorDetail: engineResult.authorDetail,
     featuredMedia: request.publishing.featuredImageId ?? undefined,
     inContentImages: engineResult.inContentImages || [],
   }
@@ -135,6 +173,7 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
     execution: {
       engine: engine.id,
       nodesExecuted: [...engineResult.nodesExecuted, "enrich_metadata"],
+      nodeLogs: combinedNodeLogs,
       durationMs: Date.now() - startTime,
       retries: 0,
       tokenUsage: engineResult.tokenUsage,
@@ -154,6 +193,10 @@ export * from "./nodes/article-drafter"
 export * from "./nodes/quality-checker"
 export * from "./nodes/gutenberg-formatter"
 export * from "../shared/tools/wordpress-publisher"
+export * from "../shared/tools/get-categories"
+export * from "../shared/tools/get-tags"
+export * from "../shared/tools/create-tags"
+export * from "../shared/tools/get-author"
 export * from "../shared/formatters/gutenberg"
 export * from "../shared/formatters/markdown-cleaner"
 export * from "@/lib/ai/openrouter"
