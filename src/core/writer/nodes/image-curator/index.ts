@@ -251,9 +251,14 @@ export async function executeImageCurator(
   let curationSummary = ""
 
   try {
-    const agentResult = await agent.invoke({
-      messages: [new HumanMessage(userPromptText)],
-    })
+    const agentResult = await agent.invoke(
+      {
+        messages: [new HumanMessage(userPromptText)],
+      },
+      {
+        recursionLimit: 12,
+      }
+    )
 
     const messages = agentResult.messages || []
     const lastMsg = messages[messages.length - 1]
