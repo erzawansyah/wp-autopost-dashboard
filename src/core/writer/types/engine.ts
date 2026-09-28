@@ -4,6 +4,7 @@ import {
   GeneratedArticle,
   ArticleSource,
   InContentImage,
+  FeaturedImageMeta,
   ResearchData,
   WriterError,
   NodeExecutionLog,
@@ -18,6 +19,8 @@ export interface EngineCapabilities {
   supportsResearch: boolean
   /** Apakah engine mencari dan menanamkan gambar di dalam naskah (per H2) */
   supportsInContentImages: boolean
+  /** Apakah engine mengurasi dan memasang Featured Image (gambar utama/sampul) */
+  supportsFeaturedImage: boolean
   /** Apakah engine memiliki evaluasi/audit loop sebelum selesai */
   supportsAudit: boolean
   /** Perkiraan waktu eksekusi dalam detik */
@@ -49,6 +52,8 @@ export interface EngineResult {
   success: boolean
   article?: GeneratedArticle
   sources?: ArticleSource[]
+  featuredMediaId?: number
+  featuredImage?: FeaturedImageMeta
   inContentImages?: InContentImage[]
   nodesExecuted: string[]
   nodeLogs?: NodeExecutionLog[]
@@ -142,10 +147,28 @@ export const WriterStateAnnotation = Annotation.Root({
     reducer: (prev, next) => next ?? prev,
     default: () => "",
   }),
-  // In-Content Images
+  // In-Content Images & Kurasi Gambar
+  featuredMediaId: Annotation<number | undefined>({
+    reducer: (prev, next) => next ?? prev,
+  }),
+  featuredImage: Annotation<FeaturedImageMeta | undefined>({
+    reducer: (prev, next) => next ?? prev,
+  }),
   inContentImages: Annotation<InContentImage[]>({
     reducer: (prev, next) => next ?? prev,
     default: () => [],
+  }),
+  curatedImagesText: Annotation<string>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => "",
+  }),
+  curatedImages: Annotation<any[]>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => [],
+  }),
+  curationSummary: Annotation<string>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => "",
   }),
   tokenUsage: Annotation<{ prompt: number; completion: number; total: number } | undefined>({
     reducer: (prev, next) => next ?? prev,

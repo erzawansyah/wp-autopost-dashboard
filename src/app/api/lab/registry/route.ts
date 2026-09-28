@@ -180,13 +180,13 @@ export async function GET() {
       },
       {
         id: "image_curator",
-        name: "Image Curator & In-Content Inserter",
-        description: "Agent kurator visual bertenaga LangChain yang menyeleksi foto berkualitas tinggi, mengunggah ke WordPress, dan menyematkan ilustrasi ke naskah Markdown.",
+        name: "Image Curator & WordPress Uploader",
+        description: "Agent kurator visual LangChain yang merumuskan query foto dari artikel atau brief, mencari dan menyeleksi gambar berkualitas, mengunggah ke WordPress, dan menyajikan ringkasan aset gambar (ID, URL, & panduan penggunaan).",
         isAiNode: true,
         requiresSite: false,
         defaultInput: {
           keyword: "kopi manual brew",
-          rawMarkdown: "## Mengenal Alat Seduh Kopi\n\nAlat seduh kopi memiliki beragam bentuk dan karakter ekstraksi yang unik.\n\n## Langkah Menyeduh yang Benar\n\nPastikan suhu air berada pada 90-94 derajat celsius untuk ekstraksi seimbang.\n",
+          promptContent: "Brief Konten: Panduan menyeduh kopi manual brew untuk pemula. Membahas alat seduh V60, french press, dan teknik menuang air yang seimbang.",
         },
       },
       {
@@ -218,8 +218,11 @@ export async function GET() {
       {
         id: "standard",
         name: "Standard Engine (Riset & Gambar)",
-        description: "Mesin penulisan artikel berimbang dengan riset topik mendalam, outline entitas semantik, dan penyematan gambar otomatis.",
+        description: "Mesin penulisan artikel berimbang dengan riset topik mendalam, outline entitas semantik, kurasi Featured Image sampul, dan penyematan gambar in-content otomatis.",
         estimatedDurationSeconds: 40,
+        supportsFeaturedImage: true,
+        supportsInContentImages: true,
+        supportsResearch: true,
         defaultRequest: {
           keyword: "panduan lengkap manual brew untuk pemula",
           brief: "Ulas metode V60 dan AeroPress dengan takaran rasio yang pas.",

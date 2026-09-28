@@ -16,7 +16,9 @@ import {
 import { Badge } from "@/components/atoms/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tabs"
 import { JsonCodeViewer } from "@/components/molecules/json-code-viewer"
-import { Play, Loader2, CheckCircle2, AlertCircle, Zap, Eye, Code, FileText, Layers } from "lucide-react"
+import { Play, Loader2, CheckCircle2, AlertCircle, Zap, Eye, Code, FileText, Layers, ExternalLink, Bot, Image as ImageIcon } from "lucide-react"
+import Link from "next/link"
+import { getGlobalAiModel, getModelDisplayName, getGlobalApiKey } from "@/lib/ai/settings"
 import { LabSiteOption } from "./lab-tools-runner"
 
 export interface LabEngineItem {
@@ -24,6 +26,9 @@ export interface LabEngineItem {
   name: string
   description: string
   estimatedDurationSeconds: number
+  supportsFeaturedImage?: boolean
+  supportsInContentImages?: boolean
+  supportsResearch?: boolean
   defaultRequest: Record<string, any>
 }
 
@@ -32,13 +37,6 @@ interface LabEngineRunnerProps {
   sites: LabSiteOption[]
 }
 
-const AI_MODELS = [
-  { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Default - Cepat & Hemat)" },
-  { id: "google/gemini-2.5-flash", name: "Google Gemini 2.5 Flash (Cepat & Cerdas)" },
-  { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet (Editorial Tertinggi)" },
-  { id: "deepseek/deepseek-chat", name: "DeepSeek V3 (Sangat Hemat)" },
-]
-
 export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
   const [selectedEngineId, setSelectedEngineId] = React.useState<string>(engines[0]?.id || "quick")
   const [selectedSiteId, setSelectedSiteId] = React.useState<string>(sites[0]?.id || "")
@@ -46,9 +44,13 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
   // Request form state
   const [keyword, setKeyword] = React.useState("cara riset keyword seo pemula")
   const [brief, setBrief] = React.useState("Jelaskan langkah demi langkah riset keyword berorientasi search intent dan volume pencarian.")
-  const [aiModel, setAiModel] = React.useState("openai/gpt-oss-120b")
+  const [globalModel, setGlobalModel] = React.useState("openai/gpt-oss-120b")
   const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">("draft")
   const [tagList, setTagList] = React.useState("seo, riset-keyword, panduan-pemula")
+
+  React.useEffect(() => {
+    setGlobalModel(getGlobalAiModel())
+  }, [])
 
   // Execution state
   const [isRunning, setIsRunning] = React.useState(false)
@@ -67,7 +69,8 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
     setDurationMs(null)
 
     try {
-      const savedKey = typeof window !== "undefined" ? localStorage.getItem("custom_openrouter_api_key") || undefined : undefined
+      const savedKey = getGlobalApiKey()
+      const currentModel = getGlobalAiModel()
 
       const res = await fetch("/api/lab/run", {
         method: "POST",
@@ -76,7 +79,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
           type: "engine",
           targetId: selectedEngineId,
           siteId: selectedSiteId || undefined,
-          model: aiModel,
+          model: currentModel,
           apiKey: savedKey,
           params: {
             keyword,
@@ -143,6 +146,47 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
               </Select>
             </FormField>
 
+            {/* Active Engine Description & Capabilities */}
+            {activeEngine && (
+              <div className="rounded-lg border border-border/70 bg-muted/15 p-2.5 space-y-2 text-xs">
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  {activeEngine.description}
+                </p>
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  {activeEngine.id === "standard" || activeEngine.supportsFeaturedImage ? (
+                    <Badge variant="secondary" className="text-[10px] h-4.5 px-1.5 gap-1 bg-primary/10 text-primary border-primary/20">
+                      <ImageIcon className="size-3" /> Featured Image (Sampul)
+                    </Badge>
+                  ) : null}
+                  {activeEngine.id === "standard" || activeEngine.supportsInContentImages ? (
+                    <Badge variant="secondary" className="text-[10px] h-4.5 px-1.5 gap-1 bg-muted text-foreground">
+                      <ImageIcon className="size-3" /> In-Content Images
+                    </Badge>
+                  ) : null}
+                  {activeEngine.id === "standard" || activeEngine.supportsResearch ? (
+                    <Badge variant="secondary" className="text-[10px] h-4.5 px-1.5 gap-1 bg-muted text-foreground">
+                      <Zap className="size-3" /> Riset Web Live
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+            )}
+ 
+            {/* Global AI Model Indicator */}
+            <div className="flex items-center justify-between rounded-lg border border-border/80 bg-muted/20 px-3 py-2 text-xs">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <Bot className="size-3.5 text-primary" />
+                <span>Model AI Global:</span>
+                <strong className="text-foreground">{getModelDisplayName(globalModel)}</strong>
+              </div>
+              <Link
+                href="/settings/ai"
+                className="text-primary hover:underline text-[11px] flex items-center gap-1 font-medium"
+              >
+                Ubah di Pengaturan <ExternalLink className="size-3" />
+              </Link>
+            </div>
+
             {/* Target Site */}
             <FormField label="Target Website WordPress (Opsional)" id="engine-site">
               <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
@@ -181,21 +225,6 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
               />
             </FormField>
 
-            {/* AI Model */}
-            <FormField label="AI Model" id="engine-model">
-              <Select value={aiModel} onValueChange={setAiModel}>
-                <SelectTrigger id="engine-model" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {AI_MODELS.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </FormField>
 
             {/* Tags */}
             <FormField label="Tags Rekomendasi" id="engine-tags">
@@ -271,9 +300,12 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
 
             {resultData ? (
               <Tabs defaultValue="preview" className="w-full">
-                <TabsList className="grid w-full grid-cols-4 mb-3">
+                <TabsList className="grid w-full grid-cols-5 mb-3">
                   <TabsTrigger value="preview" className="text-xs gap-1.5">
                     <Eye className="size-3.5" /> Pratinjau
+                  </TabsTrigger>
+                  <TabsTrigger value="media" className="text-xs gap-1.5">
+                    <ImageIcon className="size-3.5" /> Media ({(enrichment?.featuredImage ? 1 : 0) + (enrichment?.inContentImages?.length || 0)})
                   </TabsTrigger>
                   <TabsTrigger value="blocks" className="text-xs gap-1.5">
                     <Code className="size-3.5" /> Gutenberg
@@ -282,12 +314,57 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
                     <FileText className="size-3.5" /> Markdown
                   </TabsTrigger>
                   <TabsTrigger value="telemetry" className="text-xs gap-1.5">
-                    <Layers className="size-3.5" /> Telemetri ({execution?.nodesExecuted?.length || 0})
+                    <Layers className="size-3.5" /> Telemetri
                   </TabsTrigger>
                 </TabsList>
 
                 {/* Tab: Rendered HTML Preview */}
                 <TabsContent value="preview" className="flex flex-col gap-3">
+                  {/* Featured Image Card / Banner */}
+                  {enrichment?.featuredImage && (
+                    <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                      <div className="relative w-full sm:w-40 h-24 rounded-md overflow-hidden bg-muted shrink-0 border border-border">
+                        <img
+                          src={enrichment.featuredImage.imageUrl || enrichment.featuredImage.originalUrl}
+                          alt={enrichment.featuredImage.altText || "Featured Image"}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div className="flex-1 space-y-1 text-xs">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className="bg-primary text-primary-foreground text-[10px] h-4.5 px-1.5 py-0 font-medium">
+                            Featured Image WordPress
+                          </Badge>
+                          {enrichment.featuredMedia ? (
+                            <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                              WP Media ID: {enrichment.featuredMedia}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground italic">
+                              (Mode Simulasi - Belum diupload ke WP)
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-semibold text-foreground text-xs line-clamp-1">
+                          {enrichment.featuredImage.title}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground line-clamp-2">
+                          {enrichment.featuredImage.explanation}
+                        </p>
+                        {enrichment.featuredImage.originalUrl && (
+                          <a
+                            href={enrichment.featuredImage.originalUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 font-medium pt-0.5"
+                          >
+                            Buka Sumber Asli Foto <ExternalLink className="size-3" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="rounded-lg border border-border bg-card p-4">
                     <h2 className="text-lg font-bold text-foreground mb-2">
                       {article?.title || "Tanpa Judul"}
@@ -298,6 +375,12 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
                       </span>
                       <span>•</span>
                       <span>Model: {execution?.modelUsed}</span>
+                      {enrichment?.featuredMedia && (
+                        <>
+                          <span>•</span>
+                          <span className="text-primary font-medium">Featured Image Terpasang</span>
+                        </>
+                      )}
                     </div>
 
                     <div
@@ -306,6 +389,137 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
                         __html: article?.contentHtml || "<p>Konten belum tersedia.</p>",
                       }}
                     />
+                  </div>
+                </TabsContent>
+
+                {/* Tab: Media & Gambar */}
+                <TabsContent value="media" className="flex flex-col gap-3">
+                  {/* Bagian 1: Featured Image */}
+                  <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                      <div className="flex items-center gap-2">
+                        <ImageIcon className="size-4 text-primary" />
+                        <h3 className="text-xs font-semibold text-foreground">
+                          1. Featured Image (Sampul Utama Postingan)
+                        </h3>
+                      </div>
+                      {enrichment?.featuredImage ? (
+                        <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                          Tersedia
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                          Tidak Dikonfigurasi
+                        </Badge>
+                      )}
+                    </div>
+
+                    {enrichment?.featuredImage ? (
+                      <div className="flex flex-col sm:flex-row items-start gap-4">
+                        <div className="w-full sm:w-48 h-32 rounded-lg overflow-hidden border border-border bg-muted shrink-0">
+                          <img
+                            src={enrichment.featuredImage.imageUrl || enrichment.featuredImage.originalUrl}
+                            alt={enrichment.featuredImage.altText || "Cover Image"}
+                            className="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div className="flex-1 space-y-1.5 text-xs">
+                          <div>
+                            <span className="text-muted-foreground text-[11px] block">Judul &amp; Caption:</span>
+                            <p className="font-semibold text-foreground">{enrichment.featuredImage.title}</p>
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground text-[11px] block">Kegunaan &amp; Alasan Kurasi:</span>
+                            <p className="text-muted-foreground text-[11px] leading-relaxed">
+                              {enrichment.featuredImage.explanation}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px]">
+                            {enrichment.featuredMedia && (
+                              <span className="font-mono bg-muted px-2 py-0.5 rounded border border-border text-foreground">
+                                WP Media ID: <strong>{enrichment.featuredMedia}</strong>
+                              </span>
+                            )}
+                            {enrichment.featuredImage.originalUrl && (
+                              <a
+                                href={enrichment.featuredImage.originalUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-primary hover:underline inline-flex items-center gap-1 font-medium"
+                              >
+                                Sumber Asli <ExternalLink className="size-3" />
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground py-4 text-center italic">
+                        Engine ini tidak menghasilkan atau memasang Featured Image.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Bagian 2: In-Content Images */}
+                  <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                      <div className="flex items-center gap-2">
+                        <ImageIcon className="size-4 text-primary" />
+                        <h3 className="text-xs font-semibold text-foreground">
+                          2. In-Content Images ({enrichment?.inContentImages?.length || 0} Gambar di dalam Naskah)
+                        </h3>
+                      </div>
+                    </div>
+
+                    {enrichment?.inContentImages && enrichment.inContentImages.length > 0 ? (
+                      <div className="space-y-3">
+                        {enrichment.inContentImages.map((img: any, idx: number) => (
+                          <div key={idx} className="flex flex-col sm:flex-row items-start gap-3 p-2.5 rounded-md border border-border/80 bg-muted/10 text-xs">
+                            <div className="w-full sm:w-28 h-20 rounded overflow-hidden border border-border bg-muted shrink-0">
+                              <img
+                                src={img.imageUrl || img.originalUrl}
+                                alt={img.altText || `Gambar ${idx + 1}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="flex-1 space-y-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-foreground">
+                                  Subbagian: {img.subheading || `Heading #${idx + 1}`}
+                                </span>
+                                {img.wpMediaId && (
+                                  <span className="font-mono text-[10px] bg-muted px-1.5 py-0.2 rounded text-muted-foreground">
+                                    ID: {img.wpMediaId}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-muted-foreground line-clamp-1">
+                                Alt: &quot;{img.altText}&quot; {img.caption ? `• Caption: "${img.caption}"` : ""}
+                              </p>
+                              {img.usageDescription && (
+                                <p className="text-[11px] text-muted-foreground/80 line-clamp-2">
+                                  {img.usageDescription}
+                                </p>
+                              )}
+                              {img.originalUrl && (
+                                <a
+                                  href={img.originalUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[10px] text-primary hover:underline inline-flex items-center gap-0.5 pt-0.5"
+                                >
+                                  Sumber Asli <ExternalLink className="size-2.5" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground py-4 text-center italic">
+                        Tidak ada gambar in-content yang disematkan di dalam naskah.
+                      </p>
+                    )}
                   </div>
                 </TabsContent>
 

@@ -160,7 +160,8 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
     tags: engineResult.tagIds || [],
     author: request.publishing.authorId ?? engineResult.authorDetail?.id ?? undefined,
     authorDetail: engineResult.authorDetail,
-    featuredMedia: request.publishing.featuredImageId ?? undefined,
+    featuredMedia: request.publishing.featuredImageId ?? engineResult.featuredMediaId ?? undefined,
+    featuredImage: engineResult.featuredImage,
     inContentImages: engineResult.inContentImages || [],
   }
 

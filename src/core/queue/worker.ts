@@ -276,6 +276,7 @@ export async function processPostItem({
       title: generated.title,
       content_html: generated.contentHtml,
       excerpt: generated.excerpt,
+      featured_image_url: resolvedEnrichment?.featuredImage?.imageUrl || null,
       categories: resolvedCategoryIds.map(String),
       tags: resolvedTagIds.length > 0 ? resolvedTagIds.map(String) : tagList,
       state: "syncing_to_wp",
@@ -298,6 +299,7 @@ export async function processPostItem({
       output: {
         categoryIds: resolvedCategoryIds,
         tagNames: tagList,
+        featuredMediaId: resolvedEnrichment?.featuredMedia,
       },
       durationMs: 10,
     },
@@ -321,6 +323,7 @@ export async function processPostItem({
       tagIds: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
       tagNames: tagList,
       authorId: resolvedAuthorId,
+      featuredMediaId: resolvedEnrichment?.featuredMedia,
     },
   })
   const wpPublishDuration = Date.now() - wpPublishStart

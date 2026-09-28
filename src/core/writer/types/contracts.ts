@@ -114,11 +114,25 @@ export interface ResearchData {
 export interface InContentImage {
   subheading: string
   imageUrl: string
+  /** URL asli gambar dari penyedia foto eksternal sebelum diunggah ke WordPress */
+  originalUrl?: string
   altText: string
   caption?: string
   wpMediaId?: number
   /** Deskripsi singkat alasan foto dipilih dan kegunaannya untuk subbab terkait */
   usageDescription?: string
+}
+
+/** Metadata gambar utama / sampul artikel WordPress (Featured Image) */
+export interface FeaturedImageMeta {
+  title: string
+  wpMediaId?: number
+  imageUrl: string
+  /** URL asli gambar dari penyedia foto eksternal sebelum diunggah ke WordPress */
+  originalUrl: string
+  explanation: string
+  altText?: string
+  caption?: string
 }
 
 /** Metadata enrichment WordPress */
@@ -128,6 +142,7 @@ export interface WpEnrichment {
   author?: number
   authorDetail?: { id: number; name: string; bio?: string }
   featuredMedia?: number
+  featuredImage?: FeaturedImageMeta
   inContentImages?: InContentImage[]
 }
 

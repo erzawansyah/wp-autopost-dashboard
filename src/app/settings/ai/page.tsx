@@ -10,13 +10,7 @@ import { Button } from "@/components/atoms/button"
 import { Input } from "@/components/atoms/input"
 import { FormField } from "@/components/molecules/form-field"
 import { HelpTooltip } from "@/components/molecules/help-tooltip"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/atoms/select"
+import { OpenrouterModelPicker } from "@/components/molecules/openrouter-model-picker"
 import {
   Bot,
   KeyRound,
@@ -29,17 +23,11 @@ import {
   ArrowLeft,
 } from "lucide-react"
 
-const POPULAR_MODELS = [
-  { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Default - Cepat & Hemat)", provider: "OpenRouter" },
-  { id: "google/gemini-2.5-flash", name: "Google Gemini 2.5 Flash (Cepat & Cerdas)", provider: "Google" },
-  { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet (Kualitas Editorial Tertinggi)", provider: "Anthropic" },
-  { id: "deepseek/deepseek-chat", name: "DeepSeek V3 (Sangat Hemat)", provider: "DeepSeek" },
-  { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B Instruct", provider: "Meta" },
-]
+import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 
 export default function AiSettingsPage() {
   const [apiKey, setApiKey] = React.useState("")
-  const [selectedModel, setSelectedModel] = React.useState("openai/gpt-oss-120b")
+  const [selectedModel, setSelectedModel] = React.useState(DEFAULT_AI_MODEL)
   const [isTesting, setIsTesting] = React.useState(false)
   const [testResult, setTestResult] = React.useState<{
     ok: boolean
@@ -53,7 +41,7 @@ export default function AiSettingsPage() {
     // Muat API key dan model dari localStorage jika ada
     const handle = requestAnimationFrame(() => {
       const savedKey = localStorage.getItem("custom_openrouter_api_key") || ""
-      const savedModel = localStorage.getItem("custom_openrouter_model") || "openai/gpt-oss-120b"
+      const savedModel = localStorage.getItem("custom_openrouter_model") || DEFAULT_AI_MODEL
       if (savedKey) setApiKey(savedKey)
       if (savedModel) setSelectedModel(savedModel)
     })
@@ -200,26 +188,17 @@ export default function AiSettingsPage() {
                 </div>
               )}
 
-              {/* Select Default Model */}
+              {/* Select Default Global Model */}
               <FormField
-                label="Model AI Default"
-                hint="Model ini akan digunakan sebagai mesin utama pembuatan artikel anti-slop"
-                tooltip="Anda dapat memilih model sesuai kebutuhan: GPT-OSS untuk kecepatan & efisiensi biaya, Claude untuk kualitas narasi tinggi, atau Gemini untuk riset mendalam."
+                label="Model AI Global Seluruh Aplikasi"
+                hint="Daftar model diambil secara dinamis dari endpoint OpenRouter. Model ini otomatis digunakan di seluruh Lab Nodes, Lab Engine, Quick Writer, dan Batch Queue."
+                tooltip="Model default aplikasi. Anda dapat mencari dan memilih dari ratusan model OpenRouter (GPT-4o, Claude 3.5, Gemini, DeepSeek, Llama, Qwen, dsb.). Sistem akan langsung merujuk ke pilihan global ini."
               >
-                <Select value={selectedModel} onValueChange={setSelectedModel}>
-                  <SelectTrigger className="h-9 w-full text-xs">
-                    <SelectValue placeholder="Pilih model AI" />
-                  </SelectTrigger>
-                  <SelectContent className="w-[var(--radix-select-trigger-width)]">
-                    {POPULAR_MODELS.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        <div className="flex items-center justify-between w-full gap-2">
-                          <span>{m.name}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <OpenrouterModelPicker
+                  value={selectedModel}
+                  onChange={setSelectedModel}
+                  apiKey={apiKey.trim() || undefined}
+                />
               </FormField>
 
               {/* Info Box: Keamanan & Cara Mendapatkan Key */}

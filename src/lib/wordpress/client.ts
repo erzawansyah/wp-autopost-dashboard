@@ -23,6 +23,7 @@ export interface WPCreatePostPayload {
   categories?: number[]
   tags?: number[]
   author?: number
+  featured_media?: number
 }
 
 export interface WPCreatePostResult {
@@ -196,6 +197,9 @@ export async function createWordPressPost(params: {
     }
     if (params.post.author) {
       payload.author = params.post.author
+    }
+    if (params.post.featured_media) {
+      payload.featured_media = params.post.featured_media
     }
 
     const res = await fetch(endpoint, {

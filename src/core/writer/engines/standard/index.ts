@@ -11,21 +11,21 @@ import { gutenbergFormatterNode } from "../../nodes/gutenberg-formatter"
 /**
  * Kompilasi StateGraph LangGraph untuk Standard Engine
  * Mengorkestrasi pipeline multi-langkah:
- * Taksonomi ➔ Riset Topik & Cetak Biru ➔ Penulisan Naskah Mendalam ➔ Kurasi Gambar ➔ Audit Mutu ➔ Serialisasi Gutenberg
+ * Taksonomi ➔ Riset Topik & Cetak Biru ➔ Kurasi Aset Gambar & Upload WP ➔ Penulisan Naskah & Penyematan Gambar ➔ Audit Mutu ➔ Serialisasi Gutenberg
  */
 export function createStandardGraph() {
   return new StateGraph(WriterStateAnnotation)
     .addNode("taxonomy_resolver", taxonomyResolverNode)
     .addNode("topic_researcher", topicResearcherNode)
-    .addNode("article_drafter", articleDrafterNode)
     .addNode("image_curator", imageCuratorNode)
+    .addNode("article_drafter", articleDrafterNode)
     .addNode("quality_checker", qualityCheckerNode)
     .addNode("gutenberg_formatter", gutenbergFormatterNode)
     .addEdge(START, "taxonomy_resolver")
     .addEdge("taxonomy_resolver", "topic_researcher")
-    .addEdge("topic_researcher", "article_drafter")
-    .addEdge("article_drafter", "image_curator")
-    .addEdge("image_curator", "quality_checker")
+    .addEdge("topic_researcher", "image_curator")
+    .addEdge("image_curator", "article_drafter")
+    .addEdge("article_drafter", "quality_checker")
     .addConditionalEdges("quality_checker", (state) => {
       // Jika terjadi kesalahan atau penolakan terdeteksi, hentikan eksekusi
       if (state.error) {
@@ -48,6 +48,7 @@ export const standardEngine = defineEngine({
   capabilities: {
     supportsResearch: true,
     supportsInContentImages: true,
+    supportsFeaturedImage: true,
     supportsAudit: true,
     estimatedDurationSeconds: 40,
     recommendedModelTier: "smart",

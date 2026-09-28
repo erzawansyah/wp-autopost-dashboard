@@ -70,7 +70,12 @@ function createMockWriterState(overrides?: Partial<WriterState>): WriterState {
     rawTitle: "",
     rawExcerpt: "",
     rawMarkdown: "",
+    featuredMediaId: undefined,
+    featuredImage: undefined,
     inContentImages: [],
+    curatedImagesText: "",
+    curatedImages: [],
+    curationSummary: "",
     tokenUsage: undefined,
     article: undefined,
     nodesExecuted: [],
@@ -261,6 +266,7 @@ export async function POST(request: Request) {
               status: params.status || "draft",
               categoryIds: params.categoryIds,
               tagNames: params.tagNames,
+              featuredMediaId: params.featuredMediaId ? Number(params.featuredMediaId) : undefined,
             },
           })
           if (!res.ok) {
@@ -552,6 +558,7 @@ export async function POST(request: Request) {
               request: createMockWriterRequest({
                 content: {
                   keyword: params.keyword || "kopi manual brew",
+                  brief: params.brief || params.promptContent || undefined,
                   language: "id",
                   style: "default",
                 },
@@ -567,7 +574,7 @@ export async function POST(request: Request) {
                 variables: {},
               },
             },
-            rawMarkdown: params.rawMarkdown || "## Mengenal Alat Seduh Kopi\n\nAlat seduh kopi memiliki beragam bentuk.\n\n## Langkah Menyeduh yang Benar\n\nPastikan suhu air berada pada 90 derajat.\n",
+            rawMarkdown: params.rawMarkdown || params.promptContent || "Brief Konten: Panduan menyeduh kopi manual brew untuk pemula. Membahas alat seduh V60, french press, dan rasio air kopi.",
           })
 
           const curated = await imageCuratorNode(mockState)

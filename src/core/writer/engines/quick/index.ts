@@ -41,6 +41,7 @@ export const quickEngine = defineEngine({
   capabilities: {
     supportsResearch: false,
     supportsInContentImages: false,
+    supportsFeaturedImage: false,
     supportsAudit: false,
     estimatedDurationSeconds: 15,
     recommendedModelTier: "fast",

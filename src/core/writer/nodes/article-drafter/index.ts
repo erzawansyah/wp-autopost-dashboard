@@ -30,6 +30,7 @@ export interface ArticleDrafterInput {
   author?: { name: string; bio?: string };
   customInstructions?: string;
   researchData?: ResearchData;
+  curatedImagesText?: string;
   model?: string;
   temperature?: number;
   llmService: OpenRouterLlmService;
@@ -108,6 +109,17 @@ export async function executeArticleDrafter(
       .join("\n");
   }
 
+  let imagesNote = "";
+  if (input.curatedImagesText) {
+    imagesNote = [
+      "- ASET GAMBAR TERKURASI (WAJIB DISEMATKAN DI DALAM ARTIKEL):",
+      "Gambar-gambar berikut telah dikurasi dan diunggah ke WordPress. Sematkan gambar ini ke dalam naskah tepat di bawah subbab yang relevan menggunakan Markdown baku: `![Alt Text](URL)` diikuti `*Keterangan Gambar*`:",
+      input.curatedImagesText,
+    ].join("\n");
+  }
+
+  const combinedInstructions = [customInstructionsNote, imagesNote].filter(Boolean).join("\n\n");
+
   const userPrompt = promptTemplate.renderUserPrompt({
     keyword: input.keyword,
     languageName:
@@ -116,7 +128,7 @@ export async function executeArticleDrafter(
     titleReference,
     briefNote,
     authorPersona,
-    customInstructionsNote,
+    customInstructionsNote: combinedInstructions,
     researchNotes,
   });
 
@@ -215,6 +227,7 @@ export const articleDrafterNode = defineNode({
       author: state.authorDetail,
       customInstructions: state.context.promptConfig?.customInstructions,
       researchData: state.researchData,
+      curatedImagesText: state.curatedImagesText,
       model: state.context.request.model,
       temperature: state.context.request.temperature,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

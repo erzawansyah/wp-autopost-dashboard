@@ -21,6 +21,7 @@ export interface WordPressPublishParams {
     tagNames?: string[]
     tagIds?: number[]
     authorId?: number
+    featuredMediaId?: number
   }
 }
 
@@ -68,6 +69,7 @@ export async function publishPostToWordPress(
         : undefined,
     tags: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
     author: params.metadata?.authorId,
+    featured_media: params.metadata?.featuredMediaId,
   }
 
   const wpResult: WPCreatePostResult = await createWordPressPost({

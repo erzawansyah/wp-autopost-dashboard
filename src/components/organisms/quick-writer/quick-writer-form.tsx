@@ -37,6 +37,7 @@ import {
   Plus,
   Zap,
 } from "lucide-react"
+import { getModelDisplayName } from "@/lib/ai/settings"
 
 export interface WpSiteOption {
   id: string
@@ -532,38 +533,23 @@ export function QuickWriterForm({
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
-                  <Select
-                    value={aiModel}
-                    onValueChange={setAiModel}
-                    disabled={isSubmitting}
-                  >
-                    <SelectTrigger className="h-9 text-xs bg-background">
-                      <SelectValue placeholder="Pilih model AI" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AI_MODELS.map((m) => (
-                        <SelectItem key={m.id} value={m.id} className="text-xs">
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <div className="flex items-center justify-end text-[11px] text-muted-foreground">
-                    <Button
-                      type="button"
-                      variant="link"
-                      size="xs"
-                      asChild
-                      className="h-auto p-0 text-[11px] text-primary hover:underline gap-1 cursor-pointer"
-                    >
-                      <Link href="/settings/ai">
-                        <span>Buka Pengaturan AI &amp; Kunci API</span>
-                        <ExternalLink className="size-3" />
-                      </Link>
-                    </Button>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs bg-background p-3 rounded-md border border-border/80">
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">Model AI Global Aktif:</span>
+                    <strong className="text-foreground">{getModelDisplayName(aiModel)}</strong>
                   </div>
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="xs"
+                    asChild
+                    className="h-auto p-0 text-[11px] text-primary hover:underline gap-1 cursor-pointer shrink-0"
+                  >
+                    <Link href="/settings/ai">
+                      <span>Ubah Model di Pengaturan</span>
+                      <ExternalLink className="size-3" />
+                    </Link>
+                  </Button>
                 </div>
               </div>
             </TabsContent>

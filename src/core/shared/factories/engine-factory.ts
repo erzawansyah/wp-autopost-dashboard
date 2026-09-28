@@ -71,6 +71,8 @@ export function defineEngine<TState extends WriterState = WriterState>(
           success: true,
           article: finalState.article,
           sources: finalState.sources || [],
+          featuredMediaId: finalState.featuredMediaId,
+          featuredImage: finalState.featuredImage,
           inContentImages: finalState.inContentImages || [],
           nodesExecuted: finalState.nodesExecuted || [],
           nodeLogs: finalState.nodeLogs || [],

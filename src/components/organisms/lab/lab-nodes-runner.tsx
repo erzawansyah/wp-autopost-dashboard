@@ -33,7 +33,10 @@ import {
   Check,
   FileText,
   Search,
+  Bot,
 } from "lucide-react"
+import Link from "next/link"
+import { getGlobalAiModel, getModelDisplayName, getGlobalApiKey } from "@/lib/ai/settings"
 import { LabSiteOption } from "./lab-tools-runner"
 
 export interface LabNodeItem {
@@ -100,10 +103,13 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
   const [excerptInput, setExcerptInput] = React.useState(
     "Panduan lengkap cara menyeduh kopi manual brew mulai dari pemilihan alat hingga takaran rasio ideal."
   )
-
-  // AI Model fields
-  const [aiModel, setAiModel] = React.useState("openai/gpt-oss-120b")
+  // Global AI Model (diatur di /settings/ai)
+  const [globalModel, setGlobalModel] = React.useState("openai/gpt-oss-120b")
   const [temperature, setTemperature] = React.useState("0.7")
+
+  React.useEffect(() => {
+    setGlobalModel(getGlobalAiModel())
+  }, [])
 
   // Execution state
   const [isRunning, setIsRunning] = React.useState(false)
@@ -167,7 +173,7 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
           brief: briefInput || undefined,
           language: languageInput,
           style: styleInput,
-          model: aiModel,
+          model: globalModel,
           temperature: Number(temperature) || 0.5,
         }
         break
@@ -190,8 +196,9 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
       case "image_curator":
         params = {
           keyword: keywordInput,
+          promptContent: markdownInput,
           rawMarkdown: markdownInput,
-          model: aiModel,
+          model: globalModel,
           temperature: Number(temperature) || 0.2,
         }
         break
@@ -214,7 +221,8 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
     }
 
     try {
-      const savedKey = typeof window !== "undefined" ? localStorage.getItem("custom_openrouter_api_key") || undefined : undefined
+      const savedKey = getGlobalApiKey()
+      const currentModel = getGlobalAiModel()
 
       const res = await fetch("/api/lab/run", {
         method: "POST",
@@ -223,7 +231,7 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
           type: "node",
           targetId: selectedNodeId,
           siteId: selectedSiteId || undefined,
-          model: aiModel,
+          model: currentModel,
           apiKey: savedKey,
           params,
         }),
@@ -298,6 +306,23 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
               </div>
             )}
 
+            {/* Global AI Model Indicator */}
+            {activeNode?.isAiNode && (
+              <div className="flex items-center justify-between rounded-lg border border-border/80 bg-muted/20 px-3 py-2 text-xs">
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <Bot className="size-3.5 text-primary" />
+                  <span>Model AI Global:</span>
+                  <strong className="text-foreground">{getModelDisplayName(globalModel)}</strong>
+                </div>
+                <Link
+                  href="/settings/ai"
+                  className="text-primary hover:underline text-[11px] flex items-center gap-1 font-medium"
+                >
+                  Ubah di Pengaturan <ExternalLink className="size-3" />
+                </Link>
+              </div>
+            )}
+
             {/* ============================================================ */}
             {/* BAGIAN 1: INPUT WAJIB (REQUIRED) */}
             {/* ============================================================ */}
@@ -344,61 +369,32 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
 
               {/* Node: topic_researcher WAJIB */}
               {selectedNodeId === "topic_researcher" && (
-                <>
-                  <FormField label="Kata Kunci Riset (keyword)" id="kw-research" required>
-                    <Input
-                      id="kw-research"
-                      value={keywordInput}
-                      onChange={(e) => setKeywordInput(e.target.value)}
-                      placeholder="Topik atau kata kunci yang akan diteliti"
-                    />
-                    <span className="text-[11px] text-muted-foreground">
-                      Agent Topic Researcher akan memanggil tool penelusuran web dan mengekstrak entitas semantik (LSI).
-                    </span>
-                  </FormField>
-                  <FormField label="Model AI Researcher (model)" id="model-research" required>
-                    <Select value={aiModel} onValueChange={setAiModel}>
-                      <SelectTrigger id="model-research" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {AI_MODELS.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormField>
-                </>
+                <FormField label="Kata Kunci Riset (keyword)" id="kw-research" required>
+                  <Input
+                    id="kw-research"
+                    value={keywordInput}
+                    onChange={(e) => setKeywordInput(e.target.value)}
+                    placeholder="Topik atau kata kunci yang akan diteliti"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Agent Topic Researcher akan memanggil tool penelusuran web dan mengekstrak entitas semantik (LSI).
+                  </span>
+                </FormField>
               )}
 
               {/* Node 3: article_drafter WAJIB */}
               {selectedNodeId === "article_drafter" && (
-                <>
-                  <FormField label="Kata Kunci Target (keyword)" id="kw-draft" required>
-                    <Input
-                      id="kw-draft"
-                      value={keywordInput}
-                      onChange={(e) => setKeywordInput(e.target.value)}
-                      placeholder="Topik utama naskah artikel"
-                    />
-                  </FormField>
-                  <FormField label="Model AI Penulis (model)" id="model-draft" required>
-                    <Select value={aiModel} onValueChange={setAiModel}>
-                      <SelectTrigger id="model-draft" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {AI_MODELS.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormField>
-                </>
+                <FormField label="Kata Kunci Target (keyword)" id="kw-draft" required>
+                  <Input
+                    id="kw-draft"
+                    value={keywordInput}
+                    onChange={(e) => setKeywordInput(e.target.value)}
+                    placeholder="Topik utama naskah artikel"
+                  />
+                  <span className="text-[11px] text-muted-foreground">
+                    Topik bahasan yang akan dikembangkan menjadi naskah artikel lengkap dan berbobot.
+                  </span>
+                </FormField>
               )}
 
               {/* Node: image_curator WAJIB */}
@@ -409,34 +405,20 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
                       id="kw-img"
                       value={keywordInput}
                       onChange={(e) => setKeywordInput(e.target.value)}
-                      placeholder="Kata kunci konteks kurasi foto"
+                      placeholder="Kata kunci konteks topik artikel"
                     />
                   </FormField>
-                  <FormField label="Model AI Kurator Visual (model)" id="model-img" required>
-                    <Select value={aiModel} onValueChange={setAiModel}>
-                      <SelectTrigger id="model-img" className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {AI_MODELS.map((m) => (
-                          <SelectItem key={m.id} value={m.id}>
-                            {m.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormField>
-                  <FormField label="Naskah Markdown yang Akan Disisipi Foto (rawMarkdown)" id="md-img" required>
+                  <FormField label="Naskah Artikel Utuh atau Brief Konten (promptContent)" id="md-img" required>
                     <Textarea
                       id="md-img"
                       rows={6}
                       value={markdownInput}
                       onChange={(e) => setMarkdownInput(e.target.value)}
                       className="font-mono text-xs"
-                      placeholder="Naskah markdown berisi heading H2..."
+                      placeholder="Masukkan naskah artikel utuh atau brief rencana artikel..."
                     />
                     <span className="text-[11px] text-muted-foreground">
-                      Agent LangChain membaca heading H2, mengevaluasi konteks visual, menyeleksi foto berkualitas tinggi, dan menyematkannya secara rapi.
+                      AI akan membaca materi ini, merumuskan kueri foto yang dibutuhkan, mencari foto berkualitas via image_search, mengunggah ke WordPress, dan mengembalikan daftar aset gambar (ID, URL, &amp; Penjelasan) siap pakai untuk penulisan artikel.
                     </span>
                   </FormField>
                 </>
@@ -971,6 +953,26 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
                   {/* Visualisasi khusus Image Curator */}
                   {selectedNodeId === "image_curator" && (
                     <div className="flex flex-col gap-4">
+                      {/* Output Teks Terformat untuk Konsumsi Node Penulisan */}
+                      {(resultOutput.curatedImagesText || resultOutput.formattedText) && (
+                        <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-primary flex items-center gap-1.5">
+                              <Sparkles className="size-3.5 text-primary" /> Output Teks Aset Gambar (Siap untuk Node Penulisan):
+                            </span>
+                            <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary">
+                              Format Siap Konsumsi
+                            </Badge>
+                          </div>
+                          <pre className="p-3 rounded-md bg-background/80 border border-border/80 font-mono text-xs whitespace-pre-wrap leading-relaxed text-foreground select-all">
+                            {resultOutput.curatedImagesText || resultOutput.formattedText}
+                          </pre>
+                          <span className="text-[11px] text-muted-foreground">
+                            Format teks di atas akan diteruskan langsung ke node penulisan artikel (Article Drafter) agar AI sekalian menyematkan gambar ke posisi naskah yang tepat.
+                          </span>
+                        </div>
+                      )}
+
                       {/* Ringkasan Evaluasi Kurator */}
                       {resultOutput.curationSummary && (
                         <div className="rounded-lg border border-border/80 bg-muted/20 p-3.5 flex flex-col gap-1.5">
@@ -983,51 +985,106 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
                         </div>
                       )}
 
+                      {/* 1. Kartu Khusus Featured Image (Thumbnail Utama) */}
+                      {resultOutput.featuredImage && (
+                        <div className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1.5">
+                              <Sparkles className="size-3.5" /> Featured Image (Thumbnail Utama WordPress):
+                            </span>
+                            <Badge className="bg-amber-600 text-white dark:bg-amber-500 text-[10px] h-4">
+                              Cover Utama (Unik)
+                            </Badge>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                            <div className="relative md:col-span-4">
+                              <img
+                                src={resultOutput.featuredImage.imageUrl}
+                                alt={resultOutput.featuredImage.altText || resultOutput.featuredImage.title}
+                                className="w-full h-36 object-cover rounded-md border border-border/80 shadow-xs"
+                              />
+                              {resultOutput.featuredImage.wpMediaId ? (
+                                <Badge className="absolute top-2 right-2 bg-background/90 text-foreground border border-border/80 text-[10px] font-mono shadow-xs backdrop-blur-xs">
+                                  ID: #{resultOutput.featuredImage.wpMediaId}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="absolute top-2 right-2 bg-background/90 text-[10px] font-mono">
+                                  Mode Simulasi
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="md:col-span-8 flex flex-col gap-1.5 text-xs">
+                              <span className="font-semibold text-foreground text-sm">{resultOutput.featuredImage.title}</span>
+                              <div className="flex flex-col gap-1 font-mono text-[11px] text-muted-foreground bg-background/60 p-2 rounded border border-border/60">
+                                <span className="truncate"><strong className="text-foreground">URL WP:</strong> {resultOutput.featuredImage.imageUrl}</span>
+                                <span className="truncate"><strong className="text-foreground">URL Asli:</strong> <a href={resultOutput.featuredImage.originalUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{resultOutput.featuredImage.originalUrl}</a></span>
+                              </div>
+                              <div className="text-[11px] text-muted-foreground mt-0.5">
+                                <strong className="text-foreground">Alasan Pemilihan:</strong> {resultOutput.featuredImage.explanation}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 2. Daftar In-Content Images (Gambar 1, Gambar 2, dst) */}
                       {resultOutput.inContentImages && resultOutput.inContentImages.length > 0 ? (
                         <div className="flex flex-col gap-2">
-                          <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                            <ImageIcon className="size-3.5 text-primary" /> Foto Terpilih &amp; Diunggah ke WordPress ({resultOutput.inContentImages.length}):
-                          </span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                              <ImageIcon className="size-3.5 text-primary" /> In-Content Images / Gambar Isi ({resultOutput.inContentImages.length}):
+                            </span>
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground font-normal">
+                              Anti-Duplikasi (Beda dari Featured Image)
+                            </Badge>
+                          </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {resultOutput.inContentImages.map((img: any, idx: number) => (
-                              <div key={idx} className="rounded-lg border border-border/80 bg-muted/20 p-3 flex flex-col gap-2.5">
-                                <div className="relative">
-                                  <img
-                                    src={img.imageUrl}
-                                    alt={img.altText}
-                                    className="w-full h-36 object-cover rounded-md border border-border/60"
-                                  />
-                                  {img.wpMediaId && (
-                                    <Badge className="absolute top-2 right-2 bg-background/90 text-foreground border border-border/80 text-[10px] font-mono shadow-xs backdrop-blur-xs">
-                                      Media ID: #{img.wpMediaId}
+                            {resultOutput.inContentImages.map((img: any, idx: number) => {
+                              const num = img.index || idx + 1
+                              const title = img.title || img.subheading || `Gambar ${num}`
+                              const mediaId = img.wpMediaId
+                              const explanation = img.explanation || img.usageDescription || "Foto visual pendukung topik artikel."
+                              return (
+                                <div key={idx} className="rounded-lg border border-border/80 bg-muted/20 p-3 flex flex-col gap-2.5">
+                                  <div className="relative">
+                                    <img
+                                      src={img.imageUrl}
+                                      alt={img.altText || title}
+                                      className="w-full h-36 object-cover rounded-md border border-border/60"
+                                    />
+                                    {mediaId ? (
+                                      <Badge className="absolute top-2 right-2 bg-background/90 text-foreground border border-border/80 text-[10px] font-mono shadow-xs backdrop-blur-xs">
+                                        ID: #{mediaId}
+                                      </Badge>
+                                    ) : (
+                                      <Badge variant="outline" className="absolute top-2 right-2 bg-background/90 text-[10px] font-mono">
+                                        Mode Simulasi
+                                      </Badge>
+                                    )}
+                                    <Badge variant="secondary" className="absolute top-2 left-2 text-[10px] font-semibold bg-background/90">
+                                      Gambar {num}
                                     </Badge>
-                                  )}
-                                </div>
-                                <div className="flex flex-col gap-1 text-[11px]">
-                                  <span className="font-semibold text-foreground">📍 Subbab: {img.subheading}</span>
-                                  <span className="text-muted-foreground italic">"{img.caption}"</span>
-                                  {img.usageDescription && (
+                                  </div>
+                                  <div className="flex flex-col gap-1 text-[11px]">
+                                    <span className="font-semibold text-foreground">{title}</span>
+                                    <span className="text-muted-foreground truncate font-mono text-[10px]"><strong>WP:</strong> {img.imageUrl}</span>
+                                    {img.originalUrl && (
+                                      <span className="text-muted-foreground truncate font-mono text-[10px]">
+                                        <strong>Asli:</strong> <a href={img.originalUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{img.originalUrl}</a>
+                                      </span>
+                                    )}
                                     <div className="mt-1 p-2 rounded bg-background/60 border border-border/60 text-[11px] text-muted-foreground">
-                                      <strong className="text-foreground">Konteks Penggunaan:</strong> {img.usageDescription}
+                                      <strong className="text-foreground">Penjelasan:</strong> {explanation}
                                     </div>
-                                  )}
+                                  </div>
                                 </div>
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         </div>
                       ) : (
                         <div className="rounded-lg border border-border/70 bg-muted/20 p-3 text-xs text-muted-foreground">
-                          Tidak ada gambar yang disematkan atau heading tidak cocok.
-                        </div>
-                      )}
-
-                      {resultOutput.rawMarkdown && (
-                        <div className="flex flex-col gap-1.5">
-                          <span className="text-xs font-medium text-foreground">Naskah Markdown yang Telah Diperbarui:</span>
-                          <div className="rounded-lg border border-border/80 bg-muted/20 p-3 font-mono text-xs whitespace-pre-wrap max-h-64 overflow-y-auto">
-                            {resultOutput.rawMarkdown}
-                          </div>
+                          Belum ada gambar isi yang dikurasi atau diunggah.
                         </div>
                       )}
                     </div>
