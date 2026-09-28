@@ -6,8 +6,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 ## 1. Status Proyek Saat Ini
 
-- **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker (/api/queue/process), Log Telemetri (/posts/[id]), dan Standard Writing Engine (Riset & Gambar)**.
-- **Catatan Worklog**: [`00`-`10`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`11`-`14`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`15`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/15-standard-writing-engine-research-and-images.md) *(terbaru)*
+- **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker, Standard Writing Engine, dan Hybrid Scraper Tools (Image & Web)**.
+- **Catatan Worklog**: [`00`-`14`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`15`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/15-standard-writing-engine-research-and-images.md) · [`16`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/16-hybrid-image-and-web-scraper.md) *(terbaru)*
 - **Fase Aktif**: **Pengembangan Engine Penulisan Baru (Writing Engine Registry)**.
 - **Fase Berikutnya**: **Modul 2 Bulk CSV/Keyword Ingestion & Smart Scheduling (Drip-feed)**.
 - **Halaman yang Masih `ComingSoonView`**: `/queue`, `/prompts`, `/settings` (sub-halaman menyusul).
@@ -16,66 +16,18 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 ## 2. Catatan Keputusan Arsitektur yang Telah Disepakati (ADR Summary)
 
-1. **ADR-001 (Root Installation dengan `src/`)**:
-   - Next.js di-install di root workspace dengan opsi direktori `src/` demi kelancaran tooling Shadcn, Tailwind, dan Next.js App Router.
-2. **ADR-002 (Zero-Plugin WP Onboarding)**:
-   - Integrasi WordPress murni di atas REST API standar (`/wp-json/wp/v2/`) + Application Passwords bawaan. Dilarang mengharuskan pengguna memasang plugin custom di WordPress mereka.
-3. **ADR-003 (OpenRouter-First + Pluggable BYOK)**:
-   - OpenRouter menjadi gateway default sistem; arsitektur dibuat modular (`AIProviderAdapter`) agar pengguna dapat memasukkan API Key sendiri.
-4. **ADR-004 (Cost-Saver State Machine Retry)**:
-   - Status antrean memisahkan `failed_generation` (error AI) dan `failed_sync` (error WP). Retry koneksi WP langsung mengulang dari `ready_to_sync` tanpa memanggil ulang LLM.
-5. **ADR-005 (Developer-Centric MCPs)**:
-   - MCP Server di `.agents/mcp_config.json` dibatasi hanya untuk alat bantu developer (`supabase`, `next-devtools`, `fetch`). API aplikasi (DataForSEO & Pexels) diisolasi di level kode runtime.
-6. **ADR-006 (Elevasi DESIGN.md, ARCHITECTURE.md, & PRD.md ke Root)**:
-   - Mengikuti konvensi industri, dokumen acuan utama diletakkan di root repositori.
-7. **ADR-007 (Sandbox Non-Aplikasi `.workspaces/`)**:
-   - Isolasi berkas non-aplikasi ke `.workspaces/`: `scripts/` (reusable), `temp/` (scratch), dan `assets/` (mock fixtures).
-8. **ADR-008 (3 Modul Ingesti Fleksibel)**:
-   - Modul 1: Quick Single Post (1 artikel instan); Modul 2: Bulk CSV/List (antrean terjadwal); Modul 3: Niche Auto-Genesis (seed inisialisasi website baru).
-9. **ADR-009 (Featured Image Tri-Mode Switcher)**:
-   - Checkbox master on/off dengan 3 opsi sumber: Unsplash (gratis otomatis), Manual/URL, atau AI Image Generation.
-10. **ADR-010 (Smart Humanized Drip-Feed Scheduler)**:
-    - Penjadwalan bertahap berbasis jendela jam aktif dan pengacakan menit (*jitter*) untuk menghindari pola bot.
-11. **ADR-011 (Redirect Callback Authorization WP - Selesai & Aktif)**:
-    - Otorisasi WP via endpoint bawaan `authorize-application.php` dengan redirect callback (zero-credential copy-paste) + manual fallback. Dilengkapi state token HMAC anti-CSRF dan auto-encryption AES-256-GCM.
-12. **ADR-012 (On-the-Fly Taxonomy Creation)**:
-    - Kategori & tag WordPress dapat dipilih dari yang ada atau dibuat baru secara langsung di semua skenario ingesti (Modul 1, 2, 3) via WP REST API.
-13. **ADR-013 (Prompt Template Engine & Versioning)**:
-    - Pengguna dapat mengkustomisasi prompt per flow (`quick_post`, `bulk_post`, `niche_ideation`, `anti_ai_filter`) dengan placeholder dinamis, riwayat versi otomatis, dan rollback.
-14. **ADR-014 (Table-Only Queue View)**:
-    - Tampilan antrean murni berbasis High-Performance Data Table (@tanstack/react-table + virtualisasi) tanpa opsi Kanban.
-15. **ADR-015 (35 Modular Internal REST API Endpoints)**:
-    - Arsitektur backend modular dengan 35 API routes di `/api/...` siap digunakan frontend maupun headless client.
-16. **ADR-016 (Arsitektur Operasional Non-Modal & Persistensi Tema)**:
-    - Menghilangkan modal pop-up untuk alur kerja operasional utama (Tulis Cepat dijadikan halaman workspace dedikasi `/posts/new`, formulir website dijadikan kartu inline). Sinkronisasi tema light/dark dijamin persisten via script inline anti-flicker di `<head>` dan `useSyncExternalStore`.
-17. **ADR-017 (Multi-Select Kategori WP Nyata & Auto-Resolve Tag)**:
-    - Kategori WordPress di form Tulis Cepat diambil langsung dari WP REST API (`/wp-json/wp/v2/categories`) dengan multi-select dropdown tanpa izin membuat kategori baru. Tag diinput dengan pemisah koma dan otomatis dicocokkan atau dibuatkan ID-nya di WordPress sebelum artikel terbit.
-18. **ADR-018 (OpenRouter Agent SDK Engine & BYOK Management)**:
-    - Mesin generasi AI diintegrasikan menggunakan resmi `@openrouter/agent` SDK (`client.callModel`) dengan dukungan multi-model (GPT-OSS, Claude 3.5, Gemini 2.5 Flash, DeepSeek), sanitasi API key, endpoint diagnostik `/api/ai/test`, dan halaman Pengaturan AI.
-19. **ADR-019 (Transisi Engine Tulis Cepat & Skills ke LangChain `@langchain/openrouter`)**:
-    - Menggantikan skill-skill OpenRouter lama dengan 22 skills resmi LangChain (`@langchain/core`, `@langchain/openrouter`, `@langchain/langgraph`). Engine Tulis Cepat (`src/lib/ai/generator.ts`) dimigrasikan ke `ChatOpenRouter` dengan Zod structured output & fallback JSON parsing. Dependensi lama `@openrouter/agent` dihapus bersih.
-20. **ADR-020 (Direktori Prompt Terpisah & Template Engine Dinamis `${{key}}`)**:
-    - Seluruh prompt sistem dan pengguna dipindahkan dari hardcoded string ke direktori `src/core/prompts/` (`system/` dan `user/`). Disediakan parser `renderPrompt` berbasis sintaks `${{key}}` dengan fitur auto-strip pada baris variabel kosong guna mendukung modularitas agent skills di masa depan.
-21. **ADR-021 (Konsolidasi Baseline Writer di `src/core/writer.ts`)**:
-    - Sesuai evaluasi pengujian lapangan, eksperimen tool-calling yang berbelit di-reset. Mesin penulisan artikel dikonsolidasikan ke `src/core/writer.ts` dengan self-contained prompt, guardrail anti-penolakan chatbot, dan structured output stabil sebagai baseline sebelum merancang ulang arsitektur system writer secara komprehensif.
-22. **ADR-022 (Extensible System Writer, Markdown-First, Gutenberg Blocks, & Style Rules)**:
-    - Merancang ulang arsitektur writer menjadi facade modular (`writer.run()`), pluggable `EngineRegistry` dengan protokol `WritingEngine` terbuka, alur kerja Markdown-First untuk efisiensi token & audit, native WordPress Gutenberg Block Serializer (`<!-- wp:... -->`), direktori style rules terpisah (`src/core/writer/styles/`), dan integrasi ke route `/api/posts/quick`.
-23. **ADR-023 (Retry Sinkronisasi via `POST /api/posts/[id]`)**:
-    - Retry artikel `failed_sync`/`ready_to_sync` memakai `content_html` yang sudah tersimpan, tanpa memanggil LLM ulang. Query selalu difilter `user_id`; transisi `future` → `scheduled_on_wp`.
-24. **ADR-024 (Satu `TooltipProvider` Global)**:
-    - `TooltipProvider` dipindah ke `layout.tsx` (`delayDuration=180`). `HelpTooltip` tidak lagi membuat provider sendiri, dan native `title` pada rail sidebar diganti Radix tooltip agar perilaku helper seragam.
-25. **ADR-025 (Konsolidasi Menu Provider AI ke `/settings`)**:
-    - Item sidebar `Provider AI` dihapus; akses API key melalui kartu di halaman `/settings` → `/settings/ai`. Hierarki navigasi kembali ke satu induk Pengaturan.
-26. **ADR-026 (Arsitektur Node AI & Prompt Templating `prompt.md`)**:
-    - Node AI (`taxonomy-resolver`, `article-drafter`, `quality-checker`) memakai template `prompt.md` terpisah dengan YAML frontmatter & section tags yang dimuat via `loadNodePrompt()`.
-27. **ADR-027 (Shared Factories `defineNode` & `defineEngine`)**:
-    - Fondasi orkestrasi LangGraph dipusatkan di `src/core/shared/factories/` bebas boilerplate dan stateless.
-28. **ADR-028 (Laboratorium & Test Bench Modular `/lab`)**:
-    - Fasilitas test bench bottom-up (Tool ➔ Node ➔ Engine) di `/lab` untuk verifikasi independen tiap modul.
-29. **ADR-029 (Standarisasi Halaman via `PageContainer` & `PageHeader`)**:
-    - Seluruh rute halaman memakai `PageHeader` seragam dan `PageContainer` dengan lebar konsisten (`max-w-7xl`).
-30. **ADR-030 (Standard Writing Engine — Riset Topik & Kurasi Gambar)**:
-    - Menambahkan `StandardEngine` (`standard`) dengan pipeline LangGraph: `taxonomy_resolver` ➔ `topic_researcher` (search intent & LSI) ➔ `article_drafter` (anti-slop + cetak biru) ➔ `image_curator` (Unsplash/Pexels royalty-free insertion) ➔ `quality_checker` ➔ `gutenberg_formatter` (native `<!-- wp:image -->`). Ditetapkan sebagai opsi engine rekomendasi default.
+1. **ADR-001 s/d ADR-010**: Fondasi awal Next.js root, WP REST zero-plugin, OpenRouter, cost-saver retry, sandbox `.workspaces/`, 3 modul ingesti, tri-mode image, drip-feed scheduler.
+2. **ADR-011 s/d ADR-020**: WP authorize redirect callback, taksonomi dinamis, prompt versioning, table-only queue, 35 REST APIs, single-page Tulis Cepat, multi-select kategori, LangChain transisi.
+3. **ADR-021 s/d ADR-025**: Konsolidasi baseline writer, extensible system writer, retry sinkronisasi WP, global TooltipProvider, konsolidasi BYOK settings.
+4. **ADR-026 (Arsitektur Node AI & Prompt Templating `prompt.md`)**: Node AI memakai template `prompt.md` terpisah dengan YAML frontmatter & section tags yang dimuat via `loadNodePrompt()`.
+5. **ADR-027 (Shared Factories `defineNode` & `defineEngine`)**: Fondasi orkestrasi LangGraph dipusatkan di `src/core/shared/factories/` bebas boilerplate dan stateless.
+6. **ADR-028 (Laboratorium & Test Bench Modular `/lab`)**: Fasilitas test bench bottom-up (Tool ➔ Node ➔ Engine) di `/lab` untuk verifikasi independen tiap modul dengan output Raw JSON murni.
+7. **ADR-029 (Standarisasi Halaman via `PageContainer` & `PageHeader`)**: Seluruh rute halaman memakai `PageHeader` seragam dan `PageContainer` dengan lebar konsisten (`max-w-7xl`).
+8. **ADR-030 (Standard Writing Engine — Riset Topik & Kurasi Gambar)**: Menambahkan `StandardEngine` (`standard`) dengan pipeline LangGraph: `taxonomy_resolver` ➔ `topic_researcher` (search intent & LSI) ➔ `article_drafter` (anti-slop + cetak biru) ➔ `image_curator` ➔ `quality_checker` ➔ `gutenberg_formatter`.
+9. **ADR-031 (Hybrid Image Search & Live Web Scraper with Anti-Bot & Selector)**: Menghubungkan tool `image_search` dan `web_search` ke live provider nyata: Bing HTML Scraper (gratis, tanpa API key), rotasi User-Agent dan Client Hints acak anti-block, dekode instan URL redirect Bing, verifikasi aksesibilitas live & minWidth 1280px pada gambar, pembersihan entitas HTML, serta dropdown seleksi provider opsional di UI Lab.
+10. **ADR-032 (Anti-Decoy Honeypot Guard, Dynamic Env Resolver, & CirrusSearch Wikipedia)**: Mengatasi perilaku Bing/Akamai Bot Manager yang menyajikan decoy/canned category SERP (konten trending acak atau tag umum seperti 'artis indonesia' saat mencari 'artis korea'). Menerapkan normalisasi kata kunci (`extractSearchKeywords`), Relevance & Anti-Decoy Guard ketat (`isResultsRelevant` >= 60% coverage), pemuatan dinamis API key dari `.env` (`getApiKey`) tanpa perlu restart dev server, upgrade Wikipedia ke CirrusSearch full-text (`list=search`), serta koneksi IPv4 deterministik pada `web-reader`.
+11. **ADR-033 (BYOK Search Providers Dashboard & Live Verification)**: Menyediakan antarmuka web BYOK di `/settings/search` untuk Tavily AI Search (1.000 req/bln gratis) dan Brave Search API (2.000 req/bln gratis), tombol uji koneksi live latency (`/api/settings/search/test`), persistensi `.env.local` hot-reload (`/api/settings/search`), serta selektor preferensi provider default (`DEFAULT_SEARCH_PROVIDER`).
+12. **ADR-034 (LangChain Agentic Topic Researcher with Token Budget & Read-Only Sources)**: Mengubah Node Topic Researcher menjadi agen otonom bertenaga LangChain (`createReactAgent`). Model secara mandiri memilih memanggil `web_search` untuk inisialisasi penelusuran topik, lalu memilih dan membaca 3-5 sumber web relevan menggunakan `web_reader`. Output terstruktur difilter ketat: `sources` HANYA menyertakan URL yang benar-benar dibaca via `web_reader`, `keyFindings` dibatasi 3-5 butir padat ringkas (maks 180 karakter/poin), `summaryExplanation` dipangkas ke 2-3 kalimat (maks 350 karakter), dan `outline` dipangkas ke 3-4 bab H2 untuk menghemat konsumsi token pada generasi naskah hilir (`article_drafter`).
 
 ---
 

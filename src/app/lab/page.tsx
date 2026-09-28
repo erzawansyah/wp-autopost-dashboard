@@ -64,7 +64,9 @@ export default function LabPage() {
           actions={
             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-md border border-border/60">
               <span className="inline-block size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
-              <span>5 Tools • 5 Nodes • 1 Engine Aktif</span>
+              <span>
+                {registry.tools.length} Tools • {registry.nodes.length} Nodes • {registry.engines.length} Engine Aktif
+              </span>
             </div>
           }
         />

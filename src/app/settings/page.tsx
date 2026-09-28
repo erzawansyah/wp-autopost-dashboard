@@ -2,7 +2,7 @@ import Link from "next/link"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
-import { Bot, ChevronRight, SlidersHorizontal, UserRound } from "lucide-react"
+import { Bot, ChevronRight, Search, SlidersHorizontal, UserRound } from "lucide-react"
 
 export default function SettingsPage() {
   return (
@@ -34,6 +34,26 @@ export default function SettingsPage() {
               <Button asChild variant="outline" size="sm" className="w-fit cursor-pointer gap-1.5 text-xs">
                 <Link href="/settings/ai">
                   Buka pengaturan AI
+                  <ChevronRight className="size-3.5" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/80 bg-card/90 shadow-2xs transition-shadow hover:shadow-md">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <Search className="size-4 text-primary" />
+                Mesin Pencari &amp; Riset Web (BYOK)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Atur kunci API Tavily dan Brave Search untuk riset topik aktual, bebas halusinasi, dan kuota gratis resmi.
+              </p>
+              <Button asChild variant="outline" size="sm" className="w-fit cursor-pointer gap-1.5 text-xs">
+                <Link href="/settings/search">
+                  Buka pengaturan mesin pencari
                   <ChevronRight className="size-3.5" />
                 </Link>
               </Button>

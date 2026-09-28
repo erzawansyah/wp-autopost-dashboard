@@ -64,13 +64,72 @@ export async function GET() {
           tagNames: ["Panduan AI", "Tutorial WordPress"],
         },
       },
+      {
+        id: "web_search",
+        name: "Penelusuran Web (web_search)",
+        description: "Tool independen untuk mencari fakta, data, dan artikel rujukan di web (Tavily, Brave Search, Bing Scraper, Open Knowledge).",
+        requiresSite: false,
+        defaultParams: {
+          query: "teknik menyeduh kopi v60",
+          limit: 3,
+        },
+      },
+      {
+        id: "web_reader",
+        name: "Pembaca Konten URL (web_reader)",
+        description: "Tool ekstraksi teks artikel dari URL web dengan proteksi SSRF dan sanitasi HTML.",
+        requiresSite: false,
+        defaultParams: {
+          url: "https://id.wikipedia.org/wiki/Kopi",
+          maxLength: 1500,
+        },
+      },
+      {
+        id: "image_search",
+        name: "Pencari Foto Bebas Royalti (image_search)",
+        description: "Tool pencari foto resolusi tinggi bebas royalti (Hybrid: Bing Images Creative Commons, Azure API, Pexels, Unsplash).",
+        requiresSite: false,
+        defaultParams: {
+          query: "pour over coffee barista",
+          count: 2,
+        },
+      },
+      {
+        id: "image_embedder",
+        name: "Penyemat Gambar Markdown (image_embedder)",
+        description: "Tool deterministik untuk menyisipkan gambar dengan tag markdown dan caption tepat di bawah heading H2 terkait.",
+        requiresSite: false,
+        defaultParams: {
+          markdown: "## Alat Manual Brew\n\nDripper V60 merupakan alat yang populer.\n",
+          images: [
+            {
+              subheading: "Alat Manual Brew",
+              imageUrl: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd",
+              altText: "Dripper V60",
+              caption: "Ilustrasi dripper V60",
+            },
+          ],
+        },
+      },
+      {
+        id: "upload_media",
+        name: "Unggah Media ke WordPress (upload_media)",
+        description: "Mengunduh gambar dari URL dan mengunggahnya ke WordPress Media Library via REST API standar (/wp-json/wp/v2/media).",
+        requiresSite: true,
+        defaultParams: {
+          imageUrl: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd",
+          title: "Dripper Kopi V60",
+          altText: "Dripper kopi manual brew V60",
+          caption: "Ilustrasi dripper V60",
+        },
+      },
     ]
 
     // Manifest Nodes
     const nodes = [
       {
         id: "input_validator",
-        name: "Node 1: Input Validator & Sanitizer",
+        name: "Input Validator & Sanitizer",
         description: "Validasi skema WriterRequestSchema, sanitasi karakter kontrol, dan penetapan default values.",
         isAiNode: false,
         requiresSite: false,
@@ -83,7 +142,7 @@ export async function GET() {
       },
       {
         id: "taxonomy_resolver",
-        name: "Node 2: Taxonomy & Author Resolver",
+        name: "Taxonomy & Author Resolver",
         description: "Menghubungkan artikel ke kategori, tag, dan author yang relevan di WordPress melalui tools WP atau LLM matching.",
         isAiNode: true,
         requiresSite: true,
@@ -96,7 +155,7 @@ export async function GET() {
       },
       {
         id: "topic_researcher",
-        name: "Node: Topic Researcher & Content Blueprint",
+        name: "Topic Researcher & Content Blueprint",
         description: "Menganalisis search intent, target audiens, entitas semantik (LSI), dan merancang outline terstruktur beserta rekomendasi pencarian foto.",
         isAiNode: true,
         requiresSite: false,
@@ -108,7 +167,7 @@ export async function GET() {
       },
       {
         id: "article_drafter",
-        name: "Node 3: Article Drafter (LLM Generator)",
+        name: "Article Drafter (LLM Generator)",
         description: "Menghasilkan naskah artikel Markdown utuh berpedoman Anti-Slop Copywriting v3.0, Nol Dash, dan format terstruktur.",
         isAiNode: true,
         requiresSite: false,
@@ -121,9 +180,9 @@ export async function GET() {
       },
       {
         id: "image_curator",
-        name: "Node: Image Curator & In-Content Inserter",
-        description: "Mencari foto berkualitas bebas royalti dan menyematkannya ke heading H2 artikel secara kontekstual.",
-        isAiNode: false,
+        name: "Image Curator & In-Content Inserter",
+        description: "Agent kurator visual bertenaga LangChain yang menyeleksi foto berkualitas tinggi, mengunggah ke WordPress, dan menyematkan ilustrasi ke naskah Markdown.",
+        isAiNode: true,
         requiresSite: false,
         defaultInput: {
           keyword: "kopi manual brew",
@@ -132,7 +191,7 @@ export async function GET() {
       },
       {
         id: "quality_checker",
-        name: "Node 4: Quality & Anti-Refusal Checker",
+        name: "Quality & Anti-Refusal Checker",
         description: "Mengevaluasi kelayakan naskah, mendeteksi penolakan chatbot percakapan ('Maaf saya AI...'), dan kelengkapan outline.",
         isAiNode: true,
         requiresSite: false,
@@ -144,7 +203,7 @@ export async function GET() {
       },
       {
         id: "gutenberg_formatter",
-        name: "Node 5: Gutenberg Block Formatter",
+        name: "Gutenberg Block Formatter",
         description: "Mengonversi naskah Markdown menjadi blok native WordPress Gutenberg (`<!-- wp:heading -->`, `<!-- wp:paragraph -->`).",
         isAiNode: false,
         requiresSite: false,

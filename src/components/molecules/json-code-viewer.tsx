@@ -19,7 +19,14 @@ export function JsonCodeViewer({
   const [copied, setCopied] = React.useState(false)
 
   const formattedContent = React.useMemo(() => {
-    if (typeof data === "string") return data
+    if (typeof data === "string") {
+      try {
+        const parsed = JSON.parse(data)
+        return JSON.stringify(parsed, null, 2)
+      } catch {
+        return JSON.stringify({ output: data }, null, 2)
+      }
+    }
     try {
       return JSON.stringify(data, null, 2)
     } catch {

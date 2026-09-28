@@ -6,6 +6,11 @@ import { getTags } from "@/core/shared/tools/get-tags"
 import { createTags } from "@/core/shared/tools/create-tags"
 import { getAuthor } from "@/core/shared/tools/get-author"
 import { publishPostToWordPress } from "@/core/shared/tools/wordpress-publisher"
+import { webSearch } from "@/core/shared/tools/web-search"
+import { readWebContent } from "@/core/shared/tools/web-reader"
+import { searchRoyaltyFreeImages } from "@/core/shared/tools/image-search"
+import { embedImagesInMarkdown } from "@/core/shared/tools/image-embedder"
+import { uploadMediaToWordPress } from "@/core/shared/tools/upload-media"
 
 import { executeInputValidator } from "@/core/writer/nodes/input-validator"
 import { taxonomyResolverNode } from "@/core/writer/nodes/taxonomy-resolver"
@@ -61,6 +66,7 @@ function createMockWriterState(overrides?: Partial<WriterState>): WriterState {
     authorId: undefined,
     authorDetail: undefined,
     researchData: undefined,
+    sources: [],
     rawTitle: "",
     rawExcerpt: "",
     rawMarkdown: "",
@@ -153,11 +159,12 @@ export async function POST(request: Request) {
           }
         : null)
 
-      if (!activeCredentials) {
+      const wpTools = ["get_categories", "get_tags", "create_tags", "get_author", "wordpress_publisher"]
+      if (wpTools.includes(targetId) && !activeCredentials) {
         return NextResponse.json(
           {
             ok: false,
-            error: "Tool memerlukan situs WordPress yang terhubung atau kredensial manual (baseUrl, username, applicationPassword).",
+            error: "Tool ini memerlukan situs WordPress yang terhubung atau kredensial manual (baseUrl, username, applicationPassword).",
           },
           { status: 400 }
         )
@@ -167,6 +174,7 @@ export async function POST(request: Request) {
 
       switch (targetId) {
         case "get_categories": {
+          if (!activeCredentials) break
           const res = await getCategories(activeCredentials)
           if (!res.ok) {
             return NextResponse.json(
@@ -174,10 +182,15 @@ export async function POST(request: Request) {
               { status: 400 }
             )
           }
-          toolOutput = res.categories_string
+          toolOutput = {
+            total: res.categories.length,
+            categories: res.categories,
+            formattedSummary: res.categories_string,
+          }
           break
         }
         case "get_tags": {
+          if (!activeCredentials) break
           const res = await getTags(activeCredentials)
           if (!res.ok) {
             return NextResponse.json(
@@ -185,10 +198,15 @@ export async function POST(request: Request) {
               { status: 400 }
             )
           }
-          toolOutput = res.tags_string
+          toolOutput = {
+            total: res.tags.length,
+            tags: res.tags,
+            formattedSummary: res.tags_string,
+          }
           break
         }
         case "create_tags": {
+          if (!activeCredentials) break
           const tagNames = Array.isArray(params.tags)
             ? params.tags
             : typeof params.tags === "string"
@@ -204,10 +222,16 @@ export async function POST(request: Request) {
           const createdString = `Hasil Pembuatan Tag WordPress:\n` +
             res.tags.map((t, idx) => `${idx + 1}. ${t.name} [ID: ${t.id}] ${t.isNew ? "(Tag Baru Dibuat)" : "(Tag Sudah Ada Sebelumnya)"}`).join("\n") +
             `\n\nTotal tag diproses: ${res.tags.length} (${res.createdCount} tag baru).`
-          toolOutput = createdString
+          toolOutput = {
+            createdCount: res.createdCount,
+            totalProcessed: res.tags.length,
+            tags: res.tags,
+            summary: createdString,
+          }
           break
         }
         case "get_author": {
+          if (!activeCredentials) break
           const res = await getAuthor(activeCredentials)
           if (!res.ok) {
             return NextResponse.json(
@@ -215,10 +239,15 @@ export async function POST(request: Request) {
               { status: 400 }
             )
           }
-          toolOutput = res.authors_string
+          toolOutput = {
+            total: res.authors.length,
+            authors: res.authors,
+            formattedSummary: res.authors_string,
+          }
           break
         }
         case "wordpress_publisher": {
+          if (!activeCredentials) break
           const article = {
             title: params.title || "Artikel Pengujian Lab Antigravity",
             contentHtml: params.contentHtml || "<p>Paragraf pengujian dari Developer Test Bench.</p>",
@@ -240,10 +269,132 @@ export async function POST(request: Request) {
               { status: 400 }
             )
           }
-          toolOutput = `Hasil Publikasi WordPress:\n` +
-            `- Status: ${res.status}\n` +
-            `- ID Post: ${res.wpPostId}\n` +
-            `- URL Post: ${res.wpPostUrl || "(Belum ada URL)"}`
+          toolOutput = {
+            status: res.status,
+            wpPostId: res.wpPostId,
+            wpPostUrl: res.wpPostUrl,
+            article: {
+              title: article.title,
+              slug: article.slug,
+            },
+            metadata: {
+              status: params.status || "draft",
+              categoryIds: params.categoryIds,
+              tagNames: params.tagNames,
+            },
+          }
+          break
+        }
+        case "web_search": {
+          const query = params.query || "teknik menyeduh kopi v60"
+          const limit = params.limit ? Number(params.limit) : 3
+          const language = params.language || "id"
+          const provider = params.provider || "auto"
+          const results = await webSearch({ query, limit, language, provider, apiKey: params.apiKey || apiKey })
+          toolOutput = {
+            query,
+            limit,
+            language,
+            provider,
+            totalResults: results.length,
+            results,
+          }
+          break
+        }
+        case "web_reader": {
+          const res = await readWebContent({
+            url: params.url || "https://id.wikipedia.org/wiki/Kopi",
+            maxLength: params.maxLength ? Number(params.maxLength) : 1500,
+          })
+          if (!res.ok) {
+            return NextResponse.json(
+              { ok: false, error: res.error || "Gagal membaca URL.", durationMs: Date.now() - startTime },
+              { status: 400 }
+            )
+          }
+          toolOutput = {
+            url: res.url,
+            title: res.title,
+            wordCount: res.wordCount,
+            content: res.content,
+          }
+          break
+        }
+        case "image_search": {
+          const query = params.query || "pour over coffee barista"
+          const count = params.count ? Number(params.count) : 2
+          const provider = params.provider || "auto"
+          const minWidth = params.minWidth ? Number(params.minWidth) : 1280
+          const photos = await searchRoyaltyFreeImages({ query, count, provider, minWidth })
+          toolOutput = {
+            query,
+            provider,
+            minWidth,
+            totalPhotos: photos.length,
+            photos,
+          }
+          break
+        }
+        case "image_embedder": {
+          let embedImages = params.images
+          if (typeof embedImages === "string") {
+            try {
+              embedImages = JSON.parse(embedImages)
+            } catch {
+              embedImages = []
+            }
+          }
+          if (!Array.isArray(embedImages) || embedImages.length === 0) {
+            embedImages = [
+              {
+                subheading: "Alat Manual Brew",
+                imageUrl: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd",
+                altText: "Dripper V60",
+                caption: "Ilustrasi dripper V60",
+              },
+            ]
+          }
+          const embedRes = embedImagesInMarkdown({
+            markdown: params.markdown || "## Alat Manual Brew\n\nDripper V60 merupakan alat yang populer.\n",
+            images: embedImages,
+          })
+          toolOutput = {
+            insertedCount: embedRes.insertedCount,
+            unmatchedHeadings: embedRes.unmatchedHeadings,
+            updatedMarkdown: embedRes.updatedMarkdown,
+          }
+          break
+        }
+        case "upload_media": {
+          const imageUrl = params.imageUrl || "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd"
+          const title = params.title || "Foto Ilustrasi WordPress"
+          const altText = params.altText || "Foto ilustrasi naskah"
+          const caption = params.caption || "Ilustrasi pendukung konten"
+          const filename = params.filename
+          const uploadRes = await uploadMediaToWordPress({
+            imageUrl,
+            title,
+            altText,
+            caption,
+            filename,
+            baseUrl: activeCredentials?.baseUrl,
+            username: activeCredentials?.username,
+            applicationPassword: activeCredentials?.applicationPassword,
+          })
+          if (!uploadRes.ok) {
+            return NextResponse.json(
+              { ok: false, error: uploadRes.error || "Gagal mengunggah media ke WordPress.", durationMs: Date.now() - startTime },
+              { status: 400 }
+            )
+          }
+          toolOutput = {
+            mediaId: uploadRes.mediaId,
+            sourceUrl: uploadRes.sourceUrl,
+            title: uploadRes.title,
+            altText: uploadRes.altText,
+            caption: uploadRes.caption,
+            isSimulated: uploadRes.isSimulated || false,
+          }
           break
         }
         default:
@@ -343,8 +494,9 @@ export async function POST(request: Request) {
                   style: params.style || "default",
                 },
                 model: model || params.model,
-                temperature: params.temperature !== undefined ? Number(params.temperature) : 0.5,
-              }),
+                temperature: params.temperature !== undefined ? Number(params.temperature) : 0.3,
+                apiKey: apiKey || params.apiKey,
+              } as any),
               llmService,
               promptConfig: {
                 systemPrompt: "",
@@ -403,7 +555,11 @@ export async function POST(request: Request) {
                   language: "id",
                   style: "default",
                 },
-              }),
+                site: wpCredentials || undefined,
+                model: model || params.model,
+                temperature: params.temperature !== undefined ? Number(params.temperature) : 0.2,
+                apiKey: apiKey || params.apiKey,
+              } as any),
               llmService,
               promptConfig: {
                 systemPrompt: "",

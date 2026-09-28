@@ -124,6 +124,11 @@ export const WriterStateAnnotation = Annotation.Root({
     reducer: (prev, next) => next ?? prev,
     default: () => undefined,
   }),
+  // Sumber Referensi Riset (Web Search & Web Reader)
+  sources: Annotation<ArticleSource[]>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => [],
+  }),
   // Raw Draft dari LLM
   rawTitle: Annotation<string>({
     reducer: (prev, next) => next ?? prev,

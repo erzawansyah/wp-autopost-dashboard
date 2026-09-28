@@ -14,8 +14,26 @@ import {
   SelectValue,
 } from "@/components/atoms/select"
 import { Badge } from "@/components/atoms/badge"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tabs"
 import { JsonCodeViewer } from "@/components/molecules/json-code-viewer"
-import { Play, Loader2, CheckCircle2, AlertCircle, Cpu, Sparkles } from "lucide-react"
+import {
+  Play,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
+  Cpu,
+  Sparkles,
+  BookOpen,
+  Image as ImageIcon,
+  ExternalLink,
+  Tag,
+  FolderTree,
+  User,
+  Copy,
+  Check,
+  FileText,
+  Search,
+} from "lucide-react"
 import { LabSiteOption } from "./lab-tools-runner"
 
 export interface LabNodeItem {
@@ -44,80 +62,43 @@ export function LabNodesRunner({ nodes, sites }: LabNodesRunnerProps) {
   const [selectedSiteId, setSelectedSiteId] = React.useState<string>(sites[0]?.id || "")
 
   // Form states - Wajib & Opsional
-  const [keywordInput, setKeywordInput] = React.useState("panduan seo wordpress 2026")
-  const [titleInput, setTitleInput] = React.useState("Panduan Praktis SEO WordPress untuk Pemula")
-  const [briefInput, setBriefInput] = React.useState("Fokus pada optimasi kecepatan dan penulisan konten original.")
+  const [keywordInput, setKeywordInput] = React.useState("panduan menyeduh kopi manual brew")
+  const [titleInput, setTitleInput] = React.useState("Panduan Praktis Seduh Kopi Manual Brew untuk Pemula")
+  const [briefInput, setBriefInput] = React.useState("Fokus pada metode V60 dan French Press serta takaran rasio air.")
   const [wordCountInput, setWordCountInput] = React.useState("800")
   const [languageInput, setLanguageInput] = React.useState<"id" | "en">("id")
   const [styleInput, setStyleInput] = React.useState("default")
   const [modeInput, setModeInput] = React.useState<"draft" | "publish" | "future">("draft")
   const [customInstructionsInput, setCustomInstructionsInput] = React.useState("")
-  
+
   // Taxonomy fields
   const [userCategoryIdsInput, setUserCategoryIdsInput] = React.useState("")
-  const [userTagNamesInput, setUserTagNamesInput] = React.useState("Panduan AI, Tips WordPress")
-  
+  const [userTagNamesInput, setUserTagNamesInput] = React.useState("Kopi, Manual Brew, Tips Barista")
+
   // Author fields
   const [authorNameInput, setAuthorNameInput] = React.useState("Redaksi Editorial")
-  const [authorBioInput, setAuthorBioInput] = React.useState("Penulis spesialis teknologi dan web development.")
+  const [authorBioInput, setAuthorBioInput] = React.useState("Penulis spesialis gaya hidup dan budaya kopi nusantara.")
 
   // Content & Formatter fields
   const [markdownInput, setMarkdownInput] = React.useState(
-    `# Panduan Praktis SEO & Optimasi WordPress
+    `# Panduan Praktis Seduh Kopi Manual Brew untuk Pemula
 
-Optimasi mesin pencari merupakan fondasi krusial agar website Anda ditemukan oleh audiens yang tepat di mesin pencari.
+Menyeduh kopi dengan metode manual brew memberikan kendali penuh terhadap rasa dan aroma akhir seduhan.
 
-## 1. Perbandingan Strategi Konten
+## Mengenal Alat Seduh Kopi
 
-Berikut adalah tabel perbandingan performa antara posting manual versus otomatisasi:
+Alat seduh manual memiliki beragam bentuk dan metode ekstraksi, mulai dari pour over hingga immersion. Dripper V60 merupakan pilihan populer karena mampu menghasilkan profil seduhan yang bersih dan menonjolkan keasaman buah yang cerah.
 
-| Indikator | Metode Manual | Otomasi Cerdas |
-| :--- | :---: | ---: |
-| Efisiensi Waktu | 3 Jam/Artikel | < 1 Menit |
-| Konsistensi Jadwal | Rentan Tertunda | Terjadwal Presisi |
-| Optimasi Gutenberg | Manual Block | Blok Standar Resmi |
+## Langkah Menyeduh yang Benar
 
-## 2. Kutipan Inspiratif & Catatan Penting
+Pastikan suhu air berada pada rentang 90 hingga 94 derajat celsius untuk mendapatkan ekstraksi yang seimbang. Tuangkan air secara bertahap dengan rasio 1:15 untuk kepekatan yang pas.
 
-> Kualitas sebuah tulisan tidak dinilai dari berapa panjang kalimatnya, melainkan seberapa cepat ia memberikan solusi bagi pembaca.
-> — Redaksi Editorial
+## Tips Merawat Peralatan Seduh
 
-> [!TIP]
-> Bersihkan cache WordPress setelah memperbarui artikel agar blok-blok baru langsung ter-render dengan sempurna di frontend.
-
-## 3. Contoh Cuplikan Kode Otomasi
-
-Berikut adalah contoh skrip hook WordPress untuk optimasi kecepatan:
-
-\`\`\`typescript
-interface PostPayload {
-  title: string;
-  status: "draft" | "publish";
-  categories: number[];
-}
-
-console.log("Sistem autopost siap mempublikasikan artikel!");
-\`\`\`
-
-:::details Tanya Jawab: Apakah blok Gutenberg ini aman untuk tema apapun?
-Ya! Seluruh blok yang dihasilkan menggunakan format komentar resmi WordPress (<!-- wp:table -->, <!-- wp:quote -->, dll.) sehingga 100% kompatibel dan mengikuti desain tema aktif tanpa memerlukan plugin tambahan.
-:::
-
-https://www.youtube.com/watch?v=dQw4w9WgXcQ
-
-[👉 Coba Auto-Posting Sekarang](https://example.com/demo){.button}
-
-## 4. Daftar Fitur Utama
-
-- Kemampuan Penulisan AI
-  - Mode Tulis Cepat (1-Shot)
-  - Mode Riset Komprehensif
-- Manajemen Multi-Situs
-
-Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bilangan eksponen 10^3^, serta tombol pintasan [[Ctrl]] + [[S]] untuk menyimpan naskah.`
+Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meninggalkan kerak.`
   )
   const [excerptInput, setExcerptInput] = React.useState(
-    "Panduan lengkap optimasi SEO WordPress untuk pemula mulai dari riset kata kunci hingga struktur konten."
+    "Panduan lengkap cara menyeduh kopi manual brew mulai dari pemilihan alat hingga takaran rasio ideal."
   )
 
   // AI Model fields
@@ -130,10 +111,19 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
   const [nodeLogsOutput, setNodeLogsOutput] = React.useState<any[] | null>(null)
   const [executionTimeMs, setExecutionTimeMs] = React.useState<number | null>(null)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [isCopied, setIsCopied] = React.useState(false)
 
   const activeNode = React.useMemo(() => {
     return nodes.find((n) => n.id === selectedNodeId) || nodes[0]
   }, [nodes, selectedNodeId])
+
+  const handleCopyResult = () => {
+    if (!resultOutput) return
+    const textToCopy = typeof resultOutput === "string" ? resultOutput : JSON.stringify(resultOutput, null, 2)
+    navigator.clipboard.writeText(textToCopy)
+    setIsCopied(true)
+    setTimeout(() => setIsCopied(false), 2000)
+  }
 
   const handleExecuteNode = async () => {
     setIsRunning(true)
@@ -171,6 +161,17 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
         }
         break
 
+      case "topic_researcher":
+        params = {
+          keyword: keywordInput,
+          brief: briefInput || undefined,
+          language: languageInput,
+          style: styleInput,
+          model: aiModel,
+          temperature: Number(temperature) || 0.5,
+        }
+        break
+
       case "article_drafter":
         params = {
           keyword: keywordInput,
@@ -183,6 +184,15 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
           authorBio: authorBioInput || undefined,
           customInstructions: customInstructionsInput || undefined,
           temperature: Number(temperature) || 0.7,
+        }
+        break
+
+      case "image_curator":
+        params = {
+          keyword: keywordInput,
+          rawMarkdown: markdownInput,
+          model: aiModel,
+          temperature: Number(temperature) || 0.2,
         }
         break
 
@@ -212,7 +222,7 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
         body: JSON.stringify({
           type: "node",
           targetId: selectedNodeId,
-          siteId: activeNode?.requiresSite ? selectedSiteId : undefined,
+          siteId: selectedSiteId || undefined,
           model: aiModel,
           apiKey: savedKey,
           params,
@@ -249,7 +259,7 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
               <div>
                 <CardTitle className="text-sm font-semibold">Pengujian Node Modular</CardTitle>
                 <CardDescription className="text-xs">
-                  Uji logika state machine, prompt, dan sanitizer per-node secara transparan.
+                  Uji logika state machine, prompt agentic, dan sanitizer per-node secara transparan.
                 </CardDescription>
               </div>
             </div>
@@ -332,6 +342,37 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                 </FormField>
               )}
 
+              {/* Node: topic_researcher WAJIB */}
+              {selectedNodeId === "topic_researcher" && (
+                <>
+                  <FormField label="Kata Kunci Riset (keyword)" id="kw-research" required>
+                    <Input
+                      id="kw-research"
+                      value={keywordInput}
+                      onChange={(e) => setKeywordInput(e.target.value)}
+                      placeholder="Topik atau kata kunci yang akan diteliti"
+                    />
+                    <span className="text-[11px] text-muted-foreground">
+                      Agent Topic Researcher akan memanggil tool penelusuran web dan mengekstrak entitas semantik (LSI).
+                    </span>
+                  </FormField>
+                  <FormField label="Model AI Researcher (model)" id="model-research" required>
+                    <Select value={aiModel} onValueChange={setAiModel}>
+                      <SelectTrigger id="model-research" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AI_MODELS.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                </>
+              )}
+
               {/* Node 3: article_drafter WAJIB */}
               {selectedNodeId === "article_drafter" && (
                 <>
@@ -360,12 +401,53 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                 </>
               )}
 
+              {/* Node: image_curator WAJIB */}
+              {selectedNodeId === "image_curator" && (
+                <>
+                  <FormField label="Kata Kunci Konteks Gambar (keyword)" id="kw-img" required>
+                    <Input
+                      id="kw-img"
+                      value={keywordInput}
+                      onChange={(e) => setKeywordInput(e.target.value)}
+                      placeholder="Kata kunci konteks kurasi foto"
+                    />
+                  </FormField>
+                  <FormField label="Model AI Kurator Visual (model)" id="model-img" required>
+                    <Select value={aiModel} onValueChange={setAiModel}>
+                      <SelectTrigger id="model-img" className="w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AI_MODELS.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            {m.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <FormField label="Naskah Markdown yang Akan Disisipi Foto (rawMarkdown)" id="md-img" required>
+                    <Textarea
+                      id="md-img"
+                      rows={6}
+                      value={markdownInput}
+                      onChange={(e) => setMarkdownInput(e.target.value)}
+                      className="font-mono text-xs"
+                      placeholder="Naskah markdown berisi heading H2..."
+                    />
+                    <span className="text-[11px] text-muted-foreground">
+                      Agent LangChain membaca heading H2, mengevaluasi konteks visual, menyeleksi foto berkualitas tinggi, dan menyematkannya secara rapi.
+                    </span>
+                  </FormField>
+                </>
+              )}
+
               {/* Node 4: quality_checker WAJIB */}
               {selectedNodeId === "quality_checker" && (
                 <FormField label="Naskah Artikel (rawMarkdown)" id="md-qc" required>
                   <Textarea
                     id="md-qc"
-                    rows={4}
+                    rows={5}
                     value={markdownInput}
                     onChange={(e) => setMarkdownInput(e.target.value)}
                     className="font-mono text-xs"
@@ -382,7 +464,7 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                 <FormField label="Naskah Markdown (rawMarkdown)" id="md-form" required>
                   <Textarea
                     id="md-form"
-                    rows={4}
+                    rows={5}
                     value={markdownInput}
                     onChange={(e) => setMarkdownInput(e.target.value)}
                     className="font-mono text-xs"
@@ -409,7 +491,7 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                 </Badge>
               </div>
 
-              {/* Opsional untuk Node 1: input_validator */}
+              {/* Opsional untuk Node: input_validator */}
               {selectedNodeId === "input_validator" && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
@@ -460,7 +542,7 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                 </>
               )}
 
-              {/* Opsional untuk Node 2: taxonomy_resolver */}
+              {/* Opsional untuk Node: taxonomy_resolver */}
               {selectedNodeId === "taxonomy_resolver" && (
                 <>
                   <FormField label="Situs WordPress (untuk resolusi live via tools WP)" id="tax-site">
@@ -478,27 +560,21 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                       </SelectContent>
                     </Select>
                   </FormField>
-                  <FormField label="ID Kategori Pilihan Pengguna (userCategoryIds)" id="tax-cats">
+                  <FormField label="ID Kategori Pengguna (userCategoryIds)" id="tax-cats">
                     <Input
                       id="tax-cats"
                       value={userCategoryIdsInput}
                       onChange={(e) => setUserCategoryIdsInput(e.target.value)}
                       placeholder="Contoh: 12, 15 (kosongkan untuk auto-resolve)"
                     />
-                    <span className="text-[11px] text-muted-foreground">
-                      Jika diisi, node mempertahankan kategori pilihan pengguna ini.
-                    </span>
                   </FormField>
-                  <FormField label="Nama Tag Pilihan Pengguna (userTagNames)" id="tax-tags">
+                  <FormField label="Nama Tag Pengguna (userTagNames)" id="tax-tags">
                     <Input
                       id="tax-tags"
                       value={userTagNamesInput}
                       onChange={(e) => setUserTagNamesInput(e.target.value)}
                       placeholder="Panduan AI, Tips WordPress"
                     />
-                    <span className="text-[11px] text-muted-foreground">
-                      Jika diisi, node memprioritaskan tag pengguna ini daripada membuat tag baru.
-                    </span>
                   </FormField>
                   <FormField label="Brief Konten (brief)" id="tax-brief">
                     <Input
@@ -511,7 +587,44 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                 </>
               )}
 
-              {/* Opsional untuk Node 3: article_drafter */}
+              {/* Opsional untuk Node: topic_researcher */}
+              {selectedNodeId === "topic_researcher" && (
+                <>
+                  <FormField label="Brief Tambahan (brief)" id="brief-research">
+                    <Textarea
+                      id="brief-research"
+                      rows={2}
+                      value={briefInput}
+                      onChange={(e) => setBriefInput(e.target.value)}
+                      placeholder="Fokus bahasan atau sudut pandang spesifik..."
+                    />
+                  </FormField>
+                  <div className="grid grid-cols-2 gap-2">
+                    <FormField label="Bahasa Naskah" id="lang-research">
+                      <Select value={languageInput} onValueChange={(val: "id" | "en") => setLanguageInput(val)}>
+                        <SelectTrigger id="lang-research"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="id">Indonesia (id)</SelectItem>
+                          <SelectItem value="en">Inggris (en)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                    <FormField label="Kreativitas (temp)" id="temp-research">
+                      <Input
+                        id="temp-research"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="1"
+                        value={temperature}
+                        onChange={(e) => setTemperature(e.target.value)}
+                      />
+                    </FormField>
+                  </div>
+                </>
+              )}
+
+              {/* Opsional untuk Node: article_drafter */}
               {selectedNodeId === "article_drafter" && (
                 <>
                   <div className="grid grid-cols-2 gap-2">
@@ -560,7 +673,7 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                         placeholder="Redaksi Editorial"
                       />
                     </FormField>
-                    <FormField label="Kreativitas (temperature)" id="temp-draft">
+                    <FormField label="Kreativitas (temp)" id="temp-draft">
                       <Input
                         id="temp-draft"
                         type="number"
@@ -575,7 +688,45 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                 </>
               )}
 
-              {/* Opsional untuk Node 4: quality_checker */}
+              {/* Opsional untuk Node: image_curator */}
+              {selectedNodeId === "image_curator" && (
+                <>
+                  <FormField label="Situs WordPress Target Upload (opsional untuk live media upload)" id="img-site">
+                    <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
+                      <SelectTrigger id="img-site">
+                        <SelectValue placeholder="Mode Simulasi Standalone (Tanpa upload nyata ke WP)..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Mode Simulasi Standalone (Tanpa WP Nyata)</SelectItem>
+                        {sites.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.site_name} ({s.base_url})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="text-[11px] text-muted-foreground">
+                      Pilih situs jika Anda ingin foto hasil kurasi langsung diunggah biner ke galeri Media WordPress (/wp-json/wp/v2/media).
+                    </span>
+                  </FormField>
+                  <FormField label="Kreativitas Seleksi (temp)" id="temp-img">
+                    <Input
+                      id="temp-img"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="1"
+                      value={temperature}
+                      onChange={(e) => setTemperature(e.target.value)}
+                    />
+                  </FormField>
+                  <div className="text-[11px] text-muted-foreground leading-relaxed">
+                    Agent LangChain Image Curator mengevaluasi heading H2 pada Markdown, menyeleksi foto yang relevan via tool image search, mengevaluasi kesesuaian gambar, mengunggah ke galeri WordPress, dan menyematkan foto beserta caption dan Media ID ke naskah Markdown.
+                  </div>
+                </>
+              )}
+
+              {/* Opsional untuk Node: quality_checker */}
               {selectedNodeId === "quality_checker" && (
                 <>
                   <FormField label="Kata Kunci Target (keyword)" id="qc-kw">
@@ -597,7 +748,7 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                 </>
               )}
 
-              {/* Opsional untuk Node 5: gutenberg_formatter */}
+              {/* Opsional untuk Node: gutenberg_formatter */}
               {selectedNodeId === "gutenberg_formatter" && (
                 <>
                   <FormField label="Judul Artikel (rawTitle)" id="form-title">
@@ -650,7 +801,7 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
               <div>
                 <CardTitle className="text-sm font-semibold">Hasil State & Telemetri Node</CardTitle>
                 <CardDescription className="text-xs">
-                  State delta yang dikembalikan oleh fungsi node.
+                  State delta yang dikembalikan oleh fungsi node secara terisolasi.
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
@@ -669,6 +820,17 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
                     <AlertCircle className="size-3" /> Error
                   </Badge>
                 )}
+                {resultOutput && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleCopyResult}
+                    className="h-7 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                  >
+                    {isCopied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+                    <span>{isCopied ? "Tersalin" : "Salin"}</span>
+                  </Button>
+                )}
               </div>
             </div>
           </CardHeader>
@@ -685,21 +847,353 @@ Naskah ini juga mendukung ==penanda highlight penting==, rumus molekul H~2~O, bi
             )}
 
             {resultOutput ? (
-              <div className="flex flex-col gap-3">
-                <JsonCodeViewer
-                  title={`State Delta: ${selectedNodeId}`}
-                  data={resultOutput}
-                  maxHeight="max-h-[350px]"
-                />
+              <Tabs defaultValue="visual" className="w-full">
+                <TabsList className="mb-3 grid w-64 grid-cols-3">
+                  <TabsTrigger value="visual" className="text-xs">
+                    Visual View
+                  </TabsTrigger>
+                  <TabsTrigger value="state" className="text-xs">
+                    State Delta
+                  </TabsTrigger>
+                  <TabsTrigger value="logs" className="text-xs">
+                    Logs ({nodeLogsOutput?.length || 0})
+                  </TabsTrigger>
+                </TabsList>
 
-                {nodeLogsOutput && nodeLogsOutput.length > 0 && (
+                {/* Tab 1: Visual View */}
+                <TabsContent value="visual" className="focus-visible:outline-none">
+                  {/* Visualisasi khusus Topic Researcher */}
+                  {selectedNodeId === "topic_researcher" && resultOutput.researchData && (
+                    <div className="flex flex-col gap-4">
+                      {/* 1. Penjelasan Naratif Hasil Riset */}
+                      {resultOutput.researchData.summaryExplanation && (
+                        <div className="rounded-lg border border-border/80 bg-muted/20 p-3.5 flex flex-col gap-2">
+                          <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                            <Sparkles className="size-3.5 text-primary" /> Penjelasan Hasil Riset Agen:
+                          </span>
+                          <p className="text-xs leading-relaxed text-muted-foreground whitespace-pre-line">
+                            {resultOutput.researchData.summaryExplanation}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* 2. List Informasi Penting yang Didapat */}
+                      {resultOutput.researchData.keyFindings && resultOutput.researchData.keyFindings.length > 0 && (
+                        <div className="rounded-lg border border-primary/20 bg-primary/5 p-3.5 flex flex-col gap-2.5">
+                          <span className="text-xs font-semibold text-primary flex items-center gap-1.5">
+                            <CheckCircle2 className="size-3.5" /> Poin &amp; Informasi Penting yang Ditemukan ({resultOutput.researchData.keyFindings.length}):
+                          </span>
+                          <ul className="flex flex-col gap-1.5 pl-1">
+                            {resultOutput.researchData.keyFindings.map((finding: string, idx: number) => (
+                              <li key={idx} className="text-xs text-foreground flex items-start gap-2">
+                                <span className="size-1.5 rounded-full bg-primary shrink-0 mt-1.5" />
+                                <span className="leading-relaxed">{finding}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* 3. Search Intent & Audience */}
+                      <div className="rounded-lg border border-border/80 bg-muted/20 p-3 flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                            <Search className="size-3.5 text-primary" /> Search Intent &amp; Target Audiens
+                          </span>
+                          <Badge variant="outline" className="text-[10px] font-mono capitalize">
+                            {resultOutput.researchData.searchIntent || "Informational"}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {resultOutput.researchData.targetAudience}
+                        </p>
+                      </div>
+
+                      {/* 4. Entitas Semantik & LSI */}
+                      {resultOutput.researchData.keyEntities && resultOutput.researchData.keyEntities.length > 0 && (
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs font-medium text-foreground">Entitas Kunci / LSI Terdeteksi:</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {resultOutput.researchData.keyEntities.map((ent: string, idx: number) => (
+                              <Badge key={idx} variant="secondary" className="text-xs font-normal">
+                                {ent}
+                              </Badge>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 5. Sumber Rujukan Web & Status Pembacaan */}
+                      {resultOutput.sources && resultOutput.sources.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                              <BookOpen className="size-3.5 text-primary" /> Sumber Rujukan Web ({resultOutput.sources.length}):
+                            </span>
+                            {resultOutput.pagesReadCount !== undefined && (
+                              <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                                {resultOutput.pagesReadCount} Sumber Dibaca Penuh (web_reader)
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            {resultOutput.sources.map((src: any, idx: number) => (
+                              <div key={idx} className="rounded-md border border-border/70 bg-card p-2.5 text-xs flex flex-col gap-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <a
+                                    href={src.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-medium text-primary hover:underline flex items-center gap-1 line-clamp-1"
+                                  >
+                                    {src.title || src.url}
+                                    <ExternalLink className="size-3 opacity-70 shrink-0" />
+                                  </a>
+                                  {src.readFull ? (
+                                    <Badge variant="secondary" className="text-[9px] h-4 px-1.5 shrink-0 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10">
+                                      Dibaca Penuh
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline" className="text-[9px] h-4 px-1.5 shrink-0 text-muted-foreground">
+                                      Hasil Pencarian
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-muted-foreground line-clamp-2">{src.snippet}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Visualisasi khusus Image Curator */}
+                  {selectedNodeId === "image_curator" && (
+                    <div className="flex flex-col gap-4">
+                      {/* Ringkasan Evaluasi Kurator */}
+                      {resultOutput.curationSummary && (
+                        <div className="rounded-lg border border-border/80 bg-muted/20 p-3.5 flex flex-col gap-1.5">
+                          <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                            <Sparkles className="size-3.5 text-primary" /> Evaluasi &amp; Seleksi Kurator Visual:
+                          </span>
+                          <p className="text-xs leading-relaxed text-muted-foreground">
+                            {resultOutput.curationSummary}
+                          </p>
+                        </div>
+                      )}
+
+                      {resultOutput.inContentImages && resultOutput.inContentImages.length > 0 ? (
+                        <div className="flex flex-col gap-2">
+                          <span className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                            <ImageIcon className="size-3.5 text-primary" /> Foto Terpilih &amp; Diunggah ke WordPress ({resultOutput.inContentImages.length}):
+                          </span>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {resultOutput.inContentImages.map((img: any, idx: number) => (
+                              <div key={idx} className="rounded-lg border border-border/80 bg-muted/20 p-3 flex flex-col gap-2.5">
+                                <div className="relative">
+                                  <img
+                                    src={img.imageUrl}
+                                    alt={img.altText}
+                                    className="w-full h-36 object-cover rounded-md border border-border/60"
+                                  />
+                                  {img.wpMediaId && (
+                                    <Badge className="absolute top-2 right-2 bg-background/90 text-foreground border border-border/80 text-[10px] font-mono shadow-xs backdrop-blur-xs">
+                                      Media ID: #{img.wpMediaId}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex flex-col gap-1 text-[11px]">
+                                  <span className="font-semibold text-foreground">📍 Subbab: {img.subheading}</span>
+                                  <span className="text-muted-foreground italic">"{img.caption}"</span>
+                                  {img.usageDescription && (
+                                    <div className="mt-1 p-2 rounded bg-background/60 border border-border/60 text-[11px] text-muted-foreground">
+                                      <strong className="text-foreground">Konteks Penggunaan:</strong> {img.usageDescription}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-border/70 bg-muted/20 p-3 text-xs text-muted-foreground">
+                          Tidak ada gambar yang disematkan atau heading tidak cocok.
+                        </div>
+                      )}
+
+                      {resultOutput.rawMarkdown && (
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs font-medium text-foreground">Naskah Markdown yang Telah Diperbarui:</span>
+                          <div className="rounded-lg border border-border/80 bg-muted/20 p-3 font-mono text-xs whitespace-pre-wrap max-h-64 overflow-y-auto">
+                            {resultOutput.rawMarkdown}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Visualisasi Article Drafter */}
+                  {selectedNodeId === "article_drafter" && (
+                    <div className="flex flex-col gap-3">
+                      {resultOutput.rawTitle && (
+                        <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
+                          <span className="text-[11px] text-muted-foreground uppercase font-mono">Judul Naskah</span>
+                          <p className="text-sm font-semibold text-foreground mt-0.5">{resultOutput.rawTitle}</p>
+                        </div>
+                      )}
+                      {resultOutput.rawExcerpt && (
+                        <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
+                          <span className="text-[11px] text-muted-foreground uppercase font-mono">Excerpt / Ringkasan</span>
+                          <p className="text-xs text-muted-foreground mt-0.5">{resultOutput.rawExcerpt}</p>
+                        </div>
+                      )}
+                      {resultOutput.rawMarkdown && (
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs font-medium text-foreground">Naskah Markdown Lengkap:</span>
+                          <div className="rounded-lg border border-border/80 bg-muted/20 p-3 font-mono text-xs whitespace-pre-wrap max-h-[400px] overflow-y-auto leading-relaxed">
+                            {resultOutput.rawMarkdown}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Visualisasi Gutenberg Formatter */}
+                  {selectedNodeId === "gutenberg_formatter" && resultOutput.article && (
+                    <div className="flex flex-col gap-3">
+                      <div className="rounded-lg border border-border/80 bg-muted/20 p-3 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs font-semibold text-foreground">{resultOutput.article.title}</p>
+                          <p className="text-[11px] font-mono text-muted-foreground mt-0.5">/{resultOutput.article.slug}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="text-[10px]">
+                            {resultOutput.article.wordCount} kata
+                          </Badge>
+                          <Badge variant="outline" className="text-[10px]">
+                            {resultOutput.article.readingTimeMinutes} mnt baca
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-medium text-foreground">Blok Native WordPress Gutenberg (contentHtml):</span>
+                        <div className="rounded-lg border border-border/80 bg-muted/20 p-3 font-mono text-xs whitespace-pre-wrap max-h-[350px] overflow-y-auto">
+                          {resultOutput.article.contentHtml}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Visualisasi Taxonomy Resolver */}
+                  {selectedNodeId === "taxonomy_resolver" && (
+                    <div className="flex flex-col gap-3">
+                      <div className="rounded-lg border border-border/80 bg-muted/20 p-3 flex flex-col gap-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                          <FolderTree className="size-4 text-primary" /> Kategori Terpilih:
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {resultOutput.categoryIds && resultOutput.categoryIds.length > 0 ? (
+                            resultOutput.categoryIds.map((cid: number, idx: number) => (
+                              <Badge key={idx} variant="secondary" className="text-xs font-mono">
+                                Category ID: {cid}
+                              </Badge>
+                            ))
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Kategori Default (Uncategorized)</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-border/80 bg-muted/20 p-3 flex flex-col gap-2">
+                        <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                          <Tag className="size-4 text-primary" /> Tag Terkait:
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {resultOutput.tagNames && resultOutput.tagNames.map((tn: string, idx: number) => (
+                            <Badge key={idx} variant="outline" className="text-xs">
+                              #{tn}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+
+                      {resultOutput.authorDetail && (
+                        <div className="rounded-lg border border-border/80 bg-muted/20 p-3 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2">
+                            <User className="size-4 text-primary" />
+                            <span>Author WordPress: <strong>{resultOutput.authorDetail.name}</strong></span>
+                          </div>
+                          <Badge variant="outline" className="font-mono text-[10px]">
+                            Author ID: {resultOutput.authorDetail.id}
+                          </Badge>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Visualisasi Input Validator */}
+                  {selectedNodeId === "input_validator" && (
+                    <div className="flex flex-col gap-2">
+                      <span className="text-xs font-medium text-foreground">Parameter Request yang Telah Tervalidasi:</span>
+                      <JsonCodeViewer
+                        title="Validated WriterRequest"
+                        data={resultOutput}
+                        maxHeight="max-h-[350px]"
+                      />
+                    </div>
+                  )}
+
+                  {/* Fallback untuk Quality Checker atau jika tidak ada visual khusus */}
+                  {selectedNodeId === "quality_checker" && (
+                    <div className="flex flex-col gap-3">
+                      <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                        <CheckCircle2 className="size-4 shrink-0" />
+                        <span>Naskah dinyatakan lolos uji kelayakan anti-refusal dan editorial guideline.</span>
+                      </div>
+                      {resultOutput.warnings && resultOutput.warnings.length > 0 && (
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs font-medium text-amber-500">Peringatan Kualitas:</span>
+                          <ul className="list-disc list-inside text-xs text-muted-foreground">
+                            {resultOutput.warnings.map((w: string, i: number) => (
+                              <li key={i}>{w}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <JsonCodeViewer
+                        title="Quality Check Result"
+                        data={resultOutput}
+                        maxHeight="max-h-[300px]"
+                      />
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Tab 2: Raw State Delta */}
+                <TabsContent value="state" className="focus-visible:outline-none">
                   <JsonCodeViewer
-                    title="Node Telemetry Log (nodeLogs)"
-                    data={nodeLogsOutput}
-                    maxHeight="max-h-48"
+                    title={`State Delta: ${selectedNodeId}`}
+                    data={resultOutput}
+                    maxHeight="max-h-[450px]"
                   />
-                )}
-              </div>
+                </TabsContent>
+
+                {/* Tab 3: Telemetry Logs */}
+                <TabsContent value="logs" className="focus-visible:outline-none">
+                  {nodeLogsOutput && nodeLogsOutput.length > 0 ? (
+                    <JsonCodeViewer
+                      title="Node Telemetry Logs (nodeLogs)"
+                      data={nodeLogsOutput}
+                      maxHeight="max-h-[450px]"
+                    />
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
+                      Tidak ada catatan log telemetri tambahan untuk node ini.
+                    </div>
+                  )}
+                </TabsContent>
+              </Tabs>
             ) : (
               <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground border border-dashed border-border rounded-lg bg-muted/10">
                 <Cpu className="size-8 stroke-[1.5] mb-2 opacity-50" />

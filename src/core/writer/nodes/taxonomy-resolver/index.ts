@@ -1,85 +1,102 @@
-import { z } from "zod"
-import { WriterState } from "../../types/engine"
-import { getCategories } from "../../../shared/tools/get-categories"
-import { getTags } from "../../../shared/tools/get-tags"
-import { getAuthor } from "../../../shared/tools/get-author"
-import { createTags } from "../../../shared/tools/create-tags"
+import { z } from "zod";
+import { getCategories } from "../../../shared/tools/get-categories";
+import { getTags } from "../../../shared/tools/get-tags";
+import { getAuthor } from "../../../shared/tools/get-author";
+import { createTags } from "../../../shared/tools/create-tags";
 
 export const TaxonomySelectionSchema = z.object({
   selectedCategoryId: z
     .number()
-    .describe("ID kategori utama yang paling cocok dengan topik artikel dari daftar kategori yang tersedia"),
+    .describe(
+      "ID kategori utama yang paling cocok dengan topik artikel dari daftar kategori yang tersedia",
+    ),
   additionalCategoryIds: z
     .array(z.number())
     .default([])
-    .describe("ID kategori tambahan jika topik relevan dengan lebih dari 1 kategori"),
+    .describe(
+      "ID kategori tambahan jika topik relevan dengan lebih dari 1 kategori",
+    ),
   matchedTagIds: z
     .array(z.number())
     .default([])
-    .describe("Daftar ID tag yang sudah ada dan cocok dengan topik artikel (boleh kosong jika tidak ada yang cocok)"),
+    .describe(
+      "Daftar ID tag yang sudah ada dan cocok dengan topik artikel (boleh kosong jika tidak ada yang cocok)",
+    ),
   newTagsToCreate: z
     .array(z.string())
     .default([])
-    .describe("Daftar nama tag baru yang perlu dibuat jika tidak ada tag yang cocok atau perlu pelengkap spesifik"),
+    .describe(
+      "Daftar nama tag baru yang perlu dibuat jika tidak ada tag yang cocok atau perlu pelengkap spesifik",
+    ),
   selectedAuthorId: z
     .number()
-    .describe("ID author yang kapasitas, profil, atau bionya paling cocok dengan topik artikel. Hindari akun 'admin' jika tersedia author lain"),
+    .describe(
+      "ID author yang kapasitas, profil, atau bionya paling cocok dengan topik artikel. Hindari akun 'admin' jika tersedia author lain",
+    ),
   reasoning: z
     .string()
     .describe("Alasan singkat pemilihan kategori, tag, dan author"),
-})
+});
 
-export type TaxonomySelection = z.infer<typeof TaxonomySelectionSchema>
+export type TaxonomySelection = z.infer<typeof TaxonomySelectionSchema>;
 
 export interface TaxonomyResolverInput {
-  keyword: string
-  categoryIds?: number[]
-  tagNames?: string[]
-  authorId?: number | null
-  availableCategories?: Array<{ id: number; name: string }>
+  keyword: string;
+  categoryIds?: number[];
+  tagNames?: string[];
+  authorId?: number | null;
+  availableCategories?: Array<{ id: number; name: string }>;
 }
 
 export interface TaxonomyResolverResult {
-  categoryIds: number[]
-  tagNames: string[]
-  authorId?: number
-  isAutoResolved: boolean
+  categoryIds: number[];
+  tagNames: string[];
+  authorId?: number;
+  isAutoResolved: boolean;
   resolvedDetails: {
-    categoryResolved: boolean
-    tagsResolved: boolean
-    authorResolved: boolean
-  }
+    categoryResolved: boolean;
+    tagsResolved: boolean;
+    authorResolved: boolean;
+  };
 }
 
 /**
  * Fallback utilitas murni jika WP REST API tidak dapat diakses atau kredensial kosong
  */
-export function executeTaxonomyResolver(input: TaxonomyResolverInput): TaxonomyResolverResult {
-  let categoryIds = input.categoryIds && input.categoryIds.length > 0 ? [...input.categoryIds] : []
-  let tagNames = input.tagNames && input.tagNames.length > 0 ? [...input.tagNames] : []
-  let authorId = input.authorId ?? undefined
+export function executeTaxonomyResolver(
+  input: TaxonomyResolverInput,
+): TaxonomyResolverResult {
+  let categoryIds =
+    input.categoryIds && input.categoryIds.length > 0
+      ? [...input.categoryIds]
+      : [];
+  let tagNames =
+    input.tagNames && input.tagNames.length > 0 ? [...input.tagNames] : [];
+  let authorId = input.authorId ?? undefined;
 
-  let categoryResolved = false
-  let tagsResolved = false
-  let authorResolved = false
+  let categoryResolved = false;
+  let tagsResolved = false;
+  let authorResolved = false;
 
   // 1. Resolusi Kategori: jika kosong, cari kecocokan dari availableCategories atau gunakan default
   if (categoryIds.length === 0) {
     if (input.availableCategories && input.availableCategories.length > 0) {
-      const lowerKeyword = input.keyword.toLowerCase()
-      const matched = input.availableCategories.find((cat) =>
-        lowerKeyword.includes(cat.name.toLowerCase()) || cat.name.toLowerCase().includes(lowerKeyword)
-      )
+      const lowerKeyword = input.keyword.toLowerCase();
+      const matched = input.availableCategories.find(
+        (cat) =>
+          lowerKeyword.includes(cat.name.toLowerCase()) ||
+          cat.name.toLowerCase().includes(lowerKeyword),
+      );
       if (matched) {
-        categoryIds = [matched.id]
-        categoryResolved = true
+        categoryIds = [matched.id];
+        categoryResolved = true;
       } else {
-        categoryIds = [input.availableCategories[0].id]
-        categoryResolved = true
+        categoryIds = [input.availableCategories[0].id];
+        categoryResolved = true;
       }
     } else {
-      categoryIds = [1]
-      categoryResolved = true
+      categoryIds = [1];
+      categoryResolved = true;
     }
   }
 
@@ -89,21 +106,34 @@ export function executeTaxonomyResolver(input: TaxonomyResolverInput): TaxonomyR
       .toLowerCase()
       .replace(/[^\w\s-]/g, "")
       .split(/\s+/)
-      .filter((w) => w.length >= 3 && !["dan", "atau", "yang", "untuk", "dari", "pada", "cara", "tips"].includes(w))
+      .filter(
+        (w) =>
+          w.length >= 3 &&
+          ![
+            "dan",
+            "atau",
+            "yang",
+            "untuk",
+            "dari",
+            "pada",
+            "cara",
+            "tips",
+          ].includes(w),
+      );
 
     if (rawTokens.length > 0) {
-      tagNames = [input.keyword.trim().toLowerCase()]
+      tagNames = [input.keyword.trim().toLowerCase()];
       if (rawTokens.length >= 2) {
-        tagNames.push(rawTokens.slice(0, 2).join(" "))
+        tagNames.push(rawTokens.slice(0, 2).join(" "));
       }
-      tagsResolved = true
+      tagsResolved = true;
     }
   }
 
   // 3. Resolusi Author: default author ID 1 jika belum ditentukan
   if (!authorId) {
-    authorId = 1
-    authorResolved = true
+    authorId = 1;
+    authorResolved = true;
   }
 
   return {
@@ -116,10 +146,10 @@ export function executeTaxonomyResolver(input: TaxonomyResolverInput): TaxonomyR
       tagsResolved,
       authorResolved,
     },
-  }
+  };
 }
 
-import { defineNode } from "../../utils/node-factory"
+import { defineNode } from "../../utils/node-factory";
 
 /**
  * Node LangGraph resmi untuk Taxonomy Resolver
@@ -143,55 +173,66 @@ export const taxonomyResolverNode = defineNode({
   }),
 
   async run(state, { prompt, llm, logMessage, addWarning }) {
-    const keyword = state.context.request.content.keyword
-    const brief = state.context.request.content.brief || ""
-    const siteConfig = state.context.request.site
-    const userCategoryIds = state.categoryIds && state.categoryIds.length > 0 ? state.categoryIds : []
-    const userTagNames = state.tagNames && state.tagNames.length > 0 ? state.tagNames : []
-    const userAuthorId = state.authorId
+    const keyword = state.context.request.content.keyword;
+    const brief = state.context.request.content.brief || "";
+    const siteConfig = state.context.request.site;
+    const userCategoryIds =
+      state.categoryIds && state.categoryIds.length > 0
+        ? state.categoryIds
+        : [];
+    const userTagNames =
+      state.tagNames && state.tagNames.length > 0 ? state.tagNames : [];
+    const userAuthorId = state.authorId;
 
     // Cek apakah kredensial WordPress tersedia untuk pemanggilan tools live
     const hasWpCredentials =
       Boolean(siteConfig?.baseUrl) &&
       Boolean(siteConfig?.username) &&
-      Boolean(siteConfig?.applicationPassword)
+      Boolean(siteConfig?.applicationPassword);
 
     // Jika input pengguna belum lengkap (kategori kosong atau author belum ditentukan) dan kredensial WP ada
     if (hasWpCredentials && (userCategoryIds.length === 0 || !userAuthorId)) {
       try {
-        const baseUrl = siteConfig.baseUrl!
-        const username = siteConfig.username!
-        const applicationPassword = siteConfig.applicationPassword!
+        const baseUrl = siteConfig.baseUrl!;
+        const username = siteConfig.username!;
+        const applicationPassword = siteConfig.applicationPassword!;
 
         // 1. Panggil tools eksternal secara paralel
         const [categoriesRes, tagsRes, authorsRes] = await Promise.all([
           getCategories({ baseUrl, username, applicationPassword }),
           getTags({ baseUrl, username, applicationPassword }),
           getAuthor({ baseUrl, username, applicationPassword }),
-        ])
+        ]);
 
-        const categories = categoriesRes.ok ? categoriesRes.categories : []
-        const tagsString = tagsRes.ok ? tagsRes.tagsString : ""
-        const authors = authorsRes.ok ? authorsRes.authors : []
+        const categories = categoriesRes.ok ? categoriesRes.categories : [];
+        const tagsString = tagsRes.ok ? tagsRes.tagsString : "";
+        const authors = authorsRes.ok ? authorsRes.authors : [];
 
         if (categories.length > 0 && authors.length > 0) {
           // 2. Susun prompt dinamis via template prompt.md
           const categoriesList = categories
-            .map((c) => `- ID ${c.id}: "${c.name}" (Slug: ${c.slug}, Deskripsi: ${c.description || "Tanpa deskripsi"})`)
-            .join("\n")
+            .map(
+              (c) =>
+                `- ID ${c.id}: "${c.name}" (Slug: ${c.slug}, Deskripsi: ${c.description || "Tanpa deskripsi"})`,
+            )
+            .join("\n");
 
           const authorsList = authors
-            .map((a) => `- ID ${a.author_id}: "${a.author_name}" (Slug: ${a.slug}, Bio: ${a.author_bio || "Penulis blog"})`)
-            .join("\n")
+            .map(
+              (a) =>
+                `- ID ${a.author_id}: "${a.author_name}" (Slug: ${a.slug}, Bio: ${a.author_bio || "Penulis blog"})`,
+            )
+            .join("\n");
 
-          const systemPrompt = prompt?.renderSystemPrompt() || ""
-          const userPrompt = prompt?.renderUserPrompt({
-            keyword,
-            brief: brief || "Tidak ada catatan khusus",
-            categoriesList,
-            tagsSummary: tagsString || "(Belum ada tag)",
-            authorsList,
-          }) || ""
+          const systemPrompt = prompt?.renderSystemPrompt() || "";
+          const userPrompt =
+            prompt?.renderUserPrompt({
+              keyword,
+              brief: brief || "Tidak ada catatan khusus",
+              categoriesList,
+              tagsSummary: tagsString || "(Belum ada tag)",
+              authorsList,
+            }) || "";
 
           const evaluation = await llm.generate({
             systemPrompt,
@@ -199,50 +240,65 @@ export const taxonomyResolverNode = defineNode({
             model: state.context.request.model,
             temperature: 0.1,
             outputSchema: TaxonomySelectionSchema,
-          })
+          });
 
-          let selection: TaxonomySelection | null = null
+          let selection: TaxonomySelection | null = null;
           try {
-            let cleanJson = evaluation.content.trim()
+            let cleanJson = evaluation.content.trim();
             if (cleanJson.startsWith("```json")) {
-              cleanJson = cleanJson.replace(/^```json\s*/, "").replace(/\s*```$/, "")
+              cleanJson = cleanJson
+                .replace(/^```json\s*/, "")
+                .replace(/\s*```$/, "");
             } else if (cleanJson.startsWith("```")) {
-              cleanJson = cleanJson.replace(/^```\s*/, "").replace(/\s*```$/, "")
+              cleanJson = cleanJson
+                .replace(/^```\s*/, "")
+                .replace(/\s*```$/, "");
             }
-            selection = JSON.parse(cleanJson) as TaxonomySelection
+            selection = JSON.parse(cleanJson) as TaxonomySelection;
           } catch {
             // Fallback parsing jika format string
           }
 
           if (selection) {
             // Kategori: Utamakan input manual user jika ada, jika tidak gunakan hasil LLM
-            let resolvedCategoryIds: number[] = userCategoryIds.length > 0
-              ? [...userCategoryIds]
-              : [selection.selectedCategoryId, ...(selection.additionalCategoryIds || [])]
+            const resolvedCategoryIds: number[] =
+              userCategoryIds.length > 0
+                ? [...userCategoryIds]
+                : [
+                    selection.selectedCategoryId,
+                    ...(selection.additionalCategoryIds || []),
+                  ];
 
             // Tag: Cek apakah perlu membuat tag baru via create_tags tool
-            let finalTagIds: number[] = [...(selection.matchedTagIds || [])]
-            let createdTagNames: string[] = []
+            let finalTagIds: number[] = [...(selection.matchedTagIds || [])];
+            let createdTagNames: string[] = [];
 
-            if (selection.newTagsToCreate && selection.newTagsToCreate.length > 0) {
+            if (
+              selection.newTagsToCreate &&
+              selection.newTagsToCreate.length > 0
+            ) {
               const createRes = await createTags({
                 baseUrl,
                 username,
                 applicationPassword,
                 tagNames: selection.newTagsToCreate,
-              })
+              });
               if (createRes.ok && createRes.tagIds.length > 0) {
-                finalTagIds = Array.from(new Set([...finalTagIds, ...createRes.tagIds]))
-                createdTagNames = createRes.tags.map((t) => t.name)
+                finalTagIds = Array.from(
+                  new Set([...finalTagIds, ...createRes.tagIds]),
+                );
+                createdTagNames = createRes.tags.map((t) => t.name);
               }
             }
 
             // Author: Pilih author_id hasil seleksi (utamakan bukan admin)
-            const resolvedAuthorId = userAuthorId || selection.selectedAuthorId
+            const resolvedAuthorId = userAuthorId || selection.selectedAuthorId;
             const selectedAuthorObj =
               authors.find((a) => a.author_id === resolvedAuthorId) ||
-              authors.find((a) => !a.author_name.toLowerCase().includes("admin")) ||
-              authors[0]
+              authors.find(
+                (a) => !a.author_name.toLowerCase().includes("admin"),
+              ) ||
+              authors[0];
 
             const authorDetail = selectedAuthorObj
               ? {
@@ -250,38 +306,51 @@ export const taxonomyResolverNode = defineNode({
                   name: selectedAuthorObj.author_name,
                   bio: selectedAuthorObj.author_bio,
                 }
-              : undefined
+              : undefined;
 
             // Sinkronkan ke promptConfig variables agar article-drafter dapat menyesuaikan gaya penulisan author
             if (authorDetail && state.context?.promptConfig?.variables) {
-              state.context.promptConfig.variables.authorName = authorDetail.name
+              state.context.promptConfig.variables.authorName =
+                authorDetail.name;
               if (authorDetail.bio) {
-                state.context.promptConfig.variables.authorBio = authorDetail.bio
+                state.context.promptConfig.variables.authorBio =
+                  authorDetail.bio;
               }
             }
 
             // Sinkronkan ke request context untuk konsistensi pipeline
             if (state.context?.request?.publishing) {
-              state.context.request.publishing.categoryIds = resolvedCategoryIds
-              state.context.request.publishing.tagNames = userTagNames.length > 0 ? userTagNames : createdTagNames
-              state.context.request.publishing.authorId = resolvedAuthorId
+              state.context.request.publishing.categoryIds =
+                resolvedCategoryIds;
+              state.context.request.publishing.tagNames =
+                userTagNames.length > 0 ? userTagNames : createdTagNames;
+              state.context.request.publishing.authorId = resolvedAuthorId;
             }
 
-            logMessage(`Taksonomi cerdas dipetakan: Kategori [${resolvedCategoryIds.join(", ")}], Author ${selectedAuthorObj?.author_name}`)
+            logMessage(
+              `Taksonomi cerdas dipetakan: Kategori [${resolvedCategoryIds.join(", ")}], Author ${selectedAuthorObj?.author_name}`,
+            );
 
             return {
               categoryIds: resolvedCategoryIds,
-              tagNames: userTagNames.length > 0 ? userTagNames : createdTagNames,
+              tagNames:
+                userTagNames.length > 0 ? userTagNames : createdTagNames,
               tagIds: finalTagIds,
               authorId: resolvedAuthorId,
               authorDetail,
-            }
+            };
           }
         }
       } catch (err: unknown) {
-        const errorMsg = err instanceof Error ? err.message : "Kesalahan tidak diketahui"
-        console.warn("[taxonomy_resolver] Gagal menggunakan tools WP/LLM, beralih ke fallback deterministik:", errorMsg)
-        addWarning(`Resolusi taksonomi otomatis gagal (${errorMsg}), beralih ke taksonomi cadangan.`)
+        const errorMsg =
+          err instanceof Error ? err.message : "Kesalahan tidak diketahui";
+        console.warn(
+          "[taxonomy_resolver] Gagal menggunakan tools WP/LLM, beralih ke fallback deterministik:",
+          errorMsg,
+        );
+        addWarning(
+          `Resolusi taksonomi otomatis gagal (${errorMsg}), beralih ke taksonomi cadangan.`,
+        );
       }
     }
 
@@ -291,27 +360,27 @@ export const taxonomyResolverNode = defineNode({
       categoryIds: userCategoryIds,
       tagNames: userTagNames,
       authorId: userAuthorId,
-    })
+    });
 
     if (state.context?.request?.publishing) {
-      state.context.request.publishing.categoryIds = fallback.categoryIds
-      state.context.request.publishing.tagNames = fallback.tagNames
+      state.context.request.publishing.categoryIds = fallback.categoryIds;
+      state.context.request.publishing.tagNames = fallback.tagNames;
       if (fallback.authorId) {
-        state.context.request.publishing.authorId = fallback.authorId
+        state.context.request.publishing.authorId = fallback.authorId;
       }
     }
 
     logMessage(
       fallback.isAutoResolved
         ? "Taksonomi dilengkapi secara otomatis (mode fallback)"
-        : "Taksonomi sesuai input pengguna"
-    )
+        : "Taksonomi sesuai input pengguna",
+    );
 
     return {
       categoryIds: fallback.categoryIds,
       tagNames: fallback.tagNames,
       tagIds: [],
       authorId: fallback.authorId,
-    }
+    };
   },
-})
+});

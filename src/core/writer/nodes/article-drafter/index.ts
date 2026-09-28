@@ -92,12 +92,16 @@ export async function executeArticleDrafter(
       })
       .join("\n");
 
+    const findingsStr = (input.researchData.keyFindings || [])
+      .slice(0, 4)
+      .map((f) => `  * ${f}`)
+      .join("\n");
+
     researchNotes = [
-      "- CETAK BIRU & HASIL RISET TOPIK:",
-      `  * Maksud Pencarian: ${input.researchData.searchIntent || "Informasional"}`,
-      `  * Profil Pembaca: ${input.researchData.targetAudience || "Umum"}`,
+      "- CETAK BIRU & HASIL RISET TOPIK (HEMAT TOKEN):",
+      input.researchData.summaryExplanation ? `  * Intisari Fakta: ${input.researchData.summaryExplanation}` : "",
+      findingsStr ? `  * Poin Informasi Kunci dari Sumber:\n${findingsStr}` : "",
       entitiesStr ? `  * Entitas Semantik Wajib Disertakan (LSI): ${entitiesStr}` : "",
-      questionsStr ? `  * Pertanyaan Utama Pembaca yang Harus Terjawab:\n${questionsStr}` : "",
       outlineStr ? `  * Struktur Outline Wajib (Ikuti urutan subjudul ## ini):\n${outlineStr}` : "",
     ]
       .filter(Boolean)

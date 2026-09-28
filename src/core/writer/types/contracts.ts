@@ -85,6 +85,7 @@ export interface ArticleSource {
   title?: string
   url: string
   snippet?: string
+  readFull?: boolean
 }
 
 export interface ResearchOutlineItem {
@@ -101,6 +102,12 @@ export interface ResearchData {
   coreQuestions: string[]
   outline: ResearchOutlineItem[]
   suggestedTitle?: string
+  /** List informasi penting hasil riset sumber web */
+  keyFindings?: string[]
+  /** Penjelasan naratif komprehensif apa saja yang didapat dari riset */
+  summaryExplanation?: string
+  /** Jumlah sumber halaman yang dibaca secara mendalam oleh web_reader */
+  readSourcesCount?: number
 }
 
 /** Gambar yang disematkan di dalam konten (in-content images) */
@@ -110,6 +117,8 @@ export interface InContentImage {
   altText: string
   caption?: string
   wpMediaId?: number
+  /** Deskripsi singkat alasan foto dipilih dan kegunaannya untuk subbab terkait */
+  usageDescription?: string
 }
 
 /** Metadata enrichment WordPress */
