@@ -4,6 +4,7 @@ import {
   GeneratedArticle,
   ArticleSource,
   InContentImage,
+  ResearchData,
   WriterError,
   NodeExecutionLog,
 } from "./contracts"
@@ -118,6 +119,11 @@ export const WriterStateAnnotation = Annotation.Root({
   authorDetail: Annotation<{ id: number; name: string; bio?: string } | undefined>({
     reducer: (prev, next) => next ?? prev,
   }),
+  // Research & Outline Data
+  researchData: Annotation<ResearchData | undefined>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => undefined,
+  }),
   // Raw Draft dari LLM
   rawTitle: Annotation<string>({
     reducer: (prev, next) => next ?? prev,
@@ -130,6 +136,11 @@ export const WriterStateAnnotation = Annotation.Root({
   rawMarkdown: Annotation<string>({
     reducer: (prev, next) => next ?? prev,
     default: () => "",
+  }),
+  // In-Content Images
+  inContentImages: Annotation<InContentImage[]>({
+    reducer: (prev, next) => next ?? prev,
+    default: () => [],
   }),
   tokenUsage: Annotation<{ prompt: number; completion: number; total: number } | undefined>({
     reducer: (prev, next) => next ?? prev,

@@ -95,6 +95,18 @@ export async function GET() {
         },
       },
       {
+        id: "topic_researcher",
+        name: "Node: Topic Researcher & Content Blueprint",
+        description: "Menganalisis search intent, target audiens, entitas semantik (LSI), dan merancang outline terstruktur beserta rekomendasi pencarian foto.",
+        isAiNode: true,
+        requiresSite: false,
+        defaultInput: {
+          keyword: "panduan menyeduh kopi manual brew",
+          brief: "Bahas metode V60, French Press, dan rasio air kopi.",
+          language: "id",
+        },
+      },
+      {
         id: "article_drafter",
         name: "Node 3: Article Drafter (LLM Generator)",
         description: "Menghasilkan naskah artikel Markdown utuh berpedoman Anti-Slop Copywriting v3.0, Nol Dash, dan format terstruktur.",
@@ -105,6 +117,17 @@ export async function GET() {
           brief: "Fokus pada pembuatan konten bernilai tinggi untuk pembaca manusia.",
           wordCountTarget: 800,
           language: "id",
+        },
+      },
+      {
+        id: "image_curator",
+        name: "Node: Image Curator & In-Content Inserter",
+        description: "Mencari foto berkualitas bebas royalti dan menyematkannya ke heading H2 artikel secara kontekstual.",
+        isAiNode: false,
+        requiresSite: false,
+        defaultInput: {
+          keyword: "kopi manual brew",
+          rawMarkdown: "## Mengenal Alat Seduh Kopi\n\nAlat seduh kopi memiliki beragam bentuk dan karakter ekstraksi yang unik.\n\n## Langkah Menyeduh yang Benar\n\nPastikan suhu air berada pada 90-94 derajat celsius untuk ekstraksi seimbang.\n",
         },
       },
       {
@@ -133,6 +156,18 @@ export async function GET() {
 
     // Manifest Engines
     const engines = [
+      {
+        id: "standard",
+        name: "Standard Engine (Riset & Gambar)",
+        description: "Mesin penulisan artikel berimbang dengan riset topik mendalam, outline entitas semantik, dan penyematan gambar otomatis.",
+        estimatedDurationSeconds: 40,
+        defaultRequest: {
+          keyword: "panduan lengkap manual brew untuk pemula",
+          brief: "Ulas metode V60 dan AeroPress dengan takaran rasio yang pas.",
+          actionStatus: "draft",
+          model: "openai/gpt-oss-120b",
+        },
+      },
       {
         id: "quick",
         name: "Quick Engine (1-Shot LangGraph)",

@@ -1,5 +1,6 @@
 import { WritingEngine } from "../types/engine"
 import { QuickEngine } from "./quick"
+import { StandardEngine } from "./standard"
 
 class EngineRegistryClass {
   private engines: Map<string, WritingEngine> = new Map()
@@ -7,6 +8,7 @@ class EngineRegistryClass {
   constructor() {
     // Daftarkan engine bawaan
     this.register(new QuickEngine())
+    this.register(new StandardEngine())
   }
 
   /**

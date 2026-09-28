@@ -87,6 +87,22 @@ export interface ArticleSource {
   snippet?: string
 }
 
+export interface ResearchOutlineItem {
+  heading: string
+  subheadings?: string[]
+  keyPoints: string[]
+  suggestedImageQuery?: string
+}
+
+export interface ResearchData {
+  searchIntent: string
+  targetAudience: string
+  keyEntities: string[]
+  coreQuestions: string[]
+  outline: ResearchOutlineItem[]
+  suggestedTitle?: string
+}
+
 /** Gambar yang disematkan di dalam konten (in-content images) */
 export interface InContentImage {
   subheading: string

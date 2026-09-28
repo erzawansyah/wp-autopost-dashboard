@@ -3,6 +3,87 @@ import { createClient } from "@/lib/supabase/server"
 import { decryptCredential } from "@/lib/crypto"
 import { createWordPressPost, resolveOrCreateWordPressTags } from "@/lib/wordpress/client"
 
+export async function GET(
+  _request: Request,
+  props: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: postId } = await props.params
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    // 1. Ambil data item artikel
+    const { data: post, error: postError } = await supabase
+      .from("post_items")
+      .select(`
+        id,
+        user_id,
+        wp_site_id,
+        target_keyword,
+        title,
+        slug,
+        content_html,
+        excerpt,
+        featured_image_url,
+        categories,
+        tags,
+        custom_instructions_override,
+        state,
+        scheduled_for,
+        wp_post_id,
+        wp_post_url,
+        wp_target_status,
+        retry_count,
+        last_error,
+        source_payload,
+        created_at,
+        updated_at,
+        wp_sites (
+          id,
+          site_name,
+          base_url,
+          wp_username,
+          status
+        )
+      `)
+      .eq("id", postId)
+      .eq("user_id", user.id)
+      .single()
+
+    if (postError || !post) {
+      return NextResponse.json({ error: "Artikel tidak ditemukan." }, { status: 404 })
+    }
+
+    // 2. Ambil catatan log eksekusi (execution_logs) untuk artikel ini
+    const { data: logs, error: logsError } = await supabase
+      .from("execution_logs")
+      .select("id, step, level, message, details, created_at")
+      .eq("post_item_id", postId)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true })
+
+    if (logsError) {
+      console.warn("Gagal mengambil log eksekusi:", logsError.message)
+    }
+
+    return NextResponse.json({
+      ok: true,
+      post,
+      logs: logs || [],
+    })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
+
 export async function DELETE(
   _request: Request,
   props: { params: Promise<{ id: string }> }

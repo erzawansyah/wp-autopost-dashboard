@@ -30,7 +30,7 @@ export function HelpTooltip({
         <button
           type="button"
           className={cn(
-            "inline-flex size-6 items-center justify-center rounded-full text-muted-foreground/80 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+            "inline-flex size-5 items-center justify-center rounded-full text-muted-foreground/80 transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             className
           )}
           aria-label="Buka petunjuk"

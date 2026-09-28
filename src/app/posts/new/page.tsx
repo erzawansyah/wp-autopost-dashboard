@@ -2,159 +2,217 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
 import { Badge } from "@/components/atoms/badge"
+import { Card, CardContent } from "@/components/atoms/card"
 import {
-  FlaskConical,
-  Wrench,
-  Cpu,
-  Zap,
-  ArrowRight,
+  QuickWriterForm,
+  type WpSiteOption,
+  type QuickWriterSubmitPayload,
+} from "@/components/organisms/quick-writer/quick-writer-form"
+import {
   Sparkles,
-  LayoutTemplate,
+  FlaskConical,
+  ListOrdered,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
+  ArrowRight,
 } from "lucide-react"
 
 export default function NewPostPage() {
+  const router = useRouter()
+  const [sites, setSites] = React.useState<WpSiteOption[]>([])
+  const [isLoadingSites, setIsLoadingSites] = React.useState(true)
+
+  // Submission state
+  const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [isRedirecting, setIsRedirecting] = React.useState(false)
+  const [queuedPostId, setQueuedPostId] = React.useState<string | null>(null)
+  const [queuedKeyword, setQueuedKeyword] = React.useState<string>("")
+  const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
+
+  // Fetch registered sites on mount
+  React.useEffect(() => {
+    let isMounted = true
+
+    fetch("/api/sites")
+      .then((res) => {
+        if (res.status === 401) {
+          router.push("/login")
+          return Promise.reject(new Error("Unauthorized"))
+        }
+        return res.json()
+      })
+      .then((data) => {
+        if (!isMounted) return
+        if (data.sites && Array.isArray(data.sites)) {
+          setSites(data.sites)
+        } else {
+          setSites([])
+        }
+      })
+      .catch((err) => {
+        console.error("Gagal mengambil data website:", err)
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsLoadingSites(false)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [router])
+
+  // Handle Form Submission: Mode Background (Instan < 200ms)
+  const handleSubmit = async (payload: QuickWriterSubmitPayload) => {
+    setErrorMsg(null)
+    setIsSubmitting(true)
+
+    try {
+      const res = await fetch("/api/posts/quick", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          siteId: payload.siteId,
+          keyword: payload.keyword,
+          engine: payload.engine,
+          category_ids: payload.categoryIds,
+          category_names: payload.categoryNames,
+          tags: payload.tags || undefined,
+          customBrief: payload.customBrief || undefined,
+          actionStatus: payload.actionStatus,
+          aiModel: payload.aiModel,
+          apiKey: payload.apiKey || undefined,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setErrorMsg(data.error || "Gagal memasukkan artikel ke antrean.")
+        setIsSubmitting(false)
+        return
+      }
+
+      // Berhasil masuk antrean! Tampilkan kartu konfirmasi singkat lalu alihkan ke Dashboard
+      setQueuedPostId(data.postId)
+      setQueuedKeyword(payload.keyword)
+      setIsRedirecting(true)
+
+      // Beri jeda 800ms agar pengguna melihat animasi konfirmasi sukses sebelum redirect
+      window.setTimeout(() => {
+        router.push(`/?queued=true&postId=${data.postId}&keyword=${encodeURIComponent(payload.keyword)}`)
+      }, 700)
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Terjadi gangguan jaringan saat mengirim ke antrean."
+      setErrorMsg(message)
+      setIsSubmitting(false)
+    }
+  }
+
   return (
     <DashboardLayout>
       <PageContainer size="default">
-        {/* Header */}
+        {/* Header Standar */}
         <PageHeader
           title="Tulis Cepat (Quick Writer)"
-          description="Modul pembuatan artikel cepat sedang dikosongkan untuk perombakan UI berbasis Atomic Design dan pematangan engine bertahap (bottom-up)."
+          description="Hasilkan satu artikel mendalam berstandar anti-slop. Proses berjalan di latar belakang sehingga Anda tidak perlu menunggu di halaman ini."
           icon={Sparkles}
           badge={
-            <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-mono border-amber-500/40 text-amber-500">
-              Fase Refaktor
+            <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-mono border-primary/30 text-primary">
+              Mode Background
             </Badge>
           }
           actions={
-            <Button size="sm" asChild className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-2xs font-semibold">
-              <Link href="/lab">
-                <FlaskConical className="size-3.5 text-accent" />
-                <span>Buka Laboratorium</span>
-              </Link>
-            </Button>
-          }
-        />
-
-        {/* Hero Card Call to Action */}
-        <Card className="border-border bg-gradient-to-br from-card to-muted/30 shadow-xs">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="flex size-8 items-center justify-center rounded-lg bg-accent/20 text-accent">
-                  <FlaskConical className="size-4" />
-                </div>
-                <CardTitle className="text-base font-semibold">
-                  Laboratorium & Test Bench Tersedia
-                </CardTitle>
-              </div>
-              <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 text-[10px]">
-                Siap Diuji
-              </Badge>
-            </div>
-            <CardDescription className="text-xs pt-1 leading-relaxed">
-              Anda dapat menguji seluruh <strong>Tools</strong>, <strong>Nodes</strong>, dan <strong>Engine</strong> secara mandiri dan transparan melalui halaman Laboratorium sebelum antarmuka pengguna final dirakit.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-2 flex flex-col gap-4">
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <Button asChild size="default" className="gap-2 font-medium">
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                asChild
+                className="gap-1.5 text-xs font-medium cursor-pointer"
+              >
                 <Link href="/lab">
-                  <FlaskConical className="size-4" />
-                  <span>Buka Laboratorium Pengujian (/lab)</span>
-                  <ArrowRight className="size-3.5 ml-1" />
+                  <FlaskConical className="size-3.5 text-primary" />
+                  <span className="hidden sm:inline">Laboratorium</span>
+                  <span className="sm:hidden">Lab</span>
+                </Link>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                asChild
+                className="gap-1.5 text-xs font-medium cursor-pointer"
+              >
+                <Link href="/">
+                  <ListOrdered className="size-3.5 text-muted-foreground" />
+                  <span>Dashboard &amp; Antrean</span>
                 </Link>
               </Button>
             </div>
-          </CardContent>
-        </Card>
+          }
+        />
 
-        {/* Roadmap Tahap Pengembangan Bottom-Up */}
-        <div className="flex flex-col gap-3">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground font-mono">
-            Tahapan Pematangan Bottom-Up
-          </h2>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Step 1: Tools */}
-            <Card className="border-border bg-card">
-              <CardContent className="p-4 flex items-start gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary mt-0.5">
-                  <Wrench className="size-4" />
+        {/* Transition State saat Berhasil Masuk Antrean & Sedang Redirect */}
+        {isRedirecting && (
+          <Card className="border-emerald-500/40 bg-emerald-500/5 shadow-xs animate-in zoom-in-95 duration-200">
+            <CardContent className="p-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shrink-0">
+                  <CheckCircle2 className="size-6 animate-in zoom-in duration-300" />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">1. Tools WordPress REST</span>
-                    <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30">Lolos Uji</Badge>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-normal">
-                    5 adapter terisolasi: get_categories, get_tags, create_tags, get_author, wordpress_publisher.
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Artikel Berhasil Masuk Antrean Latar Belakang!
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Topik: <strong>&quot;{queuedKeyword}&quot;</strong>. Mesin AI sedang menulis naskah. Mengalihkan ke Dashboard...
                   </p>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
 
-            {/* Step 2: Nodes */}
-            <Card className="border-border bg-card">
-              <CardContent className="p-4 flex items-start gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-accent/20 text-accent mt-0.5">
-                  <Cpu className="size-4" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">2. Modular Nodes</span>
-                    <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30">Lolos Uji</Badge>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-normal">
-                    5 node fungsional via defineNode() dengan YAML prompt.md terpisah & telemetri otomatis.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+              <div className="flex items-center gap-2 text-xs text-primary font-medium shrink-0">
+                <Loader2 className="size-4 animate-spin text-primary" />
+                <span>Membuka Dashboard...</span>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-            {/* Step 3: Engine */}
-            <Card className="border-border bg-card">
-              <CardContent className="p-4 flex items-start gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-amber-500/10 text-amber-500 mt-0.5">
-                  <Zap className="size-4" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">3. QuickEngine (LangGraph)</span>
-                    <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30">Lolos Uji</Badge>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-normal">
-                    Orkestrator StateGraph dengan conditional quality check dan Gutenberg block serializer.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Step 4: UI Refactor */}
-            <Card className="border-border bg-card">
-              <CardContent className="p-4 flex items-start gap-3">
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-blue-500/10 text-blue-500 mt-0.5">
-                  <LayoutTemplate className="size-4" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-foreground">4. Perombakan Frontend</span>
-                    <Badge variant="secondary" className="text-[10px]">Langkah Selanjutnya</Badge>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-normal">
-                    Penyusunan antarmuka baru secara modular menggunakan prinsip Atomic Design (atoms ➔ molecules ➔ organisms).
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+        {/* Error Alert Jika Terjadi Kegagalan Menambahkan ke Antrean */}
+        {errorMsg && !isRedirecting && (
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 flex items-center justify-between gap-3 text-xs text-destructive">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="size-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={() => setErrorMsg(null)}
+              className="text-xs text-destructive hover:bg-destructive/20 border-destructive/40 cursor-pointer"
+            >
+              Tutup
+            </Button>
           </div>
-        </div>
+        )}
+
+        {/* Formulir Tulis Cepat */}
+        {!isRedirecting && (
+          <QuickWriterForm
+            sites={sites}
+            isLoadingSites={isLoadingSites}
+            isSubmitting={isSubmitting}
+            onSubmit={handleSubmit}
+          />
+        )}
       </PageContainer>
     </DashboardLayout>
   )

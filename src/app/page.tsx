@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
@@ -18,6 +18,9 @@ import {
   RefreshCw,
   Loader2,
   ArrowRight,
+  CheckCircle2,
+  X,
+  Terminal,
 } from "lucide-react"
 
 interface DashboardPost {
@@ -53,14 +56,20 @@ interface DashboardUser {
   email: string
 }
 
-export default function HomePage() {
+function DashboardContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const isQueued = searchParams.get("queued") === "true"
+  const queuedKeyword = searchParams.get("keyword") || ""
+  const queuedPostId = searchParams.get("postId") || ""
+
+  const [showQueuedBanner, setShowQueuedBanner] = React.useState(isQueued)
   const [posts, setPosts] = React.useState<DashboardPost[]>([])
   const [sites, setSites] = React.useState<DashboardSite[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [currentUser, setCurrentUser] = React.useState<DashboardUser | null>(null)
 
-  // Fetch initial data
+  // Fetch initial data dengan loading state
   const loadData = React.useCallback(async () => {
     try {
       setIsLoading(true)
@@ -92,6 +101,19 @@ export default function HomePage() {
       console.error("Gagal mengambil data dashboard:", err)
     } finally {
       setIsLoading(false)
+    }
+  }, [])
+
+  // Refresh silent tanpa memicu skeleton loader (untuk background auto-polling)
+  const loadDataSilently = React.useCallback(async () => {
+    try {
+      const postsRes = await fetch("/api/posts?limit=50")
+      if (postsRes.ok) {
+        const postsData = await postsRes.json()
+        setPosts(postsData.posts || [])
+      }
+    } catch {
+      // Abaikan galat polling latar belakang
     }
   }, [])
 
@@ -143,6 +165,25 @@ export default function HomePage() {
     }
   }, [])
 
+  // Auto-polling pintar jika ada artikel yang sedang dalam proses latar belakang
+  React.useEffect(() => {
+    const hasActiveJob = posts.some(
+      (p) =>
+        p.state === "queued_input" ||
+        p.state === "generating_content" ||
+        p.state === "ready_to_sync" ||
+        p.state === "syncing_to_wp"
+    )
+
+    if (!hasActiveJob) return
+
+    const interval = window.setInterval(() => {
+      void loadDataSilently()
+    }, 4000)
+
+    return () => window.clearInterval(interval)
+  }, [posts, loadDataSilently])
+
   // Transform posts data to QueueTableItem format
   const tableItems: QueueTableItem[] = React.useMemo(() => {
     return posts.map((p) => {
@@ -152,35 +193,42 @@ export default function HomePage() {
         title: p.title || p.target_keyword,
         targetKeyword: p.target_keyword,
         siteName: site.site_name,
-        siteDomain: site.base_url ? site.base_url.replace(/^https?:\/\//, "") : "-",
-        category: p.categories && p.categories.length > 0 ? p.categories[0] : "Umum",
+        siteDomain: site.base_url.replace(/^https?:\/\//, "").replace(/\/$/, ""),
+        category: p.categories && p.categories.length > 0 ? p.categories.join(", ") : "Umum",
         status: p.state,
+        scheduledFor: p.scheduled_for || undefined,
         wpPostUrl: p.wp_post_url || undefined,
-        scheduledFor: p.scheduled_for
-          ? new Date(p.scheduled_for).toLocaleDateString("id-ID")
-          : undefined,
         lastError: p.last_error || undefined,
       }
     })
   }, [posts])
 
-  // Hitung metrik ringkasan
+  // Hitung metrik KPI dinamis
   const kpis = React.useMemo(() => {
     const published = posts.filter((p) => p.state === "published_on_wp").length
     const drafts = posts.filter((p) => p.state === "saved_draft_on_wp").length
-    const inQueue = posts.filter((p) =>
-      ["queued_input", "generating_content", "ready_to_sync", "syncing_to_wp"].includes(p.state)
+    const inQueue = posts.filter(
+      (p) =>
+        p.state === "queued_input" ||
+        p.state === "generating_content" ||
+        p.state === "ready_to_sync" ||
+        p.state === "syncing_to_wp"
     ).length
+    const failed = posts.filter(
+      (p) => p.state === "failed_generation" || p.state === "failed_sync"
+    ).length
+
+    const totalProcessed = published + drafts + failed
     const successRate =
-      posts.length > 0
-        ? `${Math.round(((published + drafts) / posts.length) * 100)}%`
-        : "100%"
+      totalProcessed > 0
+        ? Math.round(((published + drafts) / totalProcessed) * 100)
+        : 100
 
     return {
       publishedCount: published,
       queuedCount: inQueue + drafts,
       connectedSitesCount: sites.length,
-      retrySavedTokens: successRate,
+      retrySavedTokens: `${successRate}%`,
     }
   }, [posts, sites])
 
@@ -278,6 +326,50 @@ export default function HomePage() {
           }
         />
 
+        {/* Banner Notifikasi Artikel Masuk Antrean Latar Belakang */}
+        {showQueuedBanner && (
+          <div className="p-4 rounded-xl border border-emerald-500/40 bg-emerald-500/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs animate-in fade-in-50">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0" />
+              <div>
+                <p className="font-semibold text-emerald-900 dark:text-emerald-200">
+                  Artikel Berhasil Masuk Antrean Latar Belakang!
+                </p>
+                <p className="text-[11px] text-emerald-800/80 dark:text-emerald-300/80 mt-0.5">
+                  {queuedKeyword ? `Topik "${queuedKeyword}" sedang` : "Naskah sedang"} ditulis oleh AI dan akan otomatis dikirim ke WordPress. Tabel di bawah memperbarui status secara otomatis.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+              {queuedPostId && (
+                <Button
+                  asChild
+                  size="xs"
+                  variant="outline"
+                  className="border-emerald-600/30 bg-emerald-500/20 text-emerald-950 dark:text-emerald-100 hover:bg-emerald-500/30 text-[11px] gap-1.5 cursor-pointer font-medium"
+                >
+                  <Link href={`/posts/${queuedPostId}`}>
+                    <Terminal className="size-3 text-emerald-700 dark:text-emerald-300" />
+                    <span>Pantau Log Eksekusi</span>
+                  </Link>
+                </Button>
+              )}
+
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                onClick={() => setShowQueuedBanner(false)}
+                className="text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 text-[11px] gap-1 cursor-pointer"
+              >
+                <X className="size-3" />
+                <span>Tutup</span>
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Step 1 Onboarding Banner jika belum ada situs terdaftar */}
         {sites.length === 0 && !isLoading && (
           <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -350,5 +442,20 @@ export default function HomePage() {
         )}
       </PageContainer>
     </DashboardLayout>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <React.Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center text-xs text-muted-foreground gap-2">
+          <Loader2 className="size-4 animate-spin text-primary" />
+          <span>Memuat dashboard...</span>
+        </div>
+      }
+    >
+      <DashboardContent />
+    </React.Suspense>
   )
 }

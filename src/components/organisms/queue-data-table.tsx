@@ -15,11 +15,14 @@ import { StatusBadge, PostItemState } from "@/components/molecules/status-badge"
 import { SiteBadge } from "@/components/molecules/site-badge"
 import { SearchInput } from "@/components/molecules/search-input"
 import { EmptyState } from "@/components/molecules/empty-state"
+import Link from "next/link"
 import {
   ExternalLink,
   RefreshCw,
   MoreVertical,
   Play,
+  Terminal,
+  FileText,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -212,9 +215,12 @@ export function QueueDataTable({
                     {/* Title & Keyword Col */}
                     <TableCell className="max-w-md">
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-xs font-bold text-foreground line-clamp-1 hover:text-primary transition-colors cursor-pointer">
+                        <Link
+                          href={`/posts/${item.id}`}
+                          className="text-xs font-bold text-foreground line-clamp-1 hover:text-primary transition-colors cursor-pointer"
+                        >
                           {item.title}
-                        </span>
+                        </Link>
                         <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                           <span className="font-mono bg-muted/60 px-1 rounded">
                             Topik: {item.targetKeyword}
@@ -300,6 +306,15 @@ export function QueueDataTable({
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="text-xs">
+                            <DropdownMenuItem asChild className="cursor-pointer">
+                              <Link
+                                href={`/posts/${item.id}`}
+                                className="flex items-center gap-1.5"
+                              >
+                                <Terminal className="size-3.5 text-primary" />
+                                <span>Lihat Detail &amp; Log</span>
+                              </Link>
+                            </DropdownMenuItem>
                             {item.wpPostUrl && (
                               <DropdownMenuItem asChild className="cursor-pointer">
                                 <a

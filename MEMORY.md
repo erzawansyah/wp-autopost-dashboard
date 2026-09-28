@@ -6,10 +6,10 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 ## 1. Status Proyek Saat Ini
 
-- **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag Otomatis, BYOK Settings, Rombak UI Editorial, Retry Sinkronisasi WP, Refaktor Factory System Writer, Reset UI Tulis Cepat, dan Laboratorium Pengujian (/lab)**.
-- **Catatan Worklog**: [`00`-`08`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`09`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/09-ui-rombak-retry-flow-progress.md) · [`10`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/10-prompt-loader-and-node-architecture.md) · [`11`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/11-writer-lab-and-quick-writer-reset.md) *(terbaru)*
-- **Fase Aktif**: **Pematangan Bottom-Up & Perombakan UI Tulis Cepat via Atomic Design**.
-- **Fase Berikutnya**: **Perakitan Modular UI Tulis Cepat, Background Queue Worker, & Rekonsiliasi Supabase Migrations**.
+- **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker (/api/queue/process), Log Telemetri (/posts/[id]), dan Standard Writing Engine (Riset & Gambar)**.
+- **Catatan Worklog**: [`00`-`10`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`11`-`14`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`15`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/15-standard-writing-engine-research-and-images.md) *(terbaru)*
+- **Fase Aktif**: **Pengembangan Engine Penulisan Baru (Writing Engine Registry)**.
+- **Fase Berikutnya**: **Modul 2 Bulk CSV/Keyword Ingestion & Smart Scheduling (Drip-feed)**.
 - **Halaman yang Masih `ComingSoonView`**: `/queue`, `/prompts`, `/settings` (sub-halaman menyusul).
 
 ---
@@ -67,13 +67,15 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 25. **ADR-025 (Konsolidasi Menu Provider AI ke `/settings`)**:
     - Item sidebar `Provider AI` dihapus; akses API key melalui kartu di halaman `/settings` → `/settings/ai`. Hierarki navigasi kembali ke satu induk Pengaturan.
 26. **ADR-026 (Arsitektur Node AI & Prompt Templating `prompt.md`)**:
-    - Node berbasis AI (`taxonomy-resolver`, `article-drafter`, `quality-checker`) menggunakan berkas `prompt.md` terpisah dengan frontmatter YAML/TOML di awal (nama node, deskripsi, variabel) dan section tags `[SYSTEM_PROMPT]` serta `[USER_PROMPT]` dengan interpolasi `{{var}}`. Dimuat runtime via `loadNodePrompt()` (`prompt-loader.ts`). Berkas `docs.md` boilerplate yang membingungkan dihapus total. Telemetri live per-node dipancarkan ke browser console (`console.group`/`console.log`).
-27. **ADR-027 (Shared Factories `defineNode` & `defineEngine` di `src/core/shared/factories/`)**:
-    - Fondasi orkestrasi LangGraph dipusatkan di `src/core/shared/factories/` (`defineNode`, `defineEngine`) bebas boilerplate, stateless, dan 100% kompatibel LangGraph.
-28. **ADR-028 (Laboratorium & Test Bench Modular `/lab` serta Reset UI Tulis Cepat)**:
-    - Metodologi bottom-up (Tool ➔ Node ➔ Engine): `/posts/new` di-reset, dibangun `/lab` & `/api/lab/run` untuk pengujian independen.
+    - Node AI (`taxonomy-resolver`, `article-drafter`, `quality-checker`) memakai template `prompt.md` terpisah dengan YAML frontmatter & section tags yang dimuat via `loadNodePrompt()`.
+27. **ADR-027 (Shared Factories `defineNode` & `defineEngine`)**:
+    - Fondasi orkestrasi LangGraph dipusatkan di `src/core/shared/factories/` bebas boilerplate dan stateless.
+28. **ADR-028 (Laboratorium & Test Bench Modular `/lab`)**:
+    - Fasilitas test bench bottom-up (Tool ➔ Node ➔ Engine) di `/lab` untuk verifikasi independen tiap modul.
 29. **ADR-029 (Standarisasi Halaman via `PageContainer` & `PageHeader`)**:
-    - Seluruh menu halaman distandarkan: header seragam (`title`, `description`, `icon`, `actions` di kanan atas) via `PageHeader` dan lebar kontainer konsisten (`max-w-7xl mx-auto w-full`) via `PageContainer`.
+    - Seluruh rute halaman memakai `PageHeader` seragam dan `PageContainer` dengan lebar konsisten (`max-w-7xl`).
+30. **ADR-030 (Standard Writing Engine — Riset Topik & Kurasi Gambar)**:
+    - Menambahkan `StandardEngine` (`standard`) dengan pipeline LangGraph: `taxonomy_resolver` ➔ `topic_researcher` (search intent & LSI) ➔ `article_drafter` (anti-slop + cetak biru) ➔ `image_curator` (Unsplash/Pexels royalty-free insertion) ➔ `quality_checker` ➔ `gutenberg_formatter` (native `<!-- wp:image -->`). Ditetapkan sebagai opsi engine rekomendasi default.
 
 ---
 

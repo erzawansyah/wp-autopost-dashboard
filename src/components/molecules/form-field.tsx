@@ -27,7 +27,7 @@ export function FormField({
   return (
     <div className={cn("flex flex-col gap-1.5 w-full", className)} {...props}>
       {label && (
-        <div className="flex items-center justify-between">
+        <div className="flex min-h-6 items-center justify-between">
           <Label
             htmlFor={id}
             className="text-xs font-semibold text-foreground/90 select-none flex items-center gap-1.5"

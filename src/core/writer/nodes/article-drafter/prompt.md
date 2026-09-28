@@ -24,6 +24,9 @@ variables:
   - name: "customInstructionsNote"
     required: false
     description: "Instruksi tambahan pengguna"
+  - name: "researchNotes"
+    required: false
+    description: "Cetak biru outline, entitas semantik, dan poin pembahasan hasil riset"
 ---
 
 [SYSTEM_PROMPT]
@@ -75,6 +78,7 @@ Tolong tulis artikel lengkap dan berbobot (sekitar {{wordCountTarget}} kata) ten
 {{briefNote}}
 {{authorPersona}}
 {{customInstructionsNote}}
+{{researchNotes}}
 
 PANDUAN STRUKTUR ARTIKEL:
 1. Awali langsung dengan paragraf pembuka yang memikat tanpa kata-kata klise.

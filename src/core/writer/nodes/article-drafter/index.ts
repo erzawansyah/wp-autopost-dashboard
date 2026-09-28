@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { OpenRouterLlmService } from "@/lib/ai/openrouter";
 import { WriterState } from "../../types/engine";
+import { ResearchData } from "../../types/contracts";
 
 export const DrafterOutputSchema = z.object({
   title: z
@@ -28,6 +29,7 @@ export interface ArticleDrafterInput {
   brief?: string;
   author?: { name: string; bio?: string };
   customInstructions?: string;
+  researchData?: ResearchData;
   model?: string;
   temperature?: number;
   llmService: OpenRouterLlmService;
@@ -79,6 +81,29 @@ export async function executeArticleDrafter(
     ? `- Instruksi Tambahan: ${input.customInstructions}`
     : "";
 
+  let researchNotes = "";
+  if (input.researchData) {
+    const entitiesStr = input.researchData.keyEntities?.join(", ") || "";
+    const questionsStr = (input.researchData.coreQuestions || []).map((q) => `  * ${q}`).join("\n");
+    const outlineStr = (input.researchData.outline || [])
+      .map((o, idx) => {
+        const pts = (o.keyPoints || []).map((p) => `    - ${p}`).join("\n");
+        return `  ${idx + 1}. Subbab ## ${o.heading}\n${pts}`;
+      })
+      .join("\n");
+
+    researchNotes = [
+      "- CETAK BIRU & HASIL RISET TOPIK:",
+      `  * Maksud Pencarian: ${input.researchData.searchIntent || "Informasional"}`,
+      `  * Profil Pembaca: ${input.researchData.targetAudience || "Umum"}`,
+      entitiesStr ? `  * Entitas Semantik Wajib Disertakan (LSI): ${entitiesStr}` : "",
+      questionsStr ? `  * Pertanyaan Utama Pembaca yang Harus Terjawab:\n${questionsStr}` : "",
+      outlineStr ? `  * Struktur Outline Wajib (Ikuti urutan subjudul ## ini):\n${outlineStr}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
   const userPrompt = promptTemplate.renderUserPrompt({
     keyword: input.keyword,
     languageName:
@@ -88,6 +113,7 @@ export async function executeArticleDrafter(
     briefNote,
     authorPersona,
     customInstructionsNote,
+    researchNotes,
   });
 
   const response = await input.llmService.generate({
@@ -157,6 +183,7 @@ export const articleDrafterNode = defineNode({
     model: state.context.request.model || "default",
     language: state.context.request.content.language || "id",
     wordCountTarget: state.context.request.content.wordCountTarget || 800,
+    hasResearchBlueprint: Boolean(state.researchData),
     brief: state.context.request.content.brief || null,
     customInstructions: state.context.promptConfig?.customInstructions || null,
   }),
@@ -183,6 +210,7 @@ export const articleDrafterNode = defineNode({
       brief: state.context.request.content.brief,
       author: state.authorDetail,
       customInstructions: state.context.promptConfig?.customInstructions,
+      researchData: state.researchData,
       model: state.context.request.model,
       temperature: state.context.request.temperature,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -9,7 +9,9 @@ import { publishPostToWordPress } from "@/core/shared/tools/wordpress-publisher"
 
 import { executeInputValidator } from "@/core/writer/nodes/input-validator"
 import { taxonomyResolverNode } from "@/core/writer/nodes/taxonomy-resolver"
+import { topicResearcherNode } from "@/core/writer/nodes/topic-researcher"
 import { articleDrafterNode } from "@/core/writer/nodes/article-drafter"
+import { imageCuratorNode } from "@/core/writer/nodes/image-curator"
 import { qualityCheckerNode } from "@/core/writer/nodes/quality-checker"
 import { gutenbergFormatterNode } from "@/core/writer/nodes/gutenberg-formatter"
 import { run } from "@/core/writer"
@@ -58,9 +60,11 @@ function createMockWriterState(overrides?: Partial<WriterState>): WriterState {
     tagIds: [],
     authorId: undefined,
     authorDetail: undefined,
+    researchData: undefined,
     rawTitle: "",
     rawExcerpt: "",
     rawMarkdown: "",
+    inContentImages: [],
     tokenUsage: undefined,
     article: undefined,
     nodesExecuted: [],
@@ -328,6 +332,34 @@ export async function POST(request: Request) {
           break
         }
 
+        case "topic_researcher": {
+          const mockState = createMockWriterState({
+            context: {
+              request: createMockWriterRequest({
+                content: {
+                  keyword: params.keyword || "panduan menyeduh kopi manual brew",
+                  brief: params.brief || "Fokus pada metode V60 dan French Press.",
+                  language: params.language || "id",
+                  style: params.style || "default",
+                },
+                model: model || params.model,
+                temperature: params.temperature !== undefined ? Number(params.temperature) : 0.5,
+              }),
+              llmService,
+              promptConfig: {
+                systemPrompt: "",
+                userPromptTemplate: "",
+                variables: {},
+              },
+            },
+          })
+
+          const researched = await topicResearcherNode(mockState)
+          nodeOutput = researched
+          nodeLogs = mockState.nodeLogs || []
+          break
+        }
+
         case "article_drafter": {
           const mockState = createMockWriterState({
             context: {
@@ -358,6 +390,32 @@ export async function POST(request: Request) {
 
           const drafted = await articleDrafterNode(mockState)
           nodeOutput = drafted
+          nodeLogs = mockState.nodeLogs || []
+          break
+        }
+
+        case "image_curator": {
+          const mockState = createMockWriterState({
+            context: {
+              request: createMockWriterRequest({
+                content: {
+                  keyword: params.keyword || "kopi manual brew",
+                  language: "id",
+                  style: "default",
+                },
+              }),
+              llmService,
+              promptConfig: {
+                systemPrompt: "",
+                userPromptTemplate: "",
+                variables: {},
+              },
+            },
+            rawMarkdown: params.rawMarkdown || "## Mengenal Alat Seduh Kopi\n\nAlat seduh kopi memiliki beragam bentuk.\n\n## Langkah Menyeduh yang Benar\n\nPastikan suhu air berada pada 90 derajat.\n",
+          })
+
+          const curated = await imageCuratorNode(mockState)
+          nodeOutput = curated
           nodeLogs = mockState.nodeLogs || []
           break
         }
