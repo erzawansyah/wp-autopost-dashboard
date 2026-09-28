@@ -6,6 +6,7 @@ import { HumanMessage } from "@langchain/core/messages"
 import { OpenRouterLlmService, getSanitizedApiKey } from "@/lib/ai/openrouter"
 import { defineNode } from "../../utils/node-factory"
 import { loadNodePrompt } from "../../utils/prompt-loader"
+import { loadEngineNodePrompt } from "../../../shared/engine-prompt-loader"
 import { ResearchData, ResearchOutlineItem, ArticleSource } from "../../types/contracts"
 import { webSearch } from "../../../shared/tools/web-search"
 import { readWebContent } from "../../../shared/tools/web-reader"
@@ -63,6 +64,8 @@ export interface TopicResearcherInput {
   temperature?: number
   apiKey?: string
   llmService: OpenRouterLlmService
+  engineId?: string
+  promptTemplate?: any
 }
 
 export interface TopicResearcherResult {
@@ -231,9 +234,11 @@ export async function executeTopicResearcher(
     siteName: process.env.OPENROUTER_APP_NAME || "WP Autopost Dashboard",
   })
 
-  // 4. Muat Template prompt.md & Susun System Prompt
-  const promptTemplate = loadNodePrompt("topic-researcher")
-  const outputFormat = promptTemplate.getSection("OUTPUT_FORMAT")
+  // 4. Muat Template prompt skala engine & Susun System Prompt
+  const promptTemplate =
+    input.promptTemplate ||
+    loadEngineNodePrompt(input.engineId || "standard", "topic_researcher")
+  const outputFormat = promptTemplate.getSection("OUTPUT_FORMAT") || promptTemplate.outputFormat
   const fullSystemPrompt = [
     promptTemplate.renderSystemPrompt(),
     outputFormat ? `\n${outputFormat}` : "",
@@ -436,6 +441,9 @@ export const topicResearcherNode = defineNode({
   async run(state, { logMessage }) {
     const keyword = state.context.request.content.keyword
 
+    const engineId = state.context.request.engine || "standard"
+    const promptTemplate = state.context.enginePrompts?.["topic_researcher"]
+
     const result = await executeTopicResearcher({
       keyword,
       language: state.context.request.content.language,
@@ -444,6 +452,8 @@ export const topicResearcherNode = defineNode({
       temperature: state.context.request.temperature,
       apiKey: (state.context.request as any)?.apiKey,
       llmService: state.context.llmService as any,
+      engineId,
+      promptTemplate,
     })
 
     const findingsCount = result.researchData.keyFindings?.length || 0

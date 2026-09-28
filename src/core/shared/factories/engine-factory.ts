@@ -5,6 +5,10 @@ import {
   EngineCapabilities,
   WriterState,
 } from "../../writer/types/engine"
+import {
+  loadEnginePrompts,
+  mergeEnginePromptOverrides,
+} from "../engine-prompt-loader"
 
 export interface DefineEngineConfig<TState extends WriterState = WriterState> {
   /** Identifier unik engine, e.g. 'quick', 'deep-research' */
@@ -42,8 +46,19 @@ export function defineEngine<TState extends WriterState = WriterState>(
 
     async execute(ctx: EngineContext): Promise<EngineResult> {
       try {
+        // Muat kumpulan prompt default untuk engine ini (skala engine)
+        const loadedPrompts = loadEnginePrompts(config.id)
+        const enginePrompts = ctx.enginePrompts
+          ? mergeEnginePromptOverrides(loadedPrompts, ctx.enginePrompts)
+          : loadedPrompts
+
+        const enrichedCtx: EngineContext = {
+          ...ctx,
+          enginePrompts,
+        }
+
         const initialState: Partial<WriterState> = {
-          context: ctx,
+          context: enrichedCtx,
           categoryIds: ctx.request.publishing.categoryIds || [],
           tagNames: ctx.request.publishing.tagNames || [],
           authorId: ctx.request.publishing.authorId ?? undefined,

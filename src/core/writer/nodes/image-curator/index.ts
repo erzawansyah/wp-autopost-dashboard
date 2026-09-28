@@ -5,6 +5,7 @@ import { createReactAgent } from "@langchain/langgraph/prebuilt"
 import { HumanMessage } from "@langchain/core/messages"
 import { defineNode } from "../../utils/node-factory"
 import { loadNodePrompt } from "../../utils/prompt-loader"
+import { loadEngineNodePrompt } from "../../../shared/engine-prompt-loader"
 import { getSanitizedApiKey } from "@/lib/ai/openrouter"
 import { InContentImage, FeaturedImageMeta } from "../../types/contracts"
 import { searchRoyaltyFreeImages, ImageSearchResult } from "../../../shared/tools/image-search"
@@ -75,6 +76,8 @@ export interface ImageCuratorInput {
     applicationPassword: string
   }
   llmService?: any
+  engineId?: string
+  promptTemplate?: any
 }
 
 export interface ImageCuratorResult {
@@ -290,9 +293,11 @@ export async function executeImageCurator(
     siteName: process.env.OPENROUTER_APP_NAME || "WP Autopost Dashboard",
   })
 
-  // 4. Muat Template prompt.md & Susun System Prompt
-  const promptTemplate = loadNodePrompt("image-curator")
-  const outputFormat = promptTemplate.getSection("OUTPUT_FORMAT")
+  // 4. Muat Template prompt skala engine & Susun System Prompt
+  const promptTemplate =
+    input.promptTemplate ||
+    loadEngineNodePrompt(input.engineId || "standard", "image_curator")
+  const outputFormat = promptTemplate.getSection("OUTPUT_FORMAT") || promptTemplate.outputFormat
   const fullSystemPrompt = [
     promptTemplate.renderSystemPrompt(),
     outputFormat ? `\n${outputFormat}` : "",
@@ -590,6 +595,9 @@ export const imageCuratorNode = defineNode({
           }
         : undefined
 
+    const engineId = state.context.request.engine || "standard"
+    const promptTemplate = state.context.enginePrompts?.["image_curator"]
+
     const result = await executeImageCurator({
       keyword,
       promptContent,
@@ -600,6 +608,8 @@ export const imageCuratorNode = defineNode({
       apiKey: (state.context.request as any)?.apiKey,
       wpCredentials,
       llmService: state.context.llmService,
+      engineId,
+      promptTemplate,
     })
 
     logMessage(

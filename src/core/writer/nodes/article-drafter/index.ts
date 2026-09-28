@@ -34,6 +34,8 @@ export interface ArticleDrafterInput {
   model?: string;
   temperature?: number;
   llmService: OpenRouterLlmService;
+  engineId?: string;
+  promptTemplate?: any;
 }
 
 export interface ArticleDrafterResult {
@@ -48,21 +50,24 @@ export interface ArticleDrafterResult {
 }
 
 import { loadNodePrompt } from "../../utils/prompt-loader";
+import { loadEngineNodePrompt } from "../../../shared/engine-prompt-loader";
 
 export const ANTI_SLOP_SYSTEM_PROMPT =
   loadNodePrompt("article-drafter").systemPrompt;
 
 /**
- * Logika eksekusi pembuatan draf artikel dengan LLM via prompt.md
+ * Logika eksekusi pembuatan draf artikel dengan LLM via Engine-Centric Prompts
  */
 export async function executeArticleDrafter(
   input: ArticleDrafterInput,
 ): Promise<ArticleDrafterResult> {
   const targetWordCount = input.wordCountTarget || 800;
-  const promptTemplate = loadNodePrompt("article-drafter");
+  const promptTemplate =
+    input.promptTemplate ||
+    loadEngineNodePrompt(input.engineId || "quick", "article_drafter");
 
-  // Susun System Prompt dari template prompt.md
-  const outputFormat = promptTemplate.getSection("OUTPUT_FORMAT");
+  // Susun System Prompt dari template prompt engine
+  const outputFormat = promptTemplate.getSection("OUTPUT_FORMAT") || promptTemplate.outputFormat;
   const fullSystemPrompt = [
     promptTemplate.renderSystemPrompt(),
     outputFormat ? `\n${outputFormat}` : "",
@@ -218,6 +223,9 @@ export const articleDrafterNode = defineNode({
     const keyword = state.context.request.content.keyword
     const wordCountTarget = state.context.request.content.wordCountTarget || 800
 
+    const engineId = state.context.request.engine || "quick"
+    const promptTemplate = state.context.enginePrompts?.["article_drafter"]
+
     const drafterResult = await executeArticleDrafter({
       keyword,
       language: state.context.request.content.language,
@@ -230,6 +238,8 @@ export const articleDrafterNode = defineNode({
       curatedImagesText: state.curatedImagesText,
       model: state.context.request.model,
       temperature: state.context.request.temperature,
+      engineId,
+      promptTemplate,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       llmService: state.context.llmService as any,
     })

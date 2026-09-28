@@ -1,6 +1,7 @@
 import { WriterState } from "../../writer/types/engine"
 import { WriterRequest, WriterError, NodeExecutionLog } from "../../writer/types/contracts"
 import { LoadedPrompt, loadNodePrompt } from "../prompt-loader"
+import { loadEngineNodePrompt } from "../engine-prompt-loader"
 import { LlmServiceInterface } from "@/lib/ai/openrouter"
 
 /**
@@ -81,13 +82,23 @@ export function defineNode<TState extends WriterState = WriterState>(
     const collectedWarnings: string[] = []
     let customLogMessage = ""
 
-    // 2. Siapkan prompt template jika ini adalah node AI
-    let prompt: LoadedPrompt | undefined
+    // 2. Siapkan prompt template jika ini adalah node AI (mengutamakan skala engine)
+    let prompt: any | undefined
     if (config.isAiNode) {
-      try {
-        prompt = loadNodePrompt(promptFolder)
-      } catch (promptErr) {
-        console.warn(`[node-factory] Gagal memuat prompt.md untuk node "${config.id}":`, promptErr)
+      const enginePrompt = (state as any).context?.enginePrompts?.[config.id]
+      if (enginePrompt) {
+        prompt = enginePrompt
+      } else {
+        const engineId = (state as any).context?.request?.engine || "quick"
+        try {
+          prompt = loadEngineNodePrompt(engineId, config.id)
+        } catch {
+          try {
+            prompt = loadNodePrompt(promptFolder)
+          } catch (promptErr) {
+            console.warn(`[node-factory] Gagal memuat prompt untuk node "${config.id}":`, promptErr)
+          }
+        }
       }
     }
 

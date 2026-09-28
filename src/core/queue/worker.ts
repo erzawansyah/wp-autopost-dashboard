@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { decryptCredential } from "@/lib/crypto"
 import { run, publishPostToWordPress } from "@/core/writer"
+import { fetchUserPromptOverrides } from "@/lib/prompts/fetch-user-overrides"
 
 export interface ProcessPostItemOptions {
   postId: string
@@ -184,31 +185,39 @@ export async function processPostItem({
     ? (payloadMeta.category_ids as unknown[]).map(Number).filter((id) => !isNaN(id) && id > 0)
     : []
 
+  // Ambil override prompt user dari Supabase sebelum panggil engine
+  // Fail-safe: jika gagal, proses tetap berjalan dengan prompt default engine
+  const userPromptOverrides = await fetchUserPromptOverrides(supabase, post.user_id, engine)
+
   try {
-    const writerResult = await run({
-      engine,
-      content: {
-        keyword: post.target_keyword,
-        brief: post.custom_instructions_override || undefined,
-        style,
-        language: "id",
+    const writerResult = await run(
+      {
+        engine,
+        content: {
+          keyword: post.target_keyword,
+          brief: post.custom_instructions_override || undefined,
+          style,
+          language: "id",
+        },
+        site: {
+          siteId: site.id,
+          wpSiteId: site.id,
+          baseUrl: site.base_url,
+          username: site.wp_username,
+          applicationPassword: plainPassword,
+        },
+        publishing: {
+          mode: post.wp_target_status || "draft",
+          categoryIds,
+          tagNames: tagList,
+        },
+        model: aiModel,
+        apiKey,
+        customInstructions: post.custom_instructions_override || undefined,
       },
-      site: {
-        siteId: site.id,
-        wpSiteId: site.id,
-        baseUrl: site.base_url,
-        username: site.wp_username,
-        applicationPassword: plainPassword,
-      },
-      publishing: {
-        mode: post.wp_target_status || "draft",
-        categoryIds,
-        tagNames: tagList,
-      },
-      model: aiModel,
-      apiKey,
-      customInstructions: post.custom_instructions_override || undefined,
-    })
+      // Inject override prompt user (kosong jika tidak ada kustomisasi)
+      userPromptOverrides
+    )
 
     nodeLogs = writerResult.execution?.nodeLogs || []
     resolvedEnrichment = writerResult.enrichment

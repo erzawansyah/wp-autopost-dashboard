@@ -51,8 +51,6 @@ const navItems: NavItem[] = [
     title: "Format tulisan",
     href: "/prompts",
     icon: SlidersHorizontal,
-    badge: "Segera",
-    isComingSoon: true,
   },
   {
     title: "Pengaturan",

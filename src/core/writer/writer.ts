@@ -8,14 +8,23 @@ import {
 import { EngineContext, PromptConfig } from "./types/engine"
 import { EngineRegistry } from "./engines"
 import { OpenRouterLlmService } from "@/lib/ai/openrouter"
+import type { EnginePromptOverrideMap } from "@/lib/prompts/fetch-user-overrides"
 
 import { executeInputValidator } from "./nodes/input-validator"
 
 /**
  * Pintu masuk utama (Facade Orchestrator) untuk penulisan artikel.
  * Menghubungkan seluruh modul aplikasi ke engine penulisan yang dipilih.
+ *
+ * @param rawRequest    - Payload request mentah (akan divalidasi oleh input-validator)
+ * @param enginePrompts - Override prompt per-node dari Supabase untuk user aktif (opsional).
+ *                        Jika diisi, akan di-merge dengan prompt default engine via
+ *                        mergeEnginePromptOverrides() di dalam engine-factory.
  */
-export async function run(rawRequest: unknown): Promise<WriterResult> {
+export async function run(
+  rawRequest: unknown,
+  enginePrompts?: EnginePromptOverrideMap
+): Promise<WriterResult> {
   const startTime = Date.now()
   const rawObj = (typeof rawRequest === "object" && rawRequest !== null ? rawRequest : {}) as Record<string, unknown>
   const requestId = (rawObj.requestId as string) || crypto.randomUUID()
@@ -121,6 +130,9 @@ export async function run(rawRequest: unknown): Promise<WriterResult> {
     request,
     llmService,
     promptConfig,
+    // Teruskan override prompt user (jika ada) ke engine factory.
+    // engine-factory.ts akan merge dengan prompt default via mergeEnginePromptOverrides().
+    enginePrompts: enginePrompts && Object.keys(enginePrompts).length > 0 ? enginePrompts : undefined,
   }
 
   // 5. Eksekusi Engine (Menghasilkan naskah Markdown & Gutenberg Blocks)

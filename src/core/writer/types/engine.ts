@@ -44,6 +44,8 @@ export interface EngineContext {
   request: WriterRequest
   llmService: LlmServiceInterface
   promptConfig: PromptConfig
+  /** Kumpulan prompt node yang dimuat khusus untuk engine aktif (skala engine) */
+  enginePrompts?: Record<string, any>
   abortSignal?: AbortSignal
 }
 
