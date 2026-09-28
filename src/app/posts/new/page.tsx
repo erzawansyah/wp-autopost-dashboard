@@ -3,6 +3,8 @@
 import * as React from "react"
 import Link from "next/link"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
+import { PageContainer } from "@/components/templates/page-container"
+import { PageHeader } from "@/components/molecules/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
 import { Badge } from "@/components/atoms/badge"
@@ -19,24 +21,26 @@ import {
 export default function NewPostPage() {
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-8 max-w-4xl mx-auto w-full py-6">
+      <PageContainer size="default">
         {/* Header */}
-        <div className="flex flex-col gap-1.5 border-b border-border/80 pb-5">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-xs">
-              <Sparkles className="size-4 text-accent" />
-            </div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground">
-              Tulis Cepat (Quick Writer)
-            </h1>
+        <PageHeader
+          title="Tulis Cepat (Quick Writer)"
+          description="Modul pembuatan artikel cepat sedang dikosongkan untuk perombakan UI berbasis Atomic Design dan pematangan engine bertahap (bottom-up)."
+          icon={Sparkles}
+          badge={
             <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-mono border-amber-500/40 text-amber-500">
               Fase Refaktor
             </Badge>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Modul pembuatan artikel cepat sedang dikosongkan untuk perombakan UI berbasis Atomic Design dan pematangan engine bertahap (*bottom-up*).
-          </p>
-        </div>
+          }
+          actions={
+            <Button size="sm" asChild className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-2xs font-semibold">
+              <Link href="/lab">
+                <FlaskConical className="size-3.5 text-accent" />
+                <span>Buka Laboratorium</span>
+              </Link>
+            </Button>
+          }
+        />
 
         {/* Hero Card Call to Action */}
         <Card className="border-border bg-gradient-to-br from-card to-muted/30 shadow-xs">
@@ -151,7 +155,7 @@ export default function NewPostPage() {
             </Card>
           </div>
         </div>
-      </div>
+      </PageContainer>
     </DashboardLayout>
   )
 }

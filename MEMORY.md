@@ -71,8 +71,9 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 27. **ADR-027 (Shared Factories `defineNode` & `defineEngine` di `src/core/shared/factories/`)**:
     - Fondasi orkestrasi LangGraph dipusatkan di `src/core/shared/factories/` (`defineNode`, `defineEngine`) bebas boilerplate, stateless, dan 100% kompatibel LangGraph.
 28. **ADR-028 (Laboratorium & Test Bench Modular `/lab` serta Reset UI Tulis Cepat)**:
-    - Sesuai metodologi pematangan bottom-up (Tool ➔ Node ➔ Engine), UI Tulis Cepat (`/posts/new`) dikosongkan dari kode monolitik lama untuk disiapkan perombakan via Atomic Design.
-    - Dibuat rute `/lab` dan API `/api/lab/registry` & `/api/lab/run` untuk pengujian independen interaktif Tool WP, Node LangGraph, dan Engine secara transparan.
+    - Metodologi bottom-up (Tool ➔ Node ➔ Engine): `/posts/new` di-reset, dibangun `/lab` & `/api/lab/run` untuk pengujian independen.
+29. **ADR-029 (Standarisasi Halaman via `PageContainer` & `PageHeader`)**:
+    - Seluruh menu halaman distandarkan: header seragam (`title`, `description`, `icon`, `actions` di kanan atas) via `PageHeader` dan lebar kontainer konsisten (`max-w-7xl mx-auto w-full`) via `PageContainer`.
 
 ---
 

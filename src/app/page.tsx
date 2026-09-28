@@ -4,6 +4,8 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
+import { PageContainer } from "@/components/templates/page-container"
+import { PageHeader } from "@/components/molecules/page-header"
 import { EmptyState } from "@/components/molecules/empty-state"
 import { KPISummaryGrid } from "@/components/organisms/kpi-summary-grid"
 import { QueueDataTable, QueueTableItem } from "@/components/organisms/queue-data-table"
@@ -243,46 +245,38 @@ export default function HomePage() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6">
+      <PageContainer size="default">
         {/* Header Title & Actions */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-             <div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-               <span className="size-1.5 rounded-full bg-primary" />
-               <span>Publishing desk / overview</span>
-             </div>
-             <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight text-foreground">
-               <span>Ruang kerja penerbitan</span>
-            </h1>
-            <p className="text-xs text-muted-foreground mt-1">
-               Pantau apa yang sedang ditulis, apa yang siap dikirim, dan apa yang sudah terbit—dalam satu pandangan.
-            </p>
-          </div>
+        <PageHeader
+          title="Ruang Kerja Penerbitan"
+          description="Pantau apa yang sedang ditulis, apa yang siap dikirim, dan apa yang sudah terbit dalam satu pandangan operasional."
+          icon={Layers}
+          actions={
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={loadData}
+                disabled={isLoading}
+                className="cursor-pointer gap-1.5 text-xs border-border/80"
+              >
+                <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
+                <span>Segarkan</span>
+              </Button>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadData}
-              disabled={isLoading}
-              className="cursor-pointer gap-1.5 text-xs border-border/80"
-            >
-              <RefreshCw className={`size-3.5 ${isLoading ? "animate-spin" : ""}`} />
-              <span>Segarkan</span>
-            </Button>
-
-            <Button
-              size="sm"
-              asChild
-              className="cursor-pointer gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-2xs font-semibold"
-            >
-              <Link href="/posts/new">
-                <Plus className="size-3.5 text-accent" />
-                <span>Tulis Cepat</span>
-              </Link>
-            </Button>
-          </div>
-        </div>
+              <Button
+                size="sm"
+                asChild
+                className="cursor-pointer gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-2xs font-semibold"
+              >
+                <Link href="/posts/new">
+                  <Plus className="size-3.5 text-accent" />
+                  <span>Tulis Cepat</span>
+                </Link>
+              </Button>
+            </div>
+          }
+        />
 
         {/* Step 1 Onboarding Banner jika belum ada situs terdaftar */}
         {sites.length === 0 && !isLoading && (
@@ -354,7 +348,7 @@ export default function HomePage() {
             />
           </div>
         )}
-      </div>
+      </PageContainer>
     </DashboardLayout>
   )
 }

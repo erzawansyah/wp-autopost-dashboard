@@ -3,6 +3,8 @@
 import * as React from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
+import { PageContainer } from "@/components/templates/page-container"
+import { PageHeader } from "@/components/molecules/page-header"
 import { Button } from "@/components/atoms/button"
 import { Input } from "@/components/atoms/input"
 import { Card, CardContent, CardHeader, CardDescription } from "@/components/atoms/card"
@@ -305,35 +307,30 @@ function SitesContent() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6">
+      <PageContainer size="default">
         {/* Header and CTA */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
-              <Globe className="size-5 text-primary" />
-              <span>Daftar Website WordPress</span>
-            </h1>
-            <p className="text-xs text-muted-foreground mt-1">
-              Sambungkan website WordPress Anda secara instan tanpa perlu memasang plugin tambahan di WordPress.
-            </p>
-          </div>
-
-          {!showAddForm && (
-            <Button
-              size="sm"
-              onClick={() => {
-                setFormError(null)
-                setTestResult(null)
-                setAuthMode("auto")
-                setShowAddForm(true)
-              }}
-              className="cursor-pointer gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-2xs font-semibold"
-            >
-              <Plus className="size-3.5 text-accent" />
-              <span>Sambungkan Web Baru</span>
-            </Button>
-          )}
-        </div>
+        <PageHeader
+          title="Daftar Website WordPress"
+          description="Sambungkan website WordPress Anda secara instan tanpa perlu memasang plugin tambahan di WordPress."
+          icon={Globe}
+          actions={
+            !showAddForm && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setFormError(null)
+                  setTestResult(null)
+                  setAuthMode("auto")
+                  setShowAddForm(true)
+                }}
+                className="cursor-pointer gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs shadow-2xs font-semibold"
+              >
+                <Plus className="size-3.5 text-accent" />
+                <span>Sambungkan Web Baru</span>
+              </Button>
+            )
+          }
+        />
 
         {/* Global Action Banner */}
         {effectiveActionMessage && (
@@ -788,7 +785,7 @@ function SitesContent() {
             </Table>
           </div>
         )}
-      </div>
+      </PageContainer>
     </DashboardLayout>
   )
 }

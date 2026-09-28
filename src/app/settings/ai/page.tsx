@@ -3,6 +3,8 @@
 import * as React from "react"
 import Link from "next/link"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
+import { PageContainer } from "@/components/templates/page-container"
+import { PageHeader } from "@/components/molecules/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
 import { Input } from "@/components/atoms/input"
@@ -109,20 +111,15 @@ export default function AiSettingsPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6">
+      <PageContainer size="default">
         {/* Header Title */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground flex items-center gap-2">
-              <Bot className="size-5 text-accent" />
-              <span>Pengaturan AI &amp; Gateway OpenRouter</span>
-              <HelpTooltip content="Platform ini terhubung ke OpenRouter SDK yang mendukung ratusan model AI mutakhir (Claude, GPT, Gemini, Llama, DeepSeek) via satu gateway." />
-            </h1>
-            <p className="text-xs text-muted-foreground mt-1">
-              Konfigurasikan kunci API OpenRouter pribadi Anda (BYOK) dan pilih model default untuk pembuatan artikel otomatis.
-            </p>
-          </div>
-        </div>
+        <PageHeader
+          title="Pengaturan AI & Gateway OpenRouter"
+          description="Konfigurasikan kunci API OpenRouter pribadi Anda (BYOK) dan pilih model default untuk pembuatan artikel otomatis."
+          icon={Bot}
+          backHref="/settings"
+          backLabel="Kembali ke Pengaturan"
+        />
 
         {/* Main Settings Card */}
         <Card className="border-border/80 shadow-xs bg-card">
@@ -286,7 +283,7 @@ export default function AiSettingsPage() {
             </form>
           </CardContent>
         </Card>
-      </div>
+      </PageContainer>
     </DashboardLayout>
   )
 }

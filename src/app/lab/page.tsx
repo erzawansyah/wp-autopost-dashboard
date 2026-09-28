@@ -2,6 +2,8 @@
 
 import * as React from "react"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
+import { PageContainer } from "@/components/templates/page-container"
+import { PageHeader } from "@/components/molecules/page-header"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tabs"
 import { Badge } from "@/components/atoms/badge"
 import { Loader2, FlaskConical, Wrench, Cpu, Zap, BookOpen } from "lucide-react"
@@ -48,31 +50,24 @@ export default function LabPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-6 max-w-7xl mx-auto w-full pb-16">
-        {/* Header Section */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border/80 pb-5">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2.5">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-xs">
-                <FlaskConical className="size-4 text-accent" />
-              </div>
-              <h1 className="text-xl font-bold tracking-tight text-foreground">
-                Laboratorium & Test Bench
-              </h1>
-              <Badge variant="outline" className="text-[10px] tracking-wide uppercase font-mono border-accent/40 text-accent">
-                Dev Lab
-              </Badge>
+      <PageContainer size="default">
+        {/* Header Section Standar */}
+        <PageHeader
+          title="Laboratorium & Test Bench"
+          description="Lingkungan pengujian modular dan transparan untuk menguji Tools, Nodes, dan Engine System Writer secara independen."
+          icon={FlaskConical}
+          badge={
+            <Badge variant="outline" className="text-[10px] tracking-wide uppercase font-mono border-accent/40 text-accent">
+              Dev Lab
+            </Badge>
+          }
+          actions={
+            <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-md border border-border/60">
+              <span className="inline-block size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
+              <span>5 Tools • 5 Nodes • 1 Engine Aktif</span>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Lingkungan pengujian modular dan transparan untuk menguji Tools, Nodes, dan Engine System Writer secara independen.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="inline-block size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
-            <span>5 Tools • 5 Nodes • 1 Engine Aktif</span>
-          </div>
-        </div>
+          }
+        />
 
         {/* Loading State */}
         {loading ? (
@@ -121,7 +116,7 @@ export default function LabPage() {
             </TabsContent>
           </Tabs>
         )}
-      </div>
+      </PageContainer>
     </DashboardLayout>
   )
 }

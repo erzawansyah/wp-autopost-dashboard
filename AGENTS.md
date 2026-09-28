@@ -94,6 +94,9 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
     - Seluruh pengembangan fitur pembuatan artikel wajib mengikuti arsitektur modular di `src/core/writer/` (hirarki: Engine ➔ Node ➔ Tool).
     - AI LLM diwajibkan menulis naskah dalam format **Markdown murni** terlebih dahulu, kemudian dikonversi deterministik ke **Native WordPress Gutenberg Blocks** (`<!-- wp:... -->`) sebelum dikirim ke WP REST API.
     - Setiap Node berbasis AI (`nodes/`) **WAJIB** menyertakan berkas `prompt.md` yang memuat metadata YAML frontmatter dan tag section (`[SYSTEM_PROMPT]`, `[USER_PROMPT]`) yang dimuat melalui helper `loadNodePrompt()` (`prompt-loader.ts`). Dilarang membuat berkas `docs.md` boilerplate yang membingungkan. Patuhi [`.agents/rules/writer-components-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/writer-components-standard.md).
+14. **Standardisasi Struktur Halaman (`PageContainer` & `PageHeader`)**:
+    - Seluruh halaman menu (`src/app/**/page.tsx`) WAJIB menggunakan `PageContainer` (`src/components/templates/page-container.tsx`) dengan lebar container yang seragam (`max-w-7xl mx-auto w-full`).
+    - Header halaman WAJIB menggunakan `PageHeader` (`src/components/molecules/page-header.tsx`) dengan konsistensi atribut: `title`, `description`, `icon`, dan `actions` (tombol aksi utama di pojok kanan atas). Dilarang menyusun wrapper atau header arbitrer ad-hoc. Patuhi [`.agents/rules/page-layout-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/page-layout-standard.md).
 
 ---
 
@@ -105,6 +108,7 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
 | [`ARCHITECTURE.md`](file:///d:/Antigravity/wp-autopost-dashboard/ARCHITECTURE.md)                                   | Root              | Struktur folder repo, skema PostgreSQL Supabase, _State Machine_ Batch/Queue, dan kontrak WP REST API.              |
 | [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md)                                               | Root              | _Design System_ (Google Stitch / `ui-ux-pro-max`), tema Dark/Light, token warna, tipografi, dan pola UX multi-site. |
 | [`MEMORY.md`](file:///d:/Antigravity/wp-autopost-dashboard/MEMORY.md)                                               | Root              | _Living Memory_, status milestone aktif, keputusan arsitektur (ADR), gotchas, dan indeks worklog.                   |
+| [`.agents/rules/page-layout-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/page-layout-standard.md) | `.agents/rules/`  | Standar mutlak struktur halaman, PageHeader (title, desc, action), dan PageContainer lebar seragam.                 |
 | [`.agents/rules/security.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/security.md)               | `.agents/rules/`  | Standar keamanan SaaS Multi-Tenant, RLS Supabase, enkripsi Application Password, dan proteksi SSRF/XSS.             |
 | [`.agents/rules/atomic-design-and-styling.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/atomic-design-and-styling.md) | `.agents/rules/`  | Pedoman metodologi Atomic Design dan larangan arbitrary hex code pada styling Tailwind CSS v4.                     |
 | [`.agents/rules/skills-routing-matrix.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/skills-routing-matrix.md) | `.agents/rules/`  | Matriks pemetaan jenis pekerjaan ke Skill wajib (Shadcn, Supabase, WP REST, OpenRouter SDK, TanStack, dll.).         |
