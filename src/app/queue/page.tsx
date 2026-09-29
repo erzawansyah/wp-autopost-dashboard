@@ -1,12 +1,32 @@
 "use client"
 
 import * as React from "react"
-import { Layers, Plus, RefreshCw, ListChecks, CalendarClock, History } from "lucide-react"
+import {
+  Layers,
+  Plus,
+  RefreshCw,
+  ListChecks,
+  History,
+  Filter,
+  X,
+  ExternalLink,
+  Clock,
+  Globe,
+} from "lucide-react"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tabs"
 import { Button } from "@/components/atoms/button"
+import { Badge } from "@/components/atoms/badge"
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/atoms/card"
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/atoms/select"
 import {
   KeywordListForm,
   WpSiteOption,
@@ -30,8 +50,9 @@ export default function QueuePage() {
 
   const [queueItems, setQueueItems] = React.useState<QueueTableItem[]>([])
   const [isLoadingQueue, setIsLoadingQueue] = React.useState(true)
-  const [isProcessing, setIsProcessing] = React.useState(false)
-  const [processResult, setProcessResult] = React.useState<string | null>(null)
+
+  // Filter antrean berdasarkan batch tertentu
+  const [selectedBatchFilter, setSelectedBatchFilter] = React.useState<string>("all")
 
   // 1. Fetch connected sites
   const fetchSites = React.useCallback(async () => {
@@ -74,11 +95,11 @@ export default function QueuePage() {
     }
   }, [])
 
-  // 3. Fetch queue items
+  // 3. Fetch queue items (Hanya yang memiliki batch_id)
   const fetchQueue = React.useCallback(async () => {
     setIsLoadingQueue(true)
     try {
-      const res = await fetch("/api/queue")
+      const res = await fetch("/api/queue?onlyBatches=true")
       const data = await res.json()
       if (res.ok && Array.isArray(data.items)) {
         const formatted: QueueTableItem[] = data.items.map(
@@ -86,6 +107,8 @@ export default function QueuePage() {
             id: string
             title: string | null
             target_keyword: string
+            batch_id: string | null
+            content_batches: { id: string; name: string } | null
             wp_sites: { site_name: string; base_url: string } | null
             categories: string[] | null
             state: QueueTableItem["status"]
@@ -108,6 +131,8 @@ export default function QueuePage() {
             scheduledFor: item.scheduled_for || undefined,
             wpPostUrl: item.wp_post_url || undefined,
             lastError: item.last_error || undefined,
+            batchId: item.batch_id || undefined,
+            batchName: item.content_batches?.name || "Batch Tanpa Nama",
           })
         )
         setQueueItems(formatted)
@@ -129,10 +154,37 @@ export default function QueuePage() {
   const handleBatchCreated = () => {
     fetchBatches()
     fetchQueue()
-    // Alihkan pandangan ke tab daftar batch setelah 800ms
     setTimeout(() => {
       setActiveTab("batches")
     }, 800)
+  }
+
+  // Hapus Batch beserta seluruh antreannya
+  const handleDeleteBatch = async (batchId: string) => {
+    try {
+      const res = await fetch(`/api/batches?id=${batchId}`, {
+        method: "DELETE",
+      })
+      if (res.ok) {
+        if (selectedBatchFilter === batchId) {
+          setSelectedBatchFilter("all")
+        }
+        await fetchBatches()
+        await fetchQueue()
+      } else {
+        const data = await res.json()
+        alert(data.error || "Gagal menghapus batch.")
+      }
+    } catch (err) {
+      console.error("[QueuePage] Error deleting batch:", err)
+      alert("Terjadi kesalahan jaringan saat menghapus batch.")
+    }
+  }
+
+  // Navigasi cepat dari tabel batch ke antrean batch tertentu
+  const handleSelectBatch = (batchId: string) => {
+    setSelectedBatchFilter(batchId)
+    setActiveTab("items")
   }
 
   // Retry item antrean tunggal
@@ -150,45 +202,50 @@ export default function QueuePage() {
     }
   }
 
-  // Proses semua item pending dalam antrean (jalankan worker batch 5)
-  const handleProcessQueue = async () => {
-    setIsProcessing(true)
-    setProcessResult(null)
-    let totalProcessed = 0
-    try {
-      // Loop sampai tidak ada lagi item queued_input
-      for (let round = 0; round < 20; round++) {
-        const res = await fetch("/api/queue/process", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ limit: 5 }),
-        })
-        const data = await res.json()
-        const count = data.processedCount ?? 0
-        totalProcessed += count
-        if (count === 0) break
-        // Refresh tampilan antrean tiap ronde
-        await fetchQueue()
-        await fetchBatches()
-      }
-      setProcessResult(`Selesai — ${totalProcessed} item diproses.`)
-    } catch (err) {
-      console.error("[QueuePage] Error processing queue:", err)
-      setProcessResult("Terjadi kesalahan saat memproses antrean.")
-    } finally {
-      setIsProcessing(false)
-      fetchQueue()
-      fetchBatches()
+  // Pengelompokan Item Antrean per Batch
+  const groupedBatches = React.useMemo(() => {
+    // Kumpulkan batch map
+    const map = new Map<string, { batchInfo?: BatchItemData; items: QueueTableItem[] }>()
+
+    // Inisialisasi dari daftar batch
+    for (const b of batches) {
+      map.set(b.id, { batchInfo: b, items: [] })
     }
-  }
+
+    // Masukkan queue items ke batch masing-masing
+    for (const item of queueItems) {
+      if (item.batchId) {
+        if (!map.has(item.batchId)) {
+          map.set(item.batchId, { items: [] })
+        }
+        map.get(item.batchId)!.items.push(item)
+      }
+    }
+
+    return Array.from(map.entries()).map(([batchId, data]) => ({
+      batchId,
+      batchInfo: data.batchInfo,
+      items: data.items,
+    }))
+  }, [batches, queueItems])
+
+  // Filter item yang tampil pada tab antrean
+  const filteredQueueItems = React.useMemo(() => {
+    if (selectedBatchFilter === "all") {
+      return queueItems
+    }
+    return queueItems.filter((i) => i.batchId === selectedBatchFilter)
+  }, [queueItems, selectedBatchFilter])
+
+  const activeBatchDetail = batches.find((b) => b.id === selectedBatchFilter)
 
   return (
     <DashboardLayout>
       <PageContainer size="default">
-        {/* Header Sesuai Page Layout Standard */}
+        {/* Header Halaman */}
         <PageHeader
-          title="Antrean &amp; Penjadwalan Masal"
-          description="Modul 2: Tambahkan daftar kata kunci masal dan kelola jadwal tayang (tanggal acak, pola interval jam, atau instan hari ini)."
+          title="Bulk Artikel &amp; Penjadwalan Masal"
+          description="Modul 2: Kelola penerbitan artikel masal berbasis batch kata kunci dan pantau antrean cron otomatis."
           icon={Layers}
           actions={
             <div className="flex items-center gap-2">
@@ -199,7 +256,7 @@ export default function QueuePage() {
                   fetchBatches()
                   fetchQueue()
                 }}
-                disabled={isLoadingBatches || isLoadingQueue || isProcessing}
+                disabled={isLoadingBatches || isLoadingQueue}
                 className="gap-1.5 text-xs cursor-pointer"
               >
                 <RefreshCw
@@ -210,21 +267,9 @@ export default function QueuePage() {
                 <span>Segarkan Data</span>
               </Button>
 
-              <Button
-                variant="default"
-                size="sm"
-                onClick={handleProcessQueue}
-                disabled={isProcessing}
-                className="gap-1.5 text-xs cursor-pointer"
-              >
-                <CalendarClock className={`size-3.5 ${isProcessing ? "animate-spin" : ""}`} />
-                <span>{isProcessing ? "Memproses..." : "Proses Antrean"}</span>
-              </Button>
-
               {activeTab !== "create" && (
                 <Button
                   size="sm"
-                  variant="outline"
                   onClick={() => setActiveTab("create")}
                   className="gap-1.5 text-xs cursor-pointer"
                 >
@@ -235,19 +280,6 @@ export default function QueuePage() {
             </div>
           }
         />
-
-        {/* Banner hasil proses */}
-        {processResult && (
-          <div className="mb-4 rounded-md border border-border bg-muted px-4 py-3 text-sm text-foreground flex items-center justify-between">
-            <span>{processResult}</span>
-            <button
-              onClick={() => setProcessResult(null)}
-              className="text-muted-foreground hover:text-foreground ml-4 text-xs cursor-pointer"
-            >
-              ✕
-            </button>
-          </div>
-        )}
 
         {/* Konten Halaman Menggunakan Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -262,7 +294,7 @@ export default function QueuePage() {
             </TabsTrigger>
             <TabsTrigger value="items" className="gap-1.5 text-xs">
               <ListChecks className="size-3.5" />
-              <span>Semua Antrean ({queueItems.length})</span>
+              <span>Antrean Batch ({queueItems.length})</span>
             </TabsTrigger>
           </TabsList>
 
@@ -281,15 +313,140 @@ export default function QueuePage() {
               batches={batches}
               isLoading={isLoadingBatches}
               onRefresh={fetchBatches}
+              onSelectBatch={handleSelectBatch}
+              onDeleteBatch={handleDeleteBatch}
             />
           </TabsContent>
 
-          {/* Tab 3: Tabel Semua Item Antrean */}
-          <TabsContent value="items" className="focus-visible:outline-none">
-            <QueueDataTable
-              items={queueItems}
-              onRetryItem={handleRetryItem}
-            />
+          {/* Tab 3: Daftar Antrean Dipisahkan per Batch */}
+          <TabsContent value="items" className="focus-visible:outline-none flex flex-col gap-4">
+            {/* Filter Bar Batch */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-border/80 bg-card p-3 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <Filter className="size-4 text-primary shrink-0" />
+                <span className="text-xs font-semibold text-foreground">Filter Tampilan Batch:</span>
+                <div className="w-[240px] sm:w-[320px]">
+                  <Select
+                    value={selectedBatchFilter}
+                    onValueChange={setSelectedBatchFilter}
+                  >
+                    <SelectTrigger className="h-8 text-xs bg-background">
+                      <SelectValue placeholder="Pilih Batch..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all" className="text-xs">
+                        Semua Batch ({queueItems.length} artikel)
+                      </SelectItem>
+                      {batches.map((b) => (
+                        <SelectItem key={b.id} value={b.id} className="text-xs">
+                          {b.name} ({b.completed_items}/{b.total_items})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {selectedBatchFilter !== "all" && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedBatchFilter("all")}
+                  className="h-8 text-xs gap-1.5 text-muted-foreground hover:text-foreground cursor-pointer self-start sm:self-auto"
+                >
+                  <X className="size-3.5" />
+                  <span>Tampilkan Semua Batch</span>
+                </Button>
+              )}
+            </div>
+
+            {/* Tampilan 1: Jika Memilih Batch Spesifik */}
+            {selectedBatchFilter !== "all" ? (
+              <div className="flex flex-col gap-3">
+                {activeBatchDetail && (
+                  <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-foreground">{activeBatchDetail.name}</span>
+                      <Badge variant="outline" className="text-[10px] bg-background">
+                        {activeBatchDetail.completed_items} / {activeBatchDetail.total_items} Selesai
+                      </Badge>
+                      {activeBatchDetail.wp_sites && (
+                        <span className="flex items-center gap-1 text-muted-foreground text-[11px]">
+                          <Globe className="size-3 text-primary" />
+                          {activeBatchDetail.wp_sites.site_name}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <QueueDataTable
+                  items={filteredQueueItems}
+                  onRetryItem={handleRetryItem}
+                />
+              </div>
+            ) : (
+              /* Tampilan 2: Tampilan Terpisah per Batch (Grouped by Batch) */
+              <div className="flex flex-col gap-6">
+                {groupedBatches.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-border p-8 text-center text-xs text-muted-foreground">
+                    Belum ada antrean artikel batch yang terdaftar. Buat batch pertama Anda di tab &quot;Input Kata Kunci&quot;.
+                  </div>
+                ) : (
+                  groupedBatches.map((group) => {
+                    const batchTitle = group.batchInfo?.name || group.items[0]?.batchName || `Batch ${group.batchId.slice(0, 8)}`
+                    const siteName = group.batchInfo?.wp_sites?.site_name || group.items[0]?.siteName || "WordPress"
+
+                    return (
+                      <Card key={group.batchId} className="border-border/80 bg-card/90 shadow-2xs overflow-hidden">
+                        <CardHeader className="py-3 px-4 bg-muted/20 border-b border-border/60 flex flex-row items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <Layers className="size-4 text-primary shrink-0" />
+                            <div>
+                              <CardTitle className="text-xs font-semibold text-foreground flex items-center gap-2">
+                                <span>{batchTitle}</span>
+                                <Badge variant="secondary" className="text-[10px] font-normal">
+                                  {group.items.length} artikel
+                                </Badge>
+                              </CardTitle>
+                              <CardDescription className="text-[10px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                                <Globe className="size-3 text-primary" />
+                                <span>{siteName}</span>
+                              </CardDescription>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setSelectedBatchFilter(group.batchId)}
+                              className="h-7 text-[11px] px-2.5 cursor-pointer"
+                            >
+                              Fokus Batch Ini
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteBatch(group.batchId)}
+                              className="h-7 size-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                              title="Hapus batch ini beserta antreannya"
+                            >
+                              <X className="size-3.5" />
+                            </Button>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="p-0">
+                          <QueueDataTable
+                            items={group.items}
+                            onRetryItem={handleRetryItem}
+                          />
+                        </CardContent>
+                      </Card>
+                    )
+                  })
+                )}
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </PageContainer>

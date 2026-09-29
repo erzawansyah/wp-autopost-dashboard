@@ -265,3 +265,63 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    let batchId = searchParams.get("id")
+
+    if (!batchId) {
+      try {
+        const body = await request.json()
+        batchId = body.id
+      } catch {
+        // Abaikan jika tidak ada body JSON
+      }
+    }
+
+    if (!batchId) {
+      return NextResponse.json({ error: "ID Batch wajib disertakan." }, { status: 400 })
+    }
+
+    // 1. Hapus semua post_items yang terkait dengan batch ini milik user
+    const { error: deleteItemsErr } = await supabase
+      .from("post_items")
+      .delete()
+      .eq("batch_id", batchId)
+      .eq("user_id", user.id)
+
+    if (deleteItemsErr) {
+      console.warn("[DELETE /api/batches] Gagal menghapus post_items terkait:", deleteItemsErr)
+    }
+
+    // 2. Hapus entri content_batches
+    const { error: deleteBatchErr } = await supabase
+      .from("content_batches")
+      .delete()
+      .eq("id", batchId)
+      .eq("user_id", user.id)
+
+    if (deleteBatchErr) {
+      return NextResponse.json({ error: deleteBatchErr.message }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Batch dan seluruh item antreannya berhasil dihapus.",
+    })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}

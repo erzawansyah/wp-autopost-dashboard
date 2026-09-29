@@ -57,6 +57,9 @@ export async function GET(request: Request) {
     if (batchId) {
       query = query.eq("batch_id", batchId)
     }
+    if (searchParams.get("onlyBatches") === "true" || searchParams.get("hasBatch") === "true") {
+      query = query.not("batch_id", "is", null)
+    }
 
     const { data: items, error } = await query
       .order("created_at", { ascending: false })

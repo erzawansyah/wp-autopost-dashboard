@@ -12,6 +12,8 @@ import {
   Calendar,
   AlertCircle,
   ExternalLink,
+  Trash2,
+  ListFilter,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Badge } from "@/components/atoms/badge"
@@ -47,6 +49,7 @@ interface BatchListTableProps {
   isLoading: boolean
   onRefresh: () => void
   onSelectBatch?: (batchId: string) => void
+  onDeleteBatch?: (batchId: string) => Promise<void> | void
 }
 
 export function BatchListTable({
@@ -54,7 +57,24 @@ export function BatchListTable({
   isLoading,
   onRefresh,
   onSelectBatch,
+  onDeleteBatch,
 }: BatchListTableProps) {
+  const [deletingId, setDeletingId] = React.useState<string | null>(null)
+
+  const handleDelete = async (batchId: string, batchName: string) => {
+    if (!onDeleteBatch) return
+    const confirmed = window.confirm(
+      `Apakah Anda yakin ingin menghapus batch "${batchName}"?\n\nSemua artikel antrean yang ada di dalam batch ini juga akan dihapus.`
+    )
+    if (!confirmed) return
+
+    setDeletingId(batchId)
+    try {
+      await onDeleteBatch(batchId)
+    } finally {
+      setDeletingId(null)
+    }
+  }
   if (!isLoading && batches.length === 0) {
     return (
       <EmptyState
@@ -157,6 +177,7 @@ export function BatchListTable({
                 <th className="px-4 py-3">Kemajuan (Artikel)</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Dibuat Pada</th>
+                <th className="px-4 py-3 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
@@ -221,6 +242,39 @@ export function BatchListTable({
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
+                    </td>
+
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        {onSelectBatch && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onSelectBatch(b.id)}
+                            className="h-7 text-xs px-2 text-primary hover:text-primary hover:bg-primary/10 cursor-pointer"
+                            title="Buka daftar antrean batch ini"
+                          >
+                            <ListFilter className="size-3.5 mr-1" />
+                            <span>Antrean</span>
+                          </Button>
+                        )}
+                        {onDeleteBatch && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(b.id, b.name)}
+                            disabled={deletingId === b.id}
+                            className="h-7 size-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
+                            title="Hapus batch ini beserta antreannya"
+                          >
+                            {deletingId === b.id ? (
+                              <RefreshCw className="size-3.5 animate-spin text-destructive" />
+                            ) : (
+                              <Trash2 className="size-3.5" />
+                            )}
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 )

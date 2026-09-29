@@ -45,6 +45,8 @@ export interface QueueTableItem {
   wpPostUrl?: string
   aiModel?: string
   lastError?: string
+  batchId?: string
+  batchName?: string
 }
 
 interface QueueDataTableProps {

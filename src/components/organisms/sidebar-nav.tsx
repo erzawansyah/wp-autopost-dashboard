@@ -26,37 +26,78 @@ interface NavItem {
   isComingSoon?: boolean
 }
 
-const navItems: NavItem[] = [
-  { title: "Ringkasan", href: "/", icon: LayoutDashboard },
-  { title: "Tulis artikel", href: "/posts/new", icon: PenLine },
-  {
-    title: "Website",
-    href: "/sites",
-    icon: Globe,
-  },
-  {
-    title: "Laboratorium",
-    href: "/lab",
-    icon: FlaskConical,
-    badge: "Lab",
-  },
-  {
-    title: "Antrean artikel",
-    href: "/queue",
-    icon: Layers,
-    badge: "Batch",
-  },
-  {
-    title: "Format tulisan",
-    href: "/prompts",
-    icon: SlidersHorizontal,
-  },
-  {
-    title: "Pengaturan",
-    href: "/settings",
-    icon: Settings,
-  },
+const primaryNavItems: NavItem[] = [
+  { title: "Dashboard", href: "/", icon: LayoutDashboard },
+  { title: "Daftar Website", href: "/sites", icon: Globe },
 ]
+
+const contentNavItems: NavItem[] = [
+  { title: "Tulis Cepat", href: "/posts/new", icon: PenLine },
+  { title: "Bulk Artikel", href: "/queue", icon: Layers, badge: "Batch" },
+]
+
+const bottomNavItems: NavItem[] = [
+  { title: "Format Prompt", href: "/prompts", icon: SlidersHorizontal },
+  { title: "Laboratorium", href: "/lab", icon: FlaskConical, badge: "Lab" },
+  { title: "Pengaturan", href: "/settings", icon: Settings },
+]
+
+function renderNavLink(item: NavItem, pathname: string) {
+  const isActive = pathname === item.href
+  const Icon = item.icon
+
+  const link = (
+    <Link
+      href={item.href}
+      aria-label={item.title}
+      className={cn(
+        "group flex items-center justify-center rounded-md px-3 py-2.5 text-[12px] font-medium transition-all lg:justify-between",
+        isActive
+          ? "bg-sidebar-primary text-sidebar-primary-foreground font-semibold shadow-2xs"
+          : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+        item.isComingSoon && !isActive && "opacity-60 hover:opacity-100"
+      )}
+    >
+      <div className="flex items-center gap-2.5 min-w-0">
+        <Icon
+          className={cn(
+            "size-4 shrink-0 transition-colors",
+            isActive
+              ? "text-sidebar-primary-foreground"
+              : "text-muted-foreground group-hover:text-sidebar-foreground"
+          )}
+        />
+        <span className="hidden truncate lg:block">{item.title}</span>
+      </div>
+      {item.badge && (
+        <Badge
+          variant={isActive ? "secondary" : "outline"}
+          className={cn(
+            "text-[10px] h-4 px-1.5 font-normal tracking-wide",
+            isActive
+              ? "bg-primary-foreground/20 text-primary-foreground border-transparent"
+              : "text-muted-foreground border-border/70 bg-muted/40"
+          )}
+        >
+          {item.badge}
+        </Badge>
+      )}
+      {isActive && !item.badge && <ChevronRight className="size-3.5 opacity-70" />}
+    </Link>
+  )
+
+  return (
+    <React.Fragment key={item.href}>
+      <div className="lg:hidden">
+        <Tooltip>
+          <TooltipTrigger asChild>{link}</TooltipTrigger>
+          <TooltipContent side="right" align="center">{item.title}</TooltipContent>
+        </Tooltip>
+      </div>
+      <div className="hidden lg:block">{link}</div>
+    </React.Fragment>
+  )
+}
 
 export function SidebarNav() {
   const pathname = usePathname()
@@ -77,65 +118,29 @@ export function SidebarNav() {
       </div>
 
       {/* Navigation List */}
-      <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-2 py-6 lg:px-3">
-        <div>
-          <div className="hidden px-3 pb-2 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">Workspace</div>
-        {navItems.map((item) => {
-          const isActive = pathname === item.href
-          const Icon = item.icon
+      <div className="flex flex-1 flex-col justify-between overflow-y-auto px-2 py-4 lg:px-3">
+        {/* Top & Middle Menus */}
+        <div className="flex flex-col gap-1">
+          <div className="hidden px-3 pb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
+            Menu Utama
+          </div>
+          {primaryNavItems.map((item) => renderNavLink(item, pathname))}
 
-          const link = (
-              <Link
-                href={item.href}
-                aria-label={item.title}
-                className={cn(
-                "group flex items-center justify-center rounded-md px-3 py-2.5 text-[12px] font-medium transition-all lg:justify-between",
-                isActive
-                  ? "bg-sidebar-primary text-sidebar-primary-foreground font-semibold shadow-2xs"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                item.isComingSoon && !isActive && "opacity-60 hover:opacity-100"
-                )}
-              >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <Icon
-                  className={cn(
-                    "size-4 shrink-0 transition-colors",
-                    isActive
-                      ? "text-sidebar-primary-foreground"
-                      : "text-muted-foreground group-hover:text-sidebar-foreground"
-                  )}
-                />
-                <span className="hidden truncate lg:block">{item.title}</span>
-              </div>
-              {item.badge && (
-                <Badge
-                  variant={isActive ? "secondary" : "outline"}
-                  className={cn(
-                    "text-[10px] h-4 px-1.5 font-normal tracking-wide",
-                    isActive
-                      ? "bg-primary-foreground/20 text-primary-foreground border-transparent"
-                      : "text-muted-foreground border-border/70 bg-muted/40"
-                  )}
-                >
-                  {item.badge}
-                </Badge>
-              )}
-              {isActive && !item.badge && <ChevronRight className="size-3.5 opacity-70" />}
-              </Link>
-          )
+          {/* Separator */}
+          <div className="my-2 border-t border-sidebar-border/70" />
 
-          return (
-            <React.Fragment key={item.href}>
-              <div className="lg:hidden">
-                <Tooltip>
-                  <TooltipTrigger asChild>{link}</TooltipTrigger>
-                  <TooltipContent side="right" align="center">{item.title}</TooltipContent>
-                </Tooltip>
-              </div>
-              <div className="hidden lg:block">{link}</div>
-            </React.Fragment>
-          )
-        })}
+          <div className="hidden px-3 pb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
+            Penerbitan Konten
+          </div>
+          {contentNavItems.map((item) => renderNavLink(item, pathname))}
+        </div>
+
+        {/* Bottom Menus */}
+        <div className="flex flex-col gap-1 border-t border-sidebar-border/70 pt-3">
+          <div className="hidden px-3 pb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
+            Alat &amp; Konfigurasi
+          </div>
+          {bottomNavItems.map((item) => renderNavLink(item, pathname))}
         </div>
       </div>
 

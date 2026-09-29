@@ -18,9 +18,11 @@ import {
   Tag,
   FolderTree,
   FileText,
+  Clock,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
+import { Badge } from "@/components/atoms/badge"
 import { Label } from "@/components/atoms/label"
 import { Textarea } from "@/components/atoms/textarea"
 import { Input } from "@/components/atoms/input"
@@ -83,7 +85,7 @@ export function KeywordListForm({
   const [selectedSiteId, setSelectedSiteId] = React.useState<string>("")
   const [batchName, setBatchName] = React.useState<string>("")
   const [rawKeywordsText, setRawKeywordsText] = React.useState<string>("")
-  const [engine, setEngine] = React.useState<string>("standard")
+  const [engine, setEngine] = React.useState<string>("quick")
   const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<number[]>([])
   const [selectedCategoryNames, setSelectedCategoryNames] = React.useState<string[]>([])
   const [tagsInput, setTagsInput] = React.useState<string>("")
@@ -336,7 +338,53 @@ export function KeywordListForm({
             </div>
           </div>
 
-          {/* 2. Kolom List Kata Kunci (Textarea 1 Baris = 1 Keyword) */}
+          {/* 2. Pilihan Mesin Penulisan (Engine) - Langsung Tampak & Default Quick */}
+          <div className="flex flex-col gap-2.5 rounded-lg border border-border/80 bg-muted/15 p-3.5">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                <Bot className="size-3.5 text-primary" />
+                Mesin Penulisan (Writing Engine)
+              </Label>
+              <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary">
+                {engine === "quick" ? "1-Shot Generator" : "Web Research & Curated Images"}
+              </Badge>
+            </div>
+
+            <Select value={engine} onValueChange={setEngine} disabled={isSubmitting}>
+              <SelectTrigger className="w-full bg-background text-xs">
+                <SelectValue placeholder="Pilih Engine..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="quick" className="text-xs">
+                  ⚡ Quick Engine (Default: Cepat, Mandiri, &amp; Hemat Token)
+                </SelectItem>
+                <SelectItem value="standard" className="text-xs">
+                  🌐 Standard Engine (Riset Web Live, LSI Keywords, &amp; Kurasi Gambar WP)
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Info Estimasi Kecepatan & Cron Worker */}
+            <div className="rounded-md border border-border/70 bg-card/80 p-2.5 text-xs flex flex-col gap-1">
+              <div className="flex items-center gap-1.5 text-foreground font-medium text-[11px]">
+                <Clock className="size-3 text-primary shrink-0" />
+                <span>Pemrosesan Otomatis: <strong>2 artikel per menit</strong> melalui cron</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed pl-4.5">
+                {engine === "quick" ? (
+                  <>
+                    Estimasi pengerjaan: <strong>~15–25 detik</strong> per artikel. Model AI menulis secara kreatif dan langsung tanpa jeda riset web eksternal.
+                  </>
+                ) : (
+                  <>
+                    Estimasi pengerjaan: <strong>~40–60 detik</strong> per artikel. Agen AI melakukan penjelajahan web live untuk mencari fakta, LSI keyword, dan mengunduh gambar beresolusi tinggi ke WordPress.
+                  </>
+                )}
+              </p>
+            </div>
+          </div>
+
+          {/* 3. Kolom List Kata Kunci (Textarea 1 Baris = 1 Keyword) */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="keywords-textarea" className="text-xs font-medium text-foreground">
@@ -467,7 +515,7 @@ export function KeywordListForm({
             >
               <span className="flex items-center gap-1.5">
                 <SlidersHorizontal className="size-3.5 text-primary" />
-                Pengaturan Mesin Penulisan, Kategori, &amp; Brief Tambahan
+                Pengaturan Kategori, Tag, &amp; Brief Tambahan
               </span>
               {showAdvanced ? (
                 <ChevronUp className="size-4" />
@@ -478,26 +526,6 @@ export function KeywordListForm({
 
             {showAdvanced && (
               <div className="mt-4 flex flex-col gap-4 rounded-lg border border-border/70 bg-muted/20 p-4">
-                {/* Mesin Penulisan */}
-                <div className="flex flex-col gap-1.5">
-                  <Label className="flex items-center gap-1.5 text-xs text-foreground">
-                    <Bot className="size-3.5 text-primary" />
-                    Mesin Penulisan (Engine)
-                  </Label>
-                  <Select value={engine} onValueChange={setEngine} disabled={isSubmitting}>
-                    <SelectTrigger className="w-full bg-background text-xs">
-                      <SelectValue placeholder="Pilih Engine..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="standard" className="text-xs">
-                        Standard Engine (Rekomendasi: Riset Web Live, LSI, &amp; Kurasi Gambar WP)
-                      </SelectItem>
-                      <SelectItem value="quick" className="text-xs">
-                        Quick Engine (Cepat &amp; Mandiri: 1-Shot LangGraph)
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
 
                 {/* Kategori WordPress Multi-select */}
                 <div className="flex flex-col gap-1.5">
