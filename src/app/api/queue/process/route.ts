@@ -1,20 +1,46 @@
+import crypto from "crypto"
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { processPostItem, processNextPendingQueueItem } from "@/core/queue/worker"
 
+export const maxDuration = 60
+
 /**
- * Verifikasi apakah request berasal dari cron berotorisasi atau user session
+ * Perbandingan token konstan (timing-safe) untuk proteksi webhook/cron
+ */
+function safeCompare(provided: string | null | undefined, expected: string | undefined): boolean {
+  if (!provided || !expected) return false
+  const bufProvided = Buffer.from(provided)
+  const bufExpected = Buffer.from(expected)
+  if (bufProvided.length !== bufExpected.length) return false
+  return crypto.timingSafeEqual(bufProvided, bufExpected)
+}
+
+/**
+ * Verifikasi apakah request berasal dari cron/VPS berotorisasi atau user session
  */
 async function verifyAuthorization(request: Request) {
-  // 1. Cek Cron Secret header jika dipanggil oleh Cron Job / Webhook eksternal
-  const authHeader = request.headers.get("authorization")
   const cronSecret = process.env.CRON_SECRET
 
-  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
-    return { isAuthorized: true, user: null, isCron: true }
+  // 1. Cek Cron Secret jika dikonfigurasi di server
+  if (cronSecret) {
+    const authHeader = request.headers.get("authorization")
+    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null
+    const xCronSecret = request.headers.get("x-cron-secret")
+    
+    const url = new URL(request.url)
+    const querySecret = url.searchParams.get("secret")
+
+    if (
+      safeCompare(bearerToken, cronSecret) ||
+      safeCompare(xCronSecret, cronSecret) ||
+      safeCompare(querySecret, cronSecret)
+    ) {
+      return { isAuthorized: true, user: null, isCron: true }
+    }
   }
 
-  // 2. Cek user session Supabase
+  // 2. Cek user session Supabase (untuk trigger langsung dari UI/dashboard)
   try {
     const supabase = await createClient()
     const {
