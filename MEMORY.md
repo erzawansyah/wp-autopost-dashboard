@@ -6,11 +6,11 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 ## 1. Status Proyek Saat Ini
 
-- **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker, Standard Writing Engine, Hybrid Scraper Tools (Image & Web), Dynamic OpenRouter Models, Featured Image WP, Engine-Centric Prompts, User Prompt Modification UI (/prompts), dan Integrasi Prompt Override ke Generate Artikel**.
-- **Catatan Worklog**: [`00`-`18`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`19`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/19-prompt-override-integration.md) *(terbaru)*
-- **Fase Aktif**: **Integrasi & Penyempurnaan Pipeline Penulisan (Prompt Override Loop Selesai)**.
-- **Fase Berikutnya**: **Modul 2 Bulk CSV/Keyword Ingestion & Smart Scheduling (Drip-feed)**.
-- **Halaman yang Masih `ComingSoonView`**: `/queue`, `/settings` (sub-halaman menyusul).
+- **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker, Standard Writing Engine, Hybrid Scraper Tools (Image & Web), Dynamic OpenRouter Models, Featured Image WP, Engine-Centric Prompts, User Prompt Modification UI (/prompts), Sanitasi Byline Penulis, dan Modul 2 Batch Keyword Ingestion & Smart Multi-Mode Scheduling (/queue)**.
+- **Catatan Worklog**: [`00`-`19`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`20`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/20-author-byline-sanitization.md) · [`21`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/21-modul-2-batch-keyword-ingestion.md) *(terbaru)*
+- **Fase Aktif**: **Modul 2 Selesai — Pemantauan Antrean & Queue Worker Drip-Feed Cron**.
+- **Fase Berikutnya**: **Modul 3 Niche Auto-Genesis & Cron Queue Dispatcher Otomatis**.
+- **Halaman yang Masih `ComingSoonView`**: `/settings` (sub-halaman profil & webhook menyusul).
 
 ---
 
@@ -33,6 +33,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 15. **ADR-037 (Engine-Centric Prompts Architecture & SaaS User Modification)**: Memusatkan dan memisahkan kumpulan prompt default ke skala Engine di `src/core/prompts/{engineId}-engine-prompts.md` (Quick Engine: 1-shot kreatif mandiri; Standard Engine: riset & kurasi gambar terikat ketat), dengan loader `engine-prompt-loader.ts` yang mendukung `mergeEnginePromptOverrides` untuk kustomisasi prompt di tingkat user/SaaS.
 16. **ADR-038 (User Prompt Modification UI & DB Persistence)**: Implementasi halaman `/prompts` sebagai antarmuka kustomisasi prompt per-engine per-user. Arsitektur: API `GET /api/prompts` (baca default dari file .md + override Supabase), API `PUT/DELETE /api/prompts/[engineId]/[nodeId]` (upsert/hapus override), tabel `prompt_templates` (unique constraint user_id+template_id, RLS), tabel `prompt_template_versions` (audit trail), dan organism `PromptNodeEditor` (accordion dengan tab System/User Prompt, badge status override, tombol save & reset).
 17. **ADR-039 (Integrasi Prompt Override ke Pipeline Generate Artikel)**: Helper `src/lib/prompts/fetch-user-overrides.ts` (query `prompt_templates` dengan filter `template_id LIKE 'engineId/%'`). `writer.ts run()` menerima parameter opsional `enginePrompts`. Queue Worker (`worker.ts`) fetch override sebelum `run()`, teruskan ke `engineContext.enginePrompts`. Fail-safe: query gagal → override kosong → generate tetap jalan dengan prompt default.
+18. **ADR-040 (Modul 2 Batch Keyword Ingestion & Smart Multi-Mode Scheduling)**: Ingesti keyword masal berbasis list baris teks (1 baris = 1 keyword), counter dinamis & auto deduplikasi, 3 mode scheduling (`random` dengan rentang tanggal dan sebaran merata, `interval` jam kustom misal 32 jam sekali + jitter, dan `instant` publikasi hari ini), kalkulator `date-calculator.ts`, endpoint `POST/GET /api/batches`, endpoint `GET /api/queue`, komponen `ScheduleStrategyPicker`, `KeywordListForm`, `BatchListTable`, dan aktivasi rute `/queue` di sidebar navigation.
 
 ---
 

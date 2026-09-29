@@ -56,6 +56,7 @@ export async function processPostItem({
       tags,
       state,
       source_payload,
+      scheduled_for,
       wp_sites (
         id,
         site_name,
@@ -333,6 +334,7 @@ export async function processPostItem({
       tagNames: tagList,
       authorId: resolvedAuthorId,
       featuredMediaId: resolvedEnrichment?.featuredMedia,
+      date: post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined,
     },
   })
   const wpPublishDuration = Date.now() - wpPublishStart

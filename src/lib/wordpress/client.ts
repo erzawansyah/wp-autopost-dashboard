@@ -24,6 +24,7 @@ export interface WPCreatePostPayload {
   tags?: number[]
   author?: number
   featured_media?: number
+  date?: string
 }
 
 export interface WPCreatePostResult {
@@ -200,6 +201,9 @@ export async function createWordPressPost(params: {
     }
     if (params.post.featured_media) {
       payload.featured_media = params.post.featured_media
+    }
+    if (params.post.date) {
+      payload.date = params.post.date
     }
 
     const res = await fetch(endpoint, {

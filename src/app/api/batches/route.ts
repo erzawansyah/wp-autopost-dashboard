@@ -1,0 +1,267 @@
+import { NextResponse } from "next/server"
+import { after } from "next/server"
+import { createClient } from "@/lib/supabase/server"
+import { processPostItem } from "@/core/queue/worker"
+import {
+  calculateScheduleDates,
+  ScheduleMode,
+  RandomScheduleConfig,
+  IntervalScheduleConfig,
+  InstantScheduleConfig,
+} from "@/lib/scheduler/date-calculator"
+
+export async function POST(request: Request) {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const body = await request.json()
+    const {
+      siteId,
+      batchName,
+      keywords,
+      scheduleMode = "interval",
+      randomConfig,
+      intervalConfig,
+      instantConfig,
+      engine = "quick",
+      category_ids = [],
+      category_names = [],
+      tags = [],
+      customBrief = "",
+      aiModel,
+    } = body
+
+    if (!siteId) {
+      return NextResponse.json(
+        { error: "Situs WordPress target wajib dipilih." },
+        { status: 400 }
+      )
+    }
+
+    if (!Array.isArray(keywords) || keywords.length === 0) {
+      return NextResponse.json(
+        { error: "Daftar kata kunci tidak boleh kosong. Masukkan minimal 1 kata kunci." },
+        { status: 400 }
+      )
+    }
+
+    // 1. Bersihkan dan filter kata kunci
+    const cleanKeywords = keywords
+      .map((k: unknown) => String(k).trim())
+      .filter((k: string) => k.length > 0)
+
+    if (cleanKeywords.length === 0) {
+      return NextResponse.json(
+        { error: "Tidak ada kata kunci valid yang ditemukan pada baris input." },
+        { status: 400 }
+      )
+    }
+
+    if (cleanKeywords.length > 50) {
+      return NextResponse.json(
+        { error: "Maksimal 50 kata kunci per batch. Silakan kurangi kata kunci Anda." },
+        { status: 400 }
+      )
+    }
+
+    // 2. Verifikasi website tujuan milik pengguna
+    const { data: site, error: siteError } = await supabase
+      .from("wp_sites")
+      .select("id, site_name, base_url")
+      .eq("id", siteId)
+      .eq("user_id", user.id)
+      .single()
+
+    if (siteError || !site) {
+      return NextResponse.json(
+        { error: "Website WordPress yang dipilih tidak ditemukan atau tidak memiliki hak akses." },
+        { status: 404 }
+      )
+    }
+
+    // 3. Kalkulasi jadwal tayang berdasarkan strategi
+    const slots = calculateScheduleDates({
+      mode: scheduleMode as ScheduleMode,
+      itemCount: cleanKeywords.length,
+      randomConfig: randomConfig as RandomScheduleConfig | undefined,
+      intervalConfig: intervalConfig as IntervalScheduleConfig | undefined,
+      instantConfig: instantConfig as InstantScheduleConfig | undefined,
+    })
+
+    // 4. Buat entri batch di content_batches
+    const defaultBatchName =
+      cleanKeywords.length === 1
+        ? `Batch: ${cleanKeywords[0]}`
+        : `Batch: ${cleanKeywords[0]} (+${cleanKeywords.length - 1} topik)`
+
+    const { data: batch, error: batchError } = await supabase
+      .from("content_batches")
+      .insert({
+        user_id: user.id,
+        wp_site_id: site.id,
+        name: batchName?.trim() || defaultBatchName,
+        source_type: "manual",
+        execution_mode: scheduleMode === "instant" ? "immediate" : "scheduled_drip",
+        schedule_config: {
+          mode: scheduleMode,
+          randomConfig: scheduleMode === "random" ? randomConfig : undefined,
+          intervalConfig: scheduleMode === "interval" ? intervalConfig : undefined,
+          instantConfig: scheduleMode === "instant" ? instantConfig : undefined,
+        },
+        ai_config: {
+          engine,
+          aiModel,
+          category_ids,
+          category_names,
+          tags,
+        },
+        custom_instructions_override: customBrief || null,
+        status: "running",
+        total_items: cleanKeywords.length,
+        completed_items: 0,
+      })
+      .select("id, name, created_at")
+      .single()
+
+    if (batchError || !batch) {
+      return NextResponse.json(
+        { error: `Gagal membuat batch antrean: ${batchError?.message || "Kesalahan database"}` },
+        { status: 500 }
+      )
+    }
+
+    // 5. Susun seluruh baris post_items
+    const tagList: string[] = Array.isArray(tags)
+      ? tags.map((t) => String(t).trim()).filter(Boolean)
+      : typeof tags === "string"
+      ? (tags as string).split(",").map((t) => t.trim()).filter(Boolean)
+      : []
+
+    const categoryList: string[] = Array.isArray(category_names)
+      ? category_names.map((c) => String(c).trim()).filter(Boolean)
+      : []
+
+    const selectedCategoryIds: number[] = Array.isArray(category_ids)
+      ? category_ids.map((id) => Number(id)).filter((id) => !isNaN(id) && id > 0)
+      : []
+
+    const itemsToInsert = cleanKeywords.map((kw, idx) => {
+      const slot = slots[idx]
+      return {
+        batch_id: batch.id,
+        user_id: user.id,
+        wp_site_id: site.id,
+        target_keyword: kw,
+        state: "queued_input",
+        scheduled_for: slot ? slot.scheduledFor.toISOString() : new Date().toISOString(),
+        wp_target_status: slot ? slot.wpTargetStatus : "future",
+        categories: categoryList,
+        tags: tagList,
+        custom_instructions_override: customBrief || null,
+        source_payload: {
+          engine,
+          aiModel,
+          category_ids: selectedCategoryIds,
+          batch_name: batch.name,
+          schedule_mode: scheduleMode,
+          slot_index: idx,
+        },
+      }
+    })
+
+    const { data: insertedItems, error: itemsError } = await supabase
+      .from("post_items")
+      .insert(itemsToInsert)
+      .select("id, target_keyword, scheduled_for, state")
+
+    if (itemsError || !insertedItems) {
+      return NextResponse.json(
+        { error: `Batch terbuat tapi gagal menyisipkan item: ${itemsError?.message}` },
+        { status: 500 }
+      )
+    }
+
+    // 6. Jika mode instan dan target publish, picu eksekusi artikel pertama di background
+    if (scheduleMode === "instant" && insertedItems.length > 0) {
+      const firstItemId = insertedItems[0].id
+      after(async () => {
+        try {
+          await processPostItem({ postId: firstItemId, userId: user.id })
+        } catch (err) {
+          console.error("[POST /api/batches] Error background trigger item pertama:", err)
+        }
+      })
+    }
+
+    return NextResponse.json({
+      success: true,
+      batch: {
+        id: batch.id,
+        name: batch.name,
+        totalItems: cleanKeywords.length,
+        executionMode: scheduleMode,
+      },
+      slotsPreview: slots.slice(0, 5),
+    })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const { searchParams } = new URL(request.url)
+    const limit = Math.min(Number(searchParams.get("limit")) || 20, 100)
+
+    const { data: batches, error } = await supabase
+      .from("content_batches")
+      .select(`
+        id,
+        name,
+        source_type,
+        execution_mode,
+        status,
+        total_items,
+        completed_items,
+        schedule_config,
+        created_at,
+        updated_at,
+        wp_sites (
+          id,
+          site_name,
+          base_url
+        )
+      `)
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({ batches: batches || [] })
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
+}

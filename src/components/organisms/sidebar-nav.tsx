@@ -44,8 +44,7 @@ const navItems: NavItem[] = [
     title: "Antrean artikel",
     href: "/queue",
     icon: Layers,
-    badge: "Segera",
-    isComingSoon: true,
+    badge: "Batch",
   },
   {
     title: "Format tulisan",
