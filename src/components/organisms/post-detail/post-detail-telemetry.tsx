@@ -222,7 +222,13 @@ export function PostDetailTelemetry({
             <span>Engine</span>
           </div>
           <span className="text-xs font-semibold font-mono text-foreground capitalize">
-            {engineUsed === "deep" ? "Deep Research" : "Quick Writer"}
+            {engineUsed === "standard"
+              ? "Standard Engine"
+              : engineUsed === "deep"
+              ? "Deep Research"
+              : engineUsed === "quick"
+              ? "Quick Writer"
+              : engineUsed || "—"}
           </span>
         </div>
 

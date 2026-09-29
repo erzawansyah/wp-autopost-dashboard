@@ -262,6 +262,25 @@ function DashboardContent() {
     }
   }
 
+  const handleBulkDelete = async (ids: string[]) => {
+    try {
+      const res = await fetch("/api/posts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || "Gagal menghapus artikel yang dipilih.")
+        return
+      }
+      // Hapus dari state lokal tanpa reload penuh
+      setPosts((prev) => prev.filter((p) => !ids.includes(p.id)))
+    } catch {
+      alert("Terjadi gangguan jaringan saat menghapus artikel.")
+    }
+  }
+
   // Jika user belum login, tampilkan layar sambutan ramah
   if (!isLoading && !currentUser) {
     return (
@@ -437,6 +456,7 @@ function DashboardContent() {
               items={tableItems}
               onRetryItem={handleRetryPost}
               onDeleteItem={handleDeletePost}
+              onBulkDelete={handleBulkDelete}
             />
           </div>
         )}

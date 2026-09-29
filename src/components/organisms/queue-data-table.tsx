@@ -22,7 +22,7 @@ import {
   MoreVertical,
   Play,
   Terminal,
-  FileText,
+  Trash2,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -53,6 +53,7 @@ interface QueueDataTableProps {
   items: QueueTableItem[]
   onRetryItem?: (id: string) => void
   onDeleteItem?: (id: string) => void
+  onBulkDelete?: (selectedIds: string[]) => Promise<void> | void
   onBulkRun?: (selectedIds: string[]) => void
 }
 
@@ -60,11 +61,13 @@ export function QueueDataTable({
   items,
   onRetryItem,
   onDeleteItem,
+  onBulkDelete,
   onBulkRun,
 }: QueueDataTableProps) {
   const [searchQuery, setSearchQuery] = React.useState("")
   const [selectedStatus, setSelectedStatus] = React.useState<string>("all")
   const [selectedIds, setSelectedIds] = React.useState<string[]>([])
+  const [isBulkDeleting, setIsBulkDeleting] = React.useState(false)
 
   // Filter items based on search and status filter
   const filteredItems = React.useMemo(() => {
@@ -98,6 +101,24 @@ export function QueueDataTable({
 
   const isAllSelected =
     filteredItems.length > 0 && selectedIds.length === filteredItems.length
+
+  const handleBulkDelete = async () => {
+    if (!onBulkDelete || selectedIds.length === 0) return
+    if (
+      !window.confirm(
+        `Hapus ${selectedIds.length} artikel yang dipilih? Tindakan ini tidak dapat dibatalkan.`
+      )
+    )
+      return
+
+    setIsBulkDeleting(true)
+    try {
+      await onBulkDelete(selectedIds)
+      setSelectedIds([])
+    } finally {
+      setIsBulkDeleting(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -154,10 +175,27 @@ export function QueueDataTable({
                 Kirim Sekarang
               </Button>
             )}
+            {onBulkDelete && (
+              <Button
+                size="xs"
+                variant="destructive"
+                onClick={handleBulkDelete}
+                disabled={isBulkDeleting}
+                className="cursor-pointer gap-1.5"
+              >
+                {isBulkDeleting ? (
+                  <RefreshCw className="size-3 animate-spin" />
+                ) : (
+                  <Trash2 className="size-3" />
+                )}
+                {isBulkDeleting ? "Menghapus..." : `Hapus ${selectedIds.length} Artikel`}
+              </Button>
+            )}
             <Button
               size="xs"
               variant="outline"
               onClick={() => setSelectedIds([])}
+              disabled={isBulkDeleting}
               className="cursor-pointer"
             >
               Batal Pilih
@@ -165,6 +203,7 @@ export function QueueDataTable({
           </div>
         </div>
       )}
+
 
       {/* Table Container */}
       <div className="rounded-xl border border-border/80 bg-card overflow-hidden shadow-2xs">

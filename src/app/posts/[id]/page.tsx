@@ -184,7 +184,7 @@ export default function PostDetailPage() {
 
   const site = post.wp_sites
   const payload = post.source_payload || {}
-  const engineUsed = (payload.engine as string) || "quick"
+  const engineUsed = (payload.engine as string) || ""
   const modelUsed = (payload.aiModel as string) || "openrouter/auto"
 
   const canRetry = post.state === "failed_sync" || post.state === "ready_to_sync"
