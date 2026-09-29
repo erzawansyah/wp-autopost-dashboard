@@ -368,16 +368,16 @@ export function KeywordListForm({
             <div className="rounded-md border border-border/70 bg-card/80 p-2.5 text-xs flex flex-col gap-1">
               <div className="flex items-center gap-1.5 text-foreground font-medium text-[11px]">
                 <Clock className="size-3 text-primary shrink-0" />
-                <span>Pemrosesan Otomatis: <strong>2 artikel per menit</strong> melalui cron</span>
+                <span>Pemrosesan Otomatis: <strong>1 artikel per menit</strong> melalui cron</span>
               </div>
               <p className="text-[11px] text-muted-foreground leading-relaxed pl-4.5">
                 {engine === "quick" ? (
                   <>
-                    Estimasi pengerjaan: <strong>~15–25 detik</strong> per artikel. Model AI menulis secara kreatif dan langsung tanpa jeda riset web eksternal.
+                    Estimasi pengerjaan: <strong>~30–50 detik</strong> per artikel. Model AI menulis secara kreatif dan langsung tanpa jeda riset web eksternal.
                   </>
                 ) : (
                   <>
-                    Estimasi pengerjaan: <strong>~40–60 detik</strong> per artikel. Agen AI melakukan penjelajahan web live untuk mencari fakta, LSI keyword, dan mengunduh gambar beresolusi tinggi ke WordPress.
+                    Estimasi pengerjaan: <strong>~2–3 menit</strong> per artikel. Agen AI melakukan penjelajahan web live untuk mencari fakta, LSI keyword, dan mengunduh gambar beresolusi tinggi ke WordPress.
                   </>
                 )}
               </p>

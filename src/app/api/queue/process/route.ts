@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     }
 
     const postId = (body.postId as string) || undefined
-    const limit = Math.min(Number(body.limit) || 2, 5)
+    const limit = Math.min(Number(body.limit) || 1, 5)
 
     // Proses satu item spesifik berdasarkan postId
     if (postId) {
@@ -204,7 +204,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const postId = searchParams.get("postId") || undefined
-    const limit = Math.min(Number(searchParams.get("limit")) || 2, 5)
+    const limit = Math.min(Number(searchParams.get("limit")) || 1, 5)
 
     // Proses satu item spesifik berdasarkan postId
     if (postId) {
