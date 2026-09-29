@@ -10,6 +10,28 @@ export function sanitizeDashes(text: string): string {
   return result.replace(/[—–]/g, ", ")
 }
 
+/**
+ * Membersihkan byline atau atribusi penulis yang mungkin secara tidak sengaja dihasilkan model AI.
+ * WordPress sudah menangani profil dan byline author secara otomatis via template tema.
+ */
+export function sanitizeAuthorBylines(text: string): string {
+  let result = text
+
+  // 1. Bersihkan baris atribusi langsung di baris tersendiri (misal: "Penulis: Dimas Raditya...", "**Ditulis oleh:** ...", "Author: ...")
+  result = result.replace(
+    /^(?:>|\*|-)?\s*(?:[*_]{1,2})?(?:Penulis(?:\s+Artikel)?|Ditulis\s+oleh|Oleh(?:\s+Penulis)?|Author|Written\s+by):?(?:[*_]{1,2})?\s*:?\s*.+$/gim,
+    ""
+  )
+
+  // 2. Bersihkan blok "Tentang Penulis" / "Profil Penulis" / "About the Author" di bagian akhir naskah jika ada
+  result = result.replace(
+    /\n+#{2,4}\s*(?:Tentang\s+Penulis|Profil\s+Penulis|Mengenai\s+Penulis|About\s+the\s+Author)\s*\n+[\s\S]*$/i,
+    ""
+  )
+
+  return result
+}
+
 export function cleanMarkdown(rawMarkdown: string): string {
   let cleaned = rawMarkdown.trim()
 
@@ -24,6 +46,9 @@ export function cleanMarkdown(rawMarkdown: string): string {
 
   // Terapkan aturan nol dash
   cleaned = sanitizeDashes(cleaned)
+
+  // Bersihkan byline atau atribusi penulis yang tidak diinginkan
+  cleaned = sanitizeAuthorBylines(cleaned)
 
   // Normalisasi spasi baris berlebih (maksimal 2 newline berturut-turut)
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n")

@@ -224,6 +224,7 @@ PANDUAN GAYA BAHASA (ANTI-SLOP WRITING v3.0):
 - Integrasikan entitas semantik (LSI) dan fakta kunci yang disediakan secara alami ke dalam alinea pembahasan.
 - SEMATKAN ASET GAMBAR TERKURASI TEPAT DI BAWAH SUBBAB H2 YANG RELEVAN menggunakan sintaks Markdown baku: `![Alt Text](URL)` diikuti `*Keterangan Gambar*`.
 - KELUARAN WAJIB DALAM FORMAT MARKDOWN MURNI (bukan HTML).
+- DILARANG MENCANTUMKAN BYLINE / ATRIBUSI PENULIS: Dilarang keras menuliskan nama penulis, bio penulis, atau teks seperti 'Penulis: ...', 'Ditulis oleh: ...', atau 'Oleh: ...' di awal, tengah, maupun akhir naskah. WordPress secara otomatis mengelola profil dan byline penulis melalui sistem temanya. Isi markdownContent murni naskah artikel dari paragraf pembuka hingga penutup.
 
 ### [OUTPUT_FORMAT]
 
@@ -254,6 +255,7 @@ PANDUAN STRUKTUR ARTIKEL RISET & VISUAL:
 3. Sematkan gambar terkurasi di bawah subbab yang sesuai dengan sintaks `![Alt Text](URL)`.
 4. Berikan data spesifik, contoh konkret, atau solusi praktis berbasis fakta riset.
 5. Akhiri artikel dengan kesimpulan yang mengalir wajar tanpa judul subbab "Kesimpulan".
+6. Dilarang menyisipkan teks atribusi penulis atau byline (nama penulis sudah ditangani oleh sistem).
 
 ---
 

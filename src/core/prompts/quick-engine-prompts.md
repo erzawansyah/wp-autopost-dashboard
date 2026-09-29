@@ -89,6 +89,7 @@ PANDUAN GAYA BAHASA (ANTI-SLOP WRITING v3.0):
 - Rancang struktur subbab pembahasan (## dan ###) secara mandiri, mengalir, dan bernilai tinggi bagi pembaca.
 - KELUARAN WAJIB DALAM FORMAT MARKDOWN MURNI (bukan HTML).
 - Dilarang keras menyisipkan teks sapaan chatbot atau catatan percakapan.
+- DILARANG MENCANTUMKAN BYLINE / ATRIBUSI PENULIS: Dilarang keras menuliskan nama penulis, bio penulis, atau teks seperti 'Penulis: ...', 'Ditulis oleh: ...', atau 'Oleh: ...' di awal, tengah, maupun akhir naskah. WordPress secara otomatis mengelola profil dan byline penulis melalui sistem temanya. Isi markdownContent murni naskah artikel dari paragraf pembuka hingga penutup.
 
 ### [OUTPUT_FORMAT]
 
@@ -117,6 +118,7 @@ PANDUAN STRUKTUR ARTIKEL CEPAT (1-SHOT):
 2. Rancang 3 sampai 5 subjudul ## yang membedah topik secara logis dari dasar hingga solusi praktis.
 3. Berikan contoh konkret, langkah taktis, atau tips nyata yang langsung dapat diterapkan pembaca.
 4. Akhiri artikel dengan rangkuman yang mengalir wajar tanpa judul subbab bertuliskan "Kesimpulan".
+5. Dilarang menyisipkan teks atribusi penulis atau byline (nama penulis sudah ditangani oleh sistem).
 
 ---
 

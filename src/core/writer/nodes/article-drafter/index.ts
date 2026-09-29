@@ -81,7 +81,7 @@ export async function executeArticleDrafter(
     : "";
   const briefNote = input.brief ? `- Catatan Khusus: ${input.brief}` : "";
   const authorPersona = input.author
-    ? `- Penulis Artikel: ${input.author.name}${input.author.bio ? ` (${input.author.bio})` : ""}`
+    ? `- Sudut Pandang Penulis (Persona): Tulis naskah dari perspektif dan keahlian ${input.author.name}${input.author.bio ? ` (${input.author.bio})` : ""}. (PERINGATAN: Gunakan ini HANYA sebagai panduan gaya bicara dan sudut pandang. DILARANG KERAS mencantumkan nama, bio, atau teks byline penulis seperti "Penulis: ..." ke dalam isi naskah artikel).`
     : "";
   const customInstructionsNote = input.customInstructions
     ? `- Instruksi Tambahan: ${input.customInstructions}`
