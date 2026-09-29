@@ -480,6 +480,23 @@ export interface ClaimedQueueItem {
 export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueueItem[]> {
   const supabase = await getSupabaseClient()
 
+  // 0. Auto-healing: Reset item yang tersangkut di 'generating_content' atau 'syncing_to_wp' > 4 menit
+  // (misal akibat worker sebelumnya terputus atau timeout di serverless)
+  try {
+    const staleThreshold = new Date(Date.now() - 4 * 60 * 1000).toISOString()
+    await supabase
+      .from("post_items")
+      .update({
+        state: "queued_input",
+        updated_at: new Date().toISOString(),
+        last_error: "Dipulihkan otomatis ke antrean: eksekusi sebelumnya terputus atau timeout.",
+      })
+      .in("state", ["generating_content", "syncing_to_wp"])
+      .lt("updated_at", staleThreshold)
+  } catch (healErr) {
+    console.warn("[claimNextPendingQueueItems] Gagal auto-healing item stale:", healErr)
+  }
+
   // 1. Ambil kandidat antrean terlama yang masih 'queued_input'
   const { data: candidates, error } = await supabase
     .from("post_items")
@@ -528,19 +545,48 @@ export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueu
 }
 
 /**
- * Memproses item-item yang sudah diklaim sebelumnya
+ * Memproses item-item yang sudah diklaim secara paralel (Concurrent Processing)
+ * Menjalankan item bersamaan (Promise.all) agar total waktu eksekusi tetap singkat (~25-35s)
+ * dan tidak terkena pemutusan timeout Vercel (60 detik).
  */
 export async function processClaimedItems(items: ClaimedQueueItem[]): Promise<ProcessPostItemResult[]> {
-  const results: ProcessPostItemResult[] = []
-  for (const item of items) {
-    const res = await processPostItem({
-      postId: item.id,
-      userId: item.userId,
-      isAlreadyClaimed: true,
-    })
-    results.push(res)
-  }
-  return results
+  const supabase = await getSupabaseClient()
+
+  const promises = items.map(async (item) => {
+    try {
+      return await processPostItem({
+        postId: item.id,
+        userId: item.userId,
+        isAlreadyClaimed: true,
+      })
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      console.error(`[processClaimedItems] Error fatal saat memproses item ${item.id} ("${item.keyword}"):`, err)
+
+      // Fail-safe: pastikan item tidak ditinggalkan dalam status 'generating_content'
+      try {
+        await supabase
+          .from("post_items")
+          .update({
+            state: "failed_generation",
+            last_error: `Worker crash: ${errMsg}`,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", item.id)
+      } catch (dbErr) {
+        console.error(`[processClaimedItems] Gagal mengupdate fail-safe status ke DB:`, dbErr)
+      }
+
+      return {
+        success: false,
+        postId: item.id,
+        keyword: item.keyword,
+        error: errMsg,
+      }
+    }
+  })
+
+  return await Promise.all(promises)
 }
 
 /**
