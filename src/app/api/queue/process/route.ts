@@ -1,7 +1,12 @@
 import crypto from "crypto"
-import { NextResponse } from "next/server"
+import { NextResponse, after } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { processPostItem, processNextPendingQueueItem } from "@/core/queue/worker"
+import {
+  processPostItem,
+  claimNextPendingQueueItems,
+  processClaimedItems,
+  processNextPendingQueueItem,
+} from "@/core/queue/worker"
 
 export const maxDuration = 60
 
@@ -58,13 +63,38 @@ async function verifyAuthorization(request: Request) {
   return { isAuthorized: false, user: null, isCron: false }
 }
 
-export async function POST(request: Request) {
-  try {
-    const auth = await verifyAuthorization(request)
-    if (!auth.isAuthorized) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+function getFormattedTimestamp(): string {
+  const d = new Date()
+  const pad = (n: number) => n.toString().padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
 
+function prefersPlainText(request: Request, isCron: boolean): boolean {
+  const url = new URL(request.url)
+  if (url.searchParams.get("format") === "text" || url.searchParams.has("text")) return true
+  if (url.searchParams.get("format") === "json") return false
+  const accept = request.headers.get("accept") || ""
+  if (accept.includes("text/plain")) return true
+  if (isCron && !accept.includes("application/json")) return true
+  return false
+}
+
+export async function POST(request: Request) {
+  const auth = await verifyAuthorization(request)
+  const isPlain = prefersPlainText(request, auth.isCron)
+
+  if (!auth.isAuthorized) {
+    if (isPlain) {
+      const now = getFormattedTimestamp()
+      return new Response(`[${now}] ERROR - Gagal memicu antrean: Token tidak valid / Unauthorized\n`, {
+        status: 401,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      })
+    }
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  try {
     let body: Record<string, unknown> = {}
     try {
       body = await request.json()
@@ -80,25 +110,92 @@ export async function POST(request: Request) {
         postId,
         userId: auth.user?.id,
       })
+      if (isPlain) {
+        const now = getFormattedTimestamp()
+        if (result.success) {
+          return new Response(`[${now}] SUCCESS - Berhasil memproses: "${result.title || result.keyword}" (WP ID: #${result.wpPostId})\n`, {
+            status: 200,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          })
+        }
+        return new Response(`[${now}] ERROR - Gagal memproses: ${result.error || "Terjadi kesalahan"}\n`, {
+          status: 500,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        })
+      }
       return NextResponse.json({ ok: result.success, result })
     }
 
-    // Jika tidak spesifik postId, proses item terlama dalam antrean
-    const results = await processNextPendingQueueItem(limit)
-    return NextResponse.json({ ok: true, processedCount: results.length, results })
+    // 1. ATOMIC CLAIM: Kunci item terlama dari database seketika
+    const claimed = await claimNextPendingQueueItems(limit)
+
+    // JIKA KOSONG: Kembalikan respons kosong (0 byte) agar crontab VPS tidak menyimpan log apapun
+    if (claimed.length === 0) {
+      if (isPlain) {
+        return new Response("", {
+          status: 200,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        })
+      }
+      return NextResponse.json({ ok: true, processedCount: 0, results: [] })
+    }
+
+    // 2. ASINKRON BACKGROUND DISPATCH: Jalankan worker tanpa memblokir respons HTTP
+    after(async () => {
+      try {
+        await processClaimedItems(claimed)
+      } catch (workerErr) {
+        console.error("[queue/process] Error dalam background worker after():", workerErr)
+      }
+    })
+
+    // 3. Respon seketika (< 200ms) dengan format log terstruktur
+    const now = getFormattedTimestamp()
+    const kwList = claimed.map((c) => `"${c.keyword}"`).join(", ")
+    const summaryText = `Berhasil memproses ${claimed.length} artikel: ${kwList}`
+
+    if (isPlain) {
+      return new Response(`[${now}] SUCCESS - ${summaryText}\n`, {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      })
+    }
+
+    return NextResponse.json({
+      ok: true,
+      processedCount: claimed.length,
+      summary: summaryText,
+      items: claimed,
+    })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Terjadi kesalahan internal worker"
+    if (isPlain) {
+      const now = getFormattedTimestamp()
+      return new Response(`[${now}] ERROR - Gagal memproses antrean: ${msg}\n`, {
+        status: 500,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      })
+    }
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
 
 export async function GET(request: Request) {
-  try {
-    const auth = await verifyAuthorization(request)
-    if (!auth.isAuthorized) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+  const auth = await verifyAuthorization(request)
+  const isPlain = prefersPlainText(request, auth.isCron)
 
+  if (!auth.isAuthorized) {
+    if (isPlain) {
+      const now = getFormattedTimestamp()
+      return new Response(`[${now}] ERROR - Gagal memicu antrean: Token tidak valid / Unauthorized\n`, {
+        status: 401,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      })
+    }
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  try {
     const { searchParams } = new URL(request.url)
     const postId = searchParams.get("postId") || undefined
     const limit = Math.min(Number(searchParams.get("limit")) || 1, 5)
@@ -108,13 +205,68 @@ export async function GET(request: Request) {
         postId,
         userId: auth.user?.id,
       })
+      if (isPlain) {
+        const now = getFormattedTimestamp()
+        if (result.success) {
+          return new Response(`[${now}] SUCCESS - Berhasil memproses: "${result.title || result.keyword}" (WP ID: #${result.wpPostId})\n`, {
+            status: 200,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          })
+        }
+        return new Response(`[${now}] ERROR - Gagal memproses: ${result.error || "Terjadi kesalahan"}\n`, {
+          status: 500,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        })
+      }
       return NextResponse.json({ ok: result.success, result })
     }
 
-    const results = await processNextPendingQueueItem(limit)
-    return NextResponse.json({ ok: true, processedCount: results.length, results })
+    const claimed = await claimNextPendingQueueItems(limit)
+
+    if (claimed.length === 0) {
+      if (isPlain) {
+        return new Response("", {
+          status: 200,
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        })
+      }
+      return NextResponse.json({ ok: true, processedCount: 0, results: [] })
+    }
+
+    after(async () => {
+      try {
+        await processClaimedItems(claimed)
+      } catch (workerErr) {
+        console.error("[queue/process] Error dalam background worker after():", workerErr)
+      }
+    })
+
+    const now = getFormattedTimestamp()
+    const kwList = claimed.map((c) => `"${c.keyword}"`).join(", ")
+    const summaryText = `Berhasil memproses ${claimed.length} artikel: ${kwList}`
+
+    if (isPlain) {
+      return new Response(`[${now}] SUCCESS - ${summaryText}\n`, {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      })
+    }
+
+    return NextResponse.json({
+      ok: true,
+      processedCount: claimed.length,
+      summary: summaryText,
+      items: claimed,
+    })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Terjadi kesalahan internal worker"
+    if (isPlain) {
+      const now = getFormattedTimestamp()
+      return new Response(`[${now}] ERROR - Gagal memproses antrean: ${msg}\n`, {
+        status: 500,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      })
+    }
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

@@ -8,11 +8,14 @@ export interface ProcessPostItemOptions {
   postId: string
   userId?: string
   clientApiKey?: string
+  isAlreadyClaimed?: boolean
 }
 
 export interface ProcessPostItemResult {
   success: boolean
   postId: string
+  keyword?: string
+  title?: string
   state?: string
   wpPostId?: number
   wpPostUrl?: string
@@ -38,6 +41,7 @@ export async function processPostItem({
   postId,
   userId,
   clientApiKey,
+  isAlreadyClaimed,
 }: ProcessPostItemOptions): Promise<ProcessPostItemResult> {
   const startTime = Date.now()
   const supabase = await getSupabaseClient()
@@ -57,6 +61,7 @@ export async function processPostItem({
       state,
       source_payload,
       scheduled_for,
+      updated_at,
       wp_sites (
         id,
         site_name,
@@ -81,7 +86,7 @@ export async function processPostItem({
     }
   }
 
-  // Jika sudah berstatus selesai atau sedang diproses oleh worker lain, lewati
+  // Jika sudah berstatus selesai, lewati
   if (
     post.state === "published_on_wp" ||
     post.state === "saved_draft_on_wp" ||
@@ -91,6 +96,42 @@ export async function processPostItem({
       success: true,
       postId,
       state: post.state,
+    }
+  }
+
+  // Jika belum diklaim oleh pemanggil (misal dipanggil langsung via postId):
+  if (!isAlreadyClaimed) {
+    // Jika sedang diproses oleh worker lain (dan belum stale < 10 menit lalu)
+    if (post.state === "generating_content" || post.state === "syncing_to_wp") {
+      const updatedAt = post.updated_at ? new Date(post.updated_at).getTime() : 0
+      const tenMinutesAgo = Date.now() - 10 * 60 * 1000
+      if (updatedAt > tenMinutesAgo) {
+        return {
+          success: false,
+          postId,
+          error: `Item sedang diproses oleh worker lain (status: ${post.state}).`,
+        }
+      }
+    }
+
+    // Atomic claim lock: kunci status ke generating_content
+    const { data: locked, error: lockErr } = await supabase
+      .from("post_items")
+      .update({
+        state: "generating_content",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", postId)
+      .in("state", ["queued_input", "failed_generation", "failed_sync"])
+      .select("id")
+      .maybeSingle()
+
+    if (lockErr || !locked) {
+      return {
+        success: false,
+        postId,
+        error: "Item sudah diambil atau sedang dikerjakan oleh worker lain.",
+      }
     }
   }
 
@@ -418,35 +459,97 @@ export async function processPostItem({
   return {
     success: true,
     postId,
+    keyword: post.target_keyword,
+    title: generated.title,
     state: finalState,
     wpPostId: wpResult.wpPostId,
     wpPostUrl: wpResult.wpPostUrl,
   }
 }
 
+export interface ClaimedQueueItem {
+  id: string
+  userId: string
+  keyword: string
+}
+
 /**
- * Mengambil dan mengeksekusi item antrean terlama yang masih berstatus 'queued_input'
- * Cocok dipanggil oleh Cron Job terjadwal
+ * Mengklaim item antrean terlama secara atomik (ATOMIC CLAIM LOCK)
+ * Mengembalikan daftar item yang berhasil dikunci statusnya ke 'generating_content'
  */
-export async function processNextPendingQueueItem(limit = 1): Promise<ProcessPostItemResult[]> {
+export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueueItem[]> {
   const supabase = await getSupabaseClient()
 
-  const { data: pendingItems, error } = await supabase
+  // 1. Ambil kandidat antrean terlama yang masih 'queued_input'
+  const { data: candidates, error } = await supabase
     .from("post_items")
-    .select("id, user_id")
+    .select("id, user_id, target_keyword")
     .eq("state", "queued_input")
     .order("created_at", { ascending: true })
-    .limit(limit)
+    .limit(limit * 3)
 
-  if (error || !pendingItems || pendingItems.length === 0) {
+  if (error || !candidates || candidates.length === 0) {
     return []
   }
 
-  const results: ProcessPostItemResult[] = []
-  for (const item of pendingItems) {
-    const res = await processPostItem({ postId: item.id, userId: item.user_id })
-    results.push(res)
+  const claimedItems: ClaimedQueueItem[] = []
+
+  for (const item of candidates) {
+    if (claimedItems.length >= limit) break
+
+    // 2. ATOMIC CLAIM LOCK:
+    // Update state menjadi 'generating_content' HANYA jika saat ini masih berstatus 'queued_input'.
+    // Jika 2 worker masuk bersamaan, hanya 1 worker yang berhasil mengklaim baris ini.
+    const nowIso = new Date().toISOString()
+    const { data: claimed, error: claimErr } = await supabase
+      .from("post_items")
+      .update({
+        state: "generating_content",
+        updated_at: nowIso,
+      })
+      .eq("id", item.id)
+      .eq("state", "queued_input")
+      .select("id, user_id, target_keyword")
+      .maybeSingle()
+
+    // Jika gagal klaim (sudah diambil/sedang dikerjakan worker lain), lewati item ini
+    if (claimErr || !claimed) {
+      continue
+    }
+
+    claimedItems.push({
+      id: claimed.id,
+      userId: claimed.user_id,
+      keyword: claimed.target_keyword,
+    })
   }
 
+  return claimedItems
+}
+
+/**
+ * Memproses item-item yang sudah diklaim sebelumnya
+ */
+export async function processClaimedItems(items: ClaimedQueueItem[]): Promise<ProcessPostItemResult[]> {
+  const results: ProcessPostItemResult[] = []
+  for (const item of items) {
+    const res = await processPostItem({
+      postId: item.id,
+      userId: item.userId,
+      isAlreadyClaimed: true,
+    })
+    results.push(res)
+  }
   return results
+}
+
+/**
+ * Mengambil dan mengeksekusi item antrean terlama yang masih berstatus 'queued_input' (Mode Synchronous)
+ */
+export async function processNextPendingQueueItem(limit = 1): Promise<ProcessPostItemResult[]> {
+  const claimed = await claimNextPendingQueueItems(limit)
+  if (claimed.length === 0) {
+    return []
+  }
+  return await processClaimedItems(claimed)
 }
