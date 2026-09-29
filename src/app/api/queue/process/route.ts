@@ -1,11 +1,10 @@
 import crypto from "crypto"
-import { NextResponse, after } from "next/server"
+import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import {
   processPostItem,
   claimNextPendingQueueItems,
   processClaimedItems,
-  processNextPendingQueueItem,
 } from "@/core/queue/worker"
 
 export const maxDuration = 60
@@ -32,7 +31,7 @@ async function verifyAuthorization(request: Request) {
     const authHeader = request.headers.get("authorization")
     const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null
     const xCronSecret = request.headers.get("x-cron-secret")
-    
+
     const url = new URL(request.url)
     const querySecret = url.searchParams.get("secret")
 
@@ -103,8 +102,9 @@ export async function POST(request: Request) {
     }
 
     const postId = (body.postId as string) || undefined
-    const limit = Math.min(Number(body.limit) || 1, 5)
+    const limit = Math.min(Number(body.limit) || 2, 5)
 
+    // Proses satu item spesifik berdasarkan postId
     if (postId) {
       const result = await processPostItem({
         postId,
@@ -113,15 +113,15 @@ export async function POST(request: Request) {
       if (isPlain) {
         const now = getFormattedTimestamp()
         if (result.success) {
-          return new Response(`[${now}] SUCCESS - Berhasil memproses: "${result.title || result.keyword}" (WP ID: #${result.wpPostId})\n`, {
-            status: 200,
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-          })
+          return new Response(
+            `[${now}] SUCCESS - Berhasil memproses: "${result.title || result.keyword}" (WP ID: #${result.wpPostId})\n`,
+            { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+          )
         }
-        return new Response(`[${now}] ERROR - Gagal memproses: ${result.error || "Terjadi kesalahan"}\n`, {
-          status: 500,
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        })
+        return new Response(
+          `[${now}] ERROR - Gagal memproses: ${result.error || "Terjadi kesalahan"}\n`,
+          { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+        )
       }
       return NextResponse.json({ ok: result.success, result })
     }
@@ -140,22 +140,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true, processedCount: 0, results: [] })
     }
 
-    // 2. ASINKRON BACKGROUND DISPATCH: Jalankan worker tanpa memblokir respons HTTP
-    after(async () => {
-      try {
-        await processClaimedItems(claimed)
-      } catch (workerErr) {
-        console.error("[queue/process] Error dalam background worker after():", workerErr)
-      }
-    })
+    // 2. SYNCHRONOUS PROCESSING: Proses semua artikel yang sudah diklaim, tunggu hingga selesai.
+    // Quick Engine: ~15-25 detik/artikel. 2 artikel ≈ 30-50 detik (aman dalam Vercel maxDuration 60 detik).
+    // Menggantikan after() yang butuh experimental.after di next.config dan tidak konsisten di dev vs prod.
+    const results = await processClaimedItems(claimed)
 
-    // 3. Respon seketika (< 200ms) dengan format log terstruktur
+    const successItems = results.filter((r) => r.success)
+    const failItems = results.filter((r) => !r.success)
     const now = getFormattedTimestamp()
-    const kwList = claimed.map((c) => `"${c.keyword}"`).join(", ")
-    const summaryText = `Berhasil memproses ${claimed.length} artikel: ${kwList}`
 
     if (isPlain) {
-      return new Response(`[${now}] SUCCESS - ${summaryText}\n`, {
+      const lines: string[] = []
+      for (const r of successItems) {
+        lines.push(
+          `[${now}] SUCCESS - Berhasil memproses: "${r.title || r.keyword}" (WP ID: #${r.wpPostId})`
+        )
+      }
+      for (const r of failItems) {
+        lines.push(
+          `[${now}] ERROR - Gagal memproses "${r.keyword}": ${r.error || "Terjadi kesalahan"}`
+        )
+      }
+      return new Response(lines.join("\n") + "\n", {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       })
@@ -163,9 +169,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      processedCount: claimed.length,
-      summary: summaryText,
-      items: claimed,
+      processedCount: successItems.length,
+      failedCount: failItems.length,
+      results,
     })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Terjadi kesalahan internal worker"
@@ -198,8 +204,9 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const postId = searchParams.get("postId") || undefined
-    const limit = Math.min(Number(searchParams.get("limit")) || 1, 5)
+    const limit = Math.min(Number(searchParams.get("limit")) || 2, 5)
 
+    // Proses satu item spesifik berdasarkan postId
     if (postId) {
       const result = await processPostItem({
         postId,
@@ -208,19 +215,20 @@ export async function GET(request: Request) {
       if (isPlain) {
         const now = getFormattedTimestamp()
         if (result.success) {
-          return new Response(`[${now}] SUCCESS - Berhasil memproses: "${result.title || result.keyword}" (WP ID: #${result.wpPostId})\n`, {
-            status: 200,
-            headers: { "Content-Type": "text/plain; charset=utf-8" },
-          })
+          return new Response(
+            `[${now}] SUCCESS - Berhasil memproses: "${result.title || result.keyword}" (WP ID: #${result.wpPostId})\n`,
+            { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+          )
         }
-        return new Response(`[${now}] ERROR - Gagal memproses: ${result.error || "Terjadi kesalahan"}\n`, {
-          status: 500,
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        })
+        return new Response(
+          `[${now}] ERROR - Gagal memproses: ${result.error || "Terjadi kesalahan"}\n`,
+          { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+        )
       }
       return NextResponse.json({ ok: result.success, result })
     }
 
+    // 1. ATOMIC CLAIM
     const claimed = await claimNextPendingQueueItems(limit)
 
     if (claimed.length === 0) {
@@ -233,20 +241,26 @@ export async function GET(request: Request) {
       return NextResponse.json({ ok: true, processedCount: 0, results: [] })
     }
 
-    after(async () => {
-      try {
-        await processClaimedItems(claimed)
-      } catch (workerErr) {
-        console.error("[queue/process] Error dalam background worker after():", workerErr)
-      }
-    })
+    // 2. SYNCHRONOUS PROCESSING
+    const results = await processClaimedItems(claimed)
 
+    const successItems = results.filter((r) => r.success)
+    const failItems = results.filter((r) => !r.success)
     const now = getFormattedTimestamp()
-    const kwList = claimed.map((c) => `"${c.keyword}"`).join(", ")
-    const summaryText = `Berhasil memproses ${claimed.length} artikel: ${kwList}`
 
     if (isPlain) {
-      return new Response(`[${now}] SUCCESS - ${summaryText}\n`, {
+      const lines: string[] = []
+      for (const r of successItems) {
+        lines.push(
+          `[${now}] SUCCESS - Berhasil memproses: "${r.title || r.keyword}" (WP ID: #${r.wpPostId})`
+        )
+      }
+      for (const r of failItems) {
+        lines.push(
+          `[${now}] ERROR - Gagal memproses "${r.keyword}": ${r.error || "Terjadi kesalahan"}`
+        )
+      }
+      return new Response(lines.join("\n") + "\n", {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },
       })
@@ -254,9 +268,9 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      processedCount: claimed.length,
-      summary: summaryText,
-      items: claimed,
+      processedCount: successItems.length,
+      failedCount: failItems.length,
+      results,
     })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Terjadi kesalahan internal worker"
