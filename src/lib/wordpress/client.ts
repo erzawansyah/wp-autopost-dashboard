@@ -4,6 +4,9 @@
  */
 
 import crypto from "crypto"
+import { generateAutoWpAppName } from "./app-name"
+
+export { generateAutoWpAppName }
 
 export interface WPTestResult {
   ok: boolean
@@ -306,6 +309,7 @@ export function buildWordPressAuthorizeUrl(params: {
   appId?: string
   successUrl: string
   rejectUrl: string
+  userIdentifier?: string
 }): string {
   const { normalizedUrl } = normalizeAndValidateWpUrl(params.baseUrl)
   const cleanBase = normalizedUrl || params.baseUrl.replace(/\/+$/, "")
@@ -315,8 +319,10 @@ export function buildWordPressAuthorizeUrl(params: {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
   const validAppId = params.appId && uuidRegex.test(params.appId) ? params.appId : crypto.randomUUID()
 
+  const defaultAppName = generateAutoWpAppName(params.userIdentifier)
+
   const query = new URLSearchParams({
-    app_name: params.appName || "WP Autopost Dashboard",
+    app_name: params.appName || defaultAppName,
     app_id: validAppId,
     success_url: params.successUrl,
     reject_url: params.rejectUrl,

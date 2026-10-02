@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { preflightWordPressSite, buildWordPressAuthorizeUrl } from "@/lib/wordpress/client"
+import {
+  preflightWordPressSite,
+  buildWordPressAuthorizeUrl,
+  generateAutoWpAppName,
+} from "@/lib/wordpress/client"
 import { createAuthStateToken } from "@/lib/crypto"
 
 export async function POST(request: Request) {
@@ -70,11 +74,18 @@ export async function POST(request: Request) {
     const successUrl = `${callbackOrigin}/api/sites/callback?state=${state}`
     const rejectUrl = `${callbackOrigin}/sites?auth_status=rejected`
 
+    const userIdentifier =
+      user.user_metadata?.username ||
+      user.email ||
+      ""
+    const appName = generateAutoWpAppName(userIdentifier)
+
     const authorizeUrl = buildWordPressAuthorizeUrl({
       baseUrl: preflight.normalizedUrl,
-      appName: "WP Autopost Dashboard",
+      appName,
       successUrl,
       rejectUrl,
+      userIdentifier,
     })
 
     return NextResponse.json({

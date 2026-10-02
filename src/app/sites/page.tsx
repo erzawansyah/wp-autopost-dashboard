@@ -7,6 +7,7 @@ import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
 import { Button } from "@/components/atoms/button"
 import { Input } from "@/components/atoms/input"
+import { generateAutoWpAppName } from "@/lib/wordpress/app-name"
 import { Card, CardContent, CardHeader, CardDescription } from "@/components/atoms/card"
 import {
   Table,
@@ -62,6 +63,7 @@ function SitesContent() {
   const [baseUrl, setBaseUrl] = React.useState("")
   const [username, setUsername] = React.useState("")
   const [appPassword, setAppPassword] = React.useState("")
+  const [currentUserEmail, setCurrentUserEmail] = React.useState("")
 
   // Status aksi
   const [isConnecting, setIsConnecting] = React.useState(false)
@@ -134,6 +136,15 @@ function SitesContent() {
 
     const loadInitialSites = async () => {
       try {
+        fetch("/api/auth/me")
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.user?.email && isMounted) {
+              setCurrentUserEmail(data.user.email)
+            }
+          })
+          .catch(() => {})
+
         const res = await fetch("/api/sites")
         if (!isMounted) return
         if (res.status === 401) {
@@ -594,7 +605,7 @@ function SitesContent() {
                       {baseUrl.trim() && (
                         <div className="pt-0.5">
                           <a
-                            href={`${baseUrl.replace(/\/+$/, "")}/wp-admin/authorize-application.php?app_name=WP+Autopost+Dashboard`}
+                            href={`${baseUrl.replace(/\/+$/, "")}/wp-admin/authorize-application.php?app_name=${encodeURIComponent(generateAutoWpAppName(username.trim() || currentUserEmail))}`}
                             target="_blank"
                             rel="noreferrer"
                             className="inline-flex items-center gap-1.5 text-[11px] text-primary hover:underline font-medium"
