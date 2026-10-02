@@ -9,7 +9,7 @@ export const ContentInputSchema = z.object({
   keyword: z.string().min(2).max(200),
   title: z.string().max(300).optional(),
   brief: z.string().max(2000).optional(),
-  language: z.enum(["id", "en"]).default("id"),
+  language: z.string().default("id"),
   style: z.string().default("default"), // 'default' | 'listicle' | 'essay' | 'how-to-tutorial' | 'in-depth-review'
   wordCountTarget: z.number().int().min(300).max(5000).optional(),
 })

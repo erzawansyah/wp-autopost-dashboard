@@ -20,9 +20,11 @@ export const DrafterOutputSchema = z.object({
     ),
 });
 
+import { getLanguageDisplayName } from "@/lib/constants/languages";
+
 export interface ArticleDrafterInput {
   keyword: string;
-  language?: "id" | "en";
+  language?: string;
   wordCountTarget?: number;
   title?: string;
   brief?: string;
@@ -126,8 +128,7 @@ export async function executeArticleDrafter(
 
   const userPrompt = promptTemplate.renderUserPrompt({
     keyword: input.keyword,
-    languageName:
-      input.language === "en" ? "Bahasa Inggris" : "Bahasa Indonesia",
+    languageName: getLanguageDisplayName(input.language),
     wordCountTarget: String(targetWordCount),
     titleReference,
     briefNote,

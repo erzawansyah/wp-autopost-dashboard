@@ -37,6 +37,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { getGlobalAiModel, getModelDisplayName, getGlobalApiKey } from "@/lib/ai/settings"
+import { LanguageSelect } from "@/components/molecules/language-select"
 import { LabSiteOption } from "./lab-tools-runner"
 
 export interface LabNodeItem {
@@ -69,7 +70,7 @@ export function LabNodesRunner({ nodes, sites }: LabNodesRunnerProps) {
   const [titleInput, setTitleInput] = React.useState("Panduan Praktis Seduh Kopi Manual Brew untuk Pemula")
   const [briefInput, setBriefInput] = React.useState("Fokus pada metode V60 dan French Press serta takaran rasio air.")
   const [wordCountInput, setWordCountInput] = React.useState("800")
-  const [languageInput, setLanguageInput] = React.useState<"id" | "en">("id")
+  const [languageInput, setLanguageInput] = React.useState<string>("id")
   const [styleInput, setStyleInput] = React.useState("default")
   const [modeInput, setModeInput] = React.useState<"draft" | "publish" | "future">("draft")
   const [customInstructionsInput, setCustomInstructionsInput] = React.useState("")
@@ -216,6 +217,18 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
           title: titleInput || undefined,
           excerpt: excerptInput || undefined,
           rawMarkdown: markdownInput,
+        }
+        break
+
+      case "agentic_writer":
+      case "deepagent_writer":
+        params = {
+          keyword: keywordInput,
+          brief: briefInput || undefined,
+          wordCountTarget: Number(wordCountInput) || 1000,
+          language: languageInput,
+          style: styleInput,
+          customInstructions: customInstructionsInput || undefined,
         }
         break
     }
@@ -457,6 +470,30 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
                   </span>
                 </FormField>
               )}
+
+              {/* Node: agentic_writer & deepagent_writer WAJIB */}
+              {(selectedNodeId === "agentic_writer" || selectedNodeId === "deepagent_writer") && (
+                <>
+                  <FormField label="Kata Kunci Target (keyword)" id="kw-agentic" required>
+                    <Input
+                      id="kw-agentic"
+                      value={keywordInput}
+                      onChange={(e) => setKeywordInput(e.target.value)}
+                      placeholder="Kata kunci topik artikel"
+                    />
+                    <span className="text-[11px] text-muted-foreground">
+                      Topik bahasan yang akan diriset dan ditulis secara otonom oleh agen cerdas.
+                    </span>
+                  </FormField>
+                  <FormField label="Bahasa Artikel" id="lang-agentic" required>
+                    <LanguageSelect
+                      value={languageInput}
+                      onValueChange={setLanguageInput}
+                      disabled={isRunning}
+                    />
+                  </FormField>
+                </>
+              )}
             </div>
 
             {/* ============================================================ */}
@@ -478,13 +515,11 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
                 <>
                   <div className="grid grid-cols-2 gap-2">
                     <FormField label="Bahasa" id="lang-val">
-                      <Select value={languageInput} onValueChange={(val: "id" | "en") => setLanguageInput(val)}>
-                        <SelectTrigger id="lang-val"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="id">Indonesia (id)</SelectItem>
-                          <SelectItem value="en">Inggris (en)</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <LanguageSelect
+                        value={languageInput}
+                        onValueChange={setLanguageInput}
+                        disabled={isRunning}
+                      />
                     </FormField>
                     <FormField label="Target Kata" id="wc-val">
                       <Input
@@ -583,13 +618,11 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
                   </FormField>
                   <div className="grid grid-cols-2 gap-2">
                     <FormField label="Bahasa Naskah" id="lang-research">
-                      <Select value={languageInput} onValueChange={(val: "id" | "en") => setLanguageInput(val)}>
-                        <SelectTrigger id="lang-research"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="id">Indonesia (id)</SelectItem>
-                          <SelectItem value="en">Inggris (en)</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <LanguageSelect
+                        value={languageInput}
+                        onValueChange={setLanguageInput}
+                        disabled={isRunning}
+                      />
                     </FormField>
                     <FormField label="Kreativitas (temp)" id="temp-research">
                       <Input
@@ -620,13 +653,11 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
                       />
                     </FormField>
                     <FormField label="Bahasa Naskah" id="lang-draft">
-                      <Select value={languageInput} onValueChange={(val: "id" | "en") => setLanguageInput(val)}>
-                        <SelectTrigger id="lang-draft"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="id">Indonesia (id)</SelectItem>
-                          <SelectItem value="en">Inggris (en)</SelectItem>
-                        </SelectContent>
-                      </Select>
+                      <LanguageSelect
+                        value={languageInput}
+                        onValueChange={setLanguageInput}
+                        disabled={isRunning}
+                      />
                     </FormField>
                   </div>
                   <FormField label="Referensi Judul (title)" id="title-draft">
@@ -748,6 +779,53 @@ Segera bilas dripper dan server setelah digunakan agar minyak kopi tidak meningg
                       value={excerptInput}
                       onChange={(e) => setExcerptInput(e.target.value)}
                       placeholder="Ringkasan 1-2 kalimat (maks 160 karakter)"
+                    />
+                  </FormField>
+                </>
+              )}
+
+              {/* Opsional untuk Node: agentic_writer & deepagent_writer */}
+              {(selectedNodeId === "agentic_writer" || selectedNodeId === "deepagent_writer") && (
+                <>
+                  <FormField label="Situs WordPress Target" id="agent-site">
+                    <Select value={selectedSiteId} onValueChange={setSelectedSiteId}>
+                      <SelectTrigger id="agent-site">
+                        <SelectValue placeholder="Mode Simulasi (Tanpa WP)..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Mode Simulasi Standalone</SelectItem>
+                        {sites.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.site_name} ({s.base_url})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <FormField label="Target Kata" id="wc-agent">
+                    <Input
+                      id="wc-agent"
+                      type="number"
+                      value={wordCountInput}
+                      onChange={(e) => setWordCountInput(e.target.value)}
+                      placeholder="1000"
+                    />
+                  </FormField>
+                  <FormField label="Brief / Arahan Konten (brief)" id="brief-agent">
+                    <Textarea
+                      id="brief-agent"
+                      rows={2}
+                      value={briefInput}
+                      onChange={(e) => setBriefInput(e.target.value)}
+                      placeholder="Arahan khusus untuk agen..."
+                    />
+                  </FormField>
+                  <FormField label="Instruksi Tambahan" id="inst-agent">
+                    <Input
+                      id="inst-agent"
+                      value={customInstructionsInput}
+                      onChange={(e) => setCustomInstructionsInput(e.target.value)}
+                      placeholder="Instruksi spesifik bagi model AI"
                     />
                   </FormField>
                 </>

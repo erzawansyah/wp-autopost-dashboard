@@ -38,6 +38,8 @@ import {
   Zap,
 } from "lucide-react"
 import { getModelDisplayName } from "@/lib/ai/settings"
+import { LanguageSelect } from "@/components/molecules/language-select"
+import { getLanguageDisplayName } from "@/lib/constants/languages"
 
 export interface WpSiteOption {
   id: string
@@ -89,6 +91,7 @@ export interface QuickWriterSubmitPayload {
   siteId: string
   keyword: string
   engine: string
+  language: string
   categoryIds: number[]
   categoryNames: string[]
   tags: string
@@ -127,6 +130,7 @@ export function QuickWriterForm({
   // Form states
   const [siteId, setSiteId] = React.useState<string>(initialSiteId || (sites[0]?.id ?? ""))
   const [engine, setEngine] = React.useState<string>("standard")
+  const [language, setLanguage] = React.useState<string>("id")
   const [keyword, setKeyword] = React.useState<string>("")
   const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<number[]>([])
   const [selectedCategoryNames, setSelectedCategoryNames] = React.useState<string[]>([])
@@ -177,6 +181,7 @@ export function QuickWriterForm({
   const handleResetForm = () => {
     setKeyword("")
     setEngine("standard")
+    setLanguage("id")
     setSelectedCategoryIds([])
     setSelectedCategoryNames([])
     setTags("")
@@ -193,6 +198,7 @@ export function QuickWriterForm({
       siteId,
       keyword: keyword.trim(),
       engine,
+      language,
       categoryIds: selectedCategoryIds,
       categoryNames: selectedCategoryNames,
       tags: tags.trim(),
@@ -251,8 +257,8 @@ export function QuickWriterForm({
             {/* TAB 1: ESSENTIAL / WAJIB (Input Utama yang Ditonjolkan)  */}
             {/* ========================================================= */}
             <TabsContent value="essential" className="mt-0 flex flex-col gap-5">
-              {/* Baris 1: Grid 2 Kolom untuk Website Target dan Engine */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 items-start">
+              {/* Baris 1: Grid 3 Kolom untuk Website Target, Engine, dan Bahasa */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start">
                 {/* Field 1: Pilih Website Target */}
                 <FormField
                   label="Website WordPress Target"
@@ -346,9 +352,23 @@ export function QuickWriterForm({
                     </SelectContent>
                   </Select>
                 </FormField>
+
+                {/* Field 3: Bahasa Artikel */}
+                <FormField
+                  label="Bahasa Artikel"
+                  required
+                  hint="Bahasa utama penulisan artikel."
+                  tooltip="AI System Writer akan menghasilkan judul, heading, paragraf, dan meta SEO sesuai bahasa yang dipilih."
+                >
+                  <LanguageSelect
+                    value={language}
+                    onValueChange={setLanguage}
+                    disabled={isSubmitting}
+                  />
+                </FormField>
               </div>
 
-              {/* Field 3: Kata Kunci / Topik Utama */}
+              {/* Field 4: Kata Kunci / Topik Utama */}
               <FormField
                 label="Topik atau Kata Kunci Utama"
                 required
@@ -382,6 +402,10 @@ export function QuickWriterForm({
                       Engine:{" "}
                       <strong className="text-foreground font-medium">
                         {AVAILABLE_ENGINES.find((e) => e.id === engine)?.name || engine}
+                      </strong>{" "}
+                      • Bahasa:{" "}
+                      <strong className="text-foreground font-medium">
+                        {getLanguageDisplayName(language)}
                       </strong>{" "}
                       • Status:{" "}
                       <strong className="text-foreground font-medium">

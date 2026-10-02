@@ -16,10 +16,11 @@ import { webSearch } from "../../../shared/tools/web-search"
 import { readWebContent } from "../../../shared/tools/web-reader"
 import { searchRoyaltyFreeImages } from "../../../shared/tools/image-search"
 import { uploadMediaToWordPress } from "../../../shared/tools/upload-media"
+import { getLanguageDisplayName } from "@/lib/constants/languages"
 
 export interface DeepAgentWriterInput {
   keyword: string
-  language?: "id" | "en"
+  language?: string
   title?: string
   brief?: string
   wordCountTarget?: number
@@ -335,7 +336,7 @@ export async function executeDeepAgentWriter(
 
   const userPromptText = promptTemplate.renderUserPrompt({
     keyword: input.keyword,
-    languageName: language === "en" ? "Bahasa Inggris" : "Bahasa Indonesia",
+    languageName: getLanguageDisplayName(language),
     wordCountTarget: targetWordCount,
     briefNote,
     authorPersona,
@@ -439,7 +440,7 @@ ${inContentEmbeds || "Tidak ada gambar subbab tambahan."}
 
 === KETENTUAN PENULISAN ===
 - Topik: "${input.keyword}"
-- Bahasa: ${language === "en" ? "English" : "Bahasa Indonesia"}
+- Bahasa: ${getLanguageDisplayName(language)}
 - Panjang target: minimal ${targetWordCount} kata
 ${briefNote}
 ${authorPersona}

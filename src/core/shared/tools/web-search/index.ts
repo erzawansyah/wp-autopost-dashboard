@@ -29,7 +29,7 @@ export type WebSearchProvider =
 export interface WebSearchParams {
   query: string
   limit?: number
-  language?: "id" | "en"
+  language?: string
   provider?: WebSearchProvider
   apiKey?: string
 }
@@ -391,7 +391,7 @@ async function searchWithSerpApi(query: string, limit: number, apiKey: string, l
  */
 async function searchWithOpenKnowledge(query: string, limit: number, language: string): Promise<WebSearchResult[]> {
   try {
-    const langSubdomain = language === "en" ? "en" : "id"
+    const langSubdomain = language ? language.toLowerCase() : "id"
     const cleaned = extractSearchKeywords(query)
     const customUserAgent = "WPAutopostDashboard/1.0 (https://github.com/erzawansyah/wp-autopost-dashboard)"
 

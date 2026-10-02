@@ -35,6 +35,7 @@ import {
   SelectValue,
 } from "@/components/atoms/select"
 import { WPCategorySelect } from "@/components/molecules/wp-category-select"
+import { LanguageSelect } from "@/components/molecules/language-select"
 import {
   ScheduleStrategyPicker,
   ScheduleStrategyState,
@@ -85,6 +86,7 @@ export function KeywordListForm({
   // 1. Form States
   const [selectedSiteId, setSelectedSiteId] = React.useState<string>("")
   const [batchName, setBatchName] = React.useState<string>("")
+  const [language, setLanguage] = React.useState<string>("id")
   const [rawKeywordsText, setRawKeywordsText] = React.useState<string>("")
   const [engine, setEngine] = React.useState<string>("quick")
   const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<number[]>([])
@@ -217,6 +219,7 @@ export function KeywordListForm({
               }
             : undefined,
         engine,
+        language,
         category_ids: selectedCategoryIds,
         category_names: selectedCategoryNames,
         tags: tagList,
@@ -299,8 +302,8 @@ export function KeywordListForm({
             </div>
           )}
 
-          {/* 1. Pemilihan Situs WordPress & Nama Batch */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {/* 1. Pemilihan Situs WordPress, Bahasa Artikel, & Nama Batch */}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="site-select" className="text-xs font-medium text-foreground">
                 Website WordPress Target <span className="text-destructive">*</span>
@@ -321,6 +324,17 @@ export function KeywordListForm({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="language-select" className="text-xs font-medium text-foreground">
+                Bahasa Artikel <span className="text-destructive">*</span>
+              </Label>
+              <LanguageSelect
+                value={language}
+                onValueChange={setLanguage}
+                disabled={isSubmitting}
+              />
             </div>
 
             <div className="flex flex-col gap-1.5">

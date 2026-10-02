@@ -82,6 +82,7 @@ export default function NewPostPage() {
           siteId: payload.siteId,
           keyword: payload.keyword,
           engine: payload.engine,
+          language: payload.language,
           category_ids: payload.categoryIds,
           category_names: payload.categoryNames,
           tags: payload.tags || undefined,

@@ -29,6 +29,7 @@ export async function POST(request: Request) {
       apiKey,
       engine = "quick",
       style = "default",
+      language = "id",
     } = body
 
     if (!siteId || !keyword?.trim()) {
@@ -88,6 +89,7 @@ export async function POST(request: Request) {
           engine,
           aiModel,
           style,
+          language,
           category_ids: selectedCategoryIds,
         },
       })

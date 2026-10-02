@@ -9,6 +9,7 @@ import { loadEngineNodePrompt } from "../../../shared/engine-prompt-loader"
 import { ResearchData, ResearchOutlineItem, ArticleSource } from "../../types/contracts"
 import { webSearch } from "../../../shared/tools/web-search"
 import { readWebContent } from "../../../shared/tools/web-reader"
+import { getLanguageDisplayName } from "@/lib/constants/languages"
 
 export const TopicResearchSchema = z.object({
   summaryExplanation: z
@@ -57,7 +58,7 @@ export const TopicResearchSchema = z.object({
 
 export interface TopicResearcherInput {
   keyword: string
-  language?: "id" | "en"
+  language?: string
   brief?: string
   model?: string
   temperature?: number
@@ -248,7 +249,7 @@ export async function executeTopicResearcher(
   const briefNote = input.brief ? `- Catatan Khusus dari Pengguna: ${input.brief}` : ""
   const userPromptText = promptTemplate.renderUserPrompt({
     keyword: input.keyword,
-    languageName: language === "en" ? "Bahasa Inggris" : "Bahasa Indonesia",
+    languageName: getLanguageDisplayName(language),
     briefNote,
   })
 

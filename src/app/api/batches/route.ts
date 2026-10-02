@@ -32,6 +32,7 @@ export async function POST(request: Request) {
       intervalConfig,
       instantConfig,
       engine = "quick",
+      language = "id",
       category_ids = [],
       category_names = [],
       tags = [],
@@ -119,6 +120,7 @@ export async function POST(request: Request) {
         ai_config: {
           engine,
           aiModel,
+          language,
           category_ids,
           category_names,
           tags,
@@ -169,6 +171,7 @@ export async function POST(request: Request) {
         source_payload: {
           engine,
           aiModel,
+          language,
           category_ids: selectedCategoryIds,
           batch_name: batch.name,
           schedule_mode: scheduleMode,

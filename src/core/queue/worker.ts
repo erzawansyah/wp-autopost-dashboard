@@ -193,6 +193,7 @@ export async function processPostItem({
   const engine = (payloadMeta.engine as string) || "quick"
   const aiModel = (payloadMeta.aiModel as string) || undefined
   const style = (payloadMeta.style as string) || "default"
+  const language = (payloadMeta.language as string) || "id"
   const apiKey = clientApiKey || (payloadMeta.apiKey as string) || undefined
 
   await supabase.from("execution_logs").insert({
@@ -200,11 +201,12 @@ export async function processPostItem({
     user_id: post.user_id,
     step: "init_queue",
     level: "info",
-    message: `[Inisialisasi Antrean] Menerima topik "${post.target_keyword}" untuk diproses oleh engine ${engine}`,
+    message: `[Inisialisasi Antrean] Menerima topik "${post.target_keyword}" untuk diproses oleh engine ${engine} (Bahasa: ${language})`,
     details: {
       input: {
         keyword: post.target_keyword,
         engine,
+        language,
         model: aiModel || "default",
         site: site.site_name,
         targetStatus: post.wp_target_status || "draft",
@@ -241,7 +243,7 @@ export async function processPostItem({
           keyword: post.target_keyword,
           brief: post.custom_instructions_override || undefined,
           style,
-          language: "id",
+          language,
         },
         site: {
           siteId: site.id,
