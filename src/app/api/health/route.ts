@@ -4,8 +4,8 @@ export async function GET() {
   return NextResponse.json(
     {
       status: "ok",
-      version: "v0.1.1",
-      auto_deploy: "BERHASIL 🚀",
+      version: "v0.1.2",
+      message: "Portainer Auto-Redeploy Terbukti Berhasil! 🎉",
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     },
