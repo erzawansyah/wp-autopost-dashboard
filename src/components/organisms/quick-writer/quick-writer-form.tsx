@@ -56,13 +56,6 @@ export interface WritingEngineOption {
 
 export const AVAILABLE_ENGINES: WritingEngineOption[] = [
   {
-    id: "agentic",
-    name: "Agentic Writer",
-    shortDesc: "LangChain Autonomous Agent + Tools (Web & Gambar)",
-    badge: "Agentic AI",
-    isAvailable: true,
-  },
-  {
     id: "standard",
     name: "Standard Engine",
     shortDesc: "Riset topik mendalam & sisipan gambar otomatis",
@@ -75,6 +68,13 @@ export const AVAILABLE_ENGINES: WritingEngineOption[] = [
     shortDesc: "LangGraph State Machine (Cepat & Ringkas)",
     badge: "Cepat",
     isAvailable: true,
+  },
+  {
+    id: "agentic",
+    name: "Agentic Writer",
+    shortDesc: "LangChain Autonomous Agent (Dinonaktifkan sementara)",
+    badge: "Nonaktif",
+    isAvailable: false,
   },
   {
     id: "deep_research",

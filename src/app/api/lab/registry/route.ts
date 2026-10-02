@@ -230,8 +230,8 @@ export async function GET() {
     const engines = [
       {
         id: "agentic",
-        name: "Agentic Writer (Autonomous Tools)",
-        description: "Pipeline 3-node otonom bertenaga LangChain ReAct Agent yang secara fleksibel memilih kapan perlu riset web, kapan perlu kurasi dan upload gambar ke WordPress, dan menghasilkan artikel Markdown.",
+        name: "Agentic Writer (Dinonaktifkan Sementara)",
+        description: "Pipeline 3-node otonom bertenaga LangChain ReAct Agent yang secara fleksibel memilih kapan perlu riset web, kapan perlu kurasi dan upload gambar ke WordPress, dan menghasilkan artikel Markdown. (Sedang dinonaktifkan sementara).",
         estimatedDurationSeconds: 30,
         supportsFeaturedImage: true,
         supportsInContentImages: true,

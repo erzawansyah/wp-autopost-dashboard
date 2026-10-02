@@ -27,6 +27,14 @@ class EngineRegistryClass {
    * Mengambil engine berdasarkan id
    */
   get(id: string): WritingEngine | undefined {
+    // Fail-safe: jika pengguna atau item antrean lama meminta "agentic",
+    // alihkan secara aman ke 'standard' engine karena agentic sedang dinonaktifkan sementara
+    if (id === "agentic") {
+      console.warn(
+        "[EngineRegistry] Engine 'agentic' sedang dinonaktifkan sementara. Mengalihkan eksekusi ke 'standard' engine."
+      )
+      return this.engines.get("standard")
+    }
     return this.engines.get(id)
   }
 

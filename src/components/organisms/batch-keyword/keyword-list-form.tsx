@@ -347,7 +347,7 @@ export function KeywordListForm({
                 {engine === "quick"
                   ? "1-Shot Generator"
                   : engine === "agentic"
-                  ? "Autonomous Agent + Tools"
+                  ? "Dinonaktifkan Sementara"
                   : "Web Research & Curated Images"}
               </Badge>
             </div>
@@ -360,11 +360,11 @@ export function KeywordListForm({
                 <SelectItem value="quick" className="text-xs">
                   ⚡ Quick Engine (Cepat, Mandiri, &amp; Hemat Token)
                 </SelectItem>
-                <SelectItem value="agentic" className="text-xs">
-                  🤖 Agentic Writer (LangChain Autonomous Agent + Tools Mandiri)
-                </SelectItem>
                 <SelectItem value="standard" className="text-xs">
                   🌐 Standard Engine (Riset Web Live, LSI Keywords, &amp; Kurasi Gambar WP)
+                </SelectItem>
+                <SelectItem value="agentic" disabled className="text-xs text-muted-foreground opacity-60">
+                  🤖 Agentic Writer (Dinonaktifkan Sementara)
                 </SelectItem>
               </SelectContent>
             </Select>
