@@ -5,7 +5,6 @@ export async function GET() {
     {
       status: "ok",
       version: "v0.1.2",
-      message: "Portainer Auto-Redeploy Terbukti Berhasil! 🎉",
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     },

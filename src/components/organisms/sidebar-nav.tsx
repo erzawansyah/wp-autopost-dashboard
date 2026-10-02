@@ -151,7 +151,7 @@ export function SidebarNav() {
             <span className="size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
             <span className="hidden text-[11px] font-medium text-foreground/80 lg:block">Semua sistem normal</span>
           </div>
-          <span className="text-[10px] font-mono text-emerald-400 font-bold">v0.1.2 • Portainer Live 🟢</span>
+          <span className="text-[10px] font-mono text-muted-foreground">v0.1.2</span>
         </div>
         <div className="p-2.5 rounded-lg border border-border/70 bg-card text-[11px] flex flex-col gap-1">
           <span className="flex items-center gap-1.5 font-semibold text-foreground"><WandSparkles className="size-3 text-ai-process" /><span className="hidden lg:inline">Natural writing</span></span>
