@@ -1,0 +1,49 @@
+services:
+  wp-autopost-dashboard:
+    image: ${DOCKER_IMAGE:-wp-autopost-dashboard:latest}
+    container_name: wp-autopost-dashboard
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+
+      # 1. Supabase (Database & Auth)
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+      - NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}
+      - SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - SUPABASE_PROJECT_REF=${SUPABASE_PROJECT_REF:-}
+      - SUPABASE_ACCESS_TOKEN=${SUPABASE_ACCESS_TOKEN:-}
+
+      # 2. Security & Encryption (AES-256-GCM Master Key)
+      - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY}
+      - CRON_SECRET=${CRON_SECRET:-}
+      - WEBHOOK_SIGNATURE_SECRET=${WEBHOOK_SIGNATURE_SECRET:-}
+
+      # 3. AI Providers
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_DEFAULT_MODEL=${OPENROUTER_DEFAULT_MODEL:-anthropic/claude-3.5-sonnet}
+      - OPENROUTER_SITE_URL=${OPENROUTER_SITE_URL:-http://localhost:3000}
+      - OPENROUTER_APP_NAME=${OPENROUTER_APP_NAME:-WP Autopost Dashboard}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+
+      # 4. SEO & Integrations
+      - DATAFORSEO_LOGIN=${DATAFORSEO_LOGIN:-}
+      - DATAFORSEO_PASSWORD=${DATAFORSEO_PASSWORD:-}
+      - PEXELS_API_KEY=${PEXELS_API_KEY:-}
+
+    # Optional: pasang env_file jika di Portainer menggunakan file .env
+    # env_file:
+    #   - .env
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
