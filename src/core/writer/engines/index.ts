@@ -2,6 +2,7 @@ import { WritingEngine } from "../types/engine"
 import { QuickEngine } from "./quick"
 import { StandardEngine } from "./standard"
 import { AgenticEngine } from "./agentic"
+import { DeepAgentEngine } from "./deepagent"
 
 class EngineRegistryClass {
   private engines: Map<string, WritingEngine> = new Map()
@@ -11,6 +12,7 @@ class EngineRegistryClass {
     this.register(new QuickEngine())
     this.register(new StandardEngine())
     this.register(new AgenticEngine())
+    this.register(new DeepAgentEngine())
   }
 
   /**
@@ -27,14 +29,6 @@ class EngineRegistryClass {
    * Mengambil engine berdasarkan id
    */
   get(id: string): WritingEngine | undefined {
-    // Fail-safe: jika pengguna atau item antrean lama meminta "agentic",
-    // alihkan secara aman ke 'standard' engine karena agentic sedang dinonaktifkan sementara
-    if (id === "agentic") {
-      console.warn(
-        "[EngineRegistry] Engine 'agentic' sedang dinonaktifkan sementara. Mengalihkan eksekusi ke 'standard' engine."
-      )
-      return this.engines.get("standard")
-    }
     return this.engines.get(id)
   }
 

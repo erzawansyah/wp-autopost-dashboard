@@ -73,6 +73,10 @@ const NODE_INFO: Record<string, { label: string; desc: string }> = {
     label: "Agentic Writer (Autonomous Tools)",
     desc: "Autonomous LangChain agent memilih tools web search, reader, dan upload media secara mandiri.",
   },
+  deepagent_writer: {
+    label: "DeepAgent Writer (LangChain Deep Agents)",
+    desc: "LangChain Deep Agent dengan Todo planning, konteks filesystem, skills on-demand, dan tools otonom.",
+  },
   gutenberg_formatter: {
     label: "Serialisasi Blok Gutenberg",
     desc: "Mengonversi naskah Markdown menjadi blok native WordPress (<!-- wp:... -->).",
@@ -226,7 +230,9 @@ export function PostDetailTelemetry({
             <span>Engine</span>
           </div>
           <span className="text-xs font-semibold font-mono text-foreground capitalize">
-            {engineUsed === "agentic"
+            {engineUsed === "deepagent"
+              ? "DeepAgent Writer"
+              : engineUsed === "agentic"
               ? "Agentic Writer"
               : engineUsed === "standard"
               ? "Standard Engine"

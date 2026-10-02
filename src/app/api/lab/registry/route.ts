@@ -224,14 +224,42 @@ export async function GET() {
           language: "id",
         },
       },
+      {
+        id: "deepagent_writer",
+        name: "DeepAgent Writer (LangChain Deep Agents)",
+        description: "Framework resmi LangChain Deep Agents dengan Todo Planning (write_todos), Filesystem context, On-demand Skills, dan tools otonom web & media.",
+        isAiNode: true,
+        requiresSite: true,
+        defaultInput: {
+          keyword: "strategi investasi reksa dana untuk pemula",
+          brief: "Bahas profil risiko, diversifikasi aset, dan simulasi keuntungan.",
+          wordCountTarget: 1200,
+          language: "id",
+        },
+      },
     ]
 
     // Manifest Engines
     const engines = [
       {
+        id: "deepagent",
+        name: "DeepAgent Writer (LangChain Deep Agents)",
+        description: "Pipeline otonom canggih bertenaga framework resmi LangChain Deep Agents dengan kapabilitas Todo planning, filesystem context, on-demand skills, dan integrasi WordPress.",
+        estimatedDurationSeconds: 45,
+        supportsFeaturedImage: true,
+        supportsInContentImages: true,
+        supportsResearch: true,
+        defaultRequest: {
+          keyword: "panduan investasi saham untuk pemula",
+          brief: "Fokus pada tips fundamental, analisis rasio sederhana, dan psikologi trading.",
+          actionStatus: "draft",
+          model: "openai/gpt-oss-120b",
+        },
+      },
+      {
         id: "agentic",
-        name: "Agentic Writer (Dinonaktifkan Sementara)",
-        description: "Pipeline 3-node otonom bertenaga LangChain ReAct Agent yang secara fleksibel memilih kapan perlu riset web, kapan perlu kurasi dan upload gambar ke WordPress, dan menghasilkan artikel Markdown. (Sedang dinonaktifkan sementara).",
+        name: "Agentic Writer (Autonomous ReAct Agent)",
+        description: "Pipeline 3-node otonom bertenaga LangChain ReAct Agent yang secara fleksibel memilih kapan perlu riset web, kapan perlu kurasi dan upload gambar ke WordPress, dan menghasilkan artikel Markdown.",
         estimatedDurationSeconds: 30,
         supportsFeaturedImage: true,
         supportsInContentImages: true,

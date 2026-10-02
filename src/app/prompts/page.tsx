@@ -16,6 +16,7 @@ import {
   Zap,
   BookOpen,
   Bot,
+  Sparkles,
   RefreshCw,
   AlertCircle,
   Info,
@@ -32,6 +33,7 @@ const ENGINE_ICONS: Record<string, React.ElementType> = {
   quick: Zap,
   standard: BookOpen,
   agentic: Bot,
+  deepagent: Sparkles,
 }
 
 export default function PromptsPage() {
@@ -194,6 +196,14 @@ export default function PromptsPage() {
                       Pipeline otonom bertenaga LangChain Agent + Tools:{" "}
                       <span className="text-foreground/80 font-mono">
                         taxonomy_resolver → agentic_writer (tools: web_search, web_reader, image_search, upload_media)
+                      </span>
+                    </p>
+                  )}
+                  {engine.engineId === "deepagent" && (
+                    <p>
+                      Pipeline agen otonom bertenaga LangChain Deep Agents:{" "}
+                      <span className="text-foreground/80 font-mono">
+                        taxonomy_resolver → deepagent_writer (todo planning, filesystem memory, &amp; skills)
                       </span>
                     </p>
                   )}

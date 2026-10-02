@@ -26,6 +26,10 @@ const ENGINE_MANIFEST: Record<string, { label: string; nodes: string[] }> = {
     label: "Agentic Writer",
     nodes: ["taxonomy_resolver", "agentic_writer"],
   },
+  deepagent: {
+    label: "DeepAgent Writer (LangChain Deep Agents)",
+    nodes: ["taxonomy_resolver", "deepagent_writer"],
+  },
 }
 
 function readDefaultPrompts(engineId: string) {

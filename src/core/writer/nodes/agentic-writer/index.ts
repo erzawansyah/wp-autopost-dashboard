@@ -226,6 +226,10 @@ export async function executeAgenticWriter(
     async ({ imageUrl, title, altText, caption, isFeatured = false }) => {
       const cleanUrl = imageUrl.trim()
       try {
+        if (!input.wpCredentials?.baseUrl || !input.wpCredentials?.applicationPassword) {
+          return `Info: Kredensial WordPress tidak tersedia pada sesi ini. Jangan panggil upload_to_wordpress_media lagi. Anda dapat langsung menggunakan URL gambar asli dalam naskah Markdown: ![${altText || title || "Ilustrasi"}](${cleanUrl})`
+        }
+
         const uploadResult = await uploadMediaToWordPress({
           imageUrl: cleanUrl,
           title: title || "Foto Ilustrasi Artikel",
@@ -238,7 +242,7 @@ export async function executeAgenticWriter(
         })
 
         if (!uploadResult.ok || !uploadResult.mediaId) {
-          return `Gagal mengunggah gambar ke WordPress: ${uploadResult.error || "Terjadi kesalahan upload."}`
+          return `Upload ke WordPress tidak berhasil (${uploadResult.error || "Gagal"}). Jangan ulangi pemanggilan tool ini untuk URL yang sama. Lanjutkan penulisan artikel dan gunakan URL gambar secara langsung dalam naskah Markdown jika diperlukan.`
         }
 
         const wpUrl = uploadResult.sourceUrl || cleanUrl
@@ -345,21 +349,30 @@ export async function executeAgenticWriter(
 
   let rawContent = ""
   try {
-    const agentResult = await agent.invoke({
-      messages: [new HumanMessage(userPromptText)],
-    })
+    const agentResult = await agent.invoke(
+      {
+        messages: [new HumanMessage(userPromptText)],
+      },
+      {
+        recursionLimit: 50,
+      }
+    )
 
     const messages = agentResult.messages || []
     const lastMsg = messages[messages.length - 1]
     rawContent = typeof lastMsg?.content === "string" ? lastMsg.content : JSON.stringify(lastMsg?.content || "")
   } catch (agentErr) {
-    console.warn("[agentic-writer] LangChain agent error, falling back to direct synthesis:", agentErr)
+    console.warn("[agentic-writer] LangChain agent error atau recursion limit tercapai, menjalankan sintesis langsung:", agentErr)
     // Fallback: Jika agen terputus saat tool calling loop, minta LLM langsung menyusun naskah
-    const fallbackResponse = await llm.invoke([
-      { role: "system", content: fullSystemPrompt },
-      { role: "user", content: userPromptText },
-    ])
-    rawContent = typeof fallbackResponse.content === "string" ? fallbackResponse.content : JSON.stringify(fallbackResponse.content)
+    try {
+      const fallbackResponse = await llm.invoke([
+        { role: "system", content: fullSystemPrompt },
+        { role: "user", content: userPromptText },
+      ])
+      rawContent = typeof fallbackResponse.content === "string" ? fallbackResponse.content : JSON.stringify(fallbackResponse.content)
+    } catch (fallbackErr) {
+      console.error("[agentic-writer] Fallback LLM juga gagal:", fallbackErr)
+    }
   }
 
   // 8. Parsing Keluaran Naskah Artikel
@@ -380,7 +393,72 @@ export async function executeAgenticWriter(
     if (!excerpt && nonHeadingLines.length > 0) {
       excerpt = nonHeadingLines[0].slice(0, 160)
     }
-    markdownContent = rawContent
+    // Hanya gunakan jika tampak seperti artikel (lebih dari 150 karakter)
+    if (rawContent.length > 150) {
+      markdownContent = rawContent
+    }
+  }
+
+  // 9. GUARANTEE OF COMPLETION SAFETY NET:
+  // Jika agen otonom berhenti setelah memanggil tools (misal hanya melaporkan ringkasan riset)
+  // dan naskah yang dihasilkan kurang dari 250 kata, jalankan sintesis editorial naskah utuh
+  // dengan menyuntikkan seluruh temuan fakta web dan gambar yang telah dikumpulkan.
+  const currentWordCount = markdownContent.split(/\s+/).filter(Boolean).length
+  if (currentWordCount < 250) {
+    console.log(
+      `[agentic-writer] Naskah dari agen belum lengkap (${currentWordCount} kata). Menjalankan sintesis editorial naskah utuh...`
+    )
+
+    const facts = Array.from(trackedSourcesMap.values())
+      .slice(0, 6)
+      .map((s, idx) => `[Fakta ${idx + 1}] Sumber: ${s.title}\nURL: ${s.url}\nRingkasan: ${s.snippet}`)
+      .join("\n\n")
+
+    const inContentEmbeds = inContentImages
+      .map((img) => `![${img.altText || img.subheading}](${img.imageUrl} "${img.caption || ""}")`)
+      .join("\n\n")
+
+    const synthPrompt = `Anda adalah Jurnalis Senior & Editor WordPress.
+Berdasarkan data riset aktual dan foto yang telah dikumpulkan di bawah ini, tuliskan artikel naskah utuh berkualitas editorial tinggi sekarang juga.
+
+=== DATA RISET AKTUAL ===
+${facts || `Topik utama: ${input.keyword}`}
+
+=== ASET GAMBAR YANG TERSEDIA ===
+${inContentEmbeds || "Tidak ada gambar subbab tambahan."}
+
+=== KETENTUAN PENULISAN ===
+- Topik: "${input.keyword}"
+- Bahasa: ${language === "en" ? "English" : "Bahasa Indonesia"}
+- Panjang target: minimal ${targetWordCount} kata
+${briefNote}
+${authorPersona}
+${customInstructionsNote}
+
+ATURAN STRICT:
+1. DILARANG ada angka sitasi akademis seperti [1], [2], [^1]. Integrasikan fakta langsung secara mengalir.
+2. DILARANG membuat section "Referensi" atau "Daftar Pustaka" di akhir naskah.
+3. DILARANG penomoran subbab (seperti "## 1. ...") dan DILARANG ada judul "Kesimpulan".
+4. Kembalikan HANYA format JSON valid dengan field: "title", "excerpt", "markdownContent".`
+
+    try {
+      const synthRes = await llm.invoke([
+        { role: "system", content: fullSystemPrompt },
+        { role: "user", content: synthPrompt },
+      ])
+      const synthText = typeof synthRes.content === "string" ? synthRes.content : JSON.stringify(synthRes.content)
+      const synthParsed = extractJsonFromText(synthText)
+
+      if (synthParsed?.markdownContent && synthParsed.markdownContent.length > 200) {
+        title = synthParsed.title?.trim() || title
+        excerpt = synthParsed.excerpt?.trim() || excerpt
+        markdownContent = synthParsed.markdownContent.trim()
+      } else if (synthText.length > 250) {
+        markdownContent = synthText
+      }
+    } catch (synthErr) {
+      console.warn("[agentic-writer] Sintesis editorial cadangan gagal:", synthErr)
+    }
   }
 
   if (!title) {
