@@ -43,13 +43,18 @@ function extractFlexibleSections(content: string): Record<string, string> {
   }
 
   // 2. Pola heading: ### [SECTION_NAME] atau ### SECTION_NAME
-  const headingRegex = /#{2,4}\s*\[?([A-Z0-9_]+)\]?\s*([\s\S]*?)(?=(?:#{2,4}\s*\[?[A-Z0-9_]+\]?|$))/gi
+  // PENTING: Hanya potong jika heading berikutnya benar-benar adalah section pembatas resmi
+  // agar sub-heading markdown (### I. ..., ### 1. ...) di dalam isi prompt tidak memotong teks.
+  const knownSections = "(?:SYSTEM_PROMPT|USER_PROMPT|OUTPUT_FORMAT|PROMPT)"
+  const headingRegex = new RegExp(
+    `#{2,4}\\s*\\[?(${knownSections})\\]?\\s*([\\s\\S]*?)(?=(?:#{2,4}\\s*\\[?${knownSections}\\]?|$))`,
+    "gi"
+  )
+
   while ((match = headingRegex.exec(content)) !== null) {
     const secName = match[1].toUpperCase()
     const secContent = match[2].trim()
-    if (["SYSTEM_PROMPT", "USER_PROMPT", "OUTPUT_FORMAT", "PROMPT"].includes(secName)) {
-      sections[secName] = secContent
-    }
+    sections[secName] = secContent
   }
 
   return sections

@@ -275,11 +275,14 @@ export function QueueDataTable({
                             </span>
                           )}
                         </div>
-                        {item.lastError && (
-                          <span className="text-[10px] text-destructive font-medium truncate max-w-sm mt-0.5">
-                            Kendala: {item.lastError}
-                          </span>
-                        )}
+                        {item.lastError &&
+                          !["published_on_wp", "saved_draft_on_wp", "scheduled_on_wp"].includes(
+                            item.status
+                          ) && (
+                            <span className="text-[10px] text-destructive font-medium truncate max-w-sm mt-0.5">
+                              Kendala: {item.lastError}
+                            </span>
+                          )}
                       </div>
                     </TableCell>
 

@@ -154,15 +154,16 @@ export function PostDetailStepper({ state, lastError, className }: PostDetailSte
         })}
       </div>
 
-      {lastError && (
-        <div className="mt-1 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive animate-in fade-in-50">
-          <AlertCircle className="size-4 shrink-0 mt-0.5" />
-          <div className="flex flex-col gap-0.5">
-            <span className="font-bold">Kendala Eksekusi:</span>
-            <span className="text-[11px] leading-relaxed">{lastError}</span>
+      {lastError &&
+        !["published_on_wp", "saved_draft_on_wp", "scheduled_on_wp"].includes(state) && (
+          <div className="mt-1 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive animate-in fade-in-50">
+            <AlertCircle className="size-4 shrink-0 mt-0.5" />
+            <div className="flex flex-col gap-0.5">
+              <span className="font-bold">Kendala Eksekusi:</span>
+              <span className="text-[11px] leading-relaxed">{lastError}</span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
     </div>
   )
 }

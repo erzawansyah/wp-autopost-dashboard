@@ -119,6 +119,7 @@ export async function processPostItem({
       .from("post_items")
       .update({
         state: "generating_content",
+        last_error: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", postId)
@@ -180,6 +181,7 @@ export async function processPostItem({
     .from("post_items")
     .update({
       state: "generating_content",
+      last_error: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", postId)
@@ -331,6 +333,7 @@ export async function processPostItem({
       categories: resolvedCategoryIds.map(String),
       tags: resolvedTagIds.length > 0 ? resolvedTagIds.map(String) : tagList,
       state: "syncing_to_wp",
+      last_error: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", postId)
@@ -443,6 +446,7 @@ export async function processPostItem({
       state: finalState,
       wp_post_id: wpResult.wpPostId,
       wp_post_url: wpResult.wpPostUrl,
+      last_error: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", postId)
@@ -480,10 +484,10 @@ export interface ClaimedQueueItem {
 export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueueItem[]> {
   const supabase = await getSupabaseClient()
 
-  // 0. Auto-healing: Reset item yang tersangkut di 'generating_content' atau 'syncing_to_wp' > 4 menit
+  // 0. Auto-healing: Reset item yang tersangkut di 'generating_content' atau 'syncing_to_wp' > 10 menit
   // (misal akibat worker sebelumnya terputus atau timeout di serverless)
   try {
-    const staleThreshold = new Date(Date.now() - 4 * 60 * 1000).toISOString()
+    const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString()
     await supabase
       .from("post_items")
       .update({
@@ -522,6 +526,7 @@ export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueu
       .from("post_items")
       .update({
         state: "generating_content",
+        last_error: null,
         updated_at: nowIso,
       })
       .eq("id", item.id)
