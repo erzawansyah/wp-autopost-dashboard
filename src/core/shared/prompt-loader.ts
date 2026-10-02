@@ -215,9 +215,9 @@ export function loadNodePrompt(nodeName: string, fallbackContent?: string): Load
   ]
 
   for (const filePath of possiblePaths) {
-    if (fs.existsSync(filePath)) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ filePath)) {
       try {
-        const raw = fs.readFileSync(filePath, "utf-8")
+        const raw = fs.readFileSync(/*turbopackIgnore: true*/ filePath, "utf-8")
         const parsed = parsePromptMarkdown(raw)
         promptCache.set(nodeName, parsed)
         return parsed

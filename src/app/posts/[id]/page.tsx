@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
@@ -18,11 +18,8 @@ import {
   ExternalLink,
   RefreshCw,
   Loader2,
-  Sparkles,
-  Layers,
   ArrowLeft,
   AlertCircle,
-  Globe,
 } from "lucide-react"
 
 interface PostDetailData {
@@ -59,7 +56,6 @@ interface PostDetailData {
 
 export default function PostDetailPage() {
   const params = useParams()
-  const router = useRouter()
   const postId = params.id as string
 
   const [post, setPost] = React.useState<PostDetailData | null>(null)

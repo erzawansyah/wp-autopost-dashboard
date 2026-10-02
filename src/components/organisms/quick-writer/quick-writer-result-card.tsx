@@ -11,7 +11,6 @@ import {
   RotateCcw,
   ListOrdered,
   Clock,
-  Sparkles,
   Layers,
   Globe,
 } from "lucide-react"

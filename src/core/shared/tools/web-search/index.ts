@@ -171,8 +171,8 @@ function getApiKey(key: string): string | undefined {
 
   for (const envFile of [".env.local", ".env"]) {
     try {
-      if (fs.existsSync(envFile)) {
-        const content = fs.readFileSync(envFile, "utf-8")
+      if (fs.existsSync(/*turbopackIgnore: true*/ envFile)) {
+        const content = fs.readFileSync(/*turbopackIgnore: true*/ envFile, "utf-8")
         const match = content.match(new RegExp(`^\\s*${key}\\s*=\\s*["']?([^"'\\r\\n]+)["']?`, "m"))
         if (match && match[1]) {
           return match[1].trim()

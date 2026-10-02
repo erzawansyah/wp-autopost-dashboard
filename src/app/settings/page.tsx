@@ -1,23 +1,22 @@
+"use client"
+
 import Link from "next/link"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
+import { PageContainer } from "@/components/templates/page-container"
+import { PageHeader } from "@/components/molecules/page-header"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
-import { Bot, ChevronRight, Search, SlidersHorizontal, UserRound } from "lucide-react"
+import { Bot, ChevronRight, Search, Settings, SlidersHorizontal, UserRound } from "lucide-react"
 
 export default function SettingsPage() {
   return (
     <DashboardLayout>
-      <div className="flex flex-col gap-7">
-        <div>
-          <div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-            <span className="size-1.5 rounded-full bg-primary" />
-            <span>Workspace / settings</span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Pengaturan</h1>
-          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
-            Kelola koneksi AI, preferensi akun, dan konfigurasi ruang kerja dari satu tempat.
-          </p>
-        </div>
+      <PageContainer size="default">
+        <PageHeader
+          title="Pengaturan"
+          description="Kelola koneksi AI, preferensi akun, dan konfigurasi ruang kerja dari satu tempat."
+          icon={Settings}
+        />
 
         <div className="grid gap-4 md:grid-cols-2">
           <Card className="border-border/80 bg-card/90 shadow-2xs transition-shadow hover:shadow-md">
@@ -77,7 +76,7 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </div>
-      </div>
+      </PageContainer>
     </DashboardLayout>
   )
 }

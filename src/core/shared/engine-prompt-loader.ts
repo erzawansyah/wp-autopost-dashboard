@@ -1,7 +1,6 @@
 import fs from "fs"
 import path from "path"
 import {
-  extractSections,
   interpolateVariables,
   loadNodePrompt,
 } from "./prompt-loader"
@@ -121,9 +120,9 @@ export function loadEnginePrompts(engineId: string): EnginePromptsMap {
   ]
 
   for (const filePath of possiblePaths) {
-    if (fs.existsSync(filePath)) {
+    if (fs.existsSync(/*turbopackIgnore: true*/ filePath)) {
       try {
-        const raw = fs.readFileSync(filePath, "utf-8")
+        const raw = fs.readFileSync(/*turbopackIgnore: true*/ filePath, "utf-8")
         const parsed = parseEnginePromptsMarkdown(raw)
         enginePromptsCache.set(normalizedEngineId, parsed)
         return parsed

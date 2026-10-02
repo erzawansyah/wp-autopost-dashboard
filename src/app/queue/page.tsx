@@ -9,8 +9,6 @@ import {
   History,
   Filter,
   X,
-  ExternalLink,
-  Clock,
   Globe,
 } from "lucide-react"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"

@@ -8,10 +8,6 @@ import {
   Zap,
   Globe,
   RefreshCw,
-  CheckCircle2,
-  Calendar,
-  AlertCircle,
-  ExternalLink,
   Trash2,
   ListFilter,
 } from "lucide-react"
@@ -20,7 +16,6 @@ import { Badge } from "@/components/atoms/badge"
 import { Button } from "@/components/atoms/button"
 import { Progress } from "@/components/atoms/progress"
 import { EmptyState } from "@/components/molecules/empty-state"
-import { formatIndonesianDateTime } from "@/lib/scheduler/date-calculator"
 
 export interface BatchItemData {
   id: string

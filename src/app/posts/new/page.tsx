@@ -21,7 +21,6 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
-  ArrowRight,
 } from "lucide-react"
 
 export default function NewPostPage() {

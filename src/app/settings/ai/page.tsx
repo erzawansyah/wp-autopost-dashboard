@@ -9,7 +9,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/atoms/button"
 import { Input } from "@/components/atoms/input"
 import { FormField } from "@/components/molecules/form-field"
-import { HelpTooltip } from "@/components/molecules/help-tooltip"
 import { OpenrouterModelPicker } from "@/components/molecules/openrouter-model-picker"
 import {
   Bot,

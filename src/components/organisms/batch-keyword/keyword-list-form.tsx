@@ -3,8 +3,6 @@
 import * as React from "react"
 import {
   Layers,
-  Sparkles,
-  Globe,
   SlidersHorizontal,
   ChevronDown,
   ChevronUp,

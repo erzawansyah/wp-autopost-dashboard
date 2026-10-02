@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { CalendarRange, Clock, Zap, Shuffle, Info, Sparkles } from "lucide-react"
+import { CalendarRange, Clock, Zap, Shuffle, Info } from "lucide-react"
 import { Label } from "@/components/atoms/label"
 import { Input } from "@/components/atoms/input"
 import { Checkbox } from "@/components/atoms/checkbox"

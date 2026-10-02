@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { OpenRouterLlmService } from "@/lib/ai/openrouter";
-import { WriterState } from "../../types/engine";
 import { ResearchData } from "../../types/contracts";
 
 export const DrafterOutputSchema = z.object({

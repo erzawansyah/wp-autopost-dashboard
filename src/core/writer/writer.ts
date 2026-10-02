@@ -1,7 +1,6 @@
 import crypto from "crypto"
 import {
   WriterRequest,
-  WriterRequestSchema,
   WriterResult,
   WpEnrichment,
 } from "./types/contracts"
