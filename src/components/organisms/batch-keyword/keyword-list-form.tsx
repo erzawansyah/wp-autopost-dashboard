@@ -346,7 +346,11 @@ export function KeywordListForm({
                 Mesin Penulisan (Writing Engine)
               </Label>
               <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary">
-                {engine === "quick" ? "1-Shot Generator" : "Web Research & Curated Images"}
+                {engine === "quick"
+                  ? "1-Shot Generator"
+                  : engine === "agentic"
+                  ? "Autonomous Agent + Tools"
+                  : "Web Research & Curated Images"}
               </Badge>
             </div>
 
@@ -356,7 +360,10 @@ export function KeywordListForm({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="quick" className="text-xs">
-                  ⚡ Quick Engine (Default: Cepat, Mandiri, &amp; Hemat Token)
+                  ⚡ Quick Engine (Cepat, Mandiri, &amp; Hemat Token)
+                </SelectItem>
+                <SelectItem value="agentic" className="text-xs">
+                  🤖 Agentic Writer (LangChain Autonomous Agent + Tools Mandiri)
                 </SelectItem>
                 <SelectItem value="standard" className="text-xs">
                   🌐 Standard Engine (Riset Web Live, LSI Keywords, &amp; Kurasi Gambar WP)
@@ -374,6 +381,10 @@ export function KeywordListForm({
                 {engine === "quick" ? (
                   <>
                     Estimasi pengerjaan: <strong>~30–50 detik</strong> per artikel. Model AI menulis secara kreatif dan langsung tanpa jeda riset web eksternal.
+                  </>
+                ) : engine === "agentic" ? (
+                  <>
+                    Estimasi pengerjaan: <strong>~1–2 menit</strong> per artikel. Autonomous agent LangChain bebas memanggil web search, reader, dan unggah media WordPress sesuai kebutuhan topik.
                   </>
                 ) : (
                   <>

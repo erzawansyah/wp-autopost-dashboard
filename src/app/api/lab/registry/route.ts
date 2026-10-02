@@ -211,10 +211,38 @@ export async function GET() {
           markdownContent: "# Judul Utama\n\nIni adalah paragraf pengantar naskah.\n\n## Sub-bagian Pertama\n\n- Poin pertama yang praktis\n- Poin kedua dengan penjelasan ringkas\n\n> Kutipan penting untuk pembaca.\n",
         },
       },
+      {
+        id: "agentic_writer",
+        name: "Agentic Writer (Autonomous Tools)",
+        description: "LangChain Autonomous Agent yang memilih dan mengeksekusi tools (web search, web reader, image search, WP upload) secara mandiri untuk riset dan penulisan naskah artikel utuh.",
+        isAiNode: true,
+        requiresSite: true,
+        defaultInput: {
+          keyword: "tips merawat tanaman hias monstera",
+          brief: "Bahas cara penyiraman, pencahayaan, dan pencegahan hama.",
+          wordCountTarget: 1000,
+          language: "id",
+        },
+      },
     ]
 
     // Manifest Engines
     const engines = [
+      {
+        id: "agentic",
+        name: "Agentic Writer (Autonomous Tools)",
+        description: "Pipeline 3-node otonom bertenaga LangChain ReAct Agent yang secara fleksibel memilih kapan perlu riset web, kapan perlu kurasi dan upload gambar ke WordPress, dan menghasilkan artikel Markdown.",
+        estimatedDurationSeconds: 30,
+        supportsFeaturedImage: true,
+        supportsInContentImages: true,
+        supportsResearch: true,
+        defaultRequest: {
+          keyword: "panduan investasi saham untuk pemula",
+          brief: "Fokus pada tips fundamental, analisis rasio sederhana, dan psikologi trading.",
+          actionStatus: "draft",
+          model: "openai/gpt-oss-120b",
+        },
+      },
       {
         id: "standard",
         name: "Standard Engine (Riset & Gambar)",

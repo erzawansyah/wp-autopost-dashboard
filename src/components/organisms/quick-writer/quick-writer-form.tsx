@@ -56,6 +56,13 @@ export interface WritingEngineOption {
 
 export const AVAILABLE_ENGINES: WritingEngineOption[] = [
   {
+    id: "agentic",
+    name: "Agentic Writer",
+    shortDesc: "LangChain Autonomous Agent + Tools (Web & Gambar)",
+    badge: "Agentic AI",
+    isAvailable: true,
+  },
+  {
     id: "standard",
     name: "Standard Engine",
     shortDesc: "Riset topik mendalam & sisipan gambar otomatis",

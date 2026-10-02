@@ -15,6 +15,7 @@ import {
   FileText,
   Zap,
   BookOpen,
+  Bot,
   RefreshCw,
   AlertCircle,
   Info,
@@ -30,6 +31,7 @@ interface EnginePromptsData {
 const ENGINE_ICONS: Record<string, React.ElementType> = {
   quick: Zap,
   standard: BookOpen,
+  agentic: Bot,
 }
 
 export default function PromptsPage() {
@@ -184,6 +186,14 @@ export default function PromptsPage() {
                       <span className="text-foreground/80 font-mono">
                         taxonomy_resolver → topic_researcher → image_curator → article_drafter →
                         quality_checker
+                      </span>
+                    </p>
+                  )}
+                  {engine.engineId === "agentic" && (
+                    <p>
+                      Pipeline otonom bertenaga LangChain Agent + Tools:{" "}
+                      <span className="text-foreground/80 font-mono">
+                        taxonomy_resolver → agentic_writer (tools: web_search, web_reader, image_search, upload_media)
                       </span>
                     </p>
                   )}

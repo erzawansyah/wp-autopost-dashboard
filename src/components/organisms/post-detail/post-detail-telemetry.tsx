@@ -69,6 +69,10 @@ const NODE_INFO: Record<string, { label: string; desc: string }> = {
     label: "Pemeriksaan Kualitas",
     desc: "Mengevaluasi kelayakan naskah, heading Markdown, dan bebas penolakan chatbot.",
   },
+  agentic_writer: {
+    label: "Agentic Writer (Autonomous Tools)",
+    desc: "Autonomous LangChain agent memilih tools web search, reader, dan upload media secara mandiri.",
+  },
   gutenberg_formatter: {
     label: "Serialisasi Blok Gutenberg",
     desc: "Mengonversi naskah Markdown menjadi blok native WordPress (<!-- wp:... -->).",
@@ -222,7 +226,9 @@ export function PostDetailTelemetry({
             <span>Engine</span>
           </div>
           <span className="text-xs font-semibold font-mono text-foreground capitalize">
-            {engineUsed === "standard"
+            {engineUsed === "agentic"
+              ? "Agentic Writer"
+              : engineUsed === "standard"
               ? "Standard Engine"
               : engineUsed === "deep"
               ? "Deep Research"

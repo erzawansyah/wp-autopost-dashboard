@@ -22,6 +22,10 @@ const ENGINE_MANIFEST: Record<string, { label: string; nodes: string[] }> = {
       "quality_checker",
     ],
   },
+  agentic: {
+    label: "Agentic Writer",
+    nodes: ["taxonomy_resolver", "agentic_writer"],
+  },
 }
 
 function readDefaultPrompts(engineId: string) {

@@ -19,6 +19,7 @@ import { articleDrafterNode } from "@/core/writer/nodes/article-drafter"
 import { imageCuratorNode } from "@/core/writer/nodes/image-curator"
 import { qualityCheckerNode } from "@/core/writer/nodes/quality-checker"
 import { gutenbergFormatterNode } from "@/core/writer/nodes/gutenberg-formatter"
+import { agenticWriterNode } from "@/core/writer/nodes/agentic-writer"
 import { run } from "@/core/writer"
 import { OpenRouterLlmService } from "@/lib/ai/openrouter"
 import { WriterState } from "@/core/writer/types/engine"
@@ -620,6 +621,48 @@ export async function POST(request: Request) {
 
           const formatted = await gutenbergFormatterNode(mockState)
           nodeOutput = formatted
+          nodeLogs = mockState.nodeLogs || []
+          break
+        }
+
+        case "agentic_writer": {
+          const sitePayload = wpCredentials
+            ? {
+                siteId: siteId || "00000000-0000-0000-0000-000000000000",
+                wpSiteId: siteId || "00000000-0000-0000-0000-000000000000",
+                baseUrl: wpCredentials.baseUrl,
+                username: wpCredentials.username,
+                applicationPassword: wpCredentials.applicationPassword,
+              }
+            : undefined
+
+          const mockState = createMockWriterState({
+            context: {
+              request: createMockWriterRequest({
+                engine: "agentic",
+                content: {
+                  keyword: params.keyword || "tips merawat tanaman hias monstera",
+                  brief: params.brief,
+                  wordCountTarget: params.wordCountTarget || 1000,
+                  language: params.language || "id",
+                  style: "default",
+                },
+                site: sitePayload as any,
+                model: model || params.model || undefined,
+                apiKey: apiKey || params.apiKey || undefined,
+                customInstructions: params.customInstructions,
+              }),
+              llmService: new OpenRouterLlmService(apiKey || params.apiKey),
+              promptConfig: {
+                systemPrompt: "",
+                userPromptTemplate: "",
+                variables: {},
+              },
+            },
+          })
+
+          const result = await agenticWriterNode(mockState)
+          nodeOutput = result
           nodeLogs = mockState.nodeLogs || []
           break
         }
