@@ -222,6 +222,8 @@ PANDUAN GAYA BAHASA (ANTI-SLOP WRITING v3.0):
 
 - ANDA WAJIB MENGIKUTI STRUKTUR OUTLINE SUBBAB (##) yang telah dirancang oleh tim riset.
 - Integrasikan entitas semantik (LSI) dan fakta kunci yang disediakan secara alami ke dalam alinea pembahasan.
+- DILARANG KERAS FORMAT SITASI JURNAL & SECTION REFERENSI: Dilarang menyertakan nomor sitasi seperti [1], [2], [^1] dalam teks. Dilarang membuat bagian, judul bab, atau daftar "Referensi" / "Daftar Pustaka" di akhir artikel. Ini artikel blog WordPress, bukan makalah skripsi. Fakta harus mengalir langsung dalam kalimat naratif.
+- DILARANG PERKENALAN DIRI KAKU (NO CRINGE PERSONA): Dilarang membuka artikel dengan memperkenalkan diri secara literal seperti "Sebagai [profesi], saya, [Nama]..." atau sejenisnya. Data persona hanya sebagai panduan sudut pandang, bukan untuk perkenalan diri narsistik.
 - SEMATKAN ASET GAMBAR TERKURASI TEPAT DI BAWAH SUBBAB H2 YANG RELEVAN menggunakan sintaks Markdown baku: `![Alt Text](URL)` diikuti `*Keterangan Gambar*`.
 - KELUARAN WAJIB DALAM FORMAT MARKDOWN MURNI (bukan HTML).
 - DILARANG MENCANTUMKAN BYLINE / ATRIBUSI PENULIS: Dilarang keras menuliskan nama penulis, bio penulis, atau teks seperti 'Penulis: ...', 'Ditulis oleh: ...', atau 'Oleh: ...' di awal, tengah, maupun akhir naskah. WordPress secara otomatis mengelola profil dan byline penulis melalui sistem temanya. Isi markdownContent murni naskah artikel dari paragraf pembuka hingga penutup.

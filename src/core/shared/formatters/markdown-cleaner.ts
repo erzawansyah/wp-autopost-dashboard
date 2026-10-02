@@ -29,6 +29,52 @@ export function sanitizeAuthorBylines(text: string): string {
     ""
   )
 
+  // 3. Bersihkan perkenalan diri narsistik yang memalsukan persona (misal: "Sebagai Kurator Kopi..., saya, Ni Made Ayu, selalu terpesona...")
+  result = result.replace(
+    /^(?:Sebagai|Halo,\s*saya|Perkenalkan,\s*saya)\s+[\s\S]*?,\s*(?:saya,?\s*)?[A-Z][a-zA-Z\s]+,\s*(?:selalu|sangat|ingin|akan|melihat|percaya)\s+[^.\n]*\.\s*/i,
+    ""
+  )
+
+  return result
+}
+
+/**
+ * Membersihkan nomor sitasi akademis ([1], [^5]) dan blok daftar pustaka/referensi di akhir naskah.
+ * Artikel blog WordPress harus menyajikan fakta secara mengalir tanpa format sitasi jurnal.
+ */
+export function sanitizeCitationsAndReferences(text: string): string {
+  let result = text
+
+  // 1. Hapus blok "Referensi" / "Daftar Pustaka" / "References" di akhir naskah (dengan heading # maupun teks biasa)
+  result = result.replace(
+    /\n+(?:#{1,4}\s*)?(?:Referensi|Daftar\s+Pustaka|Sumber\s+Rujukan|Sumber\s+Referensi|References|Citations?)(?:\s*:|\s*\n)[\s\S]*$/i,
+    ""
+  )
+  result = result.replace(
+    /\n+(?:#{1,4}\s*)?(?:Referensi|Daftar\s+Pustaka|Sumber\s+Rujukan|Sumber\s+Referensi|References|Citations?)\s*$/i,
+    ""
+  )
+
+  // 2. Hapus baris footnote referensi mandiri seperti "[1]: URL..." atau "[^1]: Judul..."
+  result = result.replace(/^\s*\[\^?\d+\]:?\s*.+$/gm, "")
+
+  // 3. Hapus penanda nomor sitasi inline seperti "[1]", "[2][3]", "[^5]" yang bukan link markdown [text](url)
+  result = result.replace(/\[\^?\d+\](?!\()/g, "")
+
+  // 4. Bersihkan spasi ganda yang tertinggal setelah nomor sitasi dihapus
+  result = result.replace(/ {2,}/g, " ")
+
+  return result
+}
+
+/**
+ * Membersihkan penomoran kaku pada subbab Markdown dan mengubah heading "Kesimpulan"
+ */
+export function sanitizeNumberedHeadings(text: string): string {
+  // Bersihkan penomoran: "## 1. Asal-Usul" -> "## Asal-Usul"
+  let result = text.replace(/^(#{2,4})\s*\d+(?:\.\d+)*[.)]\s+/gm, "$1 ")
+  // Ubah subbab "## Kesimpulan" / "## 7. Kesimpulan" menjadi subbab penutup yang lebih dinamis
+  result = result.replace(/^(#{2,4})\s*(?:Kesimpulan|Rangkuman|Penutup)\s*$/gim, "$1 Catatan Akhir dan Langkah Nyata")
   return result
 }
 
@@ -49,6 +95,12 @@ export function cleanMarkdown(rawMarkdown: string): string {
 
   // Bersihkan byline atau atribusi penulis yang tidak diinginkan
   cleaned = sanitizeAuthorBylines(cleaned)
+
+  // Bersihkan sitasi akademis dan blok referensi
+  cleaned = sanitizeCitationsAndReferences(cleaned)
+
+  // Bersihkan penomoran kaku pada heading subbab
+  cleaned = sanitizeNumberedHeadings(cleaned)
 
   // Normalisasi spasi baris berlebih (maksimal 2 newline berturut-turut)
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n")
