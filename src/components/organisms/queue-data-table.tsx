@@ -15,6 +15,14 @@ import { StatusBadge, PostItemState } from "@/components/molecules/status-badge"
 import { SiteBadge } from "@/components/molecules/site-badge"
 import { SearchInput } from "@/components/molecules/search-input"
 import { EmptyState } from "@/components/molecules/empty-state"
+import { Badge } from "@/components/atoms/badge"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/atoms/select"
 import Link from "next/link"
 import {
   ExternalLink,
@@ -23,6 +31,10 @@ import {
   Play,
   Terminal,
   Trash2,
+  Globe,
+  Filter,
+  X,
+  RotateCcw,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -51,6 +63,7 @@ export interface QueueTableItem {
 
 interface QueueDataTableProps {
   items: QueueTableItem[]
+  initialStatus?: string
   onRetryItem?: (id: string) => void
   onDeleteItem?: (id: string) => void
   onBulkDelete?: (selectedIds: string[]) => Promise<void> | void
@@ -59,31 +72,113 @@ interface QueueDataTableProps {
 
 export function QueueDataTable({
   items,
+  initialStatus,
   onRetryItem,
   onDeleteItem,
   onBulkDelete,
   onBulkRun,
 }: QueueDataTableProps) {
   const [searchQuery, setSearchQuery] = React.useState("")
-  const [selectedStatus, setSelectedStatus] = React.useState<string>("all")
+  const [selectedStatus, setSelectedStatus] = React.useState<string>(initialStatus || "all")
+  const [selectedSite, setSelectedSite] = React.useState<string>("all")
   const [selectedIds, setSelectedIds] = React.useState<string[]>([])
   const [isBulkDeleting, setIsBulkDeleting] = React.useState(false)
 
-  // Filter items based on search and status filter
+  // Hitung jumlah item dinamis untuk setiap kategori filter
+  const statusCounts = React.useMemo(() => {
+    let processing = 0
+    let published = 0
+    let draft = 0
+    let scheduled = 0
+    let failed = 0
+
+    for (const item of items) {
+      if (
+        item.status === "queued_input" ||
+        item.status === "generating_content" ||
+        item.status === "ready_to_sync" ||
+        item.status === "syncing_to_wp"
+      ) {
+        processing++
+      } else if (item.status === "published_on_wp") {
+        published++
+      } else if (item.status === "saved_draft_on_wp") {
+        draft++
+      } else if (item.status === "scheduled_on_wp") {
+        scheduled++
+      } else if (item.status === "failed_generation" || item.status === "failed_sync") {
+        failed++
+      }
+    }
+
+    return {
+      all: items.length,
+      processing,
+      published,
+      draft,
+      scheduled,
+      failed,
+    }
+  }, [items])
+
+  // Ambil daftar unik website dari item
+  const uniqueSites = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of items) {
+      if (item.siteDomain && item.siteDomain !== "-") {
+        map.set(item.siteDomain, item.siteName)
+      }
+    }
+    return Array.from(map.entries()).map(([domain, name]) => ({ domain, name }))
+  }, [items])
+
+  // Evaluasi kecocokan status (mendukung group maupun status eksak)
+  const isStatusMatching = (itemStatus: PostItemState, filterId: string): boolean => {
+    if (filterId === "all") return true
+    if (filterId === "processing" || filterId === "generating_content") {
+      return (
+        itemStatus === "queued_input" ||
+        itemStatus === "generating_content" ||
+        itemStatus === "ready_to_sync" ||
+        itemStatus === "syncing_to_wp"
+      )
+    }
+    if (filterId === "published" || filterId === "published_on_wp") {
+      return itemStatus === "published_on_wp"
+    }
+    if (filterId === "draft" || filterId === "saved_draft_on_wp") {
+      return itemStatus === "saved_draft_on_wp"
+    }
+    if (filterId === "scheduled" || filterId === "scheduled_on_wp") {
+      return itemStatus === "scheduled_on_wp"
+    }
+    if (filterId === "failed" || filterId === "failed_sync" || filterId === "failed_generation") {
+      return itemStatus === "failed_generation" || itemStatus === "failed_sync"
+    }
+    if (filterId === "ready_to_sync") {
+      return itemStatus === "ready_to_sync"
+    }
+    return itemStatus === filterId
+  }
+
+  // Filter items berdasarkan pencarian, status, dan situs
   const filteredItems = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase()
     return items.filter((item) => {
       const matchSearch =
-        item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.targetKeyword.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.siteName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.siteDomain.toLowerCase().includes(searchQuery.toLowerCase())
+        !q ||
+        (item.title || "").toLowerCase().includes(q) ||
+        (item.targetKeyword || "").toLowerCase().includes(q) ||
+        (item.siteName || "").toLowerCase().includes(q) ||
+        (item.siteDomain || "").toLowerCase().includes(q) ||
+        (item.category || "").toLowerCase().includes(q)
 
-      const matchStatus =
-        selectedStatus === "all" || item.status === selectedStatus
+      const matchStatus = isStatusMatching(item.status, selectedStatus)
+      const matchSite = selectedSite === "all" || item.siteDomain === selectedSite
 
-      return matchSearch && matchStatus
+      return matchSearch && matchStatus && matchSite
     })
-  }, [items, searchQuery, selectedStatus])
+  }, [items, searchQuery, selectedStatus, selectedSite])
 
   const toggleSelectAll = () => {
     if (selectedIds.length === filteredItems.length) {
@@ -120,38 +215,111 @@ export function QueueDataTable({
     }
   }
 
+  const isFilterActive =
+    searchQuery.trim().length > 0 || selectedStatus !== "all" || selectedSite !== "all"
+
+  const handleResetFilters = () => {
+    setSearchQuery("")
+    setSelectedStatus("all")
+    setSelectedSite("all")
+  }
+
+  // Definisi opsi filter status
+  const filterPills = [
+    { id: "all", label: "Semua", count: statusCounts.all },
+    { id: "processing", label: "Dalam Proses", count: statusCounts.processing },
+    { id: "published", label: "Terbit di Web", count: statusCounts.published },
+    { id: "draft", label: "Draf di Web", count: statusCounts.draft },
+    { id: "scheduled", label: "Terjadwal", count: statusCounts.scheduled },
+    { id: "failed", label: "Gagal", count: statusCounts.failed, isDestructive: statusCounts.failed > 0 },
+  ]
+
   return (
-    <div className="flex flex-col gap-4">
-      {/* Table Toolbar & Search */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-card p-3 rounded-xl border border-border/80 shadow-2xs">
-        <div className="flex-1 max-w-md">
-          <SearchInput
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onClear={() => setSearchQuery("")}
-            placeholder="Cari judul, topik, atau nama website..."
-          />
+    <div className="flex flex-col gap-3">
+      {/* Table Toolbar: Pencarian, Filter Website, & Reset */}
+      <div className="flex flex-col gap-2.5 bg-card p-3 rounded-xl border border-border/80 shadow-2xs">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+          <div className="flex-1 max-w-md">
+            <SearchInput
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onClear={() => setSearchQuery("")}
+              placeholder="Cari judul, topik, kategori, atau domain..."
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Filter Dropdown Situs WordPress */}
+            {uniqueSites.length > 0 && (
+              <div className="w-[180px] sm:w-[200px]">
+                <Select value={selectedSite} onValueChange={setSelectedSite}>
+                  <SelectTrigger className="h-8 text-xs bg-background">
+                    <div className="flex items-center gap-1.5 truncate">
+                      <Globe className="size-3.5 text-primary shrink-0" />
+                      <SelectValue placeholder="Pilih Situs..." />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all" className="text-xs">
+                      Semua Website ({items.length})
+                    </SelectItem>
+                    {uniqueSites.map((site) => (
+                      <SelectItem key={site.domain} value={site.domain} className="text-xs">
+                        {site.name} ({site.domain})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Tombol Reset Filter jika ada filter yang aktif */}
+            {isFilterActive && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleResetFilters}
+                className="h-8 text-xs gap-1 text-muted-foreground hover:text-foreground cursor-pointer px-2"
+                title="Reset semua filter ke tampilan default"
+              >
+                <RotateCcw className="size-3.5" />
+                <span className="hidden sm:inline">Reset</span>
+              </Button>
+            )}
+          </div>
         </div>
 
-        {/* Filter Quick Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-          {[
-            { id: "all", label: "Semua" },
-            { id: "generating_content", label: "Sedang Ditulis" },
-            { id: "ready_to_sync", label: "Siap Kirim" },
-            { id: "published_on_wp", label: "Sudah Terbit" },
-            { id: "failed_sync", label: "Gagal Kirim" },
-          ].map((filter) => (
-            <Button
-              key={filter.id}
-              variant={selectedStatus === filter.id ? "default" : "outline"}
-              size="xs"
-              onClick={() => setSelectedStatus(filter.id)}
-              className="text-xs h-7 rounded-md cursor-pointer shrink-0 font-medium"
-            >
-              {filter.label}
-            </Button>
-          ))}
+        {/* Filter Quick Pills dengan Badge Jumlah */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 pt-0.5 border-t border-border/60">
+          {filterPills.map((filter) => {
+            const isSelected = selectedStatus === filter.id
+
+            return (
+              <button
+                key={filter.id}
+                type="button"
+                onClick={() => setSelectedStatus(filter.id)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer shrink-0 ${
+                  isSelected
+                    ? "bg-primary text-primary-foreground shadow-2xs font-semibold"
+                    : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/60"
+                }`}
+              >
+                <span>{filter.label}</span>
+                <span
+                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-semibold ${
+                    isSelected
+                      ? "bg-primary-foreground/20 text-primary-foreground"
+                      : filter.isDestructive
+                      ? "bg-destructive/15 text-destructive font-bold"
+                      : "bg-background/80 text-muted-foreground"
+                  }`}
+                >
+                  {filter.count}
+                </span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
@@ -231,6 +399,8 @@ export function QueueDataTable({
                   <EmptyState
                     title="Tidak ada artikel yang cocok"
                     description="Coba ubah kata kunci pencarian atau ganti filter status di atas."
+                    actionLabel={isFilterActive ? "Reset Semua Filter" : undefined}
+                    onAction={isFilterActive ? handleResetFilters : undefined}
                   />
                 </TableCell>
               </TableRow>

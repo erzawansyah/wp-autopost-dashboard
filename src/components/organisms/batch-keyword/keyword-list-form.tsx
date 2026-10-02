@@ -17,6 +17,9 @@ import {
   FolderTree,
   FileText,
   Clock,
+  Zap,
+  Globe,
+  Brain,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
@@ -347,7 +350,9 @@ export function KeywordListForm({
                 {engine === "quick"
                   ? "1-Shot Generator"
                   : engine === "agentic"
-                  ? "Dinonaktifkan Sementara"
+                  ? "Autonomous ReAct + Tools"
+                  : engine === "deepagent"
+                  ? "LangChain Deep Agents"
                   : "Web Research & Curated Images"}
               </Badge>
             </div>
@@ -358,13 +363,48 @@ export function KeywordListForm({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="quick" className="text-xs">
-                  ⚡ Quick Engine (Cepat, Mandiri, &amp; Hemat Token)
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <div className="flex items-center gap-2">
+                      <Zap className="size-3.5 text-primary" />
+                      <span className="font-semibold">Quick Engine</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      (Cepat &amp; Hemat Token)
+                    </span>
+                  </div>
                 </SelectItem>
                 <SelectItem value="standard" className="text-xs">
-                  🌐 Standard Engine (Riset Web Live, LSI Keywords, &amp; Kurasi Gambar WP)
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <div className="flex items-center gap-2">
+                      <Globe className="size-3.5 text-primary" />
+                      <span className="font-semibold">Standard Engine</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      (Riset Web &amp; Kurasi WP Media)
+                    </span>
+                  </div>
                 </SelectItem>
-                <SelectItem value="agentic" disabled className="text-xs text-muted-foreground opacity-60">
-                  🤖 Agentic Writer (Dinonaktifkan Sementara)
+                <SelectItem value="agentic" className="text-xs">
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <div className="flex items-center gap-2">
+                      <Bot className="size-3.5 text-primary" />
+                      <span className="font-semibold">Agentic Writer</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      (LangChain ReAct + Tools)
+                    </span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="deepagent" className="text-xs">
+                  <div className="flex items-center justify-between w-full gap-2">
+                    <div className="flex items-center gap-2">
+                      <Brain className="size-3.5 text-primary" />
+                      <span className="font-semibold">DeepAgent Writer</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      (Deep Agents + Skills)
+                    </span>
+                  </div>
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -382,7 +422,11 @@ export function KeywordListForm({
                   </>
                 ) : engine === "agentic" ? (
                   <>
-                    Estimasi pengerjaan: <strong>~1–2 menit</strong> per artikel. Autonomous agent LangChain bebas memanggil web search, reader, dan unggah media WordPress sesuai kebutuhan topik.
+                    Estimasi pengerjaan: <strong>~1–2 menit</strong> per artikel. Autonomous agent LangChain bebas memanggil web search, reader, dan unggah media WordPress secara fleksibel.
+                  </>
+                ) : engine === "deepagent" ? (
+                  <>
+                    Estimasi pengerjaan: <strong>~1–3 menit</strong> per artikel. Framework LangChain Deep Agents menggunakan Todo planning, konteks filesystem, dan on-demand skills.
                   </>
                 ) : (
                   <>

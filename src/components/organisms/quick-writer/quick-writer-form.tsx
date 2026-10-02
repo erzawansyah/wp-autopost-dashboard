@@ -72,16 +72,16 @@ export const AVAILABLE_ENGINES: WritingEngineOption[] = [
   {
     id: "agentic",
     name: "Agentic Writer",
-    shortDesc: "LangChain Autonomous Agent (Dinonaktifkan sementara)",
-    badge: "Nonaktif",
-    isAvailable: false,
+    shortDesc: "LangChain ReAct Agent + Tools Mandiri",
+    badge: "Agentic AI",
+    isAvailable: true,
   },
   {
-    id: "deep_research",
-    name: "Deep Research Engine",
-    shortDesc: "Riset entitas & audit multi-tahap",
-    badge: "Segera Hadir",
-    isAvailable: false,
+    id: "deepagent",
+    name: "DeepAgent Writer",
+    shortDesc: "LangChain Deep Agents + Todo Planning & Skills",
+    badge: "Deep Agent",
+    isAvailable: true,
   },
 ]
 
