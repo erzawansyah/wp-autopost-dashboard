@@ -8,6 +8,8 @@ import {
   PenLine,
   Layers,
   Globe,
+  History,
+  ListChecks,
   SlidersHorizontal,
   Settings,
   WandSparkles,
@@ -30,6 +32,8 @@ interface NavItem {
 const primaryNavItems: NavItem[] = [
   { title: "Dashboard", href: "/", icon: LayoutDashboard },
   { title: "Daftar Website", href: "/sites", icon: Globe },
+  { title: "Daftar Batch", href: "/batches", icon: History },
+  { title: "Antrean", href: "/queue/items", icon: ListChecks },
 ]
 
 const contentNavItems: NavItem[] = [

@@ -28,18 +28,14 @@ import {
   FolderTree,
   Tag,
   FileText,
-  Bot,
-  ExternalLink,
-  ArrowRight,
   RotateCcw,
   Check,
   AlertCircle,
   Plus,
   Zap,
 } from "lucide-react"
-import { getModelDisplayName } from "@/lib/ai/settings"
 import { LanguageSelect } from "@/components/molecules/language-select"
-import { getLanguageDisplayName } from "@/lib/constants/languages"
+import { cn } from "@/lib/utils"
 
 export interface WpSiteOption {
   id: string
@@ -109,14 +105,6 @@ interface QuickWriterFormProps {
   initialSiteId?: string
 }
 
-const AI_MODELS = [
-  { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Default - Cepat & Hemat)" },
-  { id: "google/gemini-2.5-flash", name: "Google Gemini 2.5 Flash (Cepat & Cerdas)" },
-  { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet (Editorial Tertinggi)" },
-  { id: "deepseek/deepseek-chat", name: "DeepSeek V3 (Sangat Hemat)" },
-  { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B Instruct" },
-]
-
 export function QuickWriterForm({
   sites,
   isLoadingSites,
@@ -162,10 +150,8 @@ export function QuickWriterForm({
     if (selectedCategoryIds.length > 0) count++
     if (tags.trim().length > 0) count++
     if (customBrief.trim().length > 0) count++
-    if (actionStatus === "publish") count++
-    if (aiModel !== "openai/gpt-oss-120b") count++
     return count
-  }, [selectedCategoryIds, tags, customBrief, actionStatus, aiModel])
+  }, [selectedCategoryIds, tags, customBrief])
 
   const selectedSite = React.useMemo(() => {
     return sites.find((s) => s.id === siteId) || null
@@ -388,53 +374,46 @@ export function QuickWriterForm({
                 </div>
               </FormField>
 
-              {/* Kotak Ringkasan Pintar (Smart Default Preview) */}
-              <div className="rounded-lg border border-border/70 bg-muted/20 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-                <div className="flex items-start gap-2.5">
-                  <div className="flex size-6 shrink-0 items-center justify-center rounded bg-primary/10 text-primary mt-0.5">
-                    <Sparkles className="size-3.5" />
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <span className="font-semibold text-foreground">
-                      Pengaturan Cepat Aktif:
-                    </span>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Engine:{" "}
-                      <strong className="text-foreground font-medium">
-                        {AVAILABLE_ENGINES.find((e) => e.id === engine)?.name || engine}
-                      </strong>{" "}
-                      • Bahasa:{" "}
-                      <strong className="text-foreground font-medium">
-                        {getLanguageDisplayName(language)}
-                      </strong>{" "}
-                      • Status:{" "}
-                      <strong className="text-foreground font-medium">
-                        {actionStatus === "draft" ? "Draf WordPress (Aman)" : "Langsung Terbit"}
-                      </strong>{" "}
-                      • Kategori &amp; Tag:{" "}
-                      <span className="text-foreground font-medium">
-                        {selectedCategoryIds.length > 0 || tags.trim()
-                          ? "Kustom manual"
-                          : "Dianalisis Otomatis oleh AI"}
-                      </span>{" "}
-                      • Model:{" "}
-                      <span className="font-mono text-foreground font-medium">
-                        {aiModel.split("/")[1] || aiModel}
-                      </span>
-                    </p>
-                  </div>
+              {/* Status Publikasi WordPress (Compact Selector) */}
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/15 px-3.5 py-2 text-xs">
+                <div className="flex items-center gap-2">
+                  <FileText className="size-3.5 text-primary shrink-0" />
+                  <span className="font-semibold text-foreground">Status Penerbitan:</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {actionStatus === "draft"
+                      ? "Simpan sebagai Draf (Aman ditinjau dulu)"
+                      : "Langsung terbitkan live"}
+                  </span>
                 </div>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  onClick={() => setActiveTab("advanced")}
-                  className="shrink-0 text-[11px] font-medium gap-1 cursor-pointer hover:bg-muted"
-                >
-                  <span>Atur Opsi Lanjutan</span>
-                  <ArrowRight className="size-3" />
-                </Button>
+                <div className="flex items-center gap-1 bg-muted p-0.5 rounded-md shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setActionStatus("draft")}
+                    disabled={isSubmitting}
+                    className={cn(
+                      "px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer",
+                      actionStatus === "draft"
+                        ? "bg-card text-foreground shadow-2xs font-semibold"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Simpan Draf
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActionStatus("publish")}
+                    disabled={isSubmitting}
+                    className={cn(
+                      "px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer",
+                      actionStatus === "publish"
+                        ? "bg-primary text-primary-foreground shadow-2xs font-semibold"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    Langsung Terbit
+                  </button>
+                </div>
               </div>
             </TabsContent>
 
@@ -479,50 +458,7 @@ export function QuickWriterForm({
                 </FormField>
               </div>
 
-              {/* 3. Status Penerbitan di WordPress */}
-              <div className="rounded-lg border border-border/80 bg-muted/15 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                    <FileText className="size-3.5 text-primary" />
-                    <span>Status Publikasi di WordPress</span>
-                    <HelpTooltip content="Pilih 'Simpan Draf' agar artikel dapat Anda tinjau terlebih dahulu di wp-admin, atau 'Langsung Terbit' agar langsung tayang untuk publik." />
-                  </div>
-                  <span className="text-[11px] text-muted-foreground">
-                    {actionStatus === "draft"
-                      ? "Artikel akan disimpan sebagai Draf di WordPress (Aman ditinjau dulu)"
-                      : "Artikel akan langsung diterbitkan secara live untuk pengunjung website"}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0 bg-muted p-1 rounded-lg">
-                  <button
-                    type="button"
-                    onClick={() => setActionStatus("draft")}
-                    disabled={isSubmitting}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                      actionStatus === "draft"
-                        ? "bg-card text-foreground shadow-2xs font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Simpan Draf
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActionStatus("publish")}
-                    disabled={isSubmitting}
-                    className={`px-3 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
-                      actionStatus === "publish"
-                        ? "bg-primary text-primary-foreground shadow-2xs font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    Langsung Terbit
-                  </button>
-                </div>
-              </div>
-
-              {/* 4. Catatan Khusus / Custom Brief */}
+              {/* 3. Catatan Khusus / Custom Brief */}
               <FormField
                 label="Catatan Khusus atau Sudut Pandang (Opsional)"
                 hint="Beri instruksi spesifik: misal tekankan metode gratis, sertakan 3 studi kasus, gaya bahasa santai."
@@ -537,52 +473,6 @@ export function QuickWriterForm({
                   disabled={isSubmitting || !siteId}
                 />
               </FormField>
-
-              {/* 5. Pemilihan Model AI & Gateway OpenRouter */}
-              <div className="rounded-lg border border-border/80 bg-muted/15 p-3.5 flex flex-col gap-3">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <Bot className="size-4 text-primary" />
-                    <span className="text-xs font-semibold text-foreground">
-                      Model AI (OpenRouter Gateway)
-                    </span>
-                  </div>
-                  {customApiKey ? (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 font-normal"
-                    >
-                      Kunci Pribadi Aktif
-                    </Badge>
-                  ) : (
-                    <Badge
-                      variant="outline"
-                      className="text-[10px] text-muted-foreground font-normal"
-                    >
-                      Kunci Server Bawaan
-                    </Badge>
-                  )}
-                </div>
-
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs bg-background p-3 rounded-md border border-border/80">
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted-foreground">Model AI Global Aktif:</span>
-                    <strong className="text-foreground">{getModelDisplayName(aiModel)}</strong>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="link"
-                    size="xs"
-                    asChild
-                    className="h-auto p-0 text-[11px] text-primary hover:underline gap-1 cursor-pointer shrink-0"
-                  >
-                    <Link href="/settings/ai">
-                      <span>Ubah Model di Pengaturan</span>
-                      <ExternalLink className="size-3" />
-                    </Link>
-                  </Button>
-                </div>
-              </div>
             </TabsContent>
           </Tabs>
 

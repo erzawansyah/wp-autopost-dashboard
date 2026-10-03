@@ -4,8 +4,9 @@ import * as React from "react"
 import {
   Layers,
   SlidersHorizontal,
-  ChevronDown,
-  ChevronUp,
+  Sparkles,
+  RotateCcw,
+  Info,
   AlertCircle,
   CheckCircle2,
   Trash2,
@@ -27,6 +28,12 @@ import { Badge } from "@/components/atoms/badge"
 import { Label } from "@/components/atoms/label"
 import { Textarea } from "@/components/atoms/textarea"
 import { Input } from "@/components/atoms/input"
+import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from "@/components/atoms/tabs"
 import {
   Select,
   SelectContent,
@@ -93,7 +100,27 @@ export function KeywordListForm({
   const [selectedCategoryNames, setSelectedCategoryNames] = React.useState<string[]>([])
   const [tagsInput, setTagsInput] = React.useState<string>("")
   const [customBrief, setCustomBrief] = React.useState<string>("")
-  const [showAdvanced, setShowAdvanced] = React.useState(false)
+  const [activeTab, setActiveTab] = React.useState<string>("essential")
+
+  const advancedOptionsCount = React.useMemo(() => {
+    let count = 0
+    if (selectedCategoryIds.length > 0) count++
+    if (tagsInput.trim().length > 0) count++
+    if (customBrief.trim().length > 0) count++
+    return count
+  }, [selectedCategoryIds, tagsInput, customBrief])
+
+  const handleResetForm = () => {
+    setRawKeywordsText("")
+    setBatchName("")
+    setEngine("quick")
+    setLanguage("id")
+    setSelectedCategoryIds([])
+    setSelectedCategoryNames([])
+    setTagsInput("")
+    setCustomBrief("")
+    setActiveTab("essential")
+  }
 
   // 2. Schedule Strategy State
   const [strategy, setStrategy] = React.useState<ScheduleStrategyState>({
@@ -260,23 +287,52 @@ export function KeywordListForm({
 
   return (
     <Card className={cn("border-border/80 bg-card/90 shadow-2xs", className)}>
-      <CardHeader className="pb-4">
-        <div className="flex items-center gap-2 text-primary">
-          <Layers className="size-4" />
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-wider">
-            Modul 2 / Ingesti Kata Kunci Masal
-          </span>
+      <CardHeader className="pb-4 border-b border-border/60">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-primary">
+              <Layers className="size-4" />
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-wider">
+                Modul 2 / Ingesti Kata Kunci Masal
+              </span>
+            </div>
+            <CardTitle className="text-base font-bold text-foreground mt-0.5">
+              Buat Antrean Artikel dari Daftar Kata Kunci
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground mt-0.5">
+              Salin dan tempel daftar kata kunci (satu per baris) lalu atur strategi jadwal tayang
+              secara acak, per pola interval jam, atau instan hari ini.
+            </CardDescription>
+          </div>
+
+          {/* Tab Selector Wajib vs Advanced */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full sm:w-auto">
+            <TabsList className="grid w-full grid-cols-2 h-9 p-1 bg-muted">
+              <TabsTrigger
+                value="essential"
+                className="text-xs font-medium gap-1.5 cursor-pointer data-[state=active]:bg-card data-[state=active]:text-foreground"
+              >
+                <Sparkles className="size-3.5 text-primary" />
+                <span>Wajib (Cepat)</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="advanced"
+                className="text-xs font-medium gap-1.5 cursor-pointer data-[state=active]:bg-card data-[state=active]:text-foreground"
+              >
+                <SlidersHorizontal className="size-3.5 text-muted-foreground" />
+                <span>Lanjutan</span>
+                {advancedOptionsCount > 0 && (
+                  <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                    {advancedOptionsCount}
+                  </span>
+                )}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
-        <CardTitle className="text-base font-bold text-foreground">
-          Buat Antrean Artikel dari Daftar Kata Kunci
-        </CardTitle>
-        <CardDescription className="text-xs text-muted-foreground">
-          Salin dan tempel daftar kata kunci (satu per baris) lalu atur strategi jadwal tayang
-          secara acak, per pola interval jam, atau instan hari ini.
-        </CardDescription>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="pt-6">
         <form onSubmit={handleSubmit} className="flex flex-col gap-6">
           {/* Banner Sukses */}
           {successInfo && (
@@ -302,8 +358,13 @@ export function KeywordListForm({
             </div>
           )}
 
-          {/* 1. Pemilihan Situs WordPress, Bahasa Artikel, & Nama Batch */}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            {/* ========================================================= */}
+            {/* TAB 1: ESSENTIAL / WAJIB (Input Utama Batch)             */}
+            {/* ========================================================= */}
+            <TabsContent value="essential" className="mt-0 flex flex-col gap-6">
+              {/* 1. Pemilihan Situs WordPress, Bahasa Artikel, & Nama Batch */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="site-select" className="text-xs font-medium text-foreground">
                 Website WordPress Target <span className="text-destructive">*</span>
@@ -573,87 +634,89 @@ export function KeywordListForm({
             </div>
           )}
 
-          {/* 5. Pengaturan Lanjutan (Accordion) */}
-          <div className="border-t border-border/60 pt-3">
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              <span className="flex items-center gap-1.5">
-                <SlidersHorizontal className="size-3.5 text-primary" />
-                Pengaturan Kategori, Tag, &amp; Brief Tambahan
-              </span>
-              {showAdvanced ? (
-                <ChevronUp className="size-4" />
-              ) : (
-                <ChevronDown className="size-4" />
-              )}
-            </button>
+            </TabsContent>
 
-            {showAdvanced && (
-              <div className="mt-4 flex flex-col gap-4 rounded-lg border border-border/70 bg-muted/20 p-4">
-
-                {/* Kategori WordPress Multi-select */}
-                <div className="flex flex-col gap-1.5">
-                  <Label className="flex items-center gap-1.5 text-xs text-foreground">
-                    <FolderTree className="size-3.5 text-primary" />
-                    Kategori WordPress (Untuk Seluruh Batch)
-                  </Label>
-                  <WPCategorySelect
-                    siteId={selectedSiteId}
-                    selectedCategoryIds={selectedCategoryIds}
-                    onChange={(ids, names) => {
-                      setSelectedCategoryIds(ids)
-                      setSelectedCategoryNames(names)
-                    }}
-                    disabled={isSubmitting || !selectedSiteId}
-                  />
-                  <p className="text-[11px] text-muted-foreground">
-                    Jika dikosongkan, AI akan otomatis menentukan kategori yang paling cocok dari
-                    situs Anda.
-                  </p>
-                </div>
-
-                {/* Tags WordPress */}
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="tags-input" className="flex items-center gap-1.5 text-xs text-foreground">
-                    <Tag className="size-3.5 text-primary" />
-                    Tag WordPress (Pisahkan dengan koma)
-                  </Label>
-                  <Input
-                    id="tags-input"
-                    type="text"
-                    placeholder="berkebun, tanaman hias, tips organik"
-                    value={tagsInput}
-                    onChange={(e) => setTagsInput(e.target.value)}
-                    disabled={isSubmitting}
-                    className="bg-background text-xs"
-                  />
-                </div>
-
-                {/* Custom Brief / Instruksi Khusus */}
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="batch-brief" className="flex items-center gap-1.5 text-xs text-foreground">
-                    <FileText className="size-3.5 text-primary" />
-                    Instruksi Tambahan (Berlaku untuk Seluruh Batch)
-                  </Label>
-                  <Textarea
-                    id="batch-brief"
-                    rows={3}
-                    placeholder="Contoh: Gunakan gaya bahasa santai ramah pembaca pemula. Sertakan tips perawatan hemat budget."
-                    value={customBrief}
-                    onChange={(e) => setCustomBrief(e.target.value)}
-                    disabled={isSubmitting}
-                    className="bg-background text-xs"
-                  />
-                </div>
+            {/* ========================================================= */}
+            {/* TAB 2: ADVANCED / LANJUTAN (Kategori, Tag, & Brief)       */}
+            {/* ========================================================= */}
+            <TabsContent value="advanced" className="mt-0 flex flex-col gap-5">
+              <div className="flex items-start gap-3 rounded-lg border border-border/80 bg-muted/20 p-3.5 text-xs text-muted-foreground">
+                <Info className="size-4 text-primary shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  Pengaturan lanjutan di bawah ini bersifat opsional. Konfigurasi kategori, tag, dan instruksi tambahan yang ditentukan di sini akan diterapkan secara serentak ke seluruh artikel dalam batch kata kunci ini.
+                </p>
               </div>
-            )}
-          </div>
 
-          {/* Tombol Aksi Submit */}
-          <div className="flex items-center justify-end gap-3 pt-2">
+              {/* Kategori WordPress Multi-select */}
+              <div className="flex flex-col gap-1.5">
+                <Label className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                  <FolderTree className="size-3.5 text-primary" />
+                  Kategori WordPress (Untuk Seluruh Batch)
+                </Label>
+                <WPCategorySelect
+                  siteId={selectedSiteId}
+                  selectedCategoryIds={selectedCategoryIds}
+                  onChange={(ids, names) => {
+                    setSelectedCategoryIds(ids)
+                    setSelectedCategoryNames(names)
+                  }}
+                  disabled={isSubmitting || !selectedSiteId}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Jika dikosongkan, AI akan otomatis menentukan kategori yang paling cocok dari
+                  situs Anda.
+                </p>
+              </div>
+
+              {/* Tags WordPress */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="tags-input" className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                  <Tag className="size-3.5 text-primary" />
+                  Tag WordPress (Pisahkan dengan koma)
+                </Label>
+                <Input
+                  id="tags-input"
+                  type="text"
+                  placeholder="berkebun, tanaman hias, tips organik"
+                  value={tagsInput}
+                  onChange={(e) => setTagsInput(e.target.value)}
+                  disabled={isSubmitting}
+                  className="bg-background text-xs"
+                />
+              </div>
+
+              {/* Custom Brief / Instruksi Khusus */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="batch-brief" className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                  <FileText className="size-3.5 text-primary" />
+                  Instruksi Tambahan (Berlaku untuk Seluruh Batch)
+                </Label>
+                <Textarea
+                  id="batch-brief"
+                  rows={4}
+                  placeholder="Contoh: Gunakan gaya bahasa santai ramah pembaca pemula. Sertakan tips perawatan hemat budget."
+                  value={customBrief}
+                  onChange={(e) => setCustomBrief(e.target.value)}
+                  disabled={isSubmitting}
+                  className="bg-background text-xs"
+                />
+              </div>
+            </TabsContent>
+          </Tabs>
+
+          {/* Footer Form Action Buttons (Konsisten dengan QuickWriter) */}
+          <div className="flex items-center justify-between border-t border-border/60 pt-4">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={handleResetForm}
+              disabled={isSubmitting}
+              className="text-xs text-muted-foreground hover:text-foreground cursor-pointer gap-1.5"
+            >
+              <RotateCcw className="size-3.5" />
+              <span>Kosongkan Formulir</span>
+            </Button>
+
             <Button
               type="submit"
               disabled={
