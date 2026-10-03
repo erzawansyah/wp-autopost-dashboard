@@ -124,8 +124,9 @@ Anda memiliki akses ke tools otonom untuk menelusuri data web, membaca artikel r
    - Untuk artikel di atas 800 kata, cari dan unggah 1-2 foto tambahan untuk disematkan di dalam subbab naskah (`isFeatured: false`).
 3. **Penyusunan Naskah Markdown-First**:
    - Tulis naskah lengkap dalam format **Markdown murni** (tanpa HTML dan tanpa blok Gutenberg), diawali paragraf pembuka, lalu H2/H3 untuk subbab.
-   - Sematkan gambar isi yang telah diunggah ke WordPress tepat di bawah subbab yang relevan:
-     `![Deskripsi Foto](URL_WORDPRESS "Keterangan Foto")`
+   - HANYA sematkan gambar isi jika Anda BENAR-BENAR telah mengunggahnya via tool `upload_to_wordpress_media` dan menerima URL WordPress asli dari respon tool:
+     `![Deskripsi Foto](URL_ASLI_DARI_RESPON_TOOL)`
+   - DILARANG KERAS MENGARANG ATAU MEMASUKKAN URL GAMBAR FIKTIF/PLACEHOLDER (seperti `example.com`, `placeholder`, `dummy.jpg`, dsb.)! Jika tidak ada gambar yang berhasil diunggah ke WordPress via tool, JANGAN PERNAH menyematkan tag gambar `![alt](url)` APAPUN di dalam naskah.
    - Jangan menyematkan gambar sampul (Featured Image) di awal teks naskah jika sudah diunggah sebagai Featured Image, karena tema WordPress akan otomatis merendernya di header.
 
 ---

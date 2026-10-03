@@ -78,6 +78,29 @@ export function sanitizeNumberedHeadings(text: string): string {
   return result
 }
 
+/**
+ * Membersihkan tag gambar Markdown fiktif/placeholder yang dihalusinasikan AI
+ * (seperti domain example.com, placeholder.com, dummyimage, atau URL tanpa protokol valid)
+ */
+export function sanitizeFakeImages(text: string): string {
+  // Regex mencari tag gambar markdown: ![alt](url...)
+  return text.replace(/!\[([^\]]*)\]\(([^)]+)\)(?:\{[^}]*\})?/g, (match, _alt, fullUrlWithOptionalTitle) => {
+    const rawUrl = fullUrlWithOptionalTitle.trim().split(/\s+["']/)[0].trim()
+    
+    // Cek domain dummy / fiktif
+    const isFake = /example\.(?:com|org|net)|placeholder|dummy|localhost|127\.0\.0\.1|test\.com|yourdomain|via\.placeholder/i.test(rawUrl)
+    
+    // Cek apakah bukan URL HTTP/HTTPS yang sah
+    const isInvalidUrl = !/^https?:\/\//i.test(rawUrl)
+
+    if (isFake || isInvalidUrl) {
+      return "" // Hapus tag gambar palsu sepenuhnya
+    }
+
+    return match
+  })
+}
+
 export function cleanMarkdown(rawMarkdown: string): string {
   let cleaned = rawMarkdown.trim()
 
@@ -98,6 +121,9 @@ export function cleanMarkdown(rawMarkdown: string): string {
 
   // Bersihkan sitasi akademis dan blok referensi
   cleaned = sanitizeCitationsAndReferences(cleaned)
+
+  // Bersihkan gambar fiktif / placeholder yang dihalusinasikan AI
+  cleaned = sanitizeFakeImages(cleaned)
 
   // Bersihkan penomoran kaku pada heading subbab
   cleaned = sanitizeNumberedHeadings(cleaned)

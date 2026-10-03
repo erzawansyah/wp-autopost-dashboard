@@ -488,15 +488,23 @@ export function markdownToGutenberg(markdown: string): string {
       continue
     }
 
-    // 10. Image Markdown: ![alt](url) atau ![alt](url){caption="..."}
+    // 10. Image Markdown: ![alt](url) atau ![alt](url "title") atau ![alt](url){caption="..."}
     const imgMatch = trimmed.match(/^!\[([^\]]*)\]\(([^)]+)\)(?:\{([^}]*)\})?$/)
     if (imgMatch) {
       const alt = imgMatch[1] || ""
-      const url = imgMatch[2] || ""
+      const fullUrlPart = (imgMatch[2] || "").trim()
       const extra = imgMatch[3] || ""
 
+      // Pisahkan URL murni dan title/caption jika ada format: (url "title caption")
+      let url = fullUrlPart
       let caption: string | undefined = undefined
       let id: number | undefined = undefined
+
+      const titleMatch = fullUrlPart.match(/^(\S+)\s+["'](.*)["']$/)
+      if (titleMatch) {
+        url = titleMatch[1].trim()
+        caption = titleMatch[2].trim()
+      }
 
       if (extra) {
         const captionMatch = extra.match(/caption=["']([^"']+)["']/)
@@ -506,7 +514,13 @@ export function markdownToGutenberg(markdown: string): string {
         if (idMatch) id = Number(idMatch[1])
       }
 
-      blocks.push(serializeImageBlock({ url, alt, caption, id }))
+      // Safeguard: Abaikan gambar dummy/placeholder/fiktif
+      const isFakeDomain = /example\.(?:com|org|net)|placeholder|dummy|localhost|127\.0\.0\.1|test\.com|yourdomain|via\.placeholder/i.test(url)
+      const isValidHttp = /^https?:\/\//i.test(url)
+
+      if (!isFakeDomain && isValidHttp) {
+        blocks.push(serializeImageBlock({ url, alt, caption, id }))
+      }
       i++
       continue
     }
