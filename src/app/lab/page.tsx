@@ -8,12 +8,18 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tab
 import { Badge } from "@/components/atoms/badge"
 import { Loader2, FlaskConical, Wrench, Cpu, Zap, BookOpen } from "lucide-react"
 
+import { useRouter } from "next/navigation"
+import { isLabAuthorizedUser } from "@/lib/constants/auth"
+
 import { LabToolsRunner } from "@/components/organisms/lab/lab-tools-runner"
 import { LabNodesRunner } from "@/components/organisms/lab/lab-nodes-runner"
 import { LabEngineRunner } from "@/components/organisms/lab/lab-engine-runner"
 import { LabDocsViewer } from "@/components/organisms/lab/lab-docs-viewer"
 
 export default function LabPage() {
+  const router = useRouter()
+  const [authChecking, setAuthChecking] = React.useState(true)
+  const [isAuthorized, setIsAuthorized] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [registry, setRegistry] = React.useState<{
     tools: any[]
@@ -28,6 +34,24 @@ export default function LabPage() {
   })
 
   React.useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.user?.email && isLabAuthorizedUser(data.user.email)) {
+          setIsAuthorized(true)
+          setAuthChecking(false)
+        } else {
+          router.replace("/")
+        }
+      })
+      .catch(() => {
+        router.replace("/")
+      })
+  }, [router])
+
+  React.useEffect(() => {
+    if (!isAuthorized) return
+
     fetch("/api/lab/registry")
       .then((res) => res.json())
       .then((data) => {
@@ -46,7 +70,20 @@ export default function LabPage() {
       .finally(() => {
         setLoading(false)
       })
-  }, [])
+  }, [isAuthorized])
+
+  if (authChecking || !isAuthorized) {
+    return (
+      <DashboardLayout>
+        <PageContainer size="default">
+          <div className="flex h-[50vh] flex-col items-center justify-center gap-3">
+            <Loader2 className="size-6 animate-spin text-primary" />
+            <p className="text-xs text-muted-foreground">Memeriksa izin akses Laboratorium...</p>
+          </div>
+        </PageContainer>
+      </DashboardLayout>
+    )
+  }
 
   return (
     <DashboardLayout>

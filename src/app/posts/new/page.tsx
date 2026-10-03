@@ -22,11 +22,13 @@ import {
   Loader2,
   CheckCircle2,
 } from "lucide-react"
+import { isLabAuthorizedUser } from "@/lib/constants/auth"
 
 export default function NewPostPage() {
   const router = useRouter()
   const [sites, setSites] = React.useState<WpSiteOption[]>([])
   const [isLoadingSites, setIsLoadingSites] = React.useState(true)
+  const [userEmail, setUserEmail] = React.useState<string | null>(null)
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = React.useState(false)
@@ -63,6 +65,15 @@ export default function NewPostPage() {
           setIsLoadingSites(false)
         }
       })
+
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (isMounted && data.user?.email) {
+          setUserEmail(data.user.email)
+        }
+      })
+      .catch(() => {})
 
     return () => {
       isMounted = false
@@ -132,18 +143,20 @@ export default function NewPostPage() {
           }
           actions={
             <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                asChild
-                className="gap-1.5 text-xs font-medium cursor-pointer"
-              >
-                <Link href="/lab">
-                  <FlaskConical className="size-3.5 text-primary" />
-                  <span className="hidden sm:inline">Laboratorium</span>
-                  <span className="sm:hidden">Lab</span>
-                </Link>
-              </Button>
+              {isLabAuthorizedUser(userEmail) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  asChild
+                  className="gap-1.5 text-xs font-medium cursor-pointer"
+                >
+                  <Link href="/lab">
+                    <FlaskConical className="size-3.5 text-primary" />
+                    <span className="hidden sm:inline">Laboratorium</span>
+                    <span className="sm:hidden">Lab</span>
+                  </Link>
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="outline"

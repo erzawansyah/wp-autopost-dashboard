@@ -17,6 +17,7 @@ import {
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip"
+import { isLabAuthorizedUser } from "@/lib/constants/auth"
 
 interface NavItem {
   title: string
@@ -101,6 +102,27 @@ function renderNavLink(item: NavItem, pathname: string) {
 
 export function SidebarNav() {
   const pathname = usePathname()
+  const [userEmail, setUserEmail] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.user?.email) {
+          setUserEmail(data.user.email)
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const filteredBottomNavItems = React.useMemo(() => {
+    return bottomNavItems.filter((item) => {
+      if (item.href === "/lab") {
+        return isLabAuthorizedUser(userEmail)
+      }
+      return true
+    })
+  }, [userEmail])
 
   return (
     <aside className="sticky top-0 flex h-screen max-h-screen w-[68px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:w-[248px]">
@@ -140,7 +162,7 @@ export function SidebarNav() {
           <div className="hidden px-3 pb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
             Alat &amp; Konfigurasi
           </div>
-          {bottomNavItems.map((item) => renderNavLink(item, pathname))}
+          {filteredBottomNavItems.map((item) => renderNavLink(item, pathname))}
         </div>
       </div>
 

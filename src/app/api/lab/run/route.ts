@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { decryptCredential } from "@/lib/crypto"
+import { isLabAuthorizedUser } from "@/lib/constants/auth"
 import { getCategories } from "@/core/shared/tools/get-categories"
 import { getTags } from "@/core/shared/tools/get-tags"
 import { createTags } from "@/core/shared/tools/create-tags"
@@ -97,8 +98,8 @@ export async function POST(request: Request) {
       error: authError,
     } = await supabase.auth.getUser()
 
-    if (authError || !user) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
+    if (authError || !user || !isLabAuthorizedUser(user.email)) {
+      return NextResponse.json({ ok: false, error: "Forbidden: Akses eksekusi Laboratorium dibatasi" }, { status: 403 })
     }
 
     const body = await request.json()
