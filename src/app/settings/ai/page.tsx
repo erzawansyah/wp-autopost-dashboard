@@ -41,7 +41,19 @@ export default function AiSettingsPage() {
     const handle = requestAnimationFrame(() => {
       const savedKey = localStorage.getItem("custom_openrouter_api_key") || ""
       const savedModel = localStorage.getItem("custom_openrouter_model") || DEFAULT_AI_MODEL
-      if (savedKey) setApiKey(savedKey)
+      if (savedKey) {
+        setApiKey(savedKey)
+      } else {
+        // Ambil status dari database jika di localStorage belum ada
+        fetch("/api/settings/user")
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.ok && data.keys?.openrouter?.configured) {
+              setApiKey("••••••••••••••••")
+            }
+          })
+          .catch(() => {})
+      }
       if (savedModel) setSelectedModel(savedModel)
     })
     return () => cancelAnimationFrame(handle)
@@ -83,14 +95,27 @@ export default function AiSettingsPage() {
     }
   }
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
     if (apiKey.trim()) {
-      localStorage.setItem("custom_openrouter_api_key", apiKey.trim())
+      if (!apiKey.includes("•")) {
+        localStorage.setItem("custom_openrouter_api_key", apiKey.trim())
+      }
     } else {
       localStorage.removeItem("custom_openrouter_api_key")
     }
     localStorage.setItem("custom_openrouter_model", selectedModel)
+
+    // Simpan ke Supabase user_settings
+    try {
+      await fetch("/api/settings/user", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openrouterKey: apiKey.trim() }),
+      })
+    } catch (err) {
+      console.warn("Gagal menyimpan kunci ke database:", err)
+    }
 
     setIsSaved(true)
     setTimeout(() => setIsSaved(false), 3000)

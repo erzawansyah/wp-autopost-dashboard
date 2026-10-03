@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { encryptCredential, decryptCredential } from "@/lib/crypto"
 import * as fs from "fs"
 import * as path from "path"
 
@@ -103,9 +104,30 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    const tavilyKey = resolveCurrentKey("TAVILY_API_KEY")
-    const braveKey = resolveCurrentKey("BRAVE_API_KEY")
-    const defaultProvider = resolveCurrentKey("DEFAULT_SEARCH_PROVIDER") || "auto"
+    // Ambil dari user_settings jika ada
+    const { data: userSetting } = await supabase
+      .from("user_settings")
+      .select("encrypted_tavily_key, encrypted_brave_key, search_preferences")
+      .eq("user_id", user.id)
+      .maybeSingle()
+
+    let tavilyKey = resolveCurrentKey("TAVILY_API_KEY")
+    let braveKey = resolveCurrentKey("BRAVE_API_KEY")
+    let defaultProvider = resolveCurrentKey("DEFAULT_SEARCH_PROVIDER") || "auto"
+
+    if (userSetting?.encrypted_tavily_key) {
+      try {
+        tavilyKey = decryptCredential(userSetting.encrypted_tavily_key)
+      } catch {}
+    }
+    if (userSetting?.encrypted_brave_key) {
+      try {
+        braveKey = decryptCredential(userSetting.encrypted_brave_key)
+      } catch {}
+    }
+    if (userSetting?.search_preferences?.default_provider) {
+      defaultProvider = userSetting.search_preferences.default_provider
+    }
 
     return NextResponse.json({
       ok: true,
@@ -143,13 +165,19 @@ export async function POST(request: Request) {
     const { tavilyApiKey, braveApiKey, defaultProvider } = body
 
     const updates: Record<string, string | null> = {}
+    const dbUpdates: Record<string, unknown> = {
+      user_id: user.id,
+      updated_at: new Date().toISOString(),
+    }
 
     if (typeof tavilyApiKey === "string") {
       const trimmed = tavilyApiKey.trim()
       if (trimmed === "") {
         updates["TAVILY_API_KEY"] = null
+        dbUpdates["encrypted_tavily_key"] = null
       } else if (!trimmed.includes("*")) {
         updates["TAVILY_API_KEY"] = trimmed
+        dbUpdates["encrypted_tavily_key"] = encryptCredential(trimmed)
       }
     }
 
@@ -157,8 +185,10 @@ export async function POST(request: Request) {
       const trimmed = braveApiKey.trim()
       if (trimmed === "") {
         updates["BRAVE_API_KEY"] = null
+        dbUpdates["encrypted_brave_key"] = null
       } else if (!trimmed.includes("*")) {
         updates["BRAVE_API_KEY"] = trimmed
+        dbUpdates["encrypted_brave_key"] = encryptCredential(trimmed)
       }
     }
 
@@ -166,9 +196,18 @@ export async function POST(request: Request) {
       const valid = ["auto", "tavily", "brave", "bing_scraper", "open_knowledge"]
       if (valid.includes(defaultProvider.trim())) {
         updates["DEFAULT_SEARCH_PROVIDER"] = defaultProvider.trim()
+        dbUpdates["search_preferences"] = { default_provider: defaultProvider.trim() }
       }
     }
 
+    // Tulis ke database user_settings
+    if (Object.keys(dbUpdates).length > 2) {
+      await supabase
+        .from("user_settings")
+        .upsert(dbUpdates, { onConflict: "user_id" })
+    }
+
+    // Tulis ke .env.local untuk runtime lokal
     if (Object.keys(updates).length > 0) {
       writeEnvLocal(updates)
     }

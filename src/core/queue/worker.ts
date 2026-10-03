@@ -3,6 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { decryptCredential } from "@/lib/crypto"
 import { run, publishPostToWordPress } from "@/core/writer"
 import { fetchUserPromptOverrides } from "@/lib/prompts/fetch-user-overrides"
+import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
+import { dispatchWebhookEvent } from "@/lib/webhooks/dispatcher"
 
 export interface ProcessPostItemOptions {
   postId: string
@@ -52,6 +54,7 @@ export async function processPostItem({
     .select(`
       id,
       user_id,
+      batch_id,
       wp_site_id,
       target_keyword,
       custom_instructions_override,
@@ -194,7 +197,8 @@ export async function processPostItem({
   const aiModel = (payloadMeta.aiModel as string) || undefined
   const style = (payloadMeta.style as string) || "default"
   const language = (payloadMeta.language as string) || "id"
-  const apiKey = clientApiKey || (payloadMeta.apiKey as string) || undefined
+  const userKeys = await getUserDecryptedKeys(post.user_id)
+  const apiKey = clientApiKey || (payloadMeta.apiKey as string) || userKeys.openrouterKey || undefined
 
   await supabase.from("execution_logs").insert({
     post_item_id: postId,
@@ -304,6 +308,18 @@ export async function processPostItem({
       level: "error",
       message: `[Queue Worker] Gagal generate artikel AI: ${errMsg}`,
     })
+
+    dispatchWebhookEvent({
+      userId: post.user_id,
+      event: "post.failed",
+      data: {
+        postId,
+        batchId: post.batch_id,
+        keyword: post.target_keyword,
+        error: errMsg,
+        state: "failed_generation",
+      },
+    }).catch(() => {})
 
     return {
       success: false,
@@ -428,6 +444,18 @@ export async function processPostItem({
       })
       .eq("id", postId)
 
+    dispatchWebhookEvent({
+      userId: post.user_id,
+      event: "post.failed",
+      data: {
+        postId,
+        batchId: post.batch_id,
+        keyword: post.target_keyword,
+        error: wpResult.error,
+        state: "failed_sync",
+      },
+    }).catch(() => {})
+
     return {
       success: false,
       postId,
@@ -461,6 +489,66 @@ export async function processPostItem({
     message: `[Queue Worker] Artikel sukses terbit/tersimpan di WordPress (${finalState}) dengan ID #${wpResult.wpPostId}`,
     details: { url: wpResult.wpPostUrl, totalDurationMs: Date.now() - startTime },
   })
+
+  // Kirim event webhook publikasi sukses
+  const webhookEvent =
+    finalState === "published_on_wp"
+      ? "post.published"
+      : finalState === "scheduled_on_wp"
+      ? "post.scheduled"
+      : "post.draft_saved"
+
+  dispatchWebhookEvent({
+    userId: post.user_id,
+    event: webhookEvent,
+    data: {
+      postId,
+      batchId: post.batch_id,
+      keyword: post.target_keyword,
+      title: generated.title,
+      state: finalState,
+      wpPostId: wpResult.wpPostId,
+      wpPostUrl: wpResult.wpPostUrl,
+    },
+  }).catch(() => {})
+
+  // Perbarui progress batch dan trigger webhook batch.completed jika selesai
+  if (post.batch_id) {
+    try {
+      const { data: batch } = await supabase
+        .from("content_batches")
+        .select("id, total_items, completed_items")
+        .eq("id", post.batch_id)
+        .maybeSingle()
+
+      if (batch) {
+        const newCompleted = (batch.completed_items || 0) + 1
+        const isCompleted = newCompleted >= (batch.total_items || 1)
+        await supabase
+          .from("content_batches")
+          .update({
+            completed_items: newCompleted,
+            status: isCompleted ? "completed" : "running",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", post.batch_id)
+
+        if (isCompleted) {
+          dispatchWebhookEvent({
+            userId: post.user_id,
+            event: "batch.completed",
+            data: {
+              batchId: post.batch_id,
+              totalItems: batch.total_items,
+              completedItems: newCompleted,
+            },
+          }).catch(() => {})
+        }
+      }
+    } catch (batchErr) {
+      console.warn("[worker] Gagal memperbarui status batch:", batchErr)
+    }
+  }
 
   return {
     success: true,
