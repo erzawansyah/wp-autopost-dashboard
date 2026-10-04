@@ -35,17 +35,20 @@ export const AutomationConfigSchema = z.object({
 /** Request utama ke writer.run() */
 export const WriterRequestSchema = z.object({
   requestId: z.string().uuid().optional(),
-  engine: z.string().default("quick"), // 'quick' | 'deep-research' | 'visual-story' | custom
+  agentProfileRef: z.string().optional(),
+  engine: z.string().default("quick"), // Legacy fallback: 'quick' | 'standard' | 'agentic' | 'deepagent'
 
   content: ContentInputSchema,
 
-  site: z.object({
-    siteId: z.string().uuid(),
-    wpSiteId: z.string().uuid(),
-    baseUrl: z.string().url().optional(),
-    username: z.string().optional(),
-    applicationPassword: z.string().optional(),
-  }),
+  site: z
+    .object({
+      siteId: z.string().optional(),
+      wpSiteId: z.string().optional(),
+      baseUrl: z.string().optional(),
+      username: z.string().optional(),
+      applicationPassword: z.string().optional(),
+    })
+    .optional(),
 
   publishing: PublishIntentSchema.default({ mode: "draft", categoryIds: [], tagNames: [] }),
   automation: AutomationConfigSchema.optional(),
@@ -158,11 +161,15 @@ export interface NodeExecutionLog {
   timestamp: string
 }
 
+import type { AgentStepEvent, RunTelemetrySummary } from "../runtime/telemetry"
+
 /** Trace eksekusi untuk observability */
 export interface ExecutionTrace {
   engine: string
+  agentProfileRef?: string
   nodesExecuted: string[]
   nodeLogs?: NodeExecutionLog[]
+  stepEvents?: AgentStepEvent[]
   durationMs: number
   retries: number
   tokenUsage?: { prompt: number; completion: number; total: number }
@@ -186,6 +193,7 @@ export interface WriterResult {
   article?: GeneratedArticle
   sources?: ArticleSource[]
   enrichment?: WpEnrichment
+  agentRun?: RunTelemetrySummary
   execution: ExecutionTrace
   error?: WriterError
 }

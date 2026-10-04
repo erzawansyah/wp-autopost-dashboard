@@ -2,38 +2,49 @@ import crypto from "crypto"
 import {
   WriterRequest,
   WriterResult,
-  WpEnrichment,
+  NodeExecutionLog,
 } from "./types/contracts"
-import { EngineContext, PromptConfig } from "./types/engine"
-import { EngineRegistry } from "./engines"
-import { OpenRouterLlmService } from "@/lib/ai/openrouter"
-import type { EnginePromptOverrideMap } from "@/lib/prompts/fetch-user-overrides"
+import { AgentProfile } from "./types/profile"
+import { DecryptedUserKeys } from "@/types/settings"
+import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
+import { validateAndSanitizeInput } from "./runtime/validate-input"
+import { resolveAgentProfile } from "./runtime/resolve-profile"
+import { runAgentWriter } from "./runtime/run-agent"
+import { AgentStepEvent } from "./runtime/telemetry"
 
-import { executeInputValidator } from "./nodes/input-validator"
+export interface WriterRunOptions {
+  userId?: string
+  profile?: AgentProfile
+  userKeys?: DecryptedUserKeys
+  onEventListener?: (event: AgentStepEvent) => void
+  abortSignal?: AbortSignal
+}
 
 /**
- * Pintu masuk utama (Facade Orchestrator) untuk penulisan artikel.
- * Menghubungkan seluruh modul aplikasi ke engine penulisan yang dipilih.
+ * Pintu masuk utama (Facade Orchestrator) untuk penulisan artikel berbasis LangChain Agent Profile.
+ * Menggantikan arsitektur lama berbasis node dan pipeline engine yang kaku.
  *
- * @param rawRequest    - Payload request mentah (akan divalidasi oleh input-validator)
- * @param enginePrompts - Override prompt per-node dari Supabase untuk user aktif (opsional).
- *                        Jika diisi, akan di-merge dengan prompt default engine via
- *                        mergeEnginePromptOverrides() di dalam engine-factory.
+ * @param rawRequest - Payload request mentah
+ * @param options    - Opsi eksekusi (userId, profile override, BYOK keys, atau telemetry event listener)
  */
 export async function run(
   rawRequest: unknown,
-  enginePrompts?: EnginePromptOverrideMap
+  options?: WriterRunOptions | string
 ): Promise<WriterResult> {
   const startTime = Date.now()
   const rawObj = (typeof rawRequest === "object" && rawRequest !== null ? rawRequest : {}) as Record<string, unknown>
   const requestId = (rawObj.requestId as string) || crypto.randomUUID()
 
-  // 1. Validasi input request menggunakan Node Input Validator
+  // Normalisasi opsi (dukungan backward-compatible jika parameter kedua string userId)
+  const normalizedOptions: WriterRunOptions =
+    typeof options === "string" ? { userId: options } : options || {}
+
+  // 1. Validasi input request menggunakan modul validasi terpadu
   const validatorStart = Date.now()
-  const validation = executeInputValidator(rawRequest)
+  const validation = validateAndSanitizeInput(rawRequest)
   const validatorDuration = Date.now() - validatorStart
 
-  const validatorLog = {
+  const validatorLog: NodeExecutionLog = {
     node: "input_validator",
     label: "Validasi Schema & Sanitasi",
     status: (validation.isValid ? "success" : "error") as "success" | "error",
@@ -72,142 +83,126 @@ export async function run(
     requestId,
   }
 
-  // 2. Cari engine di EngineRegistry
-  const targetEngineId = request.engine || "quick"
-  const engine = EngineRegistry.get(targetEngineId)
+  // 2. Resolusi Agent Profile (dari opsi, DB Supabase, atau preset bawaan)
+  const targetRef = request.agentProfileRef || request.engine || "preset:research-writer"
+  const profile =
+    normalizedOptions.profile ||
+    (await resolveAgentProfile(targetRef, normalizedOptions.userId))
 
-  if (!engine) {
-    const available = EngineRegistry.list().map((e) => e.id).join(", ")
+  // 3. Ambil Kunci BYOK User jika belum dioper
+  const userKeys =
+    normalizedOptions.userKeys ||
+    (normalizedOptions.userId ? await getUserDecryptedKeys(normalizedOptions.userId) : {
+      searchPreferences: { default_provider: "auto" },
+      notificationPrefs: {},
+    })
+
+  // 4. Eksekusi Agentic Writer Runtime
+  const agentRunResult = await runAgentWriter({
+    request,
+    profile,
+    userKeys,
+    onEventListener: normalizedOptions.onEventListener,
+    abortSignal: normalizedOptions.abortSignal,
+  })
+
+  const summary = agentRunResult.recorder.getSummary(
+    agentRunResult.success ? "completed" : "failed",
+    agentRunResult.stopReason,
+    agentRunResult.article?.wordCount || 0,
+    agentRunResult.error?.message
+  )
+
+  const stepEvents = agentRunResult.recorder.getEvents()
+
+  // Konversi stepEvents ke nodeLogs untuk kompatibilitas penuh dengan visualizer PostDetailTelemetry
+  const convertedNodeLogs: NodeExecutionLog[] = [
+    validatorLog,
+    ...stepEvents.map((evt) => ({
+      node: evt.tool || evt.kind,
+      label: evt.tool ? `Tool: ${evt.tool}` : `Agent: ${evt.kind}`,
+      status: (evt.status === "ok" ? "success" : evt.status === "error" ? "error" : "skipped") as "success" | "error" | "skipped",
+      durationMs: evt.durationMs,
+      input: evt.argsPreview || {},
+      output: { summary: evt.summary },
+      message: evt.summary,
+      timestamp: evt.timestamp,
+    })),
+  ]
+
+  const nodesExecuted = [
+    "input_validator",
+    `agent_${profile.mode}`,
+    ...stepEvents.map((e) => e.tool || e.kind).filter(Boolean),
+  ]
+
+  if (!agentRunResult.success || !agentRunResult.article) {
     return {
       success: false,
       status: "failed",
+      sources: agentRunResult.sources,
+      agentRun: summary,
       execution: {
-        engine: targetEngineId,
-        nodesExecuted: ["input_validator", "resolve_engine"],
-        nodeLogs: [
-          validatorLog,
-          {
-            node: "resolve_engine",
-            label: "Pencarian Engine",
-            status: "error",
-            durationMs: 1,
-            input: { targetEngineId },
-            output: { availableEngines: available },
-            message: `Engine "${targetEngineId}" tidak ditemukan`,
-            timestamp: new Date().toISOString(),
-          },
-        ],
+        engine: profile.ref,
+        agentProfileRef: profile.ref,
+        nodesExecuted,
+        nodeLogs: convertedNodeLogs,
+        stepEvents,
         durationMs: Date.now() - startTime,
         retries: 0,
-        modelUsed: "none",
+        tokenUsage: {
+          prompt: summary.tokensPrompt,
+          completion: summary.tokensCompletion,
+          total: summary.tokensPrompt + summary.tokensCompletion,
+        },
+        modelUsed: profile.model || request.model || "default",
         warnings: [],
       },
-      error: {
-        code: "ENGINE_NOT_FOUND",
-        message: `Engine "${targetEngineId}" tidak ditemukan. Engine tersedia: ${available}`,
-        retryable: false,
-      },
-    }
-  }
-
-  // 3. Siapkan LLM Service & Engine Context
-  const llmService = new OpenRouterLlmService(request.apiKey, request.model)
-
-  const promptConfig: PromptConfig = {
-    systemPrompt: "",
-    userPromptTemplate: "",
-    customInstructions: request.customInstructions,
-    variables: {
-      keyword: request.content.keyword,
-      title: request.content.title || "",
-      language: request.content.language,
-      brief: request.content.brief || "",
-    },
-  }
-
-  const engineContext: EngineContext = {
-    request,
-    llmService,
-    promptConfig,
-    // Teruskan override prompt user (jika ada) ke engine factory.
-    // engine-factory.ts akan merge dengan prompt default via mergeEnginePromptOverrides().
-    enginePrompts: enginePrompts && Object.keys(enginePrompts).length > 0 ? enginePrompts : undefined,
-  }
-
-  // 5. Eksekusi Engine (Menghasilkan naskah Markdown & Gutenberg Blocks)
-  const engineResult = await engine.execute(engineContext)
-  const combinedNodeLogs = [validatorLog, ...(engineResult.nodeLogs || [])]
-
-  if (!engineResult.success || !engineResult.article) {
-    return {
-      success: false,
-      status: "failed",
-      execution: {
-        engine: engine.id,
-        nodesExecuted: engineResult.nodesExecuted,
-        nodeLogs: combinedNodeLogs,
-        durationMs: Date.now() - startTime,
-        retries: 0,
-        tokenUsage: engineResult.tokenUsage,
-        modelUsed: request.model || "default",
-        warnings: engineResult.warnings,
-      },
-      error: engineResult.error || {
+      error: agentRunResult.error || {
         code: "GENERATION_FAILED",
-        message: "Engine gagal menghasilkan naskah artikel",
+        message: "Agent gagal menghasilkan naskah artikel",
         retryable: true,
       },
     }
   }
 
-  // 6. Enrichment Metadata WordPress
-  const resolvedCategories =
-    engineResult.categoryIds && engineResult.categoryIds.length > 0
-      ? engineResult.categoryIds
-      : (request.publishing.categoryIds || [])
-
-  const enrichment: WpEnrichment = {
-    categories: resolvedCategories,
-    tags: engineResult.tagIds || [],
-    author: request.publishing.authorId ?? engineResult.authorDetail?.id ?? undefined,
-    authorDetail: engineResult.authorDetail,
-    featuredMedia: request.publishing.featuredImageId ?? engineResult.featuredMediaId ?? undefined,
-    featuredImage: engineResult.featuredImage,
-    inContentImages: engineResult.inContentImages || [],
-  }
-
   return {
     success: true,
     status: "draft_ready",
-    article: engineResult.article,
-    sources: engineResult.sources,
-    enrichment,
+    article: agentRunResult.article,
+    sources: agentRunResult.sources,
+    enrichment: agentRunResult.enrichment,
+    agentRun: summary,
     execution: {
-      engine: engine.id,
-      nodesExecuted: [...engineResult.nodesExecuted, "enrich_metadata"],
-      nodeLogs: combinedNodeLogs,
+      engine: profile.ref,
+      agentProfileRef: profile.ref,
+      nodesExecuted,
+      nodeLogs: convertedNodeLogs,
+      stepEvents,
       durationMs: Date.now() - startTime,
       retries: 0,
-      tokenUsage: engineResult.tokenUsage,
-      modelUsed: request.model || "default",
-      warnings: engineResult.warnings,
+      tokenUsage: {
+        prompt: summary.tokensPrompt,
+        completion: summary.tokensCompletion,
+        total: summary.tokensPrompt + summary.tokensCompletion,
+      },
+      modelUsed: profile.model || request.model || "default",
+      warnings: [],
     },
   }
 }
 
-// Export tipe dan komponen penting
+// Re-export tipe dan modul penting
 export * from "./types/contracts"
-export * from "./types/engine"
-export * from "./engines"
-export * from "./nodes/input-validator"
-export * from "./nodes/taxonomy-resolver"
-export * from "./nodes/topic-researcher"
-export * from "./nodes/article-drafter"
-export * from "./nodes/image-curator"
-export * from "./nodes/quality-checker"
-export * from "./nodes/gutenberg-formatter"
-export * from "./utils/prompt-loader"
-export * from "./utils/node-factory"
+export * from "./types/profile"
+export * from "./presets/registry"
+export * from "./tools"
+export * from "./runtime/telemetry"
+export * from "./runtime/validate-input"
+export * from "./runtime/resolve-profile"
+export * from "./runtime/run-agent"
+export * from "./runtime/postprocess"
+export * from "./runtime/output-schema"
 export * from "../shared/tools/wordpress-publisher"
 export * from "../shared/tools/get-categories"
 export * from "../shared/tools/get-tags"
@@ -217,15 +212,7 @@ export * from "../shared/tools/web-search"
 export * from "../shared/tools/web-reader"
 export * from "../shared/tools/image-search"
 export * from "../shared/tools/image-embedder"
+export * from "../shared/tools/upload-media"
 export * from "../shared/formatters/gutenberg"
 export * from "../shared/formatters/markdown-cleaner"
 export * from "@/lib/ai/openrouter"
-
-export const POPULAR_AI_MODELS = [
-  { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Default - Cepat & Hemat)", provider: "OpenRouter" },
-  { id: "google/gemini-2.5-flash", name: "Google Gemini 2.5 Flash (Cepat & Cerdas)", provider: "Google" },
-  { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet (Kualitas Editorial Tertinggi)", provider: "Anthropic" },
-  { id: "deepseek/deepseek-chat", name: "DeepSeek V3 (Sangat Hemat)", provider: "DeepSeek" },
-  { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B Instruct", provider: "Meta" },
-]
-

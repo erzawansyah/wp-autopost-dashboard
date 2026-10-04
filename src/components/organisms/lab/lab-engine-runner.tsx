@@ -18,7 +18,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tab
 import { JsonCodeViewer } from "@/components/molecules/json-code-viewer"
 import { Play, Loader2, CheckCircle2, AlertCircle, Zap, Eye, Code, FileText, Layers, ExternalLink, Bot, Image as ImageIcon } from "lucide-react"
 import Link from "next/link"
-import { getGlobalAiModel, getModelDisplayName, getGlobalApiKey } from "@/lib/ai/settings"
+import { getGlobalAiModel, getModelDisplayName, getGlobalApiKey, DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 import { LanguageSelect } from "@/components/molecules/language-select"
 import { LabSiteOption } from "./lab-tools-runner"
 
@@ -46,7 +46,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
   const [keyword, setKeyword] = React.useState("cara riset keyword seo pemula")
   const [brief, setBrief] = React.useState("Jelaskan langkah demi langkah riset keyword berorientasi search intent dan volume pencarian.")
   const [language, setLanguage] = React.useState("id")
-  const [globalModel, setGlobalModel] = React.useState("openai/gpt-oss-120b")
+  const [globalModel, setGlobalModel] = React.useState(DEFAULT_AI_MODEL)
   const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">("draft")
   const [tagList, setTagList] = React.useState("seo, riset-keyword, panduan-pemula")
 

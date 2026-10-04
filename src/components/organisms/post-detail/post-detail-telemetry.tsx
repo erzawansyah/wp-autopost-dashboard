@@ -16,6 +16,10 @@ import {
   Layers,
   Cpu,
   ChevronsUpDown,
+  Bot,
+  BrainCircuit,
+  Wrench,
+  Sparkles,
 } from "lucide-react"
 
 export interface DatabaseExecutionLog {
@@ -29,6 +33,16 @@ export interface DatabaseExecutionLog {
 
 interface PostDetailTelemetryProps {
   logs: DatabaseExecutionLog[]
+  agentRun?: {
+    id: string
+    status: string
+    mode: string
+    total_model_calls: number
+    total_tool_calls: number
+    duration_ms: number
+    step_events: any[]
+    agent_profile_ref?: string
+  } | null
   engineUsed?: string
   modelUsed?: string
   state?: string
@@ -38,9 +52,29 @@ interface PostDetailTelemetryProps {
 }
 
 /**
- * Peta nama & deskripsi fungsi node
+ * Peta nama & deskripsi fungsi node / step
  */
 const NODE_INFO: Record<string, { label: string; desc: string }> = {
+  model_call: {
+    label: "Model Reasoning (LLM)",
+    desc: "Pemanggilan model kecerdasan buatan untuk merencanakan dan menyusun teks.",
+  },
+  tool_call: {
+    label: "Pemanggilan Tool Mandiri",
+    desc: "Agen mengeksekusi tool untuk riset web, kurasi visual, atau taksonomi WordPress.",
+  },
+  guard: {
+    label: "Guardrail & Loop Protection",
+    desc: "Pemeriksaan limit komputasi, deduplikasi pemanggilan tool, dan circuit breaker.",
+  },
+  finalize: {
+    label: "Finalisasi Naskah Darurat",
+    desc: "Pemanggilan satu kali tanpa tools untuk merangkum hasil jika batas limit tercapai.",
+  },
+  retry_sync_bypass: {
+    label: "Bypass Konten (Idempotent Retry)",
+    desc: "Konten artikel sudah siap di database; melewati pembuatan AI untuk langsung kirim ke WordPress.",
+  },
   init_queue: {
     label: "Penerimaan Antrean",
     desc: "Menerima topik dan instruksi pengerjaan ke dalam antrean sistem.",
@@ -132,6 +166,7 @@ function JsonBlock({ data, title }: { data: Record<string, unknown>; title: stri
 
 export function PostDetailTelemetry({
   logs,
+  agentRun,
   engineUsed = "quick",
   modelUsed = "openrouter",
   state,
@@ -222,35 +257,39 @@ export function PostDetailTelemetry({
 
   return (
     <div className={cn("flex flex-col gap-4", className)}>
-      {/* Kartu Metrik Ringkas */}
+      {/* Kartu Metrik Ringkas Agen */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-xl border border-border/80 bg-card p-3 shadow-2xs flex flex-col gap-1">
           <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
-            <Layers className="size-3 text-primary" />
-            <span>Engine</span>
+            {agentRun?.mode === "deep" ? (
+              <BrainCircuit className="size-3 text-primary" />
+            ) : (
+              <Bot className="size-3 text-primary" />
+            )}
+            <span>Agen Runtime</span>
           </div>
-          <span className="text-xs font-semibold font-mono text-foreground capitalize">
-            {engineUsed === "deepagent"
-              ? "DeepAgent Writer"
-              : engineUsed === "agentic"
-              ? "Agentic Writer"
-              : engineUsed === "standard"
-              ? "Standard Engine"
-              : engineUsed === "deep"
-              ? "Deep Research"
-              : engineUsed === "quick"
-              ? "Quick Writer"
-              : engineUsed || "—"}
+          <span className="text-xs font-semibold font-mono text-foreground capitalize truncate">
+            {agentRun ? (agentRun.mode === "deep" ? "Deep Agent" : "Standard Agent") : (engineUsed || "Standard")}
           </span>
         </div>
 
         <div className="rounded-xl border border-border/80 bg-card p-3 shadow-2xs flex flex-col gap-1">
           <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
             <Cpu className="size-3 text-primary" />
-            <span>Model</span>
+            <span>Model Calls</span>
           </div>
-          <span className="text-xs font-semibold font-mono text-foreground truncate" title={modelUsed}>
-            {modelUsed.split("/").pop() || modelUsed}
+          <span className="text-xs font-semibold font-mono text-foreground">
+            {agentRun?.total_model_calls ?? 1} pemanggilan
+          </span>
+        </div>
+
+        <div className="rounded-xl border border-border/80 bg-card p-3 shadow-2xs flex flex-col gap-1">
+          <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
+            <Wrench className="size-3 text-primary" />
+            <span>Tool Calls</span>
+          </div>
+          <span className="text-xs font-semibold font-mono text-foreground">
+            {agentRun?.total_tool_calls ?? 0} dieksekusi
           </span>
         </div>
 
@@ -261,16 +300,6 @@ export function PostDetailTelemetry({
           </div>
           <span className="text-xs font-semibold font-mono text-foreground">
             {durationText}
-          </span>
-        </div>
-
-        <div className="rounded-xl border border-border/80 bg-card p-3 shadow-2xs flex flex-col gap-1">
-          <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
-            <Activity className="size-3 text-primary" />
-            <span>Jumlah Node</span>
-          </div>
-          <span className="text-xs font-semibold font-mono text-foreground">
-            {logs.length} tahapan
           </span>
         </div>
       </div>

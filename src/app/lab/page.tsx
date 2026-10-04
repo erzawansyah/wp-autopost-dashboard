@@ -12,7 +12,6 @@ import { useRouter } from "next/navigation"
 import { isLabAuthorizedUser } from "@/lib/constants/auth"
 
 import { LabToolsRunner } from "@/components/organisms/lab/lab-tools-runner"
-import { LabNodesRunner } from "@/components/organisms/lab/lab-nodes-runner"
 import { LabEngineRunner } from "@/components/organisms/lab/lab-engine-runner"
 import { LabDocsViewer } from "@/components/organisms/lab/lab-docs-viewer"
 
@@ -98,11 +97,11 @@ export default function LabPage() {
               Dev Lab
             </Badge>
           }
-          actions={
+            actions={
             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-md border border-border/60">
               <span className="inline-block size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
               <span>
-                {registry.tools.length} Tools • {registry.nodes.length} Nodes • {registry.engines.length} Engine Aktif
+                {registry.tools.length} Tools • {registry.engines.length} Agen Aktif
               </span>
             </div>
           }
@@ -115,21 +114,15 @@ export default function LabPage() {
             <span className="text-xs">Memuat katalog komponen System Writer...</span>
           </div>
         ) : (
-          /* Segmented Tabs: Tools, Nodes, Engine, Docs */
+          /* Segmented Tabs: Tools & Agen */
           <Tabs defaultValue="tools" className="w-full">
             <div className="border-b border-border/70 pb-3 mb-6">
-              <TabsList className="grid w-full max-w-xl grid-cols-4">
+              <TabsList className="grid w-full max-w-xs grid-cols-2">
                 <TabsTrigger value="tools" className="text-xs gap-1.5">
                   <Wrench className="size-3.5" /> Tools ({registry.tools.length})
                 </TabsTrigger>
-                <TabsTrigger value="nodes" className="text-xs gap-1.5">
-                  <Cpu className="size-3.5" /> Nodes ({registry.nodes.length})
-                </TabsTrigger>
                 <TabsTrigger value="engine" className="text-xs gap-1.5">
-                  <Zap className="size-3.5" /> Engine ({registry.engines.length})
-                </TabsTrigger>
-                <TabsTrigger value="docs" className="text-xs gap-1.5">
-                  <BookOpen className="size-3.5" /> Panduan
+                  <Zap className="size-3.5" /> Agen ({registry.engines.length})
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -139,19 +132,9 @@ export default function LabPage() {
               <LabToolsRunner tools={registry.tools} sites={registry.sites} />
             </TabsContent>
 
-            {/* Tab: Nodes Runner */}
-            <TabsContent value="nodes" className="focus-visible:outline-none">
-              <LabNodesRunner nodes={registry.nodes} sites={registry.sites} />
-            </TabsContent>
-
-            {/* Tab: Engine Runner */}
+            {/* Tab: Engine/Agent Runner */}
             <TabsContent value="engine" className="focus-visible:outline-none">
               <LabEngineRunner engines={registry.engines} sites={registry.sites} />
-            </TabsContent>
-
-            {/* Tab: Documentation & Spec */}
-            <TabsContent value="docs" className="focus-visible:outline-none">
-              <LabDocsViewer />
             </TabsContent>
           </Tabs>
         )}
