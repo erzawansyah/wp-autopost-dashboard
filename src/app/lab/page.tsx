@@ -71,6 +71,23 @@ export default function LabPage() {
       })
   }, [isAuthorized])
 
+  const [activeTab, setActiveTab] = React.useState<string>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("panitera_lab_main_tab")
+        if (saved === "tools" || saved === "engine") return saved
+      } catch {}
+    }
+    return "tools"
+  })
+
+  const handleTabChange = (value: string) => {
+    setActiveTab(value)
+    try {
+      localStorage.setItem("panitera_lab_main_tab", value)
+    } catch {}
+  }
+
   if (authChecking || !isAuthorized) {
     return (
       <DashboardLayout>
@@ -97,7 +114,7 @@ export default function LabPage() {
               Dev Lab
             </Badge>
           }
-            actions={
+          actions={
             <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/30 px-3 py-1.5 rounded-md border border-border/60">
               <span className="inline-block size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
               <span>
@@ -115,7 +132,7 @@ export default function LabPage() {
           </div>
         ) : (
           /* Segmented Tabs: Tools & Agen */
-          <Tabs defaultValue="tools" className="w-full">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
             <div className="border-b border-border/70 pb-3 mb-6">
               <TabsList className="grid w-full max-w-xs grid-cols-2">
                 <TabsTrigger value="tools" className="text-xs gap-1.5">

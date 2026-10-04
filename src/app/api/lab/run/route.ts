@@ -7,6 +7,8 @@ import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import { publishPostToWordPress } from "@/core/shared/tools/wordpress-publisher"
 import { webSearch } from "@/core/shared/tools/web-search"
 import { searchRoyaltyFreeImages } from "@/core/shared/tools/image-search"
+import { getKeywordSuggestions } from "@/core/shared/tools/keyword-suggestions"
+import { readWebContent } from "@/core/shared/tools/web-reader"
 import { run } from "@/core/writer"
 import { AgentStepEvent, RunRecorder } from "@/core/writer/runtime/telemetry"
 
@@ -145,6 +147,42 @@ export async function POST(request: Request) {
           result: imgOutput,
           output: imgOutput,
           summary: `Ditemukan ${photos.length} foto berkualitas tinggi`,
+          durationMs: Date.now() - startTime,
+        })
+      }
+
+      if (id === "keyword_suggestions") {
+        const query = (input?.query || "").trim()
+        const limit = Number(input?.limit) || 15
+        const language = input?.language || "id"
+        const searxngUrl = userKeys.searxngUrl || "http://searxng-internal:8080"
+
+        const res = await getKeywordSuggestions({
+          query,
+          limit,
+          language,
+          searxngUrl,
+        })
+
+        return NextResponse.json({
+          ok: true,
+          result: res,
+          output: res,
+          summary: `Ditemukan ${res.suggestions.length} saran kata kunci & LSI`,
+          durationMs: Date.now() - startTime,
+        })
+      }
+
+      if (id === "web_reader") {
+        const url = (input?.url || "").trim()
+        const maxLength = Number(input?.maxLength) || 2500
+        const res = await readWebContent({ url, maxLength })
+
+        return NextResponse.json({
+          ok: res.ok,
+          result: res,
+          output: res,
+          summary: res.ok ? `Membaca ${res.wordCount} kata dari ${res.title || url}` : res.error,
           durationMs: Date.now() - startTime,
         })
       }

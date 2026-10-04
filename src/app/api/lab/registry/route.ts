@@ -37,6 +37,8 @@ export async function GET() {
       let defaultParams: Record<string, unknown> = {}
       if (t.id === "web_search") {
         defaultParams = { query: "perkembangan artificial intelligence indonesia" }
+      } else if (t.id === "keyword_suggestions") {
+        defaultParams = { query: "kopi robusta", limit: 15 }
       } else if (t.id === "web_reader") {
         defaultParams = { url: "https://example.com" }
       } else if (t.id === "image_search") {
@@ -59,6 +61,7 @@ export async function GET() {
         description: t.description,
         requiresSite,
         defaultParams,
+        inputFields: t.inputFields || [],
       }
     })
 
@@ -70,10 +73,36 @@ export async function GET() {
       requiresSite: true,
       defaultParams: {
         title: "Artikel Uji Coba dari Laboratorium",
-        contentHtml: "<!-- wp:paragraph -->\\n<p>Ini adalah paragraf pengujian penerbitan naskah WordPress dari Dev Lab.</p>\\n<!-- /wp:paragraph -->",
+        contentHtml: "<!-- wp:paragraph -->\n<p>Ini adalah paragraf pengujian penerbitan naskah WordPress dari Dev Lab.</p>\n<!-- /wp:paragraph -->",
         status: "draft",
         excerpt: "Ringkasan uji coba laboratorium...",
       },
+      inputFields: [
+        {
+          name: "title",
+          label: "Judul Artikel",
+          type: "text",
+          defaultValue: "Artikel Uji Coba dari Laboratorium",
+          description: "Judul postingan yang akan dibuat di WordPress.",
+        },
+        {
+          name: "status",
+          label: "Status Publikasi",
+          type: "select",
+          defaultValue: "draft",
+          options: [
+            { value: "draft", label: "Draft (Simpan sebagai Konsep)" },
+            { value: "publish", label: "Publish (Tayang Langsung)" },
+          ],
+        },
+        {
+          name: "contentHtml",
+          label: "Konten HTML / Gutenberg Blocks",
+          type: "textarea",
+          defaultValue: "<!-- wp:paragraph -->\n<p>Ini adalah paragraf pengujian penerbitan naskah WordPress dari Dev Lab.</p>\n<!-- /wp:paragraph -->",
+          description: "Markup HTML atau komentar blok Gutenberg yang akan disuntikkan ke wp/v2/posts.",
+        },
+      ],
     })
 
     // Daftar Agent Profiles (Presets + Kustom)

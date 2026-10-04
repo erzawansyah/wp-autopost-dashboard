@@ -38,17 +38,57 @@ interface LabEngineRunnerProps {
   sites: LabSiteOption[]
 }
 
+const ENGINE_STORAGE_KEY = "panitera_lab_engine_state"
+
+function getStoredEngineState() {
+  if (typeof window === "undefined") return null
+  try {
+    const raw = localStorage.getItem(ENGINE_STORAGE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
 export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
-  const [selectedEngineId, setSelectedEngineId] = React.useState<string>(engines[0]?.id || "quick")
-  const [selectedSiteId, setSelectedSiteId] = React.useState<string>(sites[0]?.id || "")
+  const [selectedEngineId, setSelectedEngineId] = React.useState<string>(() => {
+    const saved = getStoredEngineState()
+    if (saved?.selectedEngineId && engines.some((e) => e.id === saved.selectedEngineId)) {
+      return saved.selectedEngineId
+    }
+    return engines[0]?.id || "quick"
+  })
+  const [selectedSiteId, setSelectedSiteId] = React.useState<string>(() => {
+    const saved = getStoredEngineState()
+    if (saved?.selectedSiteId) {
+      return saved.selectedSiteId
+    }
+    return sites[0]?.id || ""
+  })
 
   // Request form state
-  const [keyword, setKeyword] = React.useState("cara riset keyword seo pemula")
-  const [brief, setBrief] = React.useState("Jelaskan langkah demi langkah riset keyword berorientasi search intent dan volume pencarian.")
-  const [language, setLanguage] = React.useState("id")
+  const [keyword, setKeyword] = React.useState<string>(() => {
+    const saved = getStoredEngineState()
+    return saved?.keyword ?? "cara riset keyword seo pemula"
+  })
+  const [brief, setBrief] = React.useState<string>(() => {
+    const saved = getStoredEngineState()
+    return saved?.brief ?? "Jelaskan langkah demi langkah riset keyword berorientasi search intent dan volume pencarian."
+  })
+  const [language, setLanguage] = React.useState<string>(() => {
+    const saved = getStoredEngineState()
+    return saved?.language ?? "id"
+  })
   const [globalModel, setGlobalModel] = React.useState(DEFAULT_AI_MODEL)
-  const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">("draft")
-  const [tagList, setTagList] = React.useState("seo, riset-keyword, panduan-pemula")
+  const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">(() => {
+    const saved = getStoredEngineState()
+    return saved?.actionStatus === "publish" ? "publish" : "draft"
+  })
+  const [tagList, setTagList] = React.useState<string>(() => {
+    const saved = getStoredEngineState()
+    return saved?.tagList ?? "seo, riset-keyword, panduan-pemula"
+  })
 
   React.useEffect(() => {
     setGlobalModel(getGlobalAiModel())
@@ -56,13 +96,66 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
 
   // Execution state
   const [isRunning, setIsRunning] = React.useState(false)
-  const [resultData, setResultData] = React.useState<any>(null)
-  const [durationMs, setDurationMs] = React.useState<number | null>(null)
-  const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  const [resultData, setResultData] = React.useState<any>(() => {
+    const saved = getStoredEngineState()
+    return saved?.resultData ?? null
+  })
+  const [durationMs, setDurationMs] = React.useState<number | null>(() => {
+    const saved = getStoredEngineState()
+    return saved?.durationMs ?? null
+  })
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(() => {
+    const saved = getStoredEngineState()
+    return saved?.errorMessage ?? null
+  })
+  const [activeResultTab, setActiveResultTab] = React.useState<string>(() => {
+    const saved = getStoredEngineState()
+    return saved?.activeResultTab || "preview"
+  })
+
+  // Simpan riwayat operasi agen terakhir ke local storage
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(
+        ENGINE_STORAGE_KEY,
+        JSON.stringify({
+          selectedEngineId,
+          selectedSiteId,
+          keyword,
+          brief,
+          language,
+          actionStatus,
+          tagList,
+          resultData,
+          durationMs,
+          errorMessage,
+          activeResultTab,
+        })
+      )
+    } catch {}
+  }, [
+    selectedEngineId,
+    selectedSiteId,
+    keyword,
+    brief,
+    language,
+    actionStatus,
+    tagList,
+    resultData,
+    durationMs,
+    errorMessage,
+    activeResultTab,
+  ])
 
   const activeEngine = React.useMemo(() => {
     return engines.find((e) => e.id === selectedEngineId) || engines[0]
   }, [engines, selectedEngineId])
+
+  const handleResetEngine = () => {
+    setResultData(null)
+    setDurationMs(null)
+    setErrorMessage(null)
+  }
 
   const handleExecuteEngine = async () => {
     setIsRunning(true)
@@ -124,9 +217,9 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
                 <Zap className="size-4" />
               </div>
               <div>
-                <CardTitle className="text-sm font-semibold">Pengujian LangGraph Engine</CardTitle>
+                <CardTitle className="text-sm font-semibold">Pengujian Profil Agen</CardTitle>
                 <CardDescription className="text-xs">
-                  Jalankan orkestrasi lengkap StateGraph dari awal hingga blok Gutenberg.
+                  Jalankan orkestrasi lengkap alur kerja agen dari awal hingga blok Gutenberg.
                 </CardDescription>
               </div>
             </div>
@@ -274,12 +367,22 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
           <CardHeader className="pb-3 border-b border-border/60">
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-sm font-semibold">Hasil Pipeline Engine</CardTitle>
+                <CardTitle className="text-sm font-semibold">Hasil Pipeline Agen</CardTitle>
                 <CardDescription className="text-xs">
-                  Pratinjau naskah, blok Gutenberg, dan audit telemetri StateGraph.
+                  Pratinjau naskah, blok Gutenberg, dan audit telemetri alur kerja agen.
                 </CardDescription>
               </div>
               <div className="flex items-center gap-2">
+                {(resultData || errorMessage) && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    onClick={handleResetEngine}
+                    className="text-xs text-muted-foreground hover:text-foreground h-7 px-2"
+                  >
+                    Bersihkan
+                  </Button>
+                )}
                 {durationMs !== null && (
                   <Badge variant="outline" className="font-mono text-[11px]">
                     ⏱️ {(durationMs / 1000).toFixed(2)} detik
@@ -311,265 +414,183 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
             )}
 
             {resultData ? (
-              <Tabs defaultValue="preview" className="w-full">
-                <TabsList className="grid w-full grid-cols-5 mb-3">
-                  <TabsTrigger value="preview" className="text-xs gap-1.5">
+              <Tabs value={activeResultTab} onValueChange={setActiveResultTab} className="w-full">
+                <TabsList className="grid w-full grid-cols-4 mb-3">
+                  <TabsTrigger value="preview" className="text-xs gap-1.5 font-medium">
                     <Eye className="size-3.5" /> Pratinjau
                   </TabsTrigger>
-                  <TabsTrigger value="media" className="text-xs gap-1.5">
-                    <ImageIcon className="size-3.5" /> Media ({(enrichment?.featuredImage ? 1 : 0) + (enrichment?.inContentImages?.length || 0)})
-                  </TabsTrigger>
-                  <TabsTrigger value="blocks" className="text-xs gap-1.5">
+                  <TabsTrigger value="gutenberg" className="text-xs gap-1.5 font-medium">
                     <Code className="size-3.5" /> Gutenberg
                   </TabsTrigger>
-                  <TabsTrigger value="markdown" className="text-xs gap-1.5">
+                  <TabsTrigger value="markdown" className="text-xs gap-1.5 font-medium">
                     <FileText className="size-3.5" /> Markdown
                   </TabsTrigger>
-                  <TabsTrigger value="telemetry" className="text-xs gap-1.5">
-                    <Layers className="size-3.5" /> Telemetri
+                  <TabsTrigger value="raw" className="text-xs gap-1.5 font-medium">
+                    <Layers className="size-3.5" /> Raw JSON
                   </TabsTrigger>
                 </TabsList>
 
-                {/* Tab: Rendered HTML Preview */}
-                <TabsContent value="preview" className="flex flex-col gap-3">
-                  {/* Featured Image Card / Banner */}
+                {/* Tab 1: Rendered HTML Preview */}
+                <TabsContent value="preview" className="flex flex-col gap-4">
+                  {/* Featured Image Hero Banner (jika tersedia) */}
                   {enrichment?.featuredImage && (
-                    <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                      <div className="relative w-full sm:w-40 h-24 rounded-md overflow-hidden bg-muted shrink-0 border border-border">
+                    <div className="relative rounded-xl overflow-hidden border border-border/80 bg-muted/30 shadow-xs">
+                      <div className="relative w-full h-52 sm:h-64 bg-muted overflow-hidden">
                         <img
                           src={enrichment.featuredImage.imageUrl || enrichment.featuredImage.originalUrl}
                           alt={enrichment.featuredImage.altText || "Featured Image"}
-                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
                         />
-                      </div>
-                      <div className="flex-1 space-y-1 text-xs">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge className="bg-primary text-primary-foreground text-[10px] h-4.5 px-1.5 py-0 font-medium">
-                            Featured Image WordPress
+                        <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/20 to-transparent pointer-events-none" />
+                        <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-xs">
+                          <Badge className="bg-primary/90 text-primary-foreground text-[10px] h-5 px-2 font-medium shadow-xs backdrop-blur-xs">
+                            Featured Image {enrichment.featuredMedia ? `• WP ID #${enrichment.featuredMedia}` : "• Simulasi"}
                           </Badge>
-                          {enrichment.featuredMedia ? (
-                            <span className="font-mono text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                              WP Media ID: {enrichment.featuredMedia}
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground italic">
-                              (Mode Simulasi - Belum diupload ke WP)
-                            </span>
+                          {enrichment.featuredImage.originalUrl && (
+                            <a
+                              href={enrichment.featuredImage.originalUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] text-background bg-foreground/80 hover:bg-foreground px-2 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1 transition-colors"
+                            >
+                              Sumber Foto <ExternalLink className="size-2.5" />
+                            </a>
                           )}
                         </div>
-                        <p className="font-semibold text-foreground text-xs line-clamp-1">
-                          {enrichment.featuredImage.title}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground line-clamp-2">
-                          {enrichment.featuredImage.explanation}
-                        </p>
-                        {enrichment.featuredImage.originalUrl && (
-                          <a
-                            href={enrichment.featuredImage.originalUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 font-medium pt-0.5"
-                          >
-                            Buka Sumber Asli Foto <ExternalLink className="size-3" />
-                          </a>
+                      </div>
+                      <div className="p-3 text-xs bg-card/60 flex items-center justify-between gap-2 border-t border-border/60">
+                        <span className="font-medium text-foreground truncate">
+                          {enrichment.featuredImage.title || "Gambar Sampul"}
+                        </span>
+                        {enrichment.featuredImage.explanation && (
+                          <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">
+                            {enrichment.featuredImage.explanation}
+                          </span>
                         )}
                       </div>
                     </div>
                   )}
 
-                  <div className="rounded-lg border border-border bg-card p-4">
-                    <h2 className="text-lg font-bold text-foreground mb-2">
-                      {article?.title || "Tanpa Judul"}
-                    </h2>
-                    <div className="flex items-center gap-2 mb-4 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">
-                        {article?.readingTimeMinutes || 1} menit membaca
-                      </span>
-                      <span>•</span>
-                      <span>Model: {execution?.modelUsed}</span>
-                      {enrichment?.featuredMedia && (
-                        <>
-                          <span>•</span>
-                          <span className="text-primary font-medium">Featured Image Terpasang</span>
-                        </>
-                      )}
+                  {/* Kontainer Naskah Render HTML */}
+                  <div className="rounded-xl border border-border bg-card p-5 sm:p-6 shadow-xs flex flex-col gap-4">
+                    {/* Header Artikel */}
+                    <div className="border-b border-border/70 pb-4">
+                      <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground leading-snug mb-3">
+                        {article?.title || "Tanpa Judul"}
+                      </h1>
+                      <div className="flex flex-wrap items-center gap-2.5 text-xs text-muted-foreground">
+                        <Badge variant="outline" className="text-[11px] font-medium border-border/80 text-foreground bg-muted/30">
+                          ⏱️ {article?.readingTimeMinutes || 1} menit membaca
+                        </Badge>
+                        <Badge variant="outline" className="text-[11px] font-medium border-border/80 text-muted-foreground">
+                          🤖 Model: {execution?.modelUsed || getModelDisplayName(globalModel)}
+                        </Badge>
+                        {((enrichment?.featuredImage ? 1 : 0) + (enrichment?.inContentImages?.length || 0)) > 0 && (
+                          <Badge variant="secondary" className="text-[11px] font-medium bg-primary/10 text-primary border-primary/20">
+                            🖼️ {(enrichment?.featuredImage ? 1 : 0) + (enrichment?.inContentImages?.length || 0)} Media
+                          </Badge>
+                        )}
+                        {actionStatus === "publish" ? (
+                          <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 text-[10px]">
+                            Auto Publish
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] text-muted-foreground font-mono">
+                            Draft Status
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
+                    {/* Body HTML Artikel */}
                     <div
-                      className="prose dark:prose-invert max-w-none text-xs leading-relaxed max-h-[420px] overflow-auto border-t border-border/60 pt-3"
+                      className="prose dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed max-h-[500px] overflow-y-auto pr-1"
                       dangerouslySetInnerHTML={{
                         __html: article?.contentHtml || "<p>Konten belum tersedia.</p>",
                       }}
                     />
-                  </div>
-                </TabsContent>
 
-                {/* Tab: Media & Gambar */}
-                <TabsContent value="media" className="flex flex-col gap-3">
-                  {/* Bagian 1: Featured Image */}
-                  <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                      <div className="flex items-center gap-2">
-                        <ImageIcon className="size-4 text-primary" />
-                        <h3 className="text-xs font-semibold text-foreground">
-                          1. Featured Image (Sampul Utama Postingan)
-                        </h3>
-                      </div>
-                      {enrichment?.featuredImage ? (
-                        <Badge variant="outline" className="text-[10px] text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
-                          Tersedia
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className="text-[10px] text-muted-foreground">
-                          Tidak Dikonfigurasi
-                        </Badge>
-                      )}
-                    </div>
-
-                    {enrichment?.featuredImage ? (
-                      <div className="flex flex-col sm:flex-row items-start gap-4">
-                        <div className="w-full sm:w-48 h-32 rounded-lg overflow-hidden border border-border bg-muted shrink-0">
-                          <img
-                            src={enrichment.featuredImage.imageUrl || enrichment.featuredImage.originalUrl}
-                            alt={enrichment.featuredImage.altText || "Cover Image"}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div className="flex-1 space-y-1.5 text-xs">
-                          <div>
-                            <span className="text-muted-foreground text-[11px] block">Judul &amp; Caption:</span>
-                            <p className="font-semibold text-foreground">{enrichment.featuredImage.title}</p>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground text-[11px] block">Kegunaan &amp; Alasan Kurasi:</span>
-                            <p className="text-muted-foreground text-[11px] leading-relaxed">
-                              {enrichment.featuredImage.explanation}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-3 pt-1 text-[11px]">
-                            {enrichment.featuredMedia && (
-                              <span className="font-mono bg-muted px-2 py-0.5 rounded border border-border text-foreground">
-                                WP Media ID: <strong>{enrichment.featuredMedia}</strong>
-                              </span>
-                            )}
-                            {enrichment.featuredImage.originalUrl && (
-                              <a
-                                href={enrichment.featuredImage.originalUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-primary hover:underline inline-flex items-center gap-1 font-medium"
-                              >
-                                Sumber Asli <ExternalLink className="size-3" />
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground py-4 text-center italic">
-                        Engine ini tidak menghasilkan atau memasang Featured Image.
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Bagian 2: In-Content Images */}
-                  <div className="rounded-lg border border-border bg-card p-4 space-y-3">
-                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                      <div className="flex items-center gap-2">
-                        <ImageIcon className="size-4 text-primary" />
-                        <h3 className="text-xs font-semibold text-foreground">
-                          2. In-Content Images ({enrichment?.inContentImages?.length || 0} Gambar di dalam Naskah)
-                        </h3>
-                      </div>
-                    </div>
-
-                    {enrichment?.inContentImages && enrichment.inContentImages.length > 0 ? (
-                      <div className="space-y-3">
-                        {enrichment.inContentImages.map((img: any, idx: number) => (
-                          <div key={idx} className="flex flex-col sm:flex-row items-start gap-3 p-2.5 rounded-md border border-border/80 bg-muted/10 text-xs">
-                            <div className="w-full sm:w-28 h-20 rounded overflow-hidden border border-border bg-muted shrink-0">
-                              <img
-                                src={img.imageUrl || img.originalUrl}
-                                alt={img.altText || `Gambar ${idx + 1}`}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                            <div className="flex-1 space-y-1 min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-foreground">
-                                  Subbagian: {img.subheading || `Heading #${idx + 1}`}
+                    {/* Lampiran Media In-Content (Jika ada) */}
+                    {enrichment?.inContentImages && enrichment.inContentImages.length > 0 && (
+                      <div className="mt-4 pt-4 border-t border-border/70">
+                        <span className="text-xs font-semibold text-foreground block mb-2">
+                          Media Tersemat dalam Subbab ({enrichment.inContentImages.length} gambar)
+                        </span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          {enrichment.inContentImages.map((img: any, idx: number) => (
+                            <div key={idx} className="flex items-start gap-2.5 p-2 rounded-lg border border-border/70 bg-muted/20 text-xs">
+                              <div className="w-16 h-12 rounded overflow-hidden border border-border bg-muted shrink-0">
+                                <img
+                                  src={img.imageUrl || img.originalUrl}
+                                  alt={img.altText || `Media ${idx + 1}`}
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <span className="font-semibold text-foreground text-[11px] truncate block">
+                                  {img.subheading || `Subbab #${idx + 1}`}
                                 </span>
-                                {img.wpMediaId && (
-                                  <span className="font-mono text-[10px] bg-muted px-1.5 py-0.2 rounded text-muted-foreground">
-                                    ID: {img.wpMediaId}
-                                  </span>
+                                <p className="text-[10px] text-muted-foreground truncate">
+                                  Alt: {img.altText}
+                                </p>
+                                {img.originalUrl && (
+                                  <a
+                                    href={img.originalUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] text-primary hover:underline inline-flex items-center gap-0.5"
+                                  >
+                                    Sumber <ExternalLink className="size-2.5" />
+                                  </a>
                                 )}
                               </div>
-                              <p className="text-[11px] text-muted-foreground line-clamp-1">
-                                Alt: &quot;{img.altText}&quot; {img.caption ? `• Caption: "${img.caption}"` : ""}
-                              </p>
-                              {img.usageDescription && (
-                                <p className="text-[11px] text-muted-foreground/80 line-clamp-2">
-                                  {img.usageDescription}
-                                </p>
-                              )}
-                              {img.originalUrl && (
-                                <a
-                                  href={img.originalUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[10px] text-primary hover:underline inline-flex items-center gap-0.5 pt-0.5"
-                                >
-                                  Sumber Asli <ExternalLink className="size-2.5" />
-                                </a>
-                              )}
                             </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground py-4 text-center italic">
-                        Tidak ada gambar in-content yang disematkan di dalam naskah.
-                      </p>
                     )}
                   </div>
                 </TabsContent>
 
-                {/* Tab: Gutenberg Raw Blocks */}
-                <TabsContent value="blocks">
+                {/* Tab 2: Gutenberg Raw Blocks */}
+                <TabsContent value="gutenberg">
                   <JsonCodeViewer
-                    title="Gutenberg Raw HTML (`<!-- wp:... -->`)"
+                    title="Gutenberg Raw HTML Blocks (<!-- wp:... -->)"
                     data={article?.contentHtml || ""}
-                    maxHeight="max-h-[420px]"
+                    rawText={true}
+                    maxHeight="max-h-[520px]"
                   />
                 </TabsContent>
 
-                {/* Tab: Raw Markdown */}
+                {/* Tab 3: Raw Markdown */}
                 <TabsContent value="markdown">
                   <JsonCodeViewer
                     title="Naskah Asli Markdown"
                     data={article?.markdownContent || ""}
-                    maxHeight="max-h-[420px]"
+                    rawText={true}
+                    maxHeight="max-h-[520px]"
                   />
                 </TabsContent>
 
-                {/* Tab: Telemetri & Node Logs */}
-                <TabsContent value="telemetry" className="flex flex-col gap-3">
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="rounded-md border border-border p-2 bg-muted/20">
-                      <span className="text-muted-foreground block text-[10px] uppercase">Node Berjalan</span>
-                      <span className="font-semibold">{execution?.nodesExecuted?.join(" ➔ ")}</span>
+                {/* Tab 4: Complete Raw JSON */}
+                <TabsContent value="raw" className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-2 text-xs">
+                    <div className="rounded-lg border border-border p-2.5 bg-muted/20 flex items-center justify-between">
+                      <span className="text-muted-foreground text-[10px] uppercase font-semibold">Model Digunakan</span>
+                      <span className="font-semibold text-foreground text-xs font-mono">{execution?.modelUsed || "-"}</span>
                     </div>
-                    <div className="rounded-md border border-border p-2 bg-muted/20">
-                      <span className="text-muted-foreground block text-[10px] uppercase">Model Digunakan</span>
-                      <span className="font-semibold">{execution?.modelUsed}</span>
+                    <div className="rounded-lg border border-border p-2.5 bg-muted/20 flex flex-col gap-1">
+                      <span className="text-muted-foreground text-[10px] uppercase font-semibold">Node Berjalan</span>
+                      <span className="font-semibold text-foreground text-xs break-words leading-relaxed">{execution?.nodesExecuted?.join(" ➔ ") || "-"}</span>
                     </div>
                   </div>
 
                   <JsonCodeViewer
-                    title="LangGraph Step Execution Logs"
-                    data={execution?.nodeLogs || []}
-                    maxHeight="max-h-[350px]"
+                    title="Complete JSON Payload (Article, Enrichment & Telemetry)"
+                    data={resultData}
+                    maxHeight="max-h-[460px]"
                   />
                 </TabsContent>
               </Tabs>
