@@ -38,3 +38,23 @@ wp-autopost-dashboard/
 3. **Scaffolding Aplikasi Next.js & Modul `src/core/`**:
    Membangun wrapper `wp-client` (REST API + Application Password + Pre-flight validator) dan *Database-First Queue Engine*.
 
+---
+
+## Deployment Mandiri via Docker Compose (Termasuk SearXNG)
+
+Platform ini mendukung deployment satu perintah menggunakan Docker Compose dengan mesin metasearch mandiri (**SearXNG**) tanpa memerlukan kuota API berbayar dari Tavily atau Brave:
+
+```bash
+# 1. Salin template environment
+cp .env.example .env
+
+# 2. Sesuaikan kredensial Supabase & Encryption Master Key di .env
+
+# 3. Jalankan container aplikasi + SearXNG
+docker compose up -d --build
+```
+
+Setelah berjalan:
+- **WP Autopost Dashboard**: `http://localhost:3000`
+- **SearXNG Instance**: `http://localhost:8080` (terkoneksi otomatis ke aplikasi via internal docker network `http://searxng:8080`)
+

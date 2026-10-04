@@ -11,6 +11,8 @@ services:
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-3000}:3000"
+    depends_on:
+      - searxng
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -43,6 +45,9 @@ services:
       - DATAFORSEO_PASSWORD=${DATAFORSEO_PASSWORD:-}
       - PEXELS_API_KEY=${PEXELS_API_KEY:-}
 
+      # 5. Self-Hosted Metasearch (SearXNG)
+      - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
+
     # Optional: pasang env_file jika di Portainer menggunakan file .env
     # env_file:
     #   - .env
@@ -53,3 +58,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+
+  searxng:
+    container_name: searxng
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    ports:
+      - "${SEARXNG_PORT:-8080}:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:${SEARXNG_PORT:-8080}/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-wp-autopost-dashboard-searxng-internal-key-change-if-public}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

@@ -19,6 +19,7 @@ import {
   FileCode2,
   CalendarClock,
   ArrowRight,
+  Server,
 } from "lucide-react"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
@@ -142,6 +143,9 @@ export default function DocsPage() {
             </TabsTrigger>
             <TabsTrigger value="tools" className="text-xs h-7 px-3 data-[state=active]:bg-background">
               AI WP Tools
+            </TabsTrigger>
+            <TabsTrigger value="docker" className="text-xs h-7 px-3 data-[state=active]:bg-background">
+              Docker &amp; SearXNG
             </TabsTrigger>
           </TabsList>
 
@@ -323,6 +327,53 @@ export default function DocsPage() {
                     <span>Buka Category Designer</span>
                     <ArrowRight className="size-3" />
                   </Link>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* TAB 6: Docker & SearXNG */}
+          <TabsContent value="docker" className="space-y-4">
+            <Card className="border-border/80 bg-card shadow-2xs">
+              <CardHeader>
+                <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Server className="size-4 text-primary" />
+                  <span>Deployment Docker Compose &amp; Built-in SearXNG</span>
+                </CardTitle>
+                <CardDescription className="text-xs text-muted-foreground">
+                  Jalankan dashboard secara mandiri tanpa perlu berlangganan API search eksternal berbayar.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 text-xs text-muted-foreground">
+                <p>
+                  File <code className="text-foreground font-mono">docker-compose.yml</code> telah dilengkapi dengan service <strong>SearXNG</strong> (metasearch engine open-source). Saat Anda menjalankan perintah Docker Compose, mesin pencari mandiri ini langsung aktif dan terhubung secara otomatis ke sistem penulisan:
+                </p>
+
+                <div className="p-3 rounded-lg border border-border/70 bg-muted/40 font-mono text-foreground text-[11px] space-y-1">
+                  <div># Jalankan aplikasi beserta SearXNG sekaligus:</div>
+                  <div className="text-primary font-bold">docker compose up -d</div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                  <div className="p-3 rounded-lg border border-border/70 bg-card">
+                    <h5 className="font-semibold text-foreground mb-1">Web Search Tanpa Kuota API</h5>
+                    <p>
+                      Tool <code className="text-primary font-mono">web_search</code> otomatis memanfaatkan SearXNG internal (<code className="font-mono">http://searxng:8080</code>) untuk mencari fakta, berita aktual, dan data referensi tanpa memerlukan API key Tavily atau Brave.
+                    </p>
+                  </div>
+                  <div className="p-3 rounded-lg border border-border/70 bg-card">
+                    <h5 className="font-semibold text-foreground mb-1">Image Search Bebas Biaya</h5>
+                    <p>
+                      Tool <code className="text-primary font-mono">image_search</code> juga memadukan query gambar ke SearXNG Images untuk memperoleh featured image &amp; foto ilustrasi artikel secara gratis dan otomatis.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg border border-primary/20 bg-primary/5 text-foreground">
+                  <p className="font-semibold text-primary mb-1">Konfigurasi SearXNG Mandiri:</p>
+                  <p className="text-muted-foreground">
+                    Konfigurasi engine dan format JSON tersimpan di folder <code className="font-mono text-foreground">searxng/settings.yml</code>. Pengguna juga tetap dapat mengakses UI SearXNG langsung melalui browser di port host <code className="font-mono text-foreground">http://localhost:8080</code>.
+                  </p>
                 </div>
               </CardContent>
             </Card>
