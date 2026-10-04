@@ -42,6 +42,7 @@ export function buildSystemPrompt(
 
 export interface UserPromptVariables {
   keyword: string
+  title?: string
   language: string
   wordCountTarget: number
   brief?: string
@@ -54,6 +55,9 @@ export interface UserPromptVariables {
 export function buildUserPrompt(vars: UserPromptVariables): string {
   const template = loadPrompt("agent-user-prompt.md", DEFAULT_USER_PROMPT_FALLBACK)
 
+  const titleInstruction = vars.title
+    ? `- Judul Artikel Wajib: Gunakan judul ini persis sebagai judul artikel utama: "${vars.title}". Dilarang mengganti atau mengubah substansi judul ini.`
+    : ""
   const categoryInfo = vars.categoryName ? `- Target Kategori: ${vars.categoryName}` : ""
   const tagsInfo = vars.tagsList ? `- Tag Terkait: ${vars.tagsList}` : ""
   const briefNote = vars.brief ? `- Catatan Khusus dari Pengguna: ${vars.brief}` : ""
@@ -68,6 +72,7 @@ export function buildUserPrompt(vars: UserPromptVariables): string {
 
   return renderPrompt(template, {
     keyword: vars.keyword,
+    titleInstruction,
     language: getLanguageDisplayName(vars.language),
     targetWords,
     categoryInfo,

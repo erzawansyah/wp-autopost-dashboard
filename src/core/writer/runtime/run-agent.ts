@@ -171,6 +171,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
   })
   const userPromptText = buildUserPrompt({
     keyword,
+    title: request.content.title,
     language,
     wordCountTarget: targetWordCount,
     brief: request.content.brief,

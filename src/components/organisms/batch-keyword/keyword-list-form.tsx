@@ -22,6 +22,8 @@ import {
   Globe,
   Brain,
   Bookmark,
+  AlignLeft,
+  TableProperties,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
@@ -54,6 +56,11 @@ import {
   calculateScheduleDates,
   ScheduledSlot,
 } from "@/lib/scheduler/date-calculator"
+import {
+  parseUniversalBatchInput,
+  ColumnRole,
+} from "@/lib/parser/universal-batch-parser"
+import { BatchColumnMapper } from "@/components/molecules/batch-column-mapper"
 import { cn } from "@/lib/utils"
 
 export interface WpSiteOption {
@@ -105,6 +112,13 @@ export function KeywordListForm({
   const [customBrief, setCustomBrief] = React.useState<string>("")
   const [activeTab, setActiveTab] = React.useState<string>("essential")
 
+  // Mode Input: "simple" (Versi Simpel: 1 Baris = 1 Kata Kunci) vs "multi_column" (Versi Kompleks: CSV / Excel / LSI)
+  const [inputFormat, setInputFormat] = React.useState<"simple" | "multi_column">("simple")
+
+  // Dynamic Column Mapping States (Hanya dipakai pada mode multi_column)
+  const [hasHeaderOverride, setHasHeaderOverride] = React.useState<boolean | undefined>(undefined)
+  const [customRoles, setCustomRoles] = React.useState<ColumnRole[]>([])
+
   const advancedOptionsCount = React.useMemo(() => {
     let count = 0
     if (batchName.trim().length > 0) count++
@@ -124,6 +138,9 @@ export function KeywordListForm({
     setTagsInput("")
     setCustomBrief("")
     setActiveTab("essential")
+    setInputFormat("simple")
+    setHasHeaderOverride(undefined)
+    setCustomRoles([])
   }
 
   // 2. Schedule Strategy State (Default: Eksekusi Langsung)
@@ -154,32 +171,66 @@ export function KeywordListForm({
     }
   }, [sites, selectedSiteId])
 
-  // 4. Parse & Analyze Keywords
-  const { lines, cleanKeywords, duplicateCount } = React.useMemo(() => {
+  // 4A. MODE SIMPEL: Hitung kata kunci per baris murni
+  const { cleanKeywords, duplicateCount } = React.useMemo(() => {
     const rawLines = rawKeywordsText.split(/\r?\n/)
     const trimmed = rawLines.map((l) => l.trim()).filter((l) => l.length > 0)
     const unique = Array.from(new Set(trimmed))
     const duplicates = trimmed.length - unique.length
 
     return {
-      lines: trimmed,
       cleanKeywords: unique,
       duplicateCount: duplicates,
     }
   }, [rawKeywordsText])
 
-  // 5. Remove Duplicates Handler
+  // 4B. MODE KOMPLEKS: Universal Parse & Analyze Input (CSV, TSV Excel, LSI, Judul)
+  const parseResult = React.useMemo(() => {
+    if (inputFormat !== "multi_column") {
+      return {
+        hasHeader: false,
+        delimiter: ",",
+        columns: [],
+        items: [],
+        totalRows: 0,
+        rawRowCount: 0,
+        errors: [],
+      }
+    }
+
+    return parseUniversalBatchInput(rawKeywordsText, {
+      forcedHasHeader: hasHeaderOverride,
+      customRoles: customRoles.length > 0 ? customRoles : undefined,
+    })
+  }, [inputFormat, rawKeywordsText, hasHeaderOverride, customRoles])
+
+  const isMultiColumnActive = inputFormat === "multi_column" && parseResult.columns.length > 1
+
+  // Handle pergantian peran kolom oleh user pada mode multi_column
+  const handleRoleChange = React.useCallback(
+    (columnIndex: number, newRole: ColumnRole) => {
+      const currentRoles = parseResult.columns.map((c) => c.role)
+      currentRoles[columnIndex] = newRole
+      setCustomRoles(currentRoles)
+    },
+    [parseResult.columns]
+  )
+
+  // Efektif item yang akan diproses sesuai mode aktif
+  const effectiveCount = isMultiColumnActive ? parseResult.items.length : cleanKeywords.length
+
+  // 5. Remove Duplicates Handler (Khusus Mode Simpel)
   const handleRemoveDuplicates = () => {
     setRawKeywordsText(cleanKeywords.join("\n"))
   }
 
   // 6. Live Schedule Preview Calculation
   const scheduleSlots = React.useMemo<ScheduledSlot[]>(() => {
-    if (cleanKeywords.length === 0) return []
+    if (effectiveCount === 0) return []
 
     return calculateScheduleDates({
       mode: strategy.mode,
-      itemCount: cleanKeywords.length,
+      itemCount: effectiveCount,
       randomConfig: {
         startDate: strategy.randomStartDate,
         endDate: strategy.randomEndDate,
@@ -192,7 +243,7 @@ export function KeywordListForm({
         wpTargetStatus: strategy.targetStatus,
       },
     })
-  }, [cleanKeywords.length, strategy])
+  }, [effectiveCount, strategy])
 
   // 7. Submit Handler
   const handleSubmit = async (e: React.FormEvent) => {
@@ -204,14 +255,18 @@ export function KeywordListForm({
       return
     }
 
-    if (cleanKeywords.length === 0) {
-      setErrorMessage("Daftar kata kunci tidak boleh kosong. Masukkan minimal 1 kata kunci.")
+    if (effectiveCount === 0) {
+      setErrorMessage(
+        inputFormat === "multi_column"
+          ? "Data multi-kolom tidak boleh kosong. Masukkan minimal 1 baris data valid."
+          : "Daftar kata kunci tidak boleh kosong. Masukkan minimal 1 kata kunci."
+      )
       return
     }
 
-    if (cleanKeywords.length > 50) {
+    if (effectiveCount > 50) {
       setErrorMessage(
-        `Jumlah kata kunci melebihi batas (maksimal 50 kata kunci per batch). Saat ini ada ${cleanKeywords.length} kata kunci. Silakan kurangi baris input Anda.`
+        `Jumlah ${inputFormat === "multi_column" ? "artikel" : "kata kunci"} melebihi batas (maksimal 50 per batch). Saat ini ada ${effectiveCount}. Silakan kurangi baris input Anda.`
       )
       return
     }
@@ -223,10 +278,29 @@ export function KeywordListForm({
         .map((t) => t.trim())
         .filter(Boolean)
 
+      // Payload sesuai mode:
+      // - Mode Simpel: kirim keywords murni
+      // - Mode Kompleks: kirim items terstruktur (keyword, title, lsi, focus)
+      const payloadKeywords = isMultiColumnActive
+        ? parseResult.items.map((it) => it.keyword)
+        : cleanKeywords
+
+      const payloadItems = isMultiColumnActive
+        ? parseResult.items.map((it) => ({
+            keyword: it.keyword,
+            title: it.title,
+            lsi: it.lsi,
+            focus: it.focus,
+            category: it.category,
+            tags: it.tags,
+          }))
+        : undefined
+
       const payload = {
         siteId: selectedSiteId,
         batchName: batchName.trim() || undefined,
-        keywords: cleanKeywords,
+        keywords: payloadKeywords,
+        items: payloadItems,
         executionMode: strategy.executionMode, // "immediate" | "scheduled_drip"
         scheduleMode: strategy.mode,
         randomConfig:
@@ -268,16 +342,18 @@ export function KeywordListForm({
 
       setSuccessInfo({
         batchId: data.batch?.id || "",
-        totalItems: cleanKeywords.length,
+        totalItems: effectiveCount,
         batchName: data.batch?.name || "",
       })
 
       // Reset form
       setRawKeywordsText("")
       setBatchName("")
+      setHasHeaderOverride(undefined)
+      setCustomRoles([])
 
       if (onSuccess) {
-        onSuccess(data.batch?.id || "", cleanKeywords.length)
+        onSuccess(data.batch?.id || "", effectiveCount)
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Terjadi kesalahan sistem"
@@ -404,60 +480,168 @@ export function KeywordListForm({
                 </div>
               </div>
 
-          {/* 3. Kolom List Kata Kunci (Textarea 1 Baris = 1 Keyword) */}
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="keywords-textarea" className="text-xs font-medium text-foreground">
-                Daftar Kata Kunci Target (1 Baris = 1 Kata Kunci){" "}
-                <span className="text-destructive">*</span>
-              </Label>
-
-              {/* Status Baris / Duplikat */}
-              <div className="flex items-center gap-2 font-mono text-[11px]">
-                <span
+          {/* 3. Pemilih Format Input: Simpel vs Multi-Kolom */}
+          <div className="flex flex-col gap-3 pt-1">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border/60 pb-3">
+              <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-lg border border-border/60 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setInputFormat("simple")}
                   className={cn(
-                    "rounded px-2 py-0.5",
-                    cleanKeywords.length > 50
-                      ? "bg-destructive/15 text-destructive font-semibold"
-                      : "bg-muted text-muted-foreground"
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer",
+                    inputFormat === "simple"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
                 >
-                  {cleanKeywords.length} / 50 kata kunci
-                </span>
-                {cleanKeywords.length > 50 && (
-                  <span className="text-[10px] text-destructive font-medium">
-                    (Melebihi batas 50)
-                  </span>
-                )}
-                {duplicateCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleRemoveDuplicates}
-                    className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 font-sans text-amber-600 hover:bg-amber-500/20 cursor-pointer"
-                  >
-                    <Trash2 className="size-3" />
-                    <span>Hapus {duplicateCount} duplikat</span>
-                  </button>
-                )}
+                  <AlignLeft className="size-3.5" />
+                  <span>Mode Simpel (1 Baris = 1 Kata Kunci)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInputFormat("multi_column")}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer",
+                    inputFormat === "multi_column"
+                      ? "bg-card text-foreground shadow-2xs font-semibold"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <TableProperties className="size-3.5 text-primary" />
+                  <span>Mode Multi-Kolom (CSV / Excel / LSI)</span>
+                </button>
               </div>
+
+              <span className="text-[11px] text-muted-foreground">
+                {inputFormat === "simple"
+                  ? "Daftar kata kunci biasa tanpa kolom tambahan"
+                  : "Format tabel fleksibel dengan pemetaan kolom"}
+              </span>
             </div>
 
-            <Textarea
-              id="keywords-textarea"
-              rows={8}
-              placeholder={`cara merawat aglaonema agar subur\ntips menyiram tanaman hias saat musim hujan\nrekomendasi pupuk organik cair untuk cabai\npanduan hidroponik pemula skala rumah tangga\n... (maksimal 50 kata kunci per batch)`}
-              value={rawKeywordsText}
-              onChange={(e) => setRawKeywordsText(e.target.value)}
-              disabled={isSubmitting}
-              className={cn(
-                "font-mono text-xs leading-relaxed",
-                cleanKeywords.length > 50 && "border-destructive/60 focus-visible:ring-destructive/30"
-              )}
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Setiap baris dihitung sebagai satu kata kunci tersendiri (maksimal 50 kata kunci per batch). Baris kosong akan otomatis
-              diabaikan.
-            </p>
+            {/* AREA INPUT SESUAI MODE */}
+            {inputFormat === "simple" ? (
+              /* ========================================================= */
+              /* VERSI 1: MODE SIMPEL (Persis Seperti Awal)               */
+              /* ========================================================= */
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="keywords-textarea-simple" className="text-xs font-medium text-foreground">
+                    Daftar Kata Kunci Target (1 Baris = 1 Kata Kunci){" "}
+                    <span className="text-destructive">*</span>
+                  </Label>
+
+                  {/* Status Baris & Duplikat */}
+                  <div className="flex items-center gap-2 font-mono text-[11px]">
+                    <span
+                      className={cn(
+                        "rounded px-2 py-0.5",
+                        cleanKeywords.length > 50
+                          ? "bg-destructive/15 text-destructive font-semibold"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {cleanKeywords.length} / 50 kata kunci
+                    </span>
+                    {cleanKeywords.length > 50 && (
+                      <span className="text-[10px] text-destructive font-medium">
+                        (Melebihi batas 50)
+                      </span>
+                    )}
+                    {duplicateCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleRemoveDuplicates}
+                        className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 font-sans text-amber-600 hover:bg-amber-500/20 cursor-pointer"
+                      >
+                        <Trash2 className="size-3" />
+                        <span>Hapus {duplicateCount} duplikat</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <Textarea
+                  id="keywords-textarea-simple"
+                  rows={8}
+                  placeholder={`cara merawat aglaonema agar subur\ntips menyiram tanaman hias saat musim hujan\nrekomendasi pupuk organik cair untuk cabai\npanduan hidroponik pemula skala rumah tangga\n... (maksimal 50 kata kunci per batch)`}
+                  value={rawKeywordsText}
+                  onChange={(e) => setRawKeywordsText(e.target.value)}
+                  disabled={isSubmitting}
+                  className={cn(
+                    "font-mono text-xs leading-relaxed",
+                    cleanKeywords.length > 50 && "border-destructive/60 focus-visible:ring-destructive/30"
+                  )}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Setiap baris dihitung sebagai satu kata kunci tersendiri (maksimal 50 kata kunci per batch). Baris kosong otomatis diabaikan.
+                </p>
+              </div>
+            ) : (
+              /* ========================================================= */
+              /* VERSI 2: MODE MULTI-KOLOM / KOMPLEKS                     */
+              /* ========================================================= */
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="keywords-textarea-multi" className="text-xs font-medium text-foreground">
+                    Data Artikel Multi-Kolom (CSV atau Copy-Paste Spreadsheet){" "}
+                    <span className="text-destructive">*</span>
+                  </Label>
+
+                  <div className="flex items-center gap-2 font-mono text-[11px]">
+                    <span
+                      className={cn(
+                        "rounded px-2 py-0.5",
+                        parseResult.items.length > 50
+                          ? "bg-destructive/15 text-destructive font-semibold"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {parseResult.items.length} / 50 artikel
+                      {parseResult.columns.length > 1 && ` • ${parseResult.columns.length} kolom`}
+                    </span>
+                    {parseResult.items.length > 50 && (
+                      <span className="text-[10px] text-destructive font-medium">
+                        (Melebihi batas 50)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <Textarea
+                  id="keywords-textarea-multi"
+                  rows={8}
+                  placeholder={`Format fleksibel (koma, titik koma, atau paste langsung dari Excel/Sheets):\n\nContoh 1 (Keyword & LSI):\nkeyword, lsi\nresep ayam bakar, bumbu ayam bakar kecap, resep ayam bakar teflon\n\nContoh 2 (Keyword, LSI, & Judul):\nkeyword, lsi, judul\nwisata bandung, kawah putih lembang, 10 Tempat Wisata Bandung Paling Hits\n\nContoh 3 (Judul, Second Keyword, & Fokus):\njudul, second keyword, fokus\nPanduan Belajar Next.js 16, app router server action, jelaskan caching dan streaming ssr`}
+                  value={rawKeywordsText}
+                  onChange={(e) => {
+                    setRawKeywordsText(e.target.value)
+                    setHasHeaderOverride(undefined)
+                    setCustomRoles([])
+                  }}
+                  disabled={isSubmitting}
+                  className={cn(
+                    "font-mono text-xs leading-relaxed",
+                    parseResult.items.length > 50 && "border-destructive/60 focus-visible:ring-destructive/30"
+                  )}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Mendukung susunan: <em>keyword, lsi</em> / <em>keyword, lsi, judul</em> / <em>judul, second keyword, fokus</em>, atau copy-paste dari Excel.
+                </p>
+
+                {/* Widget Dynamic Column Mapper (Muncul jika ada lebih dari 1 kolom) */}
+                {parseResult.columns.length > 1 && (
+                  <BatchColumnMapper
+                    columns={parseResult.columns}
+                    items={parseResult.items}
+                    hasHeader={parseResult.hasHeader}
+                    delimiter={parseResult.delimiter}
+                    totalRows={parseResult.items.length}
+                    onToggleHasHeader={(val) => setHasHeaderOverride(val)}
+                    onRoleChange={handleRoleChange}
+                  />
+                )}
+              </div>
+            )}
           </div>
 
           {/* 3. Pengaturan Strategi Jadwal Tayang (Random / Interval / Instant) */}
@@ -468,18 +652,18 @@ export function KeywordListForm({
             <ScheduleStrategyPicker
               value={strategy}
               onChange={setStrategy}
-              itemCount={cleanKeywords.length}
+              itemCount={effectiveCount}
               disabled={isSubmitting}
             />
           </div>
 
           {/* 4. Pratinjau Jadwal Tayang Real-Time (Schedule Simulation) */}
-          {cleanKeywords.length > 0 && scheduleSlots.length > 0 && (
+          {effectiveCount > 0 && scheduleSlots.length > 0 && (
             <div className="flex flex-col gap-2 rounded-lg border border-border/80 bg-muted/15 p-3.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="flex items-center gap-1.5 font-semibold text-foreground">
                   <Calendar className="size-3.5 text-primary" />
-                  Pratinjau Jadwal Tayang ({cleanKeywords.length} Artikel)
+                  Pratinjau Jadwal Tayang ({effectiveCount} Artikel)
                 </span>
                 <span className="font-mono text-[10px] text-muted-foreground">
                   {strategy.executionMode === "immediate" ? "⚡ Buat Sekarang • " : "⏳ Buat Bertahap • "}
@@ -491,17 +675,23 @@ export function KeywordListForm({
 
               <div className="flex flex-col gap-1.5 pt-1 text-xs">
                 {/* 4 Item Pertama */}
-                {scheduleSlots.slice(0, 4).map((slot, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between rounded border border-border/60 bg-card px-2.5 py-1.5 font-mono text-[11px]"
-                  >
-                    <span className="truncate pr-2 font-sans font-medium text-foreground">
-                      {idx + 1}. {cleanKeywords[idx]}
-                    </span>
-                    <span className="shrink-0 text-primary">{slot.formattedDisplay}</span>
-                  </div>
-                ))}
+                {scheduleSlots.slice(0, 4).map((slot, idx) => {
+                  const displayTitle = isMultiColumnActive
+                    ? parseResult.items[idx]?.title || parseResult.items[idx]?.keyword
+                    : cleanKeywords[idx]
+
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between rounded border border-border/60 bg-card px-2.5 py-1.5 font-mono text-[11px]"
+                    >
+                      <span className="truncate pr-2 font-sans font-medium text-foreground">
+                        {idx + 1}. {displayTitle}
+                      </span>
+                      <span className="shrink-0 text-primary">{slot.formattedDisplay}</span>
+                    </div>
+                  )
+                })}
 
                 {/* Indikator Jika Item Banyak */}
                 {scheduleSlots.length > 5 && (
@@ -514,7 +704,11 @@ export function KeywordListForm({
                 {scheduleSlots.length > 4 && (
                   <div className="flex items-center justify-between rounded border border-border/60 bg-card px-2.5 py-1.5 font-mono text-[11px]">
                     <span className="truncate pr-2 font-sans font-medium text-foreground">
-                      {scheduleSlots.length}. {cleanKeywords[cleanKeywords.length - 1]}
+                      {scheduleSlots.length}.{" "}
+                      {isMultiColumnActive
+                        ? parseResult.items[effectiveCount - 1]?.title ||
+                          parseResult.items[effectiveCount - 1]?.keyword
+                        : cleanKeywords[cleanKeywords.length - 1]}
                     </span>
                     <span className="shrink-0 text-primary">
                       {scheduleSlots[scheduleSlots.length - 1].formattedDisplay}

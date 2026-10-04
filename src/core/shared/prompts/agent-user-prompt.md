@@ -15,6 +15,8 @@ variables:
     desc: Daftar tag WordPress yang dikaitkan
   - key: briefNote
     desc: Catatan atau brief pengarahan dari pengguna
+  - key: titleInstruction
+    desc: Instruksi penetapan judul artikel spesifik jika ditentukan oleh pengguna
   - key: authorPersona
     desc: Sudut pandang kepengarangan persona author WordPress
   - key: customInstructions
@@ -26,6 +28,7 @@ Tuliskan artikel mendalam, komprehensif, mengalir alami, dan tuntas dengan keten
 - Topik / Kata Kunci Utama: "{{keyword}}"
 - Bahasa: {{language}}
 - Target Panjang: minimal {{targetWords}} kata
+{{titleInstruction}}
 {{categoryInfo}}
 {{tagsInfo}}
 - Struktur Wajib: Rancang minimal 5 subbab (H2/H3) deskriptif dengan pembahasan multi-paragraf yang tuntas. DILARANG membuat naskah pendek atau ringkasan!

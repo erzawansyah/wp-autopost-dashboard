@@ -339,6 +339,7 @@ export async function processPostItem({
           agentProfileRef: resolvedProfile.ref,
           content: {
             keyword: post.target_keyword,
+            title: post.title || undefined,
             brief: post.custom_instructions_override || undefined,
             style,
             language,

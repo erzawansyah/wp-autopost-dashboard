@@ -54,28 +54,57 @@ export async function POST(request: Request) {
       )
     }
 
-    if (!Array.isArray(keywords) || keywords.length === 0) {
-      return NextResponse.json(
-        { error: "Daftar kata kunci tidak boleh kosong. Masukkan minimal 1 kata kunci." },
-        { status: 400 }
-      )
+    const rawItems: Array<{
+      keyword?: string
+      title?: string
+      lsi?: string[]
+      focus?: string
+      category?: string
+      tags?: string[]
+    }> = Array.isArray(body.items) ? body.items : []
+
+    // 1. Bersihkan dan filter kata kunci atau item
+    let cleanItems: Array<{
+      keyword: string
+      title?: string
+      lsi?: string[]
+      focus?: string
+      category?: string
+      tags?: string[]
+    }> = []
+
+    if (rawItems.length > 0) {
+      cleanItems = rawItems
+        .map((it) => ({
+          keyword: String(it.keyword || it.title || "").trim(),
+          title: it.title ? String(it.title).trim() : undefined,
+          lsi: Array.isArray(it.lsi) ? it.lsi.map(String).map((s) => s.trim()).filter(Boolean) : undefined,
+          focus: it.focus ? String(it.focus).trim() : undefined,
+          category: it.category ? String(it.category).trim() : undefined,
+          tags: Array.isArray(it.tags) ? it.tags.map(String).map((s) => s.trim()).filter(Boolean) : undefined,
+        }))
+        .filter((it) => it.keyword.length > 0)
     }
 
-    // 1. Bersihkan dan filter kata kunci
-    const cleanKeywords = keywords
-      .map((k: unknown) => String(k).trim())
-      .filter((k: string) => k.length > 0)
+    const cleanKeywords =
+      cleanItems.length > 0
+        ? cleanItems.map((it) => it.keyword)
+        : Array.isArray(keywords)
+        ? keywords
+            .map((k: unknown) => String(k).trim())
+            .filter((k: string) => k.length > 0)
+        : []
 
     if (cleanKeywords.length === 0) {
       return NextResponse.json(
-        { error: "Tidak ada kata kunci valid yang ditemukan pada baris input." },
+        { error: "Daftar kata kunci tidak boleh kosong. Masukkan minimal 1 kata kunci atau topik." },
         { status: 400 }
       )
     }
 
     if (cleanKeywords.length > 50) {
       return NextResponse.json(
-        { error: "Maksimal 50 kata kunci per batch. Silakan kurangi kata kunci Anda." },
+        { error: "Maksimal 50 baris per batch. Silakan kurangi baris input Anda." },
         { status: 400 }
       )
     }
@@ -169,17 +198,43 @@ export async function POST(request: Request) {
 
     const itemsToInsert = cleanKeywords.map((kw, idx) => {
       const slot = slots[idx]
+      const specificItem = cleanItems[idx]
+
+      const itemTitle = specificItem?.title || null
+      const itemLsi = specificItem?.lsi || []
+      const itemFocus = specificItem?.focus || null
+      const itemCategories = specificItem?.category
+        ? [specificItem.category]
+        : categoryList
+      const itemTags = specificItem?.tags && specificItem.tags.length > 0
+        ? Array.from(new Set([...tagList, ...specificItem.tags]))
+        : tagList
+
+      // Gabungkan instruksi artikel secara cerdas
+      const instructionsParts: string[] = []
+      if (itemLsi.length > 0) {
+        instructionsParts.push(`Kata Kunci Sekunder / LSI yang WAJIB dimasukkan secara natural: ${itemLsi.join(", ")}`)
+      }
+      if (itemFocus) {
+        instructionsParts.push(`Fokus Pembahasan / Catatan: ${itemFocus}`)
+      }
+      if (customBrief && customBrief.trim()) {
+        instructionsParts.push(customBrief.trim())
+      }
+      const finalInstructions = instructionsParts.length > 0 ? instructionsParts.join("\n\n") : null
+
       return {
         batch_id: batch.id,
         user_id: user.id,
         wp_site_id: site.id,
         target_keyword: kw,
+        title: itemTitle,
         state: "queued_input",
         scheduled_for: slot ? slot.scheduledFor.toISOString() : new Date().toISOString(),
         wp_target_status: slot?.wpTargetStatus || body.targetStatus || "publish",
-        categories: categoryList,
-        tags: tagList,
-        custom_instructions_override: customBrief || null,
+        categories: itemCategories,
+        tags: itemTags,
+        custom_instructions_override: finalInstructions,
         source_payload: {
           agentProfileRef: effectiveProfileRef,
           engine,
@@ -190,6 +245,9 @@ export async function POST(request: Request) {
           schedule_mode: scheduleMode,
           execution_mode: effectiveExecutionMode,
           slot_index: idx,
+          lsi: itemLsi.length > 0 ? itemLsi : undefined,
+          customTitle: itemTitle || undefined,
+          focus: itemFocus || undefined,
         },
       }
     })
