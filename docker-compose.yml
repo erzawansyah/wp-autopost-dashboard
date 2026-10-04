@@ -77,30 +77,6 @@ services:
     environment:
       - SEARXNG_BASE_URL=http://searxng-internal:8080/
       - SEARXNG_SECRET=${SEARXNG_SECRET:-wp-autopost-dashboard-searxng-internal-key-change-if-public}
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        mkdir -p /etc/searxng
-        cat << 'EOF' > /etc/searxng/settings.yml
-        use_default_settings: true
-        general:
-          debug: false
-          instance_name: "WP Autopost SearXNG Engine"
-        server:
-          secret_key: "wp-autopost-dashboard-searxng-internal-key-change-if-public"
-          bind_address: "0.0.0.0"
-          port: 8080
-          limiter: false
-          image_proxy: true
-        search:
-          safe_search: 0
-          autocomplete: ""
-          formats:
-            - html
-            - json
-        EOF
-        exec /sbin/tini -- /usr/local/searxng/dockerfiles/docker-entrypoint.sh
     healthcheck:
       test:
         [
@@ -119,6 +95,8 @@ services:
     depends_on:
       wp-autopost-dashboard:
         condition: service_healthy
+    volumes:
+      - cron-logs:/var/log/cron
     environment:
       - CRON_SECRET=${CRON_SECRET:-}
       - CRON_LIMIT=${QUEUE_CRON_LIMIT:-5}
@@ -127,6 +105,7 @@ services:
       - -c
       - |
         apk add --no-cache curl tzdata
+        mkdir -p /var/log/cron
         echo "[Queue Cron] Service pemicu antrean aktif (Target: http://wp-autopost-dashboard:3000/api/queue/process?limit=$${CRON_LIMIT})."
         while true; do
           if [ -n "$$CRON_SECRET" ]; then
@@ -141,9 +120,14 @@ services:
           fi
 
           if [ -n "$$RESPONSE" ]; then
-            printf "%s\n" "$$RESPONSE"
+            printf "%s\n" "$$RESPONSE" | tee -a /var/log/cron/queue.log
           fi
 
           sleep 60
         done
+
+volumes:
+  cron-logs:
+    name: wp_autopost_cron_logs
+
 
