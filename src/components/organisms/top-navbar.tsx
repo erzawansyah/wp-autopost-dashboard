@@ -2,17 +2,10 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { Globe, LogOut, Plus, Command } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { Globe, LogOut, ChevronRight } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import { ModeToggle } from "@/components/molecules/mode-toggle"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/atoms/select"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,13 +20,60 @@ interface TopNavbarProps {
   onSelectSite?: (siteId: string) => void
 }
 
+const ROUTE_LABELS: Record<string, string> = {
+  sites: "Daftar Website",
+  batches: "Daftar Batch",
+  queue: "Antrean",
+  items: "Item Antrean",
+  posts: "Artikel",
+  new: "Tulis Cepat",
+  scheduled: "Artikel Terjadwal",
+  tools: "WP Tools",
+  agents: "Profil Agen",
+  skills: "Skill Registry",
+  lab: "Laboratorium",
+  settings: "Pengaturan",
+  keys: "Pusat Kunci API",
+  profile: "Profil Pengguna",
+  docs: "Dokumentasi",
+}
+
+function getBreadcrumbs(pathname: string) {
+  const parts = pathname.split("/").filter(Boolean)
+  if (parts.length === 0) {
+    return [{ label: "Dashboard", href: "/" }]
+  }
+
+  const items = [{ label: "Dashboard", href: "/" }]
+  let currentPath = ""
+
+  parts.forEach((part, index) => {
+    currentPath += `/${part}`
+    const isLast = index === parts.length - 1
+    const label =
+      ROUTE_LABELS[part] ||
+      (part.length > 20
+        ? "Detail"
+        : part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, " "))
+    items.push({
+      label,
+      href: isLast ? "" : currentPath,
+    })
+  })
+
+  return items
+}
+
 export function TopNavbar({
   selectedSite = "all",
   onSelectSite,
 }: TopNavbarProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const [currentUser, setCurrentUser] = React.useState<{ id: string; email: string } | null>(null)
   const [sites, setSites] = React.useState<Array<{ id: string; site_name: string }>>([])
+
+  const breadcrumbs = React.useMemo(() => getBreadcrumbs(pathname), [pathname])
 
   React.useEffect(() => {
     fetch("/api/auth/me")
@@ -66,35 +106,35 @@ export function TopNavbar({
   }
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-[68px] items-center justify-between gap-4 border-b border-border/80 bg-background/85 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
-      {/* Left: Global Site Selector & Context */}
-      <div className="flex items-center gap-3">
-        <Select
-          value={selectedSite}
-          onValueChange={(val) => onSelectSite && onSelectSite(val)}
-        >
-          <SelectTrigger className="h-9 w-44 border-border/80 bg-card text-xs font-semibold shadow-2xs sm:w-52">
-            <SelectValue placeholder="Semua Website" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Semua Website</SelectItem>
-            {sites.map((s) => (
-              <SelectItem key={s.id} value={s.id}>
-                {s.site_name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+    <header className="sticky top-0 z-30 flex min-h-[64px] items-center justify-between gap-4 border-b border-border/80 bg-background/85 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
+      {/* Left: Dynamic Breadcrumb */}
+      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs min-w-0">
+        {breadcrumbs.map((crumb, idx) => {
+          const isLast = idx === breadcrumbs.length - 1
+          return (
+            <React.Fragment key={idx}>
+              {idx > 0 && (
+                <ChevronRight className="size-3.5 text-muted-foreground/40 shrink-0" />
+              )}
+              {isLast ? (
+                <span className="font-semibold text-foreground truncate max-w-[200px] sm:max-w-xs">
+                  {crumb.label}
+                </span>
+              ) : (
+                <Link
+                  href={crumb.href}
+                  className="text-muted-foreground hover:text-foreground transition-colors truncate max-w-[140px]"
+                >
+                  {crumb.label}
+                </Link>
+              )}
+            </React.Fragment>
+          )
+        })}
+      </nav>
 
-      {/* Right: Actions & User Controls */}
+      {/* Right: Mode Toggle & User Controls */}
       <div className="flex items-center gap-2.5">
-        <Button asChild size="sm" className="hidden cursor-pointer gap-1.5 bg-primary text-xs font-semibold text-primary-foreground shadow-2xs hover:bg-primary/90 sm:flex">
-          <Link href="/posts/new"><Plus className="size-3.5 text-accent" />Artikel baru</Link>
-        </Button>
-        <div className="hidden items-center gap-1 rounded-md border border-border/80 bg-card px-2 py-1.5 text-muted-foreground md:flex">
-          <Command className="size-3" /><span className="font-mono text-[10px]">K</span>
-        </div>
         <ModeToggle />
 
         {/* User Auth Dropdown */}

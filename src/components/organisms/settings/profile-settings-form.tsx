@@ -1,13 +1,10 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import {
   User,
   ShieldCheck,
   Bell,
-  KeyRound,
-  ExternalLink,
   CheckCircle2,
   AlertCircle,
   Loader2,
@@ -137,29 +134,6 @@ export function ProfileSettingsForm() {
               <span>RLS Aktif &amp; Terproteksi</span>
             </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Banner Menuju Pusat Kunci API */}
-      <Card className="border-primary/30 bg-primary/5">
-        <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5 sm:mt-0">
-              <KeyRound className="size-5" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-sm font-semibold text-foreground">Pengelolaan Kunci API Terpusat</h4>
-              <p className="text-xs text-muted-foreground leading-relaxed max-w-xl">
-                Semua API Key (OpenRouter AI, Web Search Tavily/Brave/SearxNG, dan Pexafy Image Search) kini dikelola dalam satu tempat di <strong>Pusat Kunci API (BYOK)</strong>.
-              </p>
-            </div>
-          </div>
-          <Button asChild variant="default" size="sm" className="shrink-0 gap-1.5 text-xs">
-            <Link href="/settings/keys">
-              <span>Buka Pusat Kunci API</span>
-              <ExternalLink className="size-3.5" />
-            </Link>
-          </Button>
         </CardContent>
       </Card>
 
