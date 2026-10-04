@@ -77,6 +77,30 @@ services:
     environment:
       - SEARXNG_BASE_URL=http://searxng-internal:8080/
       - SEARXNG_SECRET=${SEARXNG_SECRET:-wp-autopost-dashboard-searxng-internal-key-change-if-public}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /etc/searxng
+        cat << 'EOF' > /etc/searxng/settings.yml
+        use_default_settings: true
+        general:
+          debug: false
+          instance_name: "WP Autopost SearXNG Engine"
+        server:
+          secret_key: "wp-autopost-dashboard-searxng-internal-key-change-if-public"
+          bind_address: "0.0.0.0"
+          port: 8080
+          limiter: false
+          image_proxy: true
+        search:
+          safe_search: 0
+          autocomplete: ""
+          formats:
+            - html
+            - json
+        EOF
+        exec /sbin/tini -- /usr/local/searxng/dockerfiles/docker-entrypoint.sh
     healthcheck:
       test:
         [
