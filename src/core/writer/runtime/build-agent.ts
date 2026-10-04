@@ -8,7 +8,6 @@ import { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { AgentMode, AgentLimits } from "../types/profile"
 import { RunRecorder } from "./telemetry"
 import { buildGuardMiddlewareStack } from "./guards"
-import { ArticleOutputSchema } from "./output-schema"
 
 export interface BuildAgentParams {
   mode: AgentMode
@@ -52,7 +51,6 @@ export async function buildWriterAgent(params: BuildAgentParams) {
       tools,
       systemPrompt,
       middleware,
-      responseFormat: ArticleOutputSchema as any,
       backend: (cfg) => new StateBackend(cfg),
       skills: curatedSkills.length > 0 ? curatedSkills : undefined,
       checkpointer,
@@ -67,7 +65,6 @@ export async function buildWriterAgent(params: BuildAgentParams) {
     tools,
     systemPrompt,
     middleware,
-    responseFormat: ArticleOutputSchema,
     checkpointer,
   })
 

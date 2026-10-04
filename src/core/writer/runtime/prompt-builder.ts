@@ -50,6 +50,7 @@ export interface UserPromptVariables {
   categoryName?: string
   tagsList?: string
   customInstructions?: string
+  hasTools?: boolean
 }
 
 export function buildUserPrompt(vars: UserPromptVariables): string {
@@ -68,6 +69,10 @@ export function buildUserPrompt(vars: UserPromptVariables): string {
     ? `- Instruksi Tambahan: ${vars.customInstructions}`
     : ""
 
+  const researchInstruction = vars.hasTools
+    ? `- Langkah Awal Wajib (Riset & Visual): Manfaatkan tools riset yang tersedia (keyword_suggestions, web_search, image_search) terlebih dahulu untuk mengumpulkan fakta konkret, variasi kata kunci LSI, dan aset gambar pendukung sebelum Anda mulai menyusun draf naskah.`
+    : ""
+
   const targetWords = vars.wordCountTarget && vars.wordCountTarget >= 500 ? vars.wordCountTarget : 800
 
   return renderPrompt(template, {
@@ -80,5 +85,6 @@ export function buildUserPrompt(vars: UserPromptVariables): string {
     briefNote,
     authorPersona,
     customInstructions: customInstructionsNote,
+    researchInstruction,
   })
 }

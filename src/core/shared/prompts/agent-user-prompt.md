@@ -21,6 +21,8 @@ variables:
     desc: Sudut pandang kepengarangan persona author WordPress
   - key: customInstructions
     desc: Instruksi tambahan khusus dari form permintaan penulisan
+  - key: researchInstruction
+    desc: Instruksi penelusuran mandiri menggunakan tools riset jika tersedia
 ---
 
 [USER_PROMPT]
@@ -28,6 +30,7 @@ Tuliskan artikel mendalam, komprehensif, mengalir alami, dan tuntas dengan keten
 - Topik / Kata Kunci Utama: "{{keyword}}"
 - Bahasa: {{language}}
 - Target Panjang: minimal {{targetWords}} kata
+{{researchInstruction}}
 {{titleInstruction}}
 {{categoryInfo}}
 {{tagsInfo}}

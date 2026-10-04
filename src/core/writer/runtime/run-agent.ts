@@ -179,6 +179,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     categoryName: preResolved.categoryNames.length > 0 ? preResolved.categoryNames.join(", ") : undefined,
     tagsList: preResolved.tagNames.length > 0 ? preResolved.tagNames.join(", ") : undefined,
     customInstructions: request.customInstructions,
+    hasTools: activeTools.length > 0,
   })
 
   // 5. Bangun Writer Agent
