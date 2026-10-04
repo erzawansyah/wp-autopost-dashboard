@@ -137,7 +137,7 @@ export async function preResolveTaxonomyAndAuthor(
   if (apiKey && (users.length > 0 || existingCategories.length > 0)) {
     const llmStart = Date.now()
     try {
-      const { systemPrompt, userPromptTemplate } = loadSectionedPrompt("system-resolve-taxonomy-author.md")
+      const { systemPrompt, userPromptTemplate, outputSchema } = loadSectionedPrompt("system-resolve-taxonomy-author.md")
 
       if (systemPrompt && userPromptTemplate) {
         const renderedUserPrompt = renderPrompt(userPromptTemplate, {
@@ -177,6 +177,7 @@ export async function preResolveTaxonomyAndAuthor(
           model,
           systemPrompt,
           userPrompt: renderedUserPrompt,
+          jsonSchema: outputSchema,
           temperature: 0.3,
         })
 

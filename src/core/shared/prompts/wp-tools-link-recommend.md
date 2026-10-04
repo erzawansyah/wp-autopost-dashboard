@@ -1,7 +1,16 @@
 ---
-used-by: src/app/api/tools/link-building/analyze/route.ts
 description: Analisis cuplikan artikel lama untuk menentukan kalimat penyisipan internal link dan anchor text alami
-variables: cleanUrl, topicSummary, targetKeyword, candidatesJson
+used_by:
+  - src/app/api/tools/link-building/analyze/route.ts
+variables:
+  - key: cleanUrl
+    desc: URL artikel baru sebagai target rujukan tautan internal
+  - key: topicSummary
+    desc: Ringkasan topik artikel baru hasil ekstraksi AI
+  - key: targetKeyword
+    desc: Kata kunci utama artikel baru
+  - key: candidatesJson
+    desc: Daftar kandidat artikel lama beserta ID, judul, link, dan cuplikan teks
 ---
 
 [SYSTEM_PROMPT]
@@ -26,8 +35,9 @@ Pedoman Penting:
 [USER_PROMPT]
 ARTIKEL LAMA:
 {{candidatesJson}}
+[/USER_PROMPT]
 
-Keluarkan JSON dengan format:
+[OUTPUT_FORMAT]
 {
   "recommendations": [
     {
@@ -42,4 +52,4 @@ Keluarkan JSON dengan format:
     }
   ]
 }
-[/USER_PROMPT]
+[/OUTPUT_FORMAT]

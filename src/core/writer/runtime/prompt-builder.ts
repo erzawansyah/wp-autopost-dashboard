@@ -4,24 +4,39 @@ import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 const DEFAULT_GUARDRAIL_FALLBACK =
   "Patuhi integritas teknis WordPress: gunakan H2/H3 (dilarang H1), tanpa sitasi footnote [1] atau bab referensi, dan tanpa byline penulis manual."
 
-const DEFAULT_USER_PROMPT_FALLBACK = `Tuliskan artikel mendalam, komprehensif, mengalir alami, dan tuntas dengan ketentuan berikut:
-- Topik / Kata Kunci Utama: "{{keyword}}"
-- Bahasa: {{language}}
-- Target Panjang: minimal {{targetWords}} kata
-- Struktur Wajib: Rancang minimal 5 subbab (H2/H3) deskriptif dengan pembahasan multi-paragraf yang tuntas. DILARANG membuat naskah pendek atau ringkasan!
-{{briefNote}}
-{{authorPersona}}
-{{customInstructions}}
+const DEFAULT_USER_PROMPT_FALLBACK =
+  'Tuliskan artikel mendalam, mengalir alami, dan tuntas untuk topik: "{{keyword}}" ({{language}}). Target minimal {{targetWords}} kata dengan 5 subbab deskriptif. {{briefNote}} {{authorPersona}} {{customInstructions}}'
 
-Sajikan naskah lengkap dan seluruh metadata artikel sesuai instruksi alur kerja editorial.`
+export interface SystemPromptVariables {
+  siteName?: string
+  siteUrl?: string
+  authorName?: string
+  authorBio?: string
+  categoryName?: string
+  language?: string
+}
 
-export function buildSystemPrompt(workflowPrompt: string): string {
+export function buildSystemPrompt(
+  workflowPrompt: string,
+  vars?: SystemPromptVariables
+): string {
   const guardrail = loadPrompt("system-guardrail.md", DEFAULT_GUARDRAIL_FALLBACK)
+  const renderedWorkflow = vars
+    ? renderPrompt(workflowPrompt, {
+        siteName: vars.siteName || "",
+        siteUrl: vars.siteUrl || "",
+        authorName: vars.authorName || "",
+        authorBio: vars.authorBio || "",
+        categoryName: vars.categoryName || "",
+        language: vars.language || "",
+      })
+    : workflowPrompt.trim()
+
   return [
     guardrail.trim(),
     "---",
     "### ALUR KERJA KHUSUS AGENT (WORKFLOW PROMPT PENGGUNA):",
-    workflowPrompt.trim(),
+    renderedWorkflow.trim(),
   ].join("\n\n")
 }
 
@@ -37,7 +52,7 @@ export interface UserPromptVariables {
 }
 
 export function buildUserPrompt(vars: UserPromptVariables): string {
-  const template = loadPrompt("user-prompt.md", DEFAULT_USER_PROMPT_FALLBACK)
+  const template = loadPrompt("agent-user-prompt.md", DEFAULT_USER_PROMPT_FALLBACK)
 
   const categoryInfo = vars.categoryName ? `- Target Kategori: ${vars.categoryName}` : ""
   const tagsInfo = vars.tagsList ? `- Tag Terkait: ${vars.tagsList}` : ""

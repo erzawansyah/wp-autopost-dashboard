@@ -1,7 +1,26 @@
 ---
-used-by: src/core/writer/runtime/pre-resolve.ts
 description: Resolusi cerdas taksonomi WordPress (kategori & tag) serta persona author sebelum penulisan artikel
-variables: keyword, language, brief, existingCategories, existingAuthors, existingTags, requestedCategory, requestedAuthor, requestedTags
+used_by:
+  - src/core/writer/runtime/pre-resolve.ts
+variables:
+  - key: keyword
+    desc: Topik atau kata kunci utama artikel yang akan ditulis
+  - key: language
+    desc: Kode bahasa artikel (misal: id, en)
+  - key: brief
+    desc: Catatan khusus atau pengarahan singkat dari pengguna
+  - key: existingCategories
+    desc: Daftar kategori yang sudah ada di WordPress
+  - key: existingAuthors
+    desc: Daftar author yang sudah ada di WordPress
+  - key: existingTags
+    desc: Contoh tag yang sudah terdaftar di WordPress
+  - key: requestedCategory
+    desc: Preferensi ID/nama kategori yang diminta pengguna (opsional)
+  - key: requestedAuthor
+    desc: Preferensi ID author yang diminta pengguna (opsional)
+  - key: requestedTags
+    desc: Preferensi tag yang diminta pengguna (opsional)
 ---
 
 [SYSTEM_PROMPT]
@@ -45,15 +64,16 @@ PREFERENSI PENGGUNA (JIKA ADA):
 - Kategori yang Diminta: {{requestedCategory}}
 - Penulis yang Diminta: {{requestedAuthor}}
 - Tag yang Diminta: {{requestedTags}}
+[/USER_PROMPT]
 
-Keluarkan JSON format persis seperti ini:
+[OUTPUT_FORMAT]
 {
   "selectedCategoryId": 12,
   "selectedCategoryName": "Nama Kategori",
   "selectedAuthorId": 1,
   "selectedAuthorName": "Nama Penulis",
-  "selectedAuthorBio": "Deskripsi atau keahlian penulis...",
+  "selectedAuthorBio?": "Deskripsi atau keahlian penulis...",
   "tagNames": ["Tag 1", "Tag 2", "Tag 3"],
-  "rationale": "Alasan singkat pemilihan kategori dan penulis..."
+  "rationale?": "Alasan singkat pemilihan kategori dan penulis..."
 }
-[/USER_PROMPT]
+[/OUTPUT_FORMAT]

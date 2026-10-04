@@ -60,6 +60,7 @@ export async function POST(request: Request) {
       : []
 
     // 3. AI Merancang Taksonomi Kategori Baru
+    const promptConfig = loadSectionedPrompt("wp-tools-categories-suggest.md")
     const analysis = await callOpenRouterJson<{
       suggestions: Array<{
         name: string
@@ -71,12 +72,13 @@ export async function POST(request: Request) {
       }>
     }>({
       apiKey: userKeys.openrouterKey,
-      systemPrompt: renderPrompt(loadSectionedPrompt("wp-tools-categories-suggest.md").systemPrompt, {
+      systemPrompt: renderPrompt(promptConfig.systemPrompt, {
         existingCategories: JSON.stringify(existingCategories, null, 2),
       }),
-      userPrompt: renderPrompt(loadSectionedPrompt("wp-tools-categories-suggest.md").userPromptTemplate, {
+      userPrompt: renderPrompt(promptConfig.userPromptTemplate, {
         userPrompt: cleanPrompt,
       }),
+      jsonSchema: promptConfig.outputSchema,
     })
 
     return NextResponse.json({

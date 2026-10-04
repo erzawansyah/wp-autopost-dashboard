@@ -43,6 +43,7 @@ export const WriterRequestSchema = z.object({
   site: z
     .object({
       siteId: z.string().optional(),
+      siteName: z.string().optional(),
       wpSiteId: z.string().optional(),
       baseUrl: z.string().optional(),
       username: z.string().optional(),

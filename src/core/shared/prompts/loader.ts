@@ -3,30 +3,27 @@ import path from "path"
 
 /**
  * Utilitas Pemuatan & Interpolasi Prompt Panitera
- * Memastikan semua prompt (system, user, guardrails, wp-tools) tersimpan di file terpisah
- * di dalam folder `src/core/shared/prompts/` dengan format metadata YAML dan tag pembungkus:
- *
- * ---
- * used-by: daftar script/file yang menggunakan prompt ini, dipisahkan koma
- * description: penjelasan singkat digunakan untuk apa
- * variables: daftar variabel yang bisa diinject ke prompt ini
- * ---
- *
- * [SYSTEM_PROMPT]
- * <prompt yang akan diload>
- * [/SYSTEM_PROMPT]
- *
- * [USER_PROMPT]
- * <prompt yang akan diload>
- * [/USER_PROMPT]
+ * Mendukung arsitektur fleksibel:
+ * 1. YAML frontmatter metadata (description, used_by list, variables list of { key, desc })
+ * 2. Tag terstruktur:
+ *    [SYSTEM_PROMPT] ... [/SYSTEM_PROMPT]
+ *    [USER_PROMPT] ... [/USER_PROMPT]
+ *    [OUTPUT_FORMAT] ... [/OUTPUT_FORMAT]   <- Contoh JSON visual (key berakhiran '?' = opsional/nullable)
+ *    [OUTPUT_SCHEMA] ... [/OUTPUT_SCHEMA]   <- Formal JSON Schema standar (opsional)
  */
 
 const PROMPTS_DIR = path.join(process.cwd(), "src", "core", "shared", "prompts")
 
+export interface PromptVariableMeta {
+  key: string
+  desc: string
+}
+
 export interface PromptMetadata {
-  usedBy?: string[]
   description?: string
-  variables?: string[]
+  used_by?: string[]
+  usedBy?: string[]
+  variables?: PromptVariableMeta[]
   [key: string]: unknown
 }
 
@@ -34,81 +31,110 @@ export interface SectionedPrompt {
   systemPrompt: string
   userPromptTemplate: string
   metadata?: PromptMetadata
+  outputFormat?: string
+  outputSchema?: Record<string, unknown>
 }
 
 export interface ParsedPromptFile {
   metadata: PromptMetadata
   systemPrompt: string
   userPromptTemplate: string
+  outputFormat?: string
+  outputSchema?: Record<string, unknown>
   body: string
 }
 
-/**
- * Mencari path file prompt di disk dengan toleransi variasi prefix:
- * 1. Nama persis
- * 2. Prefix 'wp-tools-' (untuk tools WP)
- * 3. Prefix 'system-' (untuk engine sistem/guardrail)
- * 4. Tanpa prefix
- */
-function findPromptFilePath(filename: string): string | null {
-  const cleanName = filename.trim()
-
-  // 1. Coba nama persis
-  let p = path.join(PROMPTS_DIR, cleanName)
-  if (fs.existsSync(p)) return p
-
-  // 2. Jika tanpa ekstensi .md
-  if (!cleanName.endsWith(".md")) {
-    p = path.join(PROMPTS_DIR, `${cleanName}.md`)
-    if (fs.existsSync(p)) return p
+function unquote(str: string): string {
+  let s = str.trim()
+  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
+    s = s.slice(1, -1)
   }
-
-  // 3. Jika untuk tools (prefix wp-tools-)
-  if (!cleanName.startsWith("wp-tools-")) {
-    const wpPath = path.join(PROMPTS_DIR, `wp-tools-${cleanName}`)
-    if (fs.existsSync(wpPath)) return wpPath
-
-    // Coba jika nama berawalan "system-tool-" atau "tools-"
-    const unTool = cleanName.replace(/^(system-tool-|tools-)/, "")
-    const wpPath2 = path.join(PROMPTS_DIR, `wp-tools-${unTool}`)
-    if (fs.existsSync(wpPath2)) return wpPath2
-  }
-
-  // 4. Jika prefix system-
-  if (!cleanName.startsWith("system-") && !cleanName.startsWith("user-") && !cleanName.startsWith("wp-tools-")) {
-    const sysPath = path.join(PROMPTS_DIR, `system-${cleanName}`)
-    if (fs.existsSync(sysPath)) return sysPath
-  }
-
-  // 5. Coba hilangkan prefix system- atau wp-tools- jika ada
-  if (cleanName.startsWith("system-") || cleanName.startsWith("wp-tools-")) {
-    const base = cleanName.replace(/^(system-|wp-tools-)/, "")
-    const basePath = path.join(PROMPTS_DIR, base)
-    if (fs.existsSync(basePath)) return basePath
-
-    // Fallback swap jika sebelumnya dipanggil system-tool-
-    if (cleanName.startsWith("system-tool-")) {
-      const swapped = path.join(PROMPTS_DIR, cleanName.replace(/^system-tool-/, "wp-tools-"))
-      if (fs.existsSync(swapped)) return swapped
-    }
-  }
-
-  return null
+  return s.trim()
 }
 
 /**
- * Membaca file prompt mentah dari disk
+ * Menghasilkan JSON Schema standar dari contoh JSON
+ * Kunci yang berakhiran '?' otomatis dianggap opsional (tidak masuk required, dan tipe mengizinkan null)
  */
-function readPromptRaw(filename: string): string {
-  try {
-    const resolvedPath = findPromptFilePath(filename)
-    if (resolvedPath && fs.existsSync(resolvedPath)) {
-      return fs.readFileSync(resolvedPath, "utf-8").trim()
-    }
-  } catch (err) {
-    console.warn(`[prompts/loader] Gagal membaca file prompt ${filename} dari disk:`, err)
+export function inferJsonSchemaFromExample(example: unknown): Record<string, unknown> {
+  if (example === null || example === undefined) {
+    return { type: ["string", "null"] }
   }
-  return ""
+
+  if (typeof example === "string") {
+    return { type: "string" }
+  }
+
+  if (typeof example === "number") {
+    return Number.isInteger(example) ? { type: "integer" } : { type: "number" }
+  }
+
+  if (typeof example === "boolean") {
+    return { type: "boolean" }
+  }
+
+  if (Array.isArray(example)) {
+    return {
+      type: "array",
+      items: example.length > 0 ? inferJsonSchemaFromExample(example[0]) : { type: "string" },
+    }
+  }
+
+  if (typeof example === "object") {
+    const properties: Record<string, unknown> = {}
+    const required: string[] = []
+
+    for (const [rawKey, rawVal] of Object.entries(example)) {
+      const isOptional = rawKey.endsWith("?")
+      const cleanKey = isOptional ? rawKey.slice(0, -1).trim() : rawKey.trim()
+
+      const childSchema = inferJsonSchemaFromExample(rawVal)
+
+      if (isOptional) {
+        if (typeof childSchema.type === "string") {
+          childSchema.type = [childSchema.type, "null"]
+        } else if (Array.isArray(childSchema.type) && !childSchema.type.includes("null")) {
+          childSchema.type.push("null")
+        }
+      } else {
+        required.push(cleanKey)
+      }
+
+      properties[cleanKey] = childSchema
+    }
+
+    const schema: Record<string, unknown> = {
+      type: "object",
+      properties,
+      additionalProperties: false,
+    }
+
+    if (required.length > 0) {
+      schema.required = required
+    }
+
+    return schema
+  }
+
+  return { type: "string" }
+}
+
+/**
+ * Menghapus akhiran '?' dari kunci-kunci objek untuk menghasilkan JSON bersih ramah prompt
+ */
+export function cleanExampleForPrompt(example: unknown): unknown {
+  if (Array.isArray(example)) {
+    return example.map(cleanExampleForPrompt)
+  }
+  if (typeof example === "object" && example !== null) {
+    const cleaned: Record<string, unknown> = {}
+    for (const [key, val] of Object.entries(example)) {
+      const cleanKey = key.endsWith("?") ? key.slice(0, -1).trim() : key.trim()
+      cleaned[cleanKey] = cleanExampleForPrompt(val)
+    }
+    return cleaned
+  }
+  return example
 }
 
 /**
@@ -127,38 +153,89 @@ export function parsePromptFrontmatter(rawContent: string): { metadata: PromptMe
 
   const yamlBlock = match[1]
   const body = match[2].trim()
-  const metadata: PromptMetadata = {}
+  const metadata: PromptMetadata = {
+    used_by: [],
+    usedBy: [],
+    variables: [],
+  }
 
-  for (const line of yamlBlock.split("\n")) {
-    const trimmedLine = line.trim()
-    if (!trimmedLine || trimmedLine.startsWith("#")) continue
+  const lines = yamlBlock.split(/\r?\n/)
+  let currentSection: "none" | "used_by" | "variables" = "none"
+  let currentVarObj: PromptVariableMeta | null = null
 
-    const colonIdx = trimmedLine.indexOf(":")
-    if (colonIdx === -1) continue
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd()
+    if (!line.trim() || line.trim().startsWith("#")) continue
 
-    const key = trimmedLine.slice(0, colonIdx).trim().toLowerCase()
-    let val = trimmedLine.slice(colonIdx + 1).trim()
+    const topKeyMatch = line.match(/^([a-zA-Z0-9_\-]+):\s*(.*)$/)
+    if (topKeyMatch && !line.startsWith(" ") && !line.startsWith("\t") && !line.startsWith("-")) {
+      const rawKey = topKeyMatch[1].toLowerCase().replace(/-/g, "_")
+      const inlineVal = topKeyMatch[2].trim()
 
-    // Hapus kutip luar jika ada
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-      val = val.slice(1, -1)
+      if (rawKey === "description" || rawKey === "desc") {
+        currentSection = "none"
+        metadata.description = unquote(inlineVal)
+      } else if (rawKey === "used_by" || rawKey === "usedby") {
+        currentSection = "used_by"
+        if (inlineVal) {
+          const items = inlineVal.split(",").map((s) => unquote(s.trim())).filter(Boolean)
+          metadata.used_by = items
+          metadata.usedBy = items
+        }
+      } else if (rawKey === "variables" || rawKey === "vars") {
+        currentSection = "variables"
+        if (inlineVal) {
+          const cleaned = inlineVal.replace(/^\[/, "").replace(/\]$/, "")
+          metadata.variables = cleaned
+            .split(",")
+            .map((s) => ({ key: unquote(s.trim()), desc: "" }))
+            .filter((v) => v.key)
+        }
+      } else {
+        currentSection = "none"
+        metadata[rawKey] = unquote(inlineVal)
+      }
+      continue
     }
 
-    if (key === "used-by" || key === "usedby" || key === "used_by") {
-      metadata.usedBy = val
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    } else if (key === "variables" || key === "vars") {
-      const cleaned = val.replace(/^\[/, "").replace(/\]$/, "")
-      metadata.variables = cleaned
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    } else if (key === "description" || key === "desc") {
-      metadata.description = val
-    } else {
-      metadata[key] = val
+    if (currentSection === "used_by") {
+      const itemMatch = line.match(/^\s*-\s+(.*)$/)
+      if (itemMatch) {
+        const item = unquote(itemMatch[1].trim())
+        if (item) {
+          metadata.used_by?.push(item)
+          metadata.usedBy?.push(item)
+        }
+      }
+      continue
+    }
+
+    if (currentSection === "variables") {
+      const newVarKeyMatch = line.match(/^\s*-\s+key:\s*(.*)$/i)
+      if (newVarKeyMatch) {
+        currentVarObj = { key: unquote(newVarKeyMatch[1].trim()), desc: "" }
+        metadata.variables?.push(currentVarObj)
+        continue
+      }
+
+      const simpleVarMatch = line.match(/^\s*-\s+([a-zA-Z0-9_]+)$/)
+      if (simpleVarMatch && !line.includes(":")) {
+        currentVarObj = { key: unquote(simpleVarMatch[1].trim()), desc: "" }
+        metadata.variables?.push(currentVarObj)
+        continue
+      }
+
+      const descMatch = line.match(/^\s+desc(?:ription)?:\s*(.*)$/i)
+      if (descMatch && currentVarObj) {
+        currentVarObj.desc = unquote(descMatch[1].trim())
+        continue
+      }
+
+      const subKeyMatch = line.match(/^\s+key:\s*(.*)$/i)
+      if (subKeyMatch && currentVarObj) {
+        currentVarObj.key = unquote(subKeyMatch[1].trim())
+        continue
+      }
     }
   }
 
@@ -166,29 +243,148 @@ export function parsePromptFrontmatter(rawContent: string): { metadata: PromptMe
 }
 
 /**
- * Mengekstrak [SYSTEM_PROMPT] dan [USER_PROMPT] dari teks body
+ * Mencari path file prompt di disk dengan toleransi variasi prefix
  */
-export function extractPromptSections(body: string): { systemPrompt: string; userPromptTemplate: string } {
+function findPromptFilePath(filename: string): string | null {
+  const cleanName = filename.trim()
+
+  let p = path.join(PROMPTS_DIR, cleanName)
+  if (fs.existsSync(p)) return p
+
+  if (!cleanName.endsWith(".md")) {
+    p = path.join(PROMPTS_DIR, `${cleanName}.md`)
+    if (fs.existsSync(p)) return p
+  }
+
+  // 3. Resolusi untuk prefix agent- (dan backwards compatibility untuk preset-)
+  if (cleanName.startsWith("preset-")) {
+    const agentName = cleanName.replace(/^preset-/, "agent-")
+    const agentPath = path.join(PROMPTS_DIR, agentName.endsWith(".md") ? agentName : `${agentName}.md`)
+    if (fs.existsSync(agentPath)) return agentPath
+  }
+
+  if (cleanName === "user-prompt" || cleanName === "user-prompt.md") {
+    const agentUserPath = path.join(PROMPTS_DIR, "agent-user-prompt.md")
+    if (fs.existsSync(agentUserPath)) return agentUserPath
+  }
+
+  if (!cleanName.startsWith("agent-") && !cleanName.startsWith("system-") && !cleanName.startsWith("wp-tools-")) {
+    const agentPath = path.join(PROMPTS_DIR, `agent-${cleanName}${cleanName.endsWith(".md") ? "" : ".md"}`)
+    if (fs.existsSync(agentPath)) return agentPath
+  }
+
+  // 4. Jika untuk tools (prefix wp-tools-)
+  if (!cleanName.startsWith("wp-tools-")) {
+    const wpPath = path.join(PROMPTS_DIR, `wp-tools-${cleanName}`)
+    if (fs.existsSync(wpPath)) return wpPath
+
+    const unTool = cleanName.replace(/^(system-tool-|tools-)/, "")
+    const wpPath2 = path.join(PROMPTS_DIR, `wp-tools-${unTool}`)
+    if (fs.existsSync(wpPath2)) return wpPath2
+  }
+
+  // 5. Jika prefix system-
+  if (!cleanName.startsWith("system-") && !cleanName.startsWith("agent-") && !cleanName.startsWith("wp-tools-")) {
+    const sysPath = path.join(PROMPTS_DIR, `system-${cleanName}`)
+    if (fs.existsSync(sysPath)) return sysPath
+  }
+
+  // 6. Coba hilangkan prefix jika ada
+  if (cleanName.startsWith("system-") || cleanName.startsWith("wp-tools-") || cleanName.startsWith("agent-")) {
+    const base = cleanName.replace(/^(system-|wp-tools-|agent-)/, "")
+    const basePath = path.join(PROMPTS_DIR, base)
+    if (fs.existsSync(basePath)) return basePath
+
+    if (cleanName.startsWith("system-tool-")) {
+      const swapped = path.join(PROMPTS_DIR, cleanName.replace(/^system-tool-/, "wp-tools-"))
+      if (fs.existsSync(swapped)) return swapped
+    }
+  }
+
+  return null
+}
+
+function readPromptRaw(filename: string): string {
+  try {
+    const resolvedPath = findPromptFilePath(filename)
+    if (resolvedPath && fs.existsSync(resolvedPath)) {
+      return fs.readFileSync(resolvedPath, "utf-8").trim()
+    }
+  } catch (err) {
+    console.warn(`[prompts/loader] Gagal membaca file prompt ${filename} dari disk:`, err)
+  }
+  return ""
+}
+
+/**
+ * Mengekstrak [SYSTEM_PROMPT], [USER_PROMPT], [OUTPUT_FORMAT], dan [OUTPUT_SCHEMA]
+ */
+export function extractPromptSections(body: string): {
+  systemPrompt: string
+  userPromptTemplate: string
+  outputFormat?: string
+  outputSchema?: Record<string, unknown>
+} {
   let systemPrompt = ""
   let userPromptTemplate = ""
+  let outputFormat: string | undefined
+  let outputSchema: Record<string, unknown> | undefined
 
-  // 1. Ekstraksi dengan tag [SYSTEM_PROMPT]...[/SYSTEM_PROMPT]
-  const sysTagMatch = body.match(/\[SYSTEM_PROMPT\]([\s\S]*?)\[\/SYSTEM_PROMPT\]/i)
-  if (sysTagMatch) {
-    systemPrompt = sysTagMatch[1].trim()
+  // 1. Tag [SYSTEM_PROMPT]
+  const sysMatch = body.match(/\[SYSTEM_PROMPT\]([\s\S]*?)\[\/SYSTEM_PROMPT\]/i)
+  if (sysMatch) {
+    systemPrompt = sysMatch[1].trim()
   }
 
-  // 2. Ekstraksi dengan tag [USER_PROMPT]...[/USER_PROMPT]
-  const userTagMatch = body.match(/\[USER_PROMPT\]([\s\S]*?)\[\/USER_PROMPT\]/i)
-  if (userTagMatch) {
-    userPromptTemplate = userTagMatch[1].trim()
+  // 2. Tag [USER_PROMPT]
+  const userMatch = body.match(/\[USER_PROMPT\]([\s\S]*?)\[\/USER_PROMPT\]/i)
+  if (userMatch) {
+    userPromptTemplate = userMatch[1].trim()
   }
 
-  if (systemPrompt || userPromptTemplate) {
-    return { systemPrompt, userPromptTemplate }
+  // 3. Tag [OUTPUT_SCHEMA] (formal JSON Schema jika ada)
+  const schemaMatch = body.match(/\[OUTPUT_SCHEMA\]([\s\S]*?)\[\/OUTPUT_SCHEMA\]/i)
+  if (schemaMatch) {
+    const rawSchema = schemaMatch[1].trim()
+    try {
+      outputSchema = JSON.parse(rawSchema)
+    } catch (err) {
+      console.warn("[loader] Format [OUTPUT_SCHEMA] bukan JSON valid:", err)
+    }
   }
 
-  // 3. Fallback backward-compatible: jika menggunakan pemisah legacy markdown (# SYSTEM PROMPT / # USER PROMPT TEMPLATE atau ---)
+  // 4. Tag [OUTPUT_FORMAT] (contoh JSON visual fleksibel dengan '?')
+  const formatMatch = body.match(/\[OUTPUT_FORMAT\]([\s\S]*?)\[\/OUTPUT_FORMAT\]/i)
+  if (formatMatch) {
+    const rawFormat = formatMatch[1].trim()
+    outputFormat = rawFormat
+
+    try {
+      const parsedExample = JSON.parse(rawFormat)
+      // Infer JSON Schema otomatis jika belum disuplai lewat [OUTPUT_SCHEMA]
+      if (!outputSchema) {
+        outputSchema = inferJsonSchemaFromExample(parsedExample)
+      }
+
+      // Bersihkan tanda '?' untuk disematkan secara alami ke instruksi prompt pengguna
+      const cleanExample = cleanExampleForPrompt(parsedExample)
+      const cleanExampleStr = JSON.stringify(cleanExample, null, 2)
+
+      // Jika userPromptTemplate belum memuat instruksi JSON, sertakan secara otomatis
+      if (!userPromptTemplate.includes("Keluarkan JSON") && !userPromptTemplate.includes("JSON format")) {
+        userPromptTemplate = `${userPromptTemplate}\n\nKeluarkan JSON murni persis dengan format berikut:\n${cleanExampleStr}`.trim()
+      }
+    } catch (err) {
+      console.warn("[loader] Format [OUTPUT_FORMAT] bukan JSON valid:", err)
+    }
+  }
+
+  // Jika tag ditemukan, kembalikan langsung
+  if (systemPrompt || userPromptTemplate || outputFormat) {
+    return { systemPrompt, userPromptTemplate, outputFormat, outputSchema }
+  }
+
+  // Fallback backward-compatible
   const legacyParts = body.split(/^---\s*$/m)
   if (legacyParts.length >= 2) {
     const sysPart = legacyParts[0].replace(/^#\s*SYSTEM\s*PROMPT\s*/i, "").trim()
@@ -199,12 +395,11 @@ export function extractPromptSections(body: string): { systemPrompt: string; use
     }
   }
 
-  // 4. Default: Jika tidak ada tag sama sekali
   return { systemPrompt: body, userPromptTemplate: "" }
 }
 
 /**
- * Mem-parse file prompt secara menyeluruh: Metadata YAML + Section Tags
+ * Mem-parse file prompt secara menyeluruh: Metadata YAML + Section Tags + Output Schema
  */
 export function loadParsedPrompt(filename: string): ParsedPromptFile {
   const raw = readPromptRaw(filename)
@@ -213,21 +408,20 @@ export function loadParsedPrompt(filename: string): ParsedPromptFile {
   }
 
   const { metadata, body } = parsePromptFrontmatter(raw)
-  const { systemPrompt, userPromptTemplate } = extractPromptSections(body)
+  const { systemPrompt, userPromptTemplate, outputFormat, outputSchema } = extractPromptSections(body)
 
   return {
     metadata,
     systemPrompt,
     userPromptTemplate,
+    outputFormat,
+    outputSchema,
     body,
   }
 }
 
 /**
- * Membaca prompt tunggal (dengan opsi memilih section 'system' atau 'user').
- * Jika section tidak ditentukan:
- * - Mengembalikan section yang tersedia jika hanya ada salah satu (misal hanya [SYSTEM_PROMPT] atau hanya [USER_PROMPT])
- * - Mengembalikan seluruh isi body jika keduanya ada atau tanpa tag
+ * Membaca prompt tunggal (dengan opsi memilih section 'system' atau 'user')
  */
 export function loadPrompt(
   filename: string,
@@ -246,7 +440,6 @@ export function loadPrompt(
     return parsed.userPromptTemplate || parsed.body || fallback.trim()
   }
 
-  // Jika tidak dispesifikasikan:
   if (parsed.userPromptTemplate && !parsed.systemPrompt) {
     return parsed.userPromptTemplate
   }
@@ -258,7 +451,7 @@ export function loadPrompt(
 }
 
 /**
- * Membaca prompt yang memiliki bagian [SYSTEM_PROMPT] dan [USER_PROMPT]
+ * Membaca prompt yang memiliki bagian [SYSTEM_PROMPT], [USER_PROMPT], dan [OUTPUT_FORMAT]
  */
 export function loadSectionedPrompt(filename: string): SectionedPrompt {
   const parsed = loadParsedPrompt(filename)
@@ -266,6 +459,8 @@ export function loadSectionedPrompt(filename: string): SectionedPrompt {
     systemPrompt: parsed.systemPrompt,
     userPromptTemplate: parsed.userPromptTemplate,
     metadata: parsed.metadata,
+    outputFormat: parsed.outputFormat,
+    outputSchema: parsed.outputSchema,
   }
 }
 
@@ -284,7 +479,6 @@ export function renderPrompt(
     result = result.replace(regex, replacement)
   }
 
-  // Bersihkan baris-baris kosong berlebih yang tertinggal dari variabel opsional yang kosong
   return result
     .split("\n")
     .filter((line, idx, arr) => {

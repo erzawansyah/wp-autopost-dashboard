@@ -65,6 +65,7 @@ export async function POST(request: Request) {
       domainHost = new URL(site.base_url).hostname.replace(/^www\./, "")
     } catch {}
 
+    const promptConfig = loadSectionedPrompt("wp-tools-authors-suggest.md")
     const analysis = await callOpenRouterJson<{
       suggestions: Array<{
         name: string
@@ -77,14 +78,15 @@ export async function POST(request: Request) {
       }>
     }>({
       apiKey: userKeys.openrouterKey,
-      systemPrompt: renderPrompt(loadSectionedPrompt("wp-tools-authors-suggest.md").systemPrompt, {
+      systemPrompt: renderPrompt(promptConfig.systemPrompt, {
         existingUsers: JSON.stringify(existingUsers, null, 2),
         domainHost,
       }),
-      userPrompt: renderPrompt(loadSectionedPrompt("wp-tools-authors-suggest.md").userPromptTemplate, {
+      userPrompt: renderPrompt(promptConfig.userPromptTemplate, {
         userPrompt: cleanPrompt,
         domainHost,
       }),
+      jsonSchema: promptConfig.outputSchema,
     })
 
     return NextResponse.json({

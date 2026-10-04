@@ -1,7 +1,14 @@
 ---
-used-by: src/app/api/tools/authors/suggest/route.ts
 description: AI perancang persona author E-E-A-T baru WordPress yang autentik dan kredibel
-variables: existingUsers, domainHost, userPrompt
+used_by:
+  - src/app/api/tools/authors/suggest/route.ts
+variables:
+  - key: existingUsers
+    desc: Daftar JSON data penulis/user yang sudah terdaftar di WordPress
+  - key: domainHost
+    desc: Hostname website target untuk penyusunan alamat email resmi persona
+  - key: userPrompt
+    desc: Instruksi kebutuhan gaya tulisan, peran, atau spesialisasi persona dari pengguna
 ---
 
 [SYSTEM_PROMPT]
@@ -27,8 +34,9 @@ Pedoman:
 
 [USER_PROMPT]
 Instruksi Pengguna: "{{userPrompt}}"
+[/USER_PROMPT]
 
-Keluarkan JSON format:
+[OUTPUT_FORMAT]
 {
   "suggestions": [
     {
@@ -42,4 +50,4 @@ Keluarkan JSON format:
     }
   ]
 }
-[/USER_PROMPT]
+[/OUTPUT_FORMAT]

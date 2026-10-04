@@ -1,7 +1,8 @@
 ---
-used-by: src/core/writer/runtime/prompt-builder.ts
 description: Aturan integritas redaksional dan struktur penulisan artikel WordPress
-variables: 
+used_by:
+  - src/core/writer/runtime/prompt-builder.ts
+variables: []
 ---
 
 [SYSTEM_PROMPT]

@@ -1,7 +1,14 @@
 ---
-used-by: src/app/api/tools/link-building/analyze/route.ts
 description: Ekstraksi topik artikel baru dan perumusan kueri pencarian WP REST API untuk internal link building
-variables: cleanUrl, targetKeyword, extraInstructions
+used_by:
+  - src/app/api/tools/link-building/analyze/route.ts
+variables:
+  - key: cleanUrl
+    desc: URL artikel baru yang diterbitkan
+  - key: targetKeyword
+    desc: Kata kunci atau topik target artikel baru (opsional)
+  - key: extraInstructions
+    desc: Instruksi tambahan dari pengguna perihal preferensi pencarian (opsional)
 ---
 
 [SYSTEM_PROMPT]
@@ -12,10 +19,11 @@ Kamu adalah pakar riset SEO WordPress. Tugasmu menganalisis URL artikel baru (da
 URL Artikel Baru: {{cleanUrl}}
 Kata Kunci Target (Opsional): {{targetKeyword}}
 Instruksi Tambahan (Opsional): {{extraInstructions}}
+[/USER_PROMPT]
 
-Keluarkan JSON dengan format:
+[OUTPUT_FORMAT]
 {
   "topicSummary": "string ringkasan topik spesifik artikel baru",
   "searchQueries": ["query1", "query2", "query3"]
 }
-[/USER_PROMPT]
+[/OUTPUT_FORMAT]

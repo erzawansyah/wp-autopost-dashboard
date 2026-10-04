@@ -61,6 +61,7 @@ export async function POST(request: Request) {
         targetKeyword: targetKeyword || "-",
         extraInstructions: extraInstructions || "-",
       }),
+      jsonSchema: extractPromptConfig.outputSchema,
     })
 
     const queries = Array.isArray(extracted?.searchQueries) && extracted.searchQueries.length > 0
@@ -130,6 +131,7 @@ export async function POST(request: Request) {
       }
     })
 
+    const recommendPromptConfig = loadSectionedPrompt("wp-tools-link-recommend.md")
     const analysis = await callOpenRouterJson<{
       recommendations: Array<{
         postId: number
@@ -143,15 +145,16 @@ export async function POST(request: Request) {
       }>
     }>({
       apiKey: userKeys.openrouterKey,
-      systemPrompt: renderPrompt(loadSectionedPrompt("wp-tools-link-recommend.md").systemPrompt, {
+      systemPrompt: renderPrompt(recommendPromptConfig.systemPrompt, {
         cleanUrl,
         topicSummary: extracted.topicSummary,
         targetKeyword: targetKeyword || extracted.topicSummary,
       }),
-      userPrompt: renderPrompt(loadSectionedPrompt("wp-tools-link-recommend.md").userPromptTemplate, {
+      userPrompt: renderPrompt(recommendPromptConfig.userPromptTemplate, {
         candidatesJson: JSON.stringify(simplifiedCandidates, null, 2),
         cleanUrl,
       }),
+      jsonSchema: recommendPromptConfig.outputSchema,
     })
 
     const validRecommendations = Array.isArray(analysis?.recommendations)

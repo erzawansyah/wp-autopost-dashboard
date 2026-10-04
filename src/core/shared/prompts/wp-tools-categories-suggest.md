@@ -1,7 +1,12 @@
 ---
-used-by: src/app/api/tools/categories/suggest/route.ts
 description: AI perancang struktur taksonomi kategori baru WordPress yang relevan dan non-duplikatif
-variables: existingCategories, userPrompt
+used_by:
+  - src/app/api/tools/categories/suggest/route.ts
+variables:
+  - key: existingCategories
+    desc: Daftar kategori yang sudah terdaftar di website WordPress
+  - key: userPrompt
+    desc: Instruksi spesifik jenis atau ceruk kategori dari pengguna
 ---
 
 [SYSTEM_PROMPT]
@@ -23,18 +28,19 @@ Pedoman:
 
 [USER_PROMPT]
 Instruksi Pengguna: "{{userPrompt}}"
+[/USER_PROMPT]
 
-Keluarkan JSON format:
+[OUTPUT_FORMAT]
 {
   "suggestions": [
     {
       "name": "Nama Kategori",
       "slug": "nama-kategori",
       "parentId": 0,
-      "parentName": "",
+      "parentName?": "Nama Induk Kategori jika sub-kategori",
       "description": "Deskripsi singkat arsip kategori...",
       "rationale": "Alasan perlunya kategori ini..."
     }
   ]
 }
-[/USER_PROMPT]
+[/OUTPUT_FORMAT]

@@ -1,7 +1,26 @@
 ---
-used-by: src/core/writer/runtime/finalize.ts
 description: Template sintesis darurat naskah artikel utuh ketika batas loop agent tercapai
-variables: reason, factsList, mediaEmbeds, keyword, language, targetWordCount, briefText, authorText, instructionsText
+used_by:
+  - src/core/writer/runtime/finalize.ts
+variables:
+  - key: reason
+    desc: Alasan pemanggilan finalize (misal batas tool atau batas putaran loop)
+  - key: factsList
+    desc: Rangkuman fakta dan kutipan yang berhasil dihimpun dari tools riset
+  - key: mediaEmbeds
+    desc: Daftar gambar yang berhasil diunggah ke WordPress
+  - key: keyword
+    desc: Topik atau kata kunci artikel
+  - key: language
+    desc: Bahasa tulisan artikel
+  - key: targetWordCount
+    desc: Target jumlah kata minimal artikel
+  - key: briefText
+    desc: Catatan atau brief pengarahan dari pengguna
+  - key: authorText
+    desc: Sudut pandang persona penulis WordPress
+  - key: instructionsText
+    desc: Instruksi khusus tambahan
 ---
 
 [USER_PROMPT]
