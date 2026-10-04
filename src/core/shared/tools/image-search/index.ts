@@ -575,29 +575,31 @@ export async function searchRoyaltyFreeImages(params: ImageSearchParams): Promis
   }
 
   // 2. Mode DEFAULT ("auto"): Pipeline Bertingkat Cerdas
+  // Prioritas: Semua Official API (BYOK) selalu didahulukan ➔ SearXNG kedua terakhir ➔ Fallback Scraper/Curated di akhir
+
   // 2.1 Coba Pexafy jika ada API key
   if (pexafyKey) {
     const pexafyResults = await searchWithPexafy(query, count, pexafyKey, minWidth)
     if (pexafyResults.length > 0) return pexafyResults
   }
 
-  // 2.2 Coba SearxNG jika ada URL
-  if (searxngUrl) {
-    const searxngResults = await searchWithSearxngImages(query, count, searxngUrl, minWidth)
-    if (searxngResults.length > 0) return searxngResults
-  }
-
-  // 2.3 Coba Bing Official API jika ada key
+  // 2.2 Coba Bing Official API jika ada key
   const bingApiKey = process.env.BING_SEARCH_API_KEY || process.env.BING_API_KEY
   if (bingApiKey) {
     const bingApiResults = await searchBingOfficialApi(query, count, bingApiKey, minWidth)
     if (bingApiResults.length > 0) return bingApiResults
   }
 
+  // 2.3 Coba SearxNG Images (Kedua Terakhir: Metasearch Engine Tanpa Kuota API)
+  if (searxngUrl) {
+    const searxngResults = await searchWithSearxngImages(query, count, searxngUrl, minWidth)
+    if (searxngResults.length > 0) return searxngResults
+  }
+
   // 2.4 Coba Bing Async Scraper (Creative Commons, Wide Landscape, minWidth >= 1280px, Live Verified)
   const bingScraperResults = await searchBingAsyncScraper(query, count, minWidth)
   if (bingScraperResults.length > 0) return bingScraperResults
 
-  // 2.5 Fallback cerdas: gunakan Unsplash Curated CDN (lebar 1280px)
+  // 2.5 Fallback Terakhir: Unsplash Curated CDN (lebar 1280px)
   return getCuratedUnsplashImages(query, count)
 }

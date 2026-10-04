@@ -511,7 +511,7 @@ export default function ApiKeysSettingsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="auto" className="text-xs">
-                      Auto Cascade (SearXNG Internal + Smart Web Fallback)
+                      Auto Cascade (Utamakan Kunci API Pribadi ➔ Fallback Cerdas)
                     </SelectItem>
                     <SelectItem value="tavily" className="text-xs">
                       Tavily Search (Gunakan API Key Pribadi)
@@ -521,22 +521,6 @@ export default function ApiKeysSettingsPage() {
                     </SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-
-              {/* SearXNG Internal Status Card (Zero-Config) */}
-              <div className="flex items-start gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3.5 text-xs">
-                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-foreground">Mesin Pencari Internal (SearXNG Built-in)</span>
-                    <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
-                      Default &amp; Otomatis Aktif
-                    </Badge>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    SearXNG berjalan otomatis di jaringan internal kontainer Docker sebagai mesin riset artikel dan pencarian foto bawaan. Anda tidak perlu memasukkan URL atau mengonfigurasi apapun secara manual.
-                  </p>
-                </div>
               </div>
 
               {/* Tavily API Key */}
@@ -752,13 +736,13 @@ export default function ApiKeysSettingsPage() {
                 )}
               </div>
 
-              {/* Status Integrasi SearxNG Images & Fallback */}
+              {/* Alur Pipeline Bertingkat Pencarian Gambar */}
               <div className="flex items-start gap-3 rounded-lg border border-border/60 bg-muted/15 p-3.5 text-xs">
                 <Info className="size-4 text-primary shrink-0 mt-0.5" />
                 <div className="space-y-1">
                   <span className="font-medium text-foreground">Alur Pipeline Bertingkat Pencarian Gambar</span>
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Sistem menggunakan urutan prioritas cerdas: <strong>(1) Pexafy API</strong> (jika diisi) ➔ <strong>(2) SearxNG Images Internal</strong> (Otomatis Built-in) ➔ <strong>(3) Bing Async Scraper</strong> (Creative Commons landscape 1280px + live accessibility verify) ➔ <strong>(4) Curated Unsplash CDN Catalog</strong>. Anda tetap dapat menghasilkan artikel dengan gambar berkualitas tinggi meskipun belum menghubungkan Pexafy.
+                    Sistem memprioritaskan kunci API resmi (Pexafy) terlebih dahulu. Jika kunci API tidak diisi atau kuota habis, sistem otomatis melanjutkan ke pencarian metasearch dan katalog kurasi bebas royalti. Anda tetap dapat menghasilkan artikel dengan gambar berkualitas tinggi meskipun belum mengisi API Key.
                   </p>
                 </div>
               </div>

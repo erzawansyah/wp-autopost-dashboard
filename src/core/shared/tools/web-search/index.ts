@@ -583,34 +583,36 @@ export async function webSearch(params: WebSearchParams): Promise<WebSearchResul
   }
 
   // 2. Mode DEFAULT ("auto"): Pipeline Bertingkat Cerdas
+  // Prioritas: Semua Official API (BYOK) selalu didahulukan ➔ SearXNG kedua terakhir ➔ Fallback Scraper/Wiki di akhir
+
   // 2.1 Coba Tavily jika API key tersedia (BYOK Utama)
   if (tavilyKey) {
     const tavilyRes = await searchWithTavily(query, limit, tavilyKey)
     if (tavilyRes.length > 0) return tavilyRes
   }
 
-  // 2.2 Coba Brave Search jika API key tersedia (BYOK Alternatif Privasi Tinggi)
+  // 2.2 Coba Brave Search jika API key tersedia (BYOK Privasi Tinggi)
   if (braveKey) {
     const braveRes = await searchWithBrave(query, limit, braveKey)
     if (braveRes.length > 0) return braveRes
   }
 
-  // 2.3 Coba SearxNG jika URL tersedia
-  if (searxngUrl) {
-    const searxngRes = await searchWithSearxngWeb(query, limit, searxngUrl)
-    if (searxngRes.length > 0) return searxngRes
-  }
-
-  // 2.4 Coba SerpAPI jika API key tersedia
+  // 2.3 Coba SerpAPI jika API key tersedia (Official API)
   if (serpKey) {
     const serpRes = await searchWithSerpApi(query, limit, serpKey, language)
     if (serpRes.length > 0) return serpRes
   }
 
-  // 2.5 Coba Bing Web Live Scraper (Zero-Config, Hasil Web Luas & Aktual)
+  // 2.4 Coba SearxNG (Kedua Terakhir: Metasearch Engine Tanpa Kuota API)
+  if (searxngUrl) {
+    const searxngRes = await searchWithSearxngWeb(query, limit, searxngUrl)
+    if (searxngRes.length > 0) return searxngRes
+  }
+
+  // 2.5 Fallback Akhir: Bing Web Live Scraper
   const bingScraperRes = await searchBingWebScraper(query, limit, language)
   if (bingScraperRes.length > 0) return bingScraperRes
 
-  // 2.6 Fallback cerdas: Open Knowledge Base Wikipedia
+  // 2.6 Fallback Terakhir: Open Knowledge Base Wikipedia
   return searchWithOpenKnowledge(query, limit, language)
 }
