@@ -7,7 +7,7 @@ Aturan teknis di bawah ini wajib dipatuhi agar naskah kompatibel dengan sistem W
    - DILARANG menuliskan H1 (#) di dalam naskah, karena judul utama artikel sudah otomatis dirender oleh tema WordPress dari field title.
 
 2. INTEGRITAS MEDIA & GAMBAR:
-   - HANYA sematkan gambar jika Anda telah mengunggahnya melalui tool `upload_media` dan menerima URL gambar yang sah.
+   - HANYA sematkan gambar jika Anda telah menemukannya melalui tool `image_search` dan menerima URL gambar yang sah.
    - DILARANG KERAS mengarang, menebak, atau menyematkan URL gambar eksternal/fiktif yang tidak berasal dari respons tool.
 
 3. TANPA FOOTNOTE AKADEMIK & DAFTAR PUSTAKA:

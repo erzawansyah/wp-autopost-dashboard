@@ -10,6 +10,36 @@ export const webSearchToolDef: ToolDefinition = {
   category: "research",
   requirements: [], // Zero-config fallback via scraper & Wikipedia
   defaultLimit: 6,
+  inputFields: [
+    {
+      name: "query",
+      label: "Kata Kunci Penelusuran",
+      type: "text",
+      placeholder: "Contoh: tren perkembangan ai 2026",
+      defaultValue: "cara riset keyword seo pemula",
+      description: "Kata kunci pencarian spesifik untuk menggali informasi faktual.",
+    },
+    {
+      name: "limit",
+      label: "Batas Jumlah Sumber",
+      type: "number",
+      defaultValue: 4,
+      description: "Jumlah referensi halaman web yang ingin diambil (1-5).",
+    },
+    {
+      name: "provider",
+      label: "Penyedia Pencarian (Search Provider)",
+      type: "select",
+      defaultValue: "auto",
+      options: [
+        { value: "auto", label: "Otomatis (BYOK API Key ➔ SearXNG ➔ Scraper)" },
+        { value: "searxng", label: "SearXNG (Self-Hosted Metasearch)" },
+        { value: "brave", label: "Brave Search API" },
+        { value: "tavily", label: "Tavily AI Search" },
+        { value: "bing_scraper", label: "Bing Web Scraper (Zero Config)" },
+      ],
+    },
+  ],
 
   summarize(result: unknown): string {
     if (typeof result === "string" && result.startsWith("ERROR")) return result.slice(0, 150)

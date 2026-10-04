@@ -196,43 +196,97 @@ function getRandomBrowserHeaders(type: "page" | "image" = "page"): Record<string
 }
 
 /**
- * Lapisan Verifikasi Gambar (Accessibility & Content-Type Guard)
- * Menguji apakah URL gambar aktif (200 OK), responsif dalam batas timeout,
- * dan bertipe MIME image yang sah.
+ * Lapisan Verifikasi Gambar (Accessibility, Anti-Hotlink & Content Guard)
+ * Menguji apakah URL gambar aktif (200 OK / 206 Partial Content), responsif dalam batas timeout,
+ * bertipe MIME image yang sah, dan bukan file kosong atau error page HTML.
  */
 export async function verifyImageAccessible(url: string, timeoutMs = 3000): Promise<boolean> {
   try {
+    if (!url || typeof url !== "string" || !url.startsWith("http")) {
+      return false
+    }
+
+    let parsedUrl: URL
+    try {
+      parsedUrl = new URL(url)
+    } catch {
+      return false
+    }
+
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     const browserHeaders = getRandomBrowserHeaders("image")
 
-    // 1. Coba HEAD request terlebih dahulu (ringan tanpa download konten)
-    let res = await fetch(url, {
-      method: "HEAD",
-      signal: controller.signal,
-      headers: browserHeaders,
-    })
+    // Selalu sertakan Referer dari origin domain gambar agar tidak diblokir proteksi anti-hotlink
+    const requestHeaders: Record<string, string> = {
+      ...browserHeaders,
+      "Referer": parsedUrl.origin + "/",
+    }
 
-    // 2. Jika server asal memblokir HEAD (405 / 403), coba partial GET dengan byte range 0-1024
-    if (res.status === 405 || res.status === 403) {
+    // 1. Coba HEAD request terlebih dahulu (ringan tanpa download body)
+    let res: Response
+    try {
+      res = await fetch(url, {
+        method: "HEAD",
+        signal: controller.signal,
+        headers: requestHeaders,
+      })
+    } catch {
+      // Jika HEAD abort atau ditolak koneksinya, coba partial GET
       res = await fetch(url, {
         method: "GET",
         signal: controller.signal,
         headers: {
-          ...browserHeaders,
-          "Range": "bytes=0-1024",
+          ...requestHeaders,
+          "Range": "bytes=0-2048",
+        },
+      })
+    }
+
+    // 2. Jika server asal memblokir HEAD (405 / 403 / 400), coba partial GET dengan byte range 0-2048
+    if (!res.ok && (res.status === 405 || res.status === 403 || res.status === 400 || res.status === 501)) {
+      res = await fetch(url, {
+        method: "GET",
+        signal: controller.signal,
+        headers: {
+          ...requestHeaders,
+          "Range": "bytes=0-2048",
         },
       })
     }
 
     clearTimeout(timer)
 
-    if (!res.ok) return false
+    // Status wajib sukses (200 OK atau 206 Partial Content atau 304 Not Modified)
+    if (!res.ok && res.status !== 304) {
+      return false
+    }
 
-    const contentType = res.headers.get("content-type") || ""
-    // Pastikan respons bukan berupa halaman HTML error (misal 404 block page)
+    const contentType = (res.headers.get("content-type") || "").toLowerCase()
+
+    // Tolak mentah-mentah jika respons berupa HTML, plaintext, atau JSON (indikasi error page / artikel web)
+    if (
+      contentType.includes("text/html") ||
+      contentType.includes("text/plain") ||
+      contentType.includes("application/json") ||
+      contentType.includes("application/xml")
+    ) {
+      return false
+    }
+
+    // Jika content-type ada, pastikan bertipe image/* atau octet-stream
     if (contentType && !contentType.startsWith("image/") && !contentType.includes("octet-stream")) {
       return false
+    }
+
+    // Periksa Content-Length jika dikirim oleh server
+    const contentLength = res.headers.get("content-length")
+    if (contentLength) {
+      const bytes = parseInt(contentLength, 10)
+      // Tolak jika file terlalu kecil (< 2500 bytes = 1x1 pixel tracking bug atau zero placeholder)
+      if (bytes > 0 && bytes < 2500) {
+        return false
+      }
     }
 
     return true
@@ -460,8 +514,25 @@ async function searchWithSearxngImages(
     const results: ImageSearchResult[] = []
     for (const item of items) {
       if (results.length >= count) break
-      const mediaUrl = item.img_src || item.url
-      if (!mediaUrl || typeof mediaUrl !== "string" || !mediaUrl.startsWith("http")) continue
+
+      // Ekstraksi URL gambar valid dari item SearXNG:
+      let mediaUrl: string | undefined
+
+      const imgSrc = typeof item.img_src === "string" ? item.img_src.trim() : ""
+      const thumbSrc = typeof item.thumbnail_src === "string" ? item.thumbnail_src.trim() : ""
+      const rawUrl = typeof item.url === "string" ? item.url.trim() : ""
+
+      if (imgSrc) {
+        mediaUrl = imgSrc.startsWith("/") ? `${base}${imgSrc}` : imgSrc
+      } else if (thumbSrc) {
+        mediaUrl = thumbSrc.startsWith("/") ? `${base}${thumbSrc}` : thumbSrc
+      } else if (rawUrl && /\.(jpe?g|png|webp|avif)(\?.*)?$/i.test(rawUrl)) {
+        // HANYA gunakan item.url jika benar-benar berakhiran ekstensi gambar yang sah
+        mediaUrl = rawUrl
+      }
+
+      // Jika bukan URL gambar yang sah, lewati
+      if (!mediaUrl || !mediaUrl.startsWith("http")) continue
 
       let width = 0
       let height = 0
@@ -475,7 +546,7 @@ async function searchWithSearxngImages(
 
       if (width > 0 && width < minWidth) continue
 
-      const isLive = await verifyImageAccessible(mediaUrl, 2500)
+      const isLive = await verifyImageAccessible(mediaUrl, 3000)
       if (!isLive) continue
 
       const title = item.title || query

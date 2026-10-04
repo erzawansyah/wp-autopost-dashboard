@@ -10,6 +10,43 @@ export const imageSearchToolDef: ToolDefinition = {
   category: "media",
   requirements: [],
   defaultLimit: 4,
+  inputFields: [
+    {
+      name: "query",
+      label: "Kata Kunci Foto (Visual Query)",
+      type: "text",
+      placeholder: "Contoh: barista brewing coffee aesthetic",
+      defaultValue: "barista brewing pour over coffee",
+      description: "Gunakan istilah visual bahasa Inggris untuk hasil foto terbaik.",
+    },
+    {
+      name: "count",
+      label: "Jumlah Foto",
+      type: "number",
+      defaultValue: 3,
+      description: "Jumlah foto yang ingin dicari (1-4).",
+    },
+    {
+      name: "provider",
+      label: "Penyedia Gambar (Image Provider)",
+      type: "select",
+      defaultValue: "auto",
+      options: [
+        { value: "auto", label: "Otomatis (Pexafy BYOK ➔ Bing API ➔ SearXNG ➔ Scraper)" },
+        { value: "searxng", label: "SearXNG Images (Metasearch)" },
+        { value: "pexafy", label: "Pexafy Stock Photos (Multi-Provider API)" },
+        { value: "bing_scraper", label: "Bing Async Scraper (Creative Commons)" },
+        { value: "curated", label: "Unsplash Curated CDN (Fallback)" },
+      ],
+    },
+    {
+      name: "minWidth",
+      label: "Lebar Minimal (px)",
+      type: "number",
+      defaultValue: 1280,
+      description: "Resolusi horizontal minimal untuk memastikan ketajaman layar retina.",
+    },
+  ],
 
   summarize(result: unknown): string {
     if (typeof result === "string" && result.startsWith("ERROR")) return result.slice(0, 150)
@@ -49,7 +86,7 @@ export const imageSearchToolDef: ToolDefinition = {
             )
             .join("\n\n")
 
-          return `Ditemukan ${images.length} foto berkualitas tinggi:\n\n${formatted}\n\nUntuk menggunakannya, pilih URL foto yang paling pas lalu panggil tool upload_media.`
+          return `Ditemukan ${images.length} foto berkualitas tinggi:\n\n${formatted}\n\nUntuk menggunakannya, pilih URL foto yang paling pas lalu sematkan ke dalam artikel (misalnya sebagai foto sampul utama atau ilustrasi subbab terkait).`
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : "Kesalahan pencarian gambar"
           return `ERROR[image_search_failed]: Gagal mencari foto: ${msg}`

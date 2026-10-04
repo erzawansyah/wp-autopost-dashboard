@@ -18,6 +18,16 @@ export interface ToolRuntimeContext {
   recorder: RunRecorder
 }
 
+export interface ToolInputField {
+  name: string
+  label: string
+  type: "text" | "number" | "select" | "textarea"
+  description?: string
+  defaultValue?: any
+  placeholder?: string
+  options?: { value: string; label: string }[]
+}
+
 export interface ToolDefinition {
   readonly id: string
   readonly label: string
@@ -25,6 +35,8 @@ export interface ToolDefinition {
   readonly category: "research" | "media" | "wordpress"
   readonly requirements: ToolRequirement[]
   readonly defaultLimit: number
+  /** Deklarasi kolom input form pengujian lab & runtime UI */
+  readonly inputFields?: ToolInputField[]
   /** Membangun instance LangChain StructuredTool yang siap diinjeksi ke agent */
   build(ctx: ToolRuntimeContext): StructuredTool
   /** Menghasilkan ringkasan padat satu baris untuk telemetri log (maks 240 karakter) */

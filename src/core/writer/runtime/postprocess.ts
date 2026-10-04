@@ -8,6 +8,8 @@ import {
   sanitizeDashes,
 } from "../../shared/formatters/markdown-cleaner"
 
+import { normalizeArticleOutput } from "./output-schema"
+
 export interface PostprocessInput {
   rawTitle: string
   rawExcerpt: string
@@ -15,9 +17,22 @@ export interface PostprocessInput {
 }
 
 export function postprocessArticle(input: PostprocessInput): GeneratedArticle {
+  let md = (input.rawMarkdown || "").trim()
+
+  // Safety net: Jika rawMarkdown ternyata string JSON mentah yang belum ter-unwrap
+  if (md.startsWith("{") && md.endsWith("}")) {
+    try {
+      const parsed = JSON.parse(md)
+      const norm = normalizeArticleOutput(parsed)
+      if (norm?.markdownContent) {
+        md = norm.markdownContent
+      }
+    } catch {}
+  }
+
   const cleanedTitle = sanitizeDashes((input.rawTitle || "").trim())
   const cleanedExcerpt = sanitizeDashes((input.rawExcerpt || "").trim())
-  const cleanedMarkdown = cleanMarkdown(input.rawMarkdown || "", cleanedTitle)
+  const cleanedMarkdown = cleanMarkdown(md, cleanedTitle)
 
   // Serialisasi Markdown deterministik ke komentar blok WordPress Gutenberg resmi (<!-- wp:... -->)
   const gutenbergHtml = markdownToGutenberg(cleanedMarkdown)

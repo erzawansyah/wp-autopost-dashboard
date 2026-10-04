@@ -17,6 +17,54 @@ export const ArticleOutputSchema = z.object({
 export type ArticleOutput = z.infer<typeof ArticleOutputSchema>
 
 /**
+ * Normalisasi objek hasil ekstraksi agar key-key varian (content, body, article)
+ * secara deterministik terpetakan ke markdownContent dan tidak pernah lolos sebagai string JSON mentah.
+ */
+export function normalizeArticleOutput(parsed: any): Partial<ArticleOutput> | null {
+  if (!parsed || typeof parsed !== "object") return null
+
+  const title = parsed.title || parsed.headline || parsed.judul
+  const excerpt = parsed.excerpt || parsed.summary || parsed.meta_description || parsed.ringkasan
+  let markdown =
+    parsed.markdownContent ??
+    parsed.markdown ??
+    parsed.content ??
+    parsed.body ??
+    parsed.article ??
+    parsed.naskah ??
+    parsed.text
+
+  // Jika markdown berupa nested JSON string (double stringify)
+  if (typeof markdown === "string") {
+    const trimmedMd = markdown.trim()
+    if (trimmedMd.startsWith("{") && trimmedMd.endsWith("}")) {
+      try {
+        const nested = JSON.parse(trimmedMd)
+        const nestedNorm = normalizeArticleOutput(nested)
+        if (nestedNorm?.markdownContent) {
+          markdown = nestedNorm.markdownContent
+        }
+      } catch {}
+    }
+  }
+
+  // Jika naskah markdown valid ditemukan
+  if (typeof markdown === "string" && markdown.trim().length > 50) {
+    return {
+      title: typeof title === "string" ? title.trim() : undefined,
+      excerpt: typeof excerpt === "string" ? excerpt.trim() : undefined,
+      markdownContent: markdown.trim(),
+      categoryIds: Array.isArray(parsed.categoryIds) ? parsed.categoryIds : undefined,
+      tagNames: Array.isArray(parsed.tagNames) ? parsed.tagNames : undefined,
+      authorId: typeof parsed.authorId === "number" ? parsed.authorId : undefined,
+      featuredMediaId: typeof parsed.featuredMediaId === "number" ? parsed.featuredMediaId : undefined,
+    }
+  }
+
+  return null
+}
+
+/**
  * Ekstraksi artikel cerdas (Markdown-First & JSON Dual Parser):
  * Mampu mengekstrak data artikel baik dari JSON terstruktur, fenced code block,
  * metadata header (TITLE / EXCERPT / ---), maupun teks Markdown murni.
@@ -28,16 +76,22 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
   // 1. Coba parse jika formatnya JSON murni
   try {
     if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-      return JSON.parse(trimmed)
+      const parsed = JSON.parse(trimmed)
+      const norm = normalizeArticleOutput(parsed)
+      if (norm) return norm
     }
     const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
     if (jsonMatch && jsonMatch[1]) {
-      return JSON.parse(jsonMatch[1].trim())
+      const parsed = JSON.parse(jsonMatch[1].trim())
+      const norm = normalizeArticleOutput(parsed)
+      if (norm) return norm
     }
     const firstBrace = trimmed.indexOf("{")
     const lastBrace = trimmed.lastIndexOf("}")
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1))
+      const parsed = JSON.parse(trimmed.slice(firstBrace, lastBrace + 1))
+      const norm = normalizeArticleOutput(parsed)
+      if (norm) return norm
     }
   } catch {
     // Lanjut ke parser Markdown jika bukan JSON valid

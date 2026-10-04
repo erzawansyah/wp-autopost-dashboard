@@ -118,6 +118,7 @@ export const BUILTIN_PRESETS: AgentProfile[] = [
       return loadPromptFile("preset-research-writer.md", RESEARCH_WRITER_PROMPT);
     },
     toolIds: [
+      "keyword_suggestions",
       "web_search",
       "web_reader",
       "image_search",
@@ -141,6 +142,7 @@ export const BUILTIN_PRESETS: AgentProfile[] = [
       return loadPromptFile("preset-deep-research.md", DEEP_RESEARCH_PROMPT);
     },
     toolIds: [
+      "keyword_suggestions",
       "web_search",
       "web_reader",
       "image_search",

@@ -10,6 +10,23 @@ export const webReaderToolDef: ToolDefinition = {
   category: "research",
   requirements: [],
   defaultLimit: 4,
+  inputFields: [
+    {
+      name: "url",
+      label: "URL Halaman Web",
+      type: "text",
+      placeholder: "https://example.com/artikel-referensi",
+      defaultValue: "https://id.wikipedia.org/wiki/WordPress",
+      description: "Tautan URL artikel atau halaman web yang ingin diekstrak isinya.",
+    },
+    {
+      name: "maxLength",
+      label: "Batas Karakter Maksimal",
+      type: "number",
+      defaultValue: 2500,
+      description: "Batas panjang karakter teks yang diekstrak untuk menghemat token.",
+    },
+  ],
 
   summarize(result: unknown): string {
     if (typeof result === "string" && result.startsWith("ERROR")) return result.slice(0, 150)

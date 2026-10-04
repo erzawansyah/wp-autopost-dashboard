@@ -10,6 +10,47 @@ export const uploadMediaToolDef: ToolDefinition = {
   category: "wordpress",
   requirements: [{ type: "wp_site", label: "Website WordPress terhubung" }],
   defaultLimit: 4,
+  inputFields: [
+    {
+      name: "imageUrl",
+      label: "URL Sumber Foto",
+      type: "text",
+      placeholder: "https://images.unsplash.com/photo-...",
+      defaultValue: "https://images.unsplash.com/photo-1514432324607-a09d9b4aefdd",
+      description: "URL langsung file foto yang ingin diunduh dan diunggah ke WordPress.",
+    },
+    {
+      name: "title",
+      label: "Judul Media (Title)",
+      type: "text",
+      defaultValue: "Dripper Kopi V60",
+      description: "Nama judul file media di dashboard WordPress.",
+    },
+    {
+      name: "altText",
+      label: "Teks Alternatif (Alt Text)",
+      type: "text",
+      defaultValue: "Dripper kopi manual brew V60",
+      description: "Deskripsi aksesibilitas dan SEO untuk atribut alt gambar.",
+    },
+    {
+      name: "caption",
+      label: "Takarir (Caption)",
+      type: "text",
+      defaultValue: "Ilustrasi alat seduh manual dripper V60",
+      description: "Teks keterangan yang ditampilkan di bawah gambar.",
+    },
+    {
+      name: "isFeatured",
+      label: "Jadikan Featured Image (Sampul)",
+      type: "select",
+      defaultValue: "false",
+      options: [
+        { value: "false", label: "Tidak (In-Content Image biasa)" },
+        { value: "true", label: "Ya (Jadikan Gambar Sampul / Featured Post Image)" },
+      ],
+    },
+  ],
 
   summarize(result: unknown): string {
     if (typeof result === "string" && result.startsWith("ERROR")) return result.slice(0, 150)
