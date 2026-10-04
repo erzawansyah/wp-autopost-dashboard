@@ -27,8 +27,15 @@ import {
   Info,
   ShieldCheck,
   FileCode2,
+  HelpCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/atoms/tooltip"
 
 export interface ToolItemWithStatus {
   id: string
@@ -108,6 +115,13 @@ ALUR KERJA INVESTIGATIF MENDALAM:
   },
 ]
 
+export const BUILTIN_TOOL_IDS = new Set([
+  "upload_media",
+  "list_tags",
+  "list_authors",
+  "list_categories",
+])
+
 export function AgentProfileEditor({ initialData, isEditing = false }: AgentProfileEditorProps) {
   const router = useRouter()
 
@@ -117,7 +131,12 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
   const [mode, setMode] = React.useState<"standard" | "deep">(initialData?.mode || "standard")
   const [temperature, setTemperature] = React.useState(initialData?.temperature ?? 0.35)
   const [workflowPrompt, setWorkflowPrompt] = React.useState(initialData?.workflowPrompt || TEMPLATES[1].prompt)
-  const [selectedToolIds, setSelectedToolIds] = React.useState<string[]>(initialData?.toolIds || ["web_search", "image_search", "upload_media"])
+  const [selectedToolIds, setSelectedToolIds] = React.useState<string[]>(() => {
+    if (initialData?.toolIds) {
+      return initialData.toolIds.filter((id) => !BUILTIN_TOOL_IDS.has(id))
+    }
+    return ["web_search", "image_search"]
+  })
   const [selectedSkillSlugs, setSelectedSkillSlugs] = React.useState<string[]>(
     initialData?.skills || ["anti-ai-editor"]
   )
@@ -138,6 +157,20 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
   const [isLoadingTools, setIsLoadingTools] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+
+  // Sync if initialData is provided/updated asynchronously (e.g. clone)
+  React.useEffect(() => {
+    if (initialData?.toolIds) {
+      setSelectedToolIds(initialData.toolIds.filter((id) => !BUILTIN_TOOL_IDS.has(id)))
+    }
+    if (initialData?.name) setName(initialData.name)
+    if (initialData?.description !== undefined) setDescription(initialData.description || "")
+    if (initialData?.mode) setMode(initialData.mode)
+    if (initialData?.temperature !== undefined) setTemperature(initialData.temperature)
+    if (initialData?.workflowPrompt) setWorkflowPrompt(initialData.workflowPrompt)
+    if (initialData?.skills) setSelectedSkillSlugs(initialData.skills)
+    if (initialData?.isDefault !== undefined) setIsDefault(Boolean(initialData.isDefault))
+  }, [initialData])
 
   React.useEffect(() => {
     async function loadToolsAndSkills() {
@@ -163,6 +196,15 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
     }
     loadToolsAndSkills()
   }, [])
+
+  const optionalTools = React.useMemo(
+    () => tools.filter((tool) => !BUILTIN_TOOL_IDS.has(tool.id)),
+    [tools]
+  )
+  const builtinTools = React.useMemo(
+    () => tools.filter((tool) => BUILTIN_TOOL_IDS.has(tool.id)),
+    [tools]
+  )
 
   const handleToggleTool = (toolId: string) => {
     setSelectedToolIds((prev) =>
@@ -197,13 +239,17 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
     setErrorMessage(null)
 
     try {
+      const finalToolIds = Array.from(
+        new Set([...selectedToolIds, ...Array.from(BUILTIN_TOOL_IDS)])
+      )
+
       const payload = {
         name: name.trim(),
         description: description.trim() || undefined,
         mode,
         temperature,
         workflowPrompt: workflowPrompt.trim(),
-        toolIds: selectedToolIds,
+        toolIds: finalToolIds,
         skills: selectedSkillSlugs,
         limits: {
           maxModelCalls,
@@ -348,10 +394,10 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
             <div>
               <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
                 <Wrench className="size-4 text-primary" />
-                <span>Katalog Tools Mandiri</span>
+                <span>Katalog Tools Riset & Eksternal (Opsional)</span>
               </CardTitle>
               <CardDescription className="text-xs text-muted-foreground mt-0.5">
-                Pilih tools yang diizinkan untuk digunakan oleh agen ini selama proses riset dan penulisan artikel.
+                Pilih kapabilitas riset tambahan yang diizinkan untuk digunakan oleh agen ini.
               </CardDescription>
             </div>
             <Badge variant="secondary" className="text-xs font-mono">
@@ -360,62 +406,131 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
           </div>
         </CardHeader>
 
-        <CardContent>
+        <CardContent className="space-y-4">
           {isLoadingTools ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground gap-2 text-xs">
               <Loader2 className="size-4 animate-spin text-primary" />
               <span>Memeriksa ketersediaan tools...</span>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {tools.map((tool) => {
-                const isSelected = selectedToolIds.includes(tool.id)
-                return (
-                  <div
-                    key={tool.id}
-                    onClick={() => handleToggleTool(tool.id)}
-                    className={cn(
-                      "flex items-start justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-all",
-                      isSelected
-                        ? "border-primary/60 bg-primary/5"
-                        : "border-border hover:border-border/80 bg-card"
-                    )}
-                  >
-                    <div className="space-y-1 pr-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-semibold text-foreground">{tool.label}</span>
-                        <code className="text-[10px] text-muted-foreground bg-muted px-1 rounded font-mono">
+            <>
+              {/* Grid Tools Opsional */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {optionalTools.map((tool) => {
+                  const isSelected = selectedToolIds.includes(tool.id)
+                  return (
+                    <div
+                      key={tool.id}
+                      onClick={() => handleToggleTool(tool.id)}
+                      className={cn(
+                        "flex items-center justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-all",
+                        isSelected
+                          ? "border-primary/60 bg-primary/5"
+                          : "border-border hover:border-border/80 bg-card"
+                      )}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs font-semibold text-foreground truncate">
+                          {tool.label}
+                        </span>
+                        <code className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono shrink-0">
                           {tool.id}
                         </code>
+                        <TooltipProvider delayDuration={150}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-muted-foreground hover:text-foreground inline-flex items-center focus:outline-none shrink-0"
+                                aria-label={`Informasi tentang ${tool.label}`}
+                              >
+                                <HelpCircle className="size-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs text-xs">
+                              {tool.description}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
                       </div>
-                      <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
-                        {tool.description}
-                      </p>
 
-                      {/* Status Ketersediaan */}
-                      <div className="pt-1 flex items-center gap-1.5">
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        {/* Status Ketersediaan */}
                         {tool.isEligible ? (
                           <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                            <CheckCircle2 className="size-3" /> Siap Dipakai
+                            <CheckCircle2 className="size-3" /> Siap
                           </span>
                         ) : (
                           <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
-                            <AlertTriangle className="size-3" /> {tool.blockedReason || "Perlu Kunci API / Website"}
+                            <AlertTriangle className="size-3" /> {tool.blockedReason || "Perlu Konfigurasi"}
                           </span>
                         )}
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {}} // handled by parent onClick
+                          className="size-4 rounded border-border text-primary focus:ring-primary"
+                        />
                       </div>
                     </div>
+                  )
+                })}
+              </div>
 
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}} // handled by parent onClick
-                      className="size-4 rounded border-border text-primary focus:ring-primary mt-1"
-                    />
+              {/* Tools WordPress Inti (Built-in) */}
+              <div className="pt-3 border-t border-border/60">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck className="size-4 text-emerald-600 dark:text-emerald-400" />
+                    <span className="text-xs font-semibold text-foreground">
+                      Tools WordPress Inti (Built-in)
+                    </span>
                   </div>
-                )
-              })}
-            </div>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                  >
+                    Selalu Aktif Bawaan
+                  </Badge>
+                </div>
+                <p className="text-[11px] text-muted-foreground mb-3">
+                  Tools ini otomatis aktif dan terhubung ke WordPress REST API target tanpa perlu dipilih manual.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+                  {builtinTools.map((tool) => (
+                    <div
+                      key={tool.id}
+                      className="flex items-center justify-between gap-2 p-2.5 rounded-lg border border-border/60 bg-muted/30"
+                    >
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <CheckCircle2 className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span className="text-xs font-medium text-foreground truncate">
+                          {tool.label}
+                        </span>
+                      </div>
+                      <TooltipProvider delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              className="text-muted-foreground hover:text-foreground inline-flex items-center focus:outline-none shrink-0"
+                              aria-label={`Informasi tentang ${tool.label}`}
+                            >
+                              <HelpCircle className="size-3.5" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            <p className="font-semibold mb-1 font-mono text-[10px]">{tool.id}</p>
+                            <p>{tool.description}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -471,28 +586,40 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
                       key={skill.id}
                       onClick={() => handleToggleSkill(skill.slug)}
                       className={cn(
-                        "flex items-start justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-all",
+                        "flex items-center justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-all",
                         isSelected
                           ? "border-primary/60 bg-primary/5"
                           : "border-border hover:border-border/80 bg-card"
                       )}
                     >
-                      <div className="space-y-1 pr-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-semibold text-foreground">{skill.name}</span>
-                          {skill.is_system && (
-                            <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/40 text-primary">
-                              Sistem
-                            </Badge>
-                          )}
-                          <code className="text-[10px] text-muted-foreground bg-muted px-1 rounded font-mono">
-                            {skill.slug}
-                          </code>
-                        </div>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xs font-semibold text-foreground truncate">{skill.name}</span>
+                        {skill.is_system && (
+                          <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/40 text-primary shrink-0">
+                            Sistem
+                          </Badge>
+                        )}
+                        <code className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono shrink-0">
+                          {skill.slug}
+                        </code>
                         {skill.description && (
-                          <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">
-                            {skill.description}
-                          </p>
+                          <TooltipProvider delayDuration={150}>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="text-muted-foreground hover:text-foreground inline-flex items-center focus:outline-none shrink-0"
+                                  aria-label={`Informasi tentang ${skill.name}`}
+                                >
+                                  <HelpCircle className="size-3.5" />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top" className="max-w-xs text-xs">
+                                {skill.description}
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
                       </div>
 
@@ -500,7 +627,7 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => {}}
-                        className="size-4 rounded border-border text-primary focus:ring-primary mt-1"
+                        className="size-4 rounded border-border text-primary focus:ring-primary shrink-0"
                       />
                     </div>
                   )

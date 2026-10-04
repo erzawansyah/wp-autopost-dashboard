@@ -65,7 +65,10 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
       : undefined
 
   // 2. Evaluasi kelayakan tool (Eligibility Guard)
-  const eligibility = checkToolEligibility(profile.toolIds, userKeys, wpCredentials)
+  // Tool WordPress inti selalu built-in aktif secara otomatis
+  const BUILTIN_WP_TOOLS = ["upload_media", "list_tags", "list_authors", "list_categories"]
+  const effectiveToolIds = Array.from(new Set([...(profile.toolIds || []), ...BUILTIN_WP_TOOLS]))
+  const eligibility = checkToolEligibility(effectiveToolIds, userKeys, wpCredentials)
 
   // Catat tool yang diblokir sebagai event guard
   for (const blocked of eligibility.blockedTools) {
