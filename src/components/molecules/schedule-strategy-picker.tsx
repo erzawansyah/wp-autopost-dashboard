@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Clock, CalendarRange, Zap } from "lucide-react"
+import { Clock, CalendarRange, Zap, Calendar } from "lucide-react"
 import { Label } from "@/components/atoms/label"
 import { Input } from "@/components/atoms/input"
 import { Checkbox } from "@/components/atoms/checkbox"
@@ -134,8 +134,9 @@ export function ScheduleStrategyPicker({
           <div className="flex flex-col gap-2">
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
               <div className="flex flex-col gap-1">
-                <Label htmlFor="interval-start" className="text-[11px] text-muted-foreground">
-                  Waktu Mulai (Artikel Pertama)
+                <Label htmlFor="interval-start" className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                  <Calendar className="size-3 text-primary shrink-0" />
+                  <span>Waktu Mulai (Artikel Pertama)</span>
                 </Label>
                 <Input
                   id="interval-start"
@@ -143,13 +144,14 @@ export function ScheduleStrategyPicker({
                   disabled={disabled}
                   value={value.intervalStartDate}
                   onChange={(e) => updateField("intervalStartDate", e.target.value)}
-                  className="bg-background text-xs h-8"
+                  className="bg-background text-xs h-8 dark:[color-scheme:dark]"
                 />
               </div>
 
               <div className="flex flex-col gap-1">
-                <Label htmlFor="interval-hours" className="text-[11px] text-muted-foreground">
-                  Jeda Antar Artikel
+                <Label htmlFor="interval-hours" className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                  <Clock className="size-3 text-primary shrink-0" />
+                  <span>Jeda Antar Artikel</span>
                 </Label>
                 <div className="flex items-center gap-2">
                   <Input
@@ -188,8 +190,9 @@ export function ScheduleStrategyPicker({
         ) : (
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
-              <Label htmlFor="random-start" className="text-[11px] text-muted-foreground">
-                Mulai Dari
+              <Label htmlFor="random-start" className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                <CalendarRange className="size-3 text-primary shrink-0" />
+                <span>Mulai Dari</span>
               </Label>
               <Input
                 id="random-start"
@@ -197,13 +200,14 @@ export function ScheduleStrategyPicker({
                 disabled={disabled}
                 value={value.randomStartDate}
                 onChange={(e) => updateField("randomStartDate", e.target.value)}
-                className="bg-background text-xs h-8"
+                className="bg-background text-xs h-8 dark:[color-scheme:dark]"
               />
             </div>
 
             <div className="flex flex-col gap-1">
-              <Label htmlFor="random-end" className="text-[11px] text-muted-foreground">
-                Sampai Dengan
+              <Label htmlFor="random-end" className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                <CalendarRange className="size-3 text-primary shrink-0" />
+                <span>Sampai Dengan</span>
               </Label>
               <Input
                 id="random-end"
@@ -211,7 +215,7 @@ export function ScheduleStrategyPicker({
                 disabled={disabled}
                 value={value.randomEndDate}
                 onChange={(e) => updateField("randomEndDate", e.target.value)}
-                className="bg-background text-xs h-8"
+                className="bg-background text-xs h-8 dark:[color-scheme:dark]"
               />
             </div>
           </div>
