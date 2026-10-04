@@ -305,13 +305,17 @@ export default function LoginPage() {
       <div className="w-full max-w-md flex flex-col gap-6">
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center gap-2">
-          <div className="size-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground shadow-xs">
-            <Sparkles className="size-5 text-accent" />
+          <div className="size-12 rounded-xl overflow-hidden flex items-center justify-center bg-card shadow-xs border border-border/80 p-1">
+            <img
+              src="/assets/panitera-favicon.png"
+              alt="Panitera Logo"
+              className="w-full h-full object-contain"
+            />
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tight text-foreground">WP Autopost</h1>
+            <h1 className="text-xl font-bold tracking-tight text-foreground">Panitera</h1>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Tulis dan kelola artikel untuk banyak blog WordPress
+              Publishing Desk &bull; Platform Penerbitan WordPress Multi-Situs
             </p>
           </div>
         </div>

@@ -16,8 +16,16 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "WP Autopost | Kelola & Terbitkan Artikel WordPress",
-  description: "Tulis dan terbitkan artikel ke beberapa blog WordPress sekaligus dengan gaya bahasa natural.",
+  title: "Panitera | Publishing Desk",
+  description: "Platform penerbitan artikel multi-situs WordPress bertenaga AI dengan riset otonom dan kurasi media terintegrasi.",
+  icons: {
+    icon: [
+      { url: "/assets/panitera-favicon.png", type: "image/png" },
+      { url: "/icon.png", type: "image/png" },
+    ],
+    shortcut: "/assets/panitera-favicon.png",
+    apple: "/assets/panitera-favicon.png",
+  },
 };
 
 export default function RootLayout({
@@ -32,6 +40,8 @@ export default function RootLayout({
       className={`${plusJakartaSans.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
       <head>
+        <link rel="icon" href="/assets/panitera-favicon.png" type="image/png" />
+        <link rel="apple-touch-icon" href="/assets/panitera-favicon.png" />
         <script
           dangerouslySetInnerHTML={{
             __html: `
