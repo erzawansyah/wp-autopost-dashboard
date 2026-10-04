@@ -22,11 +22,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Forbidden: Akses Laboratorium dibatasi" }, { status: 403 })
     }
 
-    const body = await request.json()
-    const { type, id, siteId, input } = body
+    const body = await request.json().catch(() => ({}))
+    const type = body.type
+    const id = body.targetId || body.id
+    const siteId = body.siteId
+    const input = body.params || body.input || {}
+    const requestedModel = body.model || input?.model
+    const requestedApiKey = body.apiKey || input?.apiKey
 
     if (!type || !id) {
-      return NextResponse.json({ error: "Parameter type dan id wajib disertakan." }, { status: 400 })
+      return NextResponse.json({ error: "Parameter type dan targetId/id wajib disertakan." }, { status: 400 })
     }
 
     // Ambil kredensial situs jika siteId disertakan
@@ -97,13 +102,16 @@ export async function POST(request: Request) {
           searxngUrl,
         })
 
+        const webOutput = {
+          query,
+          totalResults: results.length,
+          results,
+        }
+
         return NextResponse.json({
           ok: true,
-          output: {
-            query,
-            totalResults: results.length,
-            results,
-          },
+          result: webOutput,
+          output: webOutput,
           summary: `Ditemukan ${results.length} sumber referensi web`,
           durationMs: Date.now() - startTime,
         })
@@ -126,13 +134,16 @@ export async function POST(request: Request) {
           searxngUrl,
         })
 
+        const imgOutput = {
+          query,
+          totalPhotos: photos.length,
+          photos,
+        }
+
         return NextResponse.json({
           ok: true,
-          output: {
-            query,
-            totalPhotos: photos.length,
-            photos,
-          },
+          result: imgOutput,
+          output: imgOutput,
           summary: `Ditemukan ${photos.length} foto berkualitas tinggi`,
           durationMs: Date.now() - startTime,
         })
@@ -170,6 +181,7 @@ export async function POST(request: Request) {
 
         return NextResponse.json({
           ok: true,
+          result: parsedOutput,
           output: parsedOutput,
           summary: toolDef.summarize ? toolDef.summarize(rawOutput) : undefined,
           durationMs: Date.now() - startTime,
@@ -212,14 +224,26 @@ export async function POST(request: Request) {
           categoryIds: [],
           tagNames: [],
         },
-        model: input?.model || undefined,
-        apiKey: input?.apiKey || userKeys.openrouterKey || undefined,
+        model: requestedModel || input?.model || undefined,
+        apiKey: requestedApiKey || input?.apiKey || userKeys.openrouterKey || undefined,
         userId: user.id,
         onEventListener,
       })
 
+      const enginePayload = {
+        article: result.article,
+        enrichment: result.enrichment,
+        execution: {
+          ...result.execution,
+          stepEvents,
+        },
+        error: result.error,
+      }
+
       return NextResponse.json({
         ok: result.success,
+        result: enginePayload,
+        output: enginePayload,
         article: result.article,
         enrichment: result.enrichment,
         execution: {
