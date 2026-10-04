@@ -9,7 +9,7 @@ import {
   WpEnrichment,
   WriterError,
 } from "../types/contracts"
-import { AgentProfile, clampLimits } from "../types/profile"
+import { AgentProfile, clampLimits, ALL_MANDATORY_TOOL_IDS } from "../types/profile"
 import { RunRecorder, AgentStepEvent } from "./telemetry"
 import { checkToolEligibility } from "../tools/eligibility"
 import { ToolRegistry } from "../tools/registry"
@@ -65,17 +65,10 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
       : undefined
 
   // 2. Evaluasi kelayakan tool (Eligibility Guard)
-  // Tool WordPress inti selalu built-in aktif secara otomatis
-  const BUILTIN_WP_TOOLS = [
-    "upload_media",
-    "list_wp_categories",
-    "list_wp_tags",
-    "list_wp_authors",
-    "list_categories",
-    "list_tags",
-    "list_authors",
-  ]
-  const effectiveToolIds = Array.from(new Set([...(profile.toolIds || []), ...BUILTIN_WP_TOOLS]))
+  // Tool WordPress inti selalu built-in aktif secara otomatis pada setiap agent
+  const effectiveToolIds = Array.from(
+    new Set([...(profile.toolIds || []), ...ALL_MANDATORY_TOOL_IDS])
+  )
   const eligibility = checkToolEligibility(effectiveToolIds, userKeys, wpCredentials)
 
   // Catat tool yang diblokir sebagai event guard

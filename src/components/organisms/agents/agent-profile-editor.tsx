@@ -41,6 +41,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/atoms/tooltip"
+import {
+  MANDATORY_TOOL_IDS,
+  ALL_MANDATORY_TOOL_IDS,
+  ensureMandatoryToolIds,
+} from "@/core/writer/types/profile"
 
 export interface ToolItemWithStatus {
   id: string
@@ -73,15 +78,7 @@ interface AgentProfileEditorProps {
   isEditing?: boolean
 }
 
-export const BUILTIN_TOOL_IDS = new Set([
-  "upload_media",
-  "list_wp_categories",
-  "list_wp_tags",
-  "list_wp_authors",
-  "list_categories",
-  "list_tags",
-  "list_authors",
-])
+export const BUILTIN_TOOL_IDS = new Set<string>(ALL_MANDATORY_TOOL_IDS)
 
 export function AgentProfileEditor({ initialData, isEditing = false }: AgentProfileEditorProps) {
   const router = useRouter()
@@ -329,9 +326,7 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
     setErrorMessage(null)
 
     try {
-      const finalToolIds = Array.from(
-        new Set([...selectedToolIds, ...Array.from(BUILTIN_TOOL_IDS)])
-      )
+      const finalToolIds = ensureMandatoryToolIds(selectedToolIds)
 
       const payload = {
         name: name.trim(),
@@ -745,64 +740,64 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {optionalTools.map((tool) => {
-                      const isSelected = selectedToolIds.includes(tool.id)
-                      return (
-                        <div
-                          key={tool.id}
-                          onClick={() => handleToggleTool(tool.id)}
-                          className={cn(
-                            "flex items-center justify-between gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all",
-                            isSelected
-                              ? "border-primary/60 bg-primary/5"
-                              : "border-border hover:border-border/80 bg-card"
-                          )}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs font-semibold text-foreground truncate">
-                              {tool.label}
-                            </span>
-                            <TooltipProvider delayDuration={150}>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="text-muted-foreground hover:text-foreground inline-flex items-center focus:outline-none shrink-0"
-                                    aria-label={`Informasi tentang ${tool.label}`}
-                                  >
-                                    <HelpCircle className="size-3.5" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-xs text-xs">
-                                  {tool.description}
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            {tool.isEligible ? (
-                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5">
-                                <CheckCircle2 className="size-3" /> Siap
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-0.5">
-                                <AlertTriangle className="size-3" /> Konfig
-                              </span>
+                      {optionalTools.map((tool) => {
+                        const isSelected = selectedToolIds.includes(tool.id)
+                        return (
+                          <div
+                            key={tool.id}
+                            onClick={() => handleToggleTool(tool.id)}
+                            className={cn(
+                              "flex items-center justify-between gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all",
+                              isSelected
+                                ? "border-primary/60 bg-primary/5"
+                                : "border-border hover:border-border/80 bg-card"
                             )}
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => {}} // handled by parent onClick
-                              className="size-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
-                            />
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-xs font-semibold text-foreground truncate">
+                                {tool.label}
+                              </span>
+                              <TooltipProvider delayDuration={150}>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => e.stopPropagation()}
+                                      className="text-muted-foreground hover:text-foreground inline-flex items-center focus:outline-none shrink-0"
+                                      aria-label={`Informasi tentang ${tool.label}`}
+                                    >
+                                      <HelpCircle className="size-3.5" />
+                                    </button>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="top" className="max-w-xs text-xs">
+                                    {tool.description}
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              {tool.isEligible ? (
+                                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5">
+                                  <CheckCircle2 className="size-3" /> Siap
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-0.5">
+                                  <AlertTriangle className="size-3" /> Konfig
+                                </span>
+                              )}
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {}} // handled by parent onClick
+                                className="size-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                              />
+                            </div>
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                        )
+                      })}
+                    </div>
+                  )}
               </CardContent>
             )}
           </Card>

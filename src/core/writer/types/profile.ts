@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { DecryptedUserKeys } from "@/types/settings"
+import settingsConfig from "@/core/shared/settings.json"
 
 export type AgentMode = "standard" | "deep"
 
@@ -18,47 +19,57 @@ export interface AgentLimits {
 
 /** Batas mutlak sistem (Hard Ceiling Guard) untuk mencegah abuse atau runaway execution */
 export const SYSTEM_LIMIT_BOUNDS = {
-  minModelCalls: 3,
-  maxModelCalls: 35,
-  minToolCalls: 0,
-  maxToolCalls: 50,
-  minTimeoutSeconds: 30,
-  maxTimeoutSeconds: 480,
-  minWordCount: 300,
-  maxWordCount: 5000,
-  defaultPerToolLimit: 10,
+  minModelCalls: settingsConfig.systemBounds.minModelCalls,
+  maxModelCalls: settingsConfig.systemBounds.maxModelCalls,
+  minToolCalls: settingsConfig.systemBounds.minToolCalls,
+  maxToolCalls: settingsConfig.systemBounds.maxToolCalls,
+  minTimeoutSeconds: settingsConfig.systemBounds.minTimeoutSeconds,
+  maxTimeoutSeconds: settingsConfig.systemBounds.maxTimeoutSeconds,
+  minWordCount: settingsConfig.systemBounds.minWordCount,
+  maxWordCount: settingsConfig.systemBounds.maxWordCount,
+  defaultPerToolLimit: settingsConfig.systemBounds.defaultPerToolLimit,
+}
+
+/**
+ * Daftar tools WordPress inti yang wajib selalu terpasang pada setiap agent
+ */
+export const MANDATORY_TOOL_IDS = [
+  "upload_media",
+  "list_wp_categories",
+  "list_wp_tags",
+  "list_wp_authors",
+] as const
+
+export const MANDATORY_TOOL_ALIASES = [
+  "list_categories",
+  "list_tags",
+  "list_authors",
+] as const
+
+export const ALL_MANDATORY_TOOL_IDS = [
+  ...MANDATORY_TOOL_IDS,
+  ...MANDATORY_TOOL_ALIASES,
+] as const
+
+export function ensureMandatoryToolIds(toolIds: string[] = []): string[] {
+  const safeList = Array.isArray(toolIds) ? toolIds : []
+  return Array.from(new Set([...safeList, ...MANDATORY_TOOL_IDS]))
 }
 
 export const DEFAULT_STANDARD_LIMITS: AgentLimits = {
-  maxModelCalls: 12,
-  maxToolCalls: 15,
-  timeoutSeconds: 240,
-  minWordCount: 600,
-  perTool: {
-    web_search: 6,
-    web_reader: 4,
-    image_search: 4,
-    upload_media: 4,
-    list_wp_categories: 2,
-    list_wp_tags: 2,
-    list_wp_authors: 2,
-  },
+  maxModelCalls: settingsConfig.standardLimits.maxModelCalls,
+  maxToolCalls: settingsConfig.standardLimits.maxToolCalls,
+  timeoutSeconds: settingsConfig.standardLimits.timeoutSeconds,
+  minWordCount: settingsConfig.standardLimits.minWordCount,
+  perTool: { ...settingsConfig.standardLimits.perTool },
 }
 
 export const DEFAULT_DEEP_LIMITS: AgentLimits = {
-  maxModelCalls: 22,
-  maxToolCalls: 28,
-  timeoutSeconds: 360,
-  minWordCount: 800,
-  perTool: {
-    web_search: 8,
-    web_reader: 6,
-    image_search: 5,
-    upload_media: 5,
-    list_wp_categories: 2,
-    list_wp_tags: 2,
-    list_wp_authors: 2,
-  },
+  maxModelCalls: settingsConfig.deepLimits.maxModelCalls,
+  maxToolCalls: settingsConfig.deepLimits.maxToolCalls,
+  timeoutSeconds: settingsConfig.deepLimits.timeoutSeconds,
+  minWordCount: settingsConfig.deepLimits.minWordCount,
+  perTool: { ...settingsConfig.deepLimits.perTool },
 }
 
 /**

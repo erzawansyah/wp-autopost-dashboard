@@ -8,9 +8,14 @@ function loadGuardrailPrompt(): string {
   if (cachedGuardrail) return cachedGuardrail
 
   try {
-    const p = path.join(process.cwd(), "src", "core", "writer", "runtime", "guardrail.md")
-    if (fs.existsSync(p)) {
-      cachedGuardrail = fs.readFileSync(p, "utf-8")
+    const primaryPath = path.join(process.cwd(), "src", "core", "shared", "prompts", "guardrail.md")
+    if (fs.existsSync(primaryPath)) {
+      cachedGuardrail = fs.readFileSync(primaryPath, "utf-8")
+      return cachedGuardrail
+    }
+    const legacyPath = path.join(process.cwd(), "src", "core", "writer", "runtime", "guardrail.md")
+    if (fs.existsSync(legacyPath)) {
+      cachedGuardrail = fs.readFileSync(legacyPath, "utf-8")
       return cachedGuardrail
     }
   } catch (err) {

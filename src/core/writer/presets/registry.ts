@@ -4,6 +4,7 @@ import {
   AgentProfile,
   DEFAULT_STANDARD_LIMITS,
   DEFAULT_DEEP_LIMITS,
+  MANDATORY_TOOL_IDS,
 } from "../types/profile";
 
 export const LEGACY_ENGINE_MAP: Record<string, string> = {
@@ -95,10 +96,10 @@ export const BUILTIN_PRESETS: AgentProfile[] = [
     get workflowPrompt() {
       return loadPromptFile("preset-quick-writer.md", QUICK_WRITER_PROMPT);
     },
-    toolIds: [],
+    toolIds: [...MANDATORY_TOOL_IDS],
     limits: {
       ...DEFAULT_STANDARD_LIMITS,
-      maxToolCalls: 0,
+      maxToolCalls: 4,
       maxModelCalls: 5,
       timeoutSeconds: 90,
       minWordCount: 600,

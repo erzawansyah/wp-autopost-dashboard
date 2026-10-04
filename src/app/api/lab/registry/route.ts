@@ -27,7 +27,7 @@ export async function GET() {
     // Ambil profil kustom user
     const { data: userProfiles } = await supabase
       .from("agent_profiles")
-      .select("id, name, description, mode, model_name, tool_ids")
+      .select("id, name, description, mode, model, tool_ids")
       .eq("user_id", user.id)
       .eq("is_archived", false)
 
@@ -117,7 +117,7 @@ export async function GET() {
         keyword: "panduan investasi saham untuk pemula",
         brief: "Fokus pada tips fundamental dan diversifikasi portofolio.",
         actionStatus: "draft",
-        model: p.model_name || DEFAULT_AI_MODEL,
+        model: (p as any).model || DEFAULT_AI_MODEL,
       },
     }))
 

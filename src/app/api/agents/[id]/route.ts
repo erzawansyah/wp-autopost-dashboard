@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { BUILTIN_PRESETS } from "@/core/writer/presets/registry"
-import { AgentLimits, clampLimits } from "@/core/writer/types/profile"
+import { AgentLimits, clampLimits, ensureMandatoryToolIds } from "@/core/writer/types/profile"
 
 export async function GET(
   request: Request,
@@ -48,13 +48,13 @@ export async function GET(
       name: row.name,
       description: row.description || "",
       mode: row.mode,
-      modelName: row.model_name || undefined,
+      modelName: row.model || undefined,
       temperature: Number(row.temperature ?? 0.35),
       workflowPrompt: row.workflow_prompt || "",
       toolIds: Array.isArray(row.tool_ids) ? row.tool_ids : [],
       skills: Array.isArray(row.skills) ? row.skills : [],
       limits: row.limits as AgentLimits,
-      isDefault: Boolean(row.is_default),
+      isDefault: Boolean(row.is_default ?? (row.limits as any)?.isDefault ?? false),
       isPreset: false,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -130,7 +130,7 @@ export async function PUT(
     }
 
     if (modelName !== undefined) {
-      updatePayload.model_name = typeof modelName === "string" && modelName.trim() ? modelName.trim() : null
+      updatePayload.model = typeof modelName === "string" && modelName.trim() ? modelName.trim() : null
     }
 
     if (temperature !== undefined) {
@@ -145,26 +145,48 @@ export async function PUT(
     }
 
     if (toolIds !== undefined) {
-      updatePayload.tool_ids = Array.isArray(toolIds) ? toolIds : []
+      updatePayload.tool_ids = ensureMandatoryToolIds(Array.isArray(toolIds) ? toolIds : [])
     }
 
     if (skills !== undefined) {
       updatePayload.skills = Array.isArray(skills) ? skills : []
     }
 
-    if (limits !== undefined) {
-      const targetMode = mode || "standard"
-      updatePayload.limits = clampLimits(targetMode, limits)
-    }
+    if (limits !== undefined || isDefault !== undefined) {
+      const { data: currentProf } = await supabase
+        .from("agent_profiles")
+        .select("mode, limits")
+        .eq("id", id)
+        .eq("user_id", user.id)
+        .maybeSingle()
 
-    if (isDefault !== undefined) {
-      const boolDefault = Boolean(isDefault)
-      updatePayload.is_default = boolDefault
-      if (boolDefault) {
-        await supabase
+      const targetMode = mode || (currentProf?.mode as "standard" | "deep") || "standard"
+      const baseLimits = limits !== undefined ? clampLimits(targetMode, limits) : ((currentProf?.limits as AgentLimits) || clampLimits(targetMode))
+      const targetIsDefault = isDefault !== undefined ? Boolean(isDefault) : Boolean((currentProf?.limits as any)?.isDefault)
+      updatePayload.limits = {
+        ...baseLimits,
+        isDefault: targetIsDefault,
+      }
+
+      if (targetIsDefault) {
+        const { data: others } = await supabase
           .from("agent_profiles")
-          .update({ is_default: false })
+          .select("id, limits")
           .eq("user_id", user.id)
+          .eq("is_archived", false)
+          .neq("id", id)
+
+        if (others && others.length > 0) {
+          for (const other of others) {
+            const oLimits = (other.limits && typeof other.limits === "object") ? other.limits as Record<string, any> : {}
+            if (oLimits.isDefault) {
+              await supabase
+                .from("agent_profiles")
+                .update({ limits: { ...oLimits, isDefault: false } })
+                .eq("id", other.id)
+            }
+          }
+        }
       }
     }
 
@@ -188,13 +210,13 @@ export async function PUT(
       name: updated.name,
       description: updated.description || "",
       mode: updated.mode,
-      modelName: updated.model_name || undefined,
+      modelName: updated.model || undefined,
       temperature: Number(updated.temperature ?? 0.35),
       workflowPrompt: updated.workflow_prompt || "",
       toolIds: Array.isArray(updated.tool_ids) ? updated.tool_ids : [],
       skills: Array.isArray(updated.skills) ? updated.skills : [],
       limits: updated.limits as AgentLimits,
-      isDefault: Boolean(updated.is_default),
+      isDefault: Boolean((updated.limits as any)?.isDefault ?? updated.is_default ?? false),
       isPreset: false,
       createdAt: updated.created_at,
       updatedAt: updated.updated_at,
@@ -236,7 +258,7 @@ export async function DELETE(
     // Soft delete dengan is_archived = true
     const { error: deleteError } = await supabase
       .from("agent_profiles")
-      .update({ is_archived: true, is_default: false })
+      .update({ is_archived: true })
       .eq("id", id)
       .eq("user_id", user.id)
 

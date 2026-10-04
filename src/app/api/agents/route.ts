@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { BUILTIN_PRESETS } from "@/core/writer/presets/registry"
-import { AgentLimits, clampLimits, SYSTEM_LIMIT_BOUNDS } from "@/core/writer/types/profile"
+import { AgentLimits, clampLimits, SYSTEM_LIMIT_BOUNDS, ensureMandatoryToolIds } from "@/core/writer/types/profile"
 
 export async function GET() {
   try {
@@ -36,13 +36,13 @@ export async function GET() {
       name: row.name,
       description: row.description || "",
       mode: row.mode,
-      modelName: row.model_name || undefined,
+      modelName: row.model || undefined,
       temperature: Number(row.temperature ?? 0.35),
       workflowPrompt: row.workflow_prompt || "",
       toolIds: Array.isArray(row.tool_ids) ? row.tool_ids : [],
       skills: Array.isArray(row.skills) ? row.skills : [],
       limits: row.limits as AgentLimits,
-      isDefault: Boolean(row.is_default),
+      isDefault: Boolean(row.is_default ?? (row.limits as any)?.isDefault ?? false),
       isPreset: false,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -111,12 +111,30 @@ export async function POST(request: Request) {
 
     const safeLimits = clampLimits(mode, limits)
 
-    // Jika diset sebagai default, reset is_default profil lain milik user
+    // Jika diset sebagai default, reset isDefault profil lain milik user
     if (isDefault) {
-      await supabase
+      const { data: existingOthers } = await supabase
         .from("agent_profiles")
-        .update({ is_default: false })
+        .select("id, limits")
         .eq("user_id", user.id)
+        .eq("is_archived", false)
+
+      if (existingOthers && existingOthers.length > 0) {
+        for (const item of existingOthers) {
+          const itemLimits = (item.limits && typeof item.limits === "object") ? item.limits as Record<string, any> : {}
+          if (itemLimits.isDefault) {
+            await supabase
+              .from("agent_profiles")
+              .update({ limits: { ...itemLimits, isDefault: false } })
+              .eq("id", item.id)
+          }
+        }
+      }
+    }
+
+    const effectiveLimits = {
+      ...safeLimits,
+      isDefault: Boolean(isDefault),
     }
 
     const { data: newProfile, error: insertError } = await supabase
@@ -126,13 +144,13 @@ export async function POST(request: Request) {
         name: name.trim(),
         description: description?.trim() || null,
         mode,
-        model_name: modelName?.trim() || null,
+        model: modelName?.trim() || null,
         temperature: Number(temperature),
         workflow_prompt: workflowPrompt.trim(),
-        tool_ids: Array.isArray(toolIds) ? toolIds : [],
+        tool_ids: ensureMandatoryToolIds(Array.isArray(toolIds) ? toolIds : []),
         skills: Array.isArray(skills) ? skills : [],
-        limits: safeLimits,
-        is_default: Boolean(isDefault),
+        limits: effectiveLimits,
+        is_archived: false,
       })
       .select()
       .single()
@@ -152,13 +170,13 @@ export async function POST(request: Request) {
       name: newProfile.name,
       description: newProfile.description || "",
       mode: newProfile.mode,
-      modelName: newProfile.model_name || undefined,
+      modelName: newProfile.model || undefined,
       temperature: Number(newProfile.temperature ?? 0.35),
       workflowPrompt: newProfile.workflow_prompt || "",
       toolIds: Array.isArray(newProfile.tool_ids) ? newProfile.tool_ids : [],
       skills: Array.isArray(newProfile.skills) ? newProfile.skills : [],
       limits: newProfile.limits as AgentLimits,
-      isDefault: Boolean(newProfile.is_default),
+      isDefault: Boolean((newProfile.limits as any)?.isDefault ?? newProfile.is_default ?? false),
       isPreset: false,
       createdAt: newProfile.created_at,
       updatedAt: newProfile.updated_at,

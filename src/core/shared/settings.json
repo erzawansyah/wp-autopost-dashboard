@@ -1,0 +1,46 @@
+{
+  "$description": "Konfigurasi parameter default dan batas eksekusi Writer Agents Panitera",
+  "standardLimits": {
+    "maxModelCalls": 12,
+    "maxToolCalls": 15,
+    "timeoutSeconds": 240,
+    "minWordCount": 600,
+    "perTool": {
+      "web_search": 6,
+      "web_reader": 4,
+      "image_search": 4,
+      "upload_media": 4,
+      "list_wp_categories": 2,
+      "list_wp_tags": 2,
+      "list_wp_authors": 2,
+      "keyword_suggestions": 4
+    }
+  },
+  "deepLimits": {
+    "maxModelCalls": 22,
+    "maxToolCalls": 28,
+    "timeoutSeconds": 360,
+    "minWordCount": 800,
+    "perTool": {
+      "web_search": 8,
+      "web_reader": 6,
+      "image_search": 5,
+      "upload_media": 5,
+      "list_wp_categories": 2,
+      "list_wp_tags": 2,
+      "list_wp_authors": 2,
+      "keyword_suggestions": 6
+    }
+  },
+  "systemBounds": {
+    "minModelCalls": 3,
+    "maxModelCalls": 35,
+    "minToolCalls": 0,
+    "maxToolCalls": 50,
+    "minTimeoutSeconds": 30,
+    "maxTimeoutSeconds": 480,
+    "minWordCount": 300,
+    "maxWordCount": 5000,
+    "defaultPerToolLimit": 10
+  }
+}
