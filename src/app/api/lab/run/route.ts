@@ -5,6 +5,8 @@ import { isLabAuthorizedUser } from "@/lib/constants/auth"
 import { ToolRegistry } from "@/core/writer/tools"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import { publishPostToWordPress } from "@/core/shared/tools/wordpress-publisher"
+import { webSearch } from "@/core/shared/tools/web-search"
+import { searchRoyaltyFreeImages } from "@/core/shared/tools/image-search"
 import { run } from "@/core/writer"
 import { AgentStepEvent, RunRecorder } from "@/core/writer/runtime/telemetry"
 
@@ -74,6 +76,64 @@ export async function POST(request: Request) {
         return NextResponse.json({
           ok: pubResult.ok,
           output: pubResult,
+          durationMs: Date.now() - startTime,
+        })
+      }
+
+      if (id === "web_search") {
+        const query = (input?.query || "").trim()
+        const limit = Number(input?.limit) || 4
+        const language = input?.language || "id"
+        const provider = input?.provider || userKeys.searchPreferences?.default_provider || "auto"
+        const apiKey = userKeys.tavilyKey || userKeys.braveKey || userKeys.serpapiKey
+        const searxngUrl = userKeys.searxngUrl || "http://searxng-internal:8080"
+
+        const results = await webSearch({
+          query,
+          limit,
+          language,
+          provider,
+          apiKey,
+          searxngUrl,
+        })
+
+        return NextResponse.json({
+          ok: true,
+          output: {
+            query,
+            totalResults: results.length,
+            results,
+          },
+          summary: `Ditemukan ${results.length} sumber referensi web`,
+          durationMs: Date.now() - startTime,
+        })
+      }
+
+      if (id === "image_search") {
+        const query = (input?.query || "").trim()
+        const count = Number(input?.count) || 3
+        const minWidth = Number(input?.minWidth) || 1280
+        const provider = input?.provider || "auto"
+        const searxngUrl = userKeys.searxngUrl || "http://searxng-internal:8080"
+
+        const photos = await searchRoyaltyFreeImages({
+          query,
+          count,
+          orientation: "landscape",
+          minWidth,
+          provider,
+          pexafyApiKey: userKeys.pexafyKey,
+          searxngUrl,
+        })
+
+        return NextResponse.json({
+          ok: true,
+          output: {
+            query,
+            totalPhotos: photos.length,
+            photos,
+          },
+          summary: `Ditemukan ${photos.length} foto berkualitas tinggi`,
           durationMs: Date.now() - startTime,
         })
       }

@@ -404,7 +404,8 @@ Tuangkan air panas secara perlahan dengan gerakan melingkar dari tengah ke arah 
                       <SelectValue placeholder="Pilih provider penelusuran..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auto">Auto / Hybrid (Tavily ➔ Brave ➔ Serp ➔ Bing Scraper ➔ Wikipedia)</SelectItem>
+                      <SelectItem value="auto">Auto / Hybrid (SearXNG Internal ➔ Brave ➔ Tavily ➔ Bing Scraper)</SelectItem>
+                      <SelectItem value="searxng">SearXNG (Internal Docker Metasearch)</SelectItem>
                       <SelectItem value="brave">Brave Search API (BYOK / Privacy-First)</SelectItem>
                       <SelectItem value="tavily">Tavily AI Search (Official API / BYOK)</SelectItem>
                       <SelectItem value="bing_scraper">Bing Live Web Scraper (Free / Tanpa API Key)</SelectItem>
@@ -484,11 +485,11 @@ Tuangkan air panas secara perlahan dengan gerakan melingkar dari tengah ke arah 
                       <SelectValue placeholder="Pilih provider..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auto">Auto / Hybrid (Urutan Default)</SelectItem>
-                      <SelectItem value="bing_scraper">Bing Async Scraper (Creative Commons & Free)</SelectItem>
+                      <SelectItem value="auto">Auto / Hybrid (Pexafy ➔ SearXNG Images ➔ Bing Scraper ➔ Curated)</SelectItem>
+                      <SelectItem value="searxng">SearXNG Images (Internal Metasearch Engine)</SelectItem>
+                      <SelectItem value="pexafy">Pexafy Official API (BYOK)</SelectItem>
+                      <SelectItem value="bing_scraper">Bing Async Scraper (Creative Commons &amp; Free)</SelectItem>
                       <SelectItem value="bing_api">Bing Official API (Azure API Key)</SelectItem>
-                      <SelectItem value="pexels">Pexels Official API</SelectItem>
-                      <SelectItem value="unsplash">Unsplash Official API</SelectItem>
                       <SelectItem value="curated">Curated Unsplash CDN (Katalog Lokal)</SelectItem>
                     </SelectContent>
                   </Select>

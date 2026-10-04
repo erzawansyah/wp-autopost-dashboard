@@ -23,7 +23,7 @@ export const imageSearchToolDef: ToolDefinition = {
 
   build(ctx: ToolRuntimeContext) {
     return tool(
-      async ({ query, count = 3 }) => {
+      async ({ query, count = 3, provider, minWidth }) => {
         const cleanQuery = (query || "").trim()
         if (!cleanQuery) return "ERROR[invalid_input]: Kata kunci pencarian foto kosong."
 
@@ -32,9 +32,10 @@ export const imageSearchToolDef: ToolDefinition = {
             query: cleanQuery,
             count: count || 3,
             orientation: "landscape",
-            minWidth: 1280,
+            minWidth: minWidth || 1280,
+            provider: (provider as any) || "auto",
             pexafyApiKey: ctx.userKeys.pexafyKey,
-            searxngUrl: ctx.userKeys.searxngUrl,
+            searxngUrl: ctx.userKeys.searxngUrl || "http://searxng-internal:8080",
           })
 
           if (!images || images.length === 0) {
@@ -61,6 +62,8 @@ export const imageSearchToolDef: ToolDefinition = {
         schema: z.object({
           query: z.string().describe("Kata kunci pencarian foto dalam bahasa Inggris (misal: 'barista brewing coffee')"),
           count: z.number().optional().default(3).describe("Jumlah foto yang ingin dicari (1-4)"),
+          provider: z.string().optional().describe("Pilihan provider gambar (auto, searxng, pexafy, bing_scraper, curated)"),
+          minWidth: z.number().optional().default(1280).describe("Lebar minimum foto dalam pixel"),
         }),
       }
     )

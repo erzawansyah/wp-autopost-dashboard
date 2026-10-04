@@ -23,22 +23,23 @@ export const webSearchToolDef: ToolDefinition = {
 
   build(ctx: ToolRuntimeContext) {
     return tool(
-      async ({ query, limit = 4 }) => {
+      async ({ query, limit = 4, provider, language }) => {
         const cleanQuery = (query || "").trim()
         if (!cleanQuery) return "ERROR[invalid_input]: Kata kunci pencarian kosong."
 
         try {
           // Pilih provider dan key berdasarkan user keys
-          const pref = ctx.userKeys.searchPreferences?.default_provider || "auto"
+          const pref = (provider as any) || ctx.userKeys.searchPreferences?.default_provider || "auto"
+          const lang = language || ctx.language || "id"
           const apiKey = ctx.userKeys.tavilyKey || ctx.userKeys.braveKey || ctx.userKeys.serpapiKey
 
           const results = await webSearch({
             query: cleanQuery,
             limit: limit || 4,
-            language: ctx.language,
+            language: lang,
             provider: pref,
             apiKey,
-            searxngUrl: ctx.userKeys.searxngUrl,
+            searxngUrl: ctx.userKeys.searxngUrl || "http://searxng-internal:8080",
           })
 
           for (const r of results) {
@@ -74,6 +75,8 @@ export const webSearchToolDef: ToolDefinition = {
         schema: z.object({
           query: z.string().describe("Kata kunci pencarian yang spesifik"),
           limit: z.number().optional().default(4).describe("Batas jumlah URL hasil pencarian (maksimal 5)"),
+          provider: z.string().optional().describe("Pilihan provider pencarian (auto, searxng, brave, tavily, bing_scraper)"),
+          language: z.string().optional().describe("Bahasa penelusuran (id/en)"),
         }),
       }
     )
