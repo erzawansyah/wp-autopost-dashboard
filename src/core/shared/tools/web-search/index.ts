@@ -538,7 +538,7 @@ export async function webSearch(params: WebSearchParams): Promise<WebSearchResul
   const tavilyKey = (provider === "tavily" && params.apiKey) ? params.apiKey : getApiKey("TAVILY_API_KEY")
   const braveKey = (provider === "brave" && params.apiKey) ? params.apiKey : getApiKey("BRAVE_API_KEY")
   const serpKey = (provider === "serpapi" && params.apiKey) ? params.apiKey : getApiKey("SERP_API_KEY")
-  const searxngUrl = params.searxngUrl || getApiKey("SEARXNG_URL")
+  const searxngUrl = params.searxngUrl || getApiKey("SEARXNG_URL") || "http://searxng-internal:8080"
 
   if (provider === "bing_scraper") {
     const results = await searchBingWebScraper(query, limit, language)

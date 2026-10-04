@@ -77,8 +77,6 @@ export default function ApiKeysSettingsPage() {
   const [isTestingBrave, setIsTestingBrave] = React.useState(false)
   const [braveTestResult, setBraveTestResult] = React.useState<TestResult | null>(null)
 
-  const [isTestingSearxng, setIsTestingSearxng] = React.useState(false)
-  const [searxngTestResult, setSearxngTestResult] = React.useState<TestResult | null>(null)
 
   const [isTestingPexafy, setIsTestingPexafy] = React.useState(false)
   const [pexafyTestResult, setPexafyTestResult] = React.useState<TestResult | null>(null)
@@ -229,37 +227,6 @@ export default function ApiKeysSettingsPage() {
     }
   }
 
-  // Test SearxNG
-  const handleTestSearxng = async () => {
-    if (!searxngUrl.trim()) return
-    setIsTestingSearxng(true)
-    setSearxngTestResult(null)
-
-    try {
-      const res = await fetch("/api/settings/search/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: "searxng",
-          searxngUrl: searxngUrl.trim(),
-        }),
-      })
-
-      const data = await res.json()
-      setSearxngTestResult({
-        ok: res.ok && data.ok,
-        message: data.message || data.error || "Uji koneksi SearxNG selesai.",
-        latencyMs: data.latencyMs,
-      })
-    } catch {
-      setSearxngTestResult({
-        ok: false,
-        message: "Gagal menguji koneksi ke URL SearxNG.",
-      })
-    } finally {
-      setIsTestingSearxng(false)
-    }
-  }
 
   // Test Pexafy
   const handleTestPexafy = async () => {
@@ -536,7 +503,7 @@ export default function ApiKeysSettingsPage() {
                   </Label>
                 </div>
                 <p className="text-[11px] text-muted-foreground">
-                  Auto Cascade: Otomatis mencoba Tavily ➔ Brave ➔ SearxNG ➔ SerpAPI ➔ Bing Scraper ➔ Wikipedia.
+                  Pilih mesin pencari prioritas untuk riset artikel atau gunakan mode rekomendasi cerdas otomatis.
                 </p>
                 <Select value={defaultSearchProvider} onValueChange={setDefaultSearchProvider}>
                   <SelectTrigger className="text-xs">
@@ -544,73 +511,32 @@ export default function ApiKeysSettingsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="auto" className="text-xs">
-                      Auto Cascade (Rekomendasi Cerdas Bawaan)
+                      Auto Cascade (SearXNG Internal + Smart Web Fallback)
                     </SelectItem>
                     <SelectItem value="tavily" className="text-xs">
-                      Tavily Search (Dioptimalkan Khusus untuk AI Rag)
+                      Tavily Search (Gunakan API Key Pribadi)
                     </SelectItem>
                     <SelectItem value="brave" className="text-xs">
-                      Brave Search (Independen &amp; Privasi Tinggi)
-                    </SelectItem>
-                    <SelectItem value="searxng" className="text-xs">
-                      SearxNG (Self-Hosted Metasearch Bebas Biaya)
+                      Brave Search (Gunakan API Key Pribadi)
                     </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
-              {/* SearxNG URL Input */}
-              <div className="space-y-1.5 rounded-lg border border-border/70 p-3.5 bg-muted/20">
-                <div className="flex items-center justify-between">
+              {/* SearXNG Internal Status Card (Zero-Config) */}
+              <div className="flex items-start gap-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3.5 text-xs">
+                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <Globe className="size-4 text-primary" />
-                    <span className="text-xs font-semibold text-foreground">SearxNG Instance URL (Metasearch Mandiri)</span>
+                    <span className="font-semibold text-foreground">Mesin Pencari Internal (SearXNG Built-in)</span>
+                    <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                      Default &amp; Otomatis Aktif
+                    </Badge>
                   </div>
-                  <Button asChild variant="ghost" size="sm" className="h-6 px-2 text-[10px] gap-1">
-                    <a href="https://docs.searxng.org/" target="_blank" rel="noopener noreferrer">
-                      <span>Dokumentasi SearxNG</span>
-                      <ExternalLink className="size-2.5" />
-                    </a>
-                  </Button>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    SearXNG berjalan otomatis di jaringan internal kontainer Docker sebagai mesin riset artikel dan pencarian foto bawaan. Anda tidak perlu memasukkan URL atau mengonfigurasi apapun secara manual.
+                  </p>
                 </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Masukkan URL server SearxNG pribadi Anda (misal: <code>http://localhost:8080</code> atau <code>https://searx.domainanda.com</code>). Digunakan sekaligus untuk penelusuran web umum dan pencarian foto SearxNG Images tanpa kuota berbayar.
-                </p>
-                <div className="flex gap-2 pt-1">
-                  <Input
-                    type="url"
-                    value={searxngUrl}
-                    onChange={(e) => setSearxngUrl(e.target.value)}
-                    placeholder="https://searx.domainanda.com"
-                    className="font-mono text-xs"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleTestSearxng}
-                    disabled={isTestingSearxng || !searxngUrl.trim()}
-                    className="cursor-pointer gap-1.5 text-xs shrink-0"
-                  >
-                    {isTestingSearxng ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
-                    Uji URL
-                  </Button>
-                </div>
-                {searxngTestResult && (
-                  <div
-                    className={`flex items-center gap-2 rounded-md p-2.5 text-xs mt-2 ${
-                      searxngTestResult.ok
-                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                        : "bg-destructive/10 text-destructive"
-                    }`}
-                  >
-                    {searxngTestResult.ok ? <CheckCircle2 className="size-3.5 shrink-0" /> : <AlertCircle className="size-3.5 shrink-0" />}
-                    <span className="flex-1">{searxngTestResult.message}</span>
-                    {searxngTestResult.latencyMs && (
-                      <span className="text-[10px] opacity-75">{searxngTestResult.latencyMs}ms</span>
-                    )}
-                  </div>
-                )}
               </div>
 
               {/* Tavily API Key */}
@@ -832,7 +758,7 @@ export default function ApiKeysSettingsPage() {
                 <div className="space-y-1">
                   <span className="font-medium text-foreground">Alur Pipeline Bertingkat Pencarian Gambar</span>
                   <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Sistem menggunakan urutan prioritas cerdas: <strong>(1) Pexafy API</strong> (jika diisi) ➔ <strong>(2) SearxNG Images</strong> (jika URL SearxNG diisi di atas) ➔ <strong>(3) Bing Async Scraper</strong> (Creative Commons landscape 1280px + live accessibility verify) ➔ <strong>(4) Curated Unsplash CDN Catalog</strong>. Anda tetap dapat menghasilkan artikel dengan gambar berkualitas tinggi meskipun belum menghubungkan Pexafy.
+                    Sistem menggunakan urutan prioritas cerdas: <strong>(1) Pexafy API</strong> (jika diisi) ➔ <strong>(2) SearxNG Images Internal</strong> (Otomatis Built-in) ➔ <strong>(3) Bing Async Scraper</strong> (Creative Commons landscape 1280px + live accessibility verify) ➔ <strong>(4) Curated Unsplash CDN Catalog</strong>. Anda tetap dapat menghasilkan artikel dengan gambar berkualitas tinggi meskipun belum menghubungkan Pexafy.
                   </p>
                 </div>
               </div>

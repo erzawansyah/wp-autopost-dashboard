@@ -536,7 +536,7 @@ export async function searchRoyaltyFreeImages(params: ImageSearchParams): Promis
   if (!query) return []
 
   const pexafyKey = params.pexafyApiKey || process.env.PEXAFY_API_KEY
-  const searxngUrl = params.searxngUrl || process.env.SEARXNG_URL
+  const searxngUrl = params.searxngUrl || process.env.SEARXNG_URL || "http://searxng-internal:8080"
 
   // 1. Eksekusi jika pengguna memilih METODE SPESIFIK:
   if (provider === "pexafy") {
