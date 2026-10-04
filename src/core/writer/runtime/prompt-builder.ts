@@ -17,7 +17,7 @@ function loadGuardrailPrompt(): string {
     console.warn("[prompt-builder] Gagal membaca guardrail.md dari disk, menggunakan fallback:", err)
   }
 
-  return "Patuhi seluruh standar editorial anti-slop, nol dash, tanpa angka sitasi, dan kembalikan artikel terstruktur."
+  return "Patuhi integritas teknis WordPress: gunakan H2/H3 (dilarang H1), tanpa sitasi footnote [1] atau bab referensi, dan tanpa byline penulis manual."
 }
 
 export function buildSystemPrompt(workflowPrompt: string): string {
@@ -25,7 +25,7 @@ export function buildSystemPrompt(workflowPrompt: string): string {
   return [
     guardrail.trim(),
     "---",
-    "### III. ALUR KERJA KHUSUS AGENT (WORKFLOW PROMPT PENGGUNA):",
+    "### ALUR KERJA KHUSUS AGENT (WORKFLOW PROMPT PENGGUNA):",
     workflowPrompt.trim(),
   ].join("\n\n")
 }
