@@ -92,6 +92,7 @@ export default function NewPostPage() {
         body: JSON.stringify({
           siteId: payload.siteId,
           keyword: payload.keyword,
+          agentProfileRef: payload.agentProfileRef,
           engine: payload.engine,
           language: payload.language,
           category_ids: payload.categoryIds,

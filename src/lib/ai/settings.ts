@@ -3,7 +3,7 @@
  * Mengatur Single Source of Truth untuk model default aplikasi.
  */
 
-export const DEFAULT_AI_MODEL = "openai/gpt-oss-120b"
+export const DEFAULT_AI_MODEL = "meta-llama/llama-3.3-70b-instruct"
 
 export interface OpenRouterModelInfo {
   id: string
@@ -17,11 +17,11 @@ export interface OpenRouterModelInfo {
 }
 
 export const FALLBACK_AI_MODELS: OpenRouterModelInfo[] = [
-  { id: "openai/gpt-oss-120b", name: "GPT-OSS 120B (Default - Cepat & Hemat)", context_length: 131072 },
-  { id: "google/gemini-2.5-flash", name: "Google Gemini 2.5 Flash (Cepat & Cerdas)", context_length: 1048576 },
+  { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B Instruct (Default - Cepat & Andal)", context_length: 131072 },
+  { id: "deepseek/deepseek-chat", name: "DeepSeek V3 (Sangat Hemat & Cerdas)", context_length: 64000 },
   { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet (Editorial Tertinggi)", context_length: 200000 },
-  { id: "deepseek/deepseek-chat", name: "DeepSeek V3 (Sangat Hemat)", context_length: 64000 },
-  { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B Instruct", context_length: 131072 },
+  { id: "openai/gpt-4o-mini", name: "GPT-4o Mini (Cepat & Stabil)", context_length: 128000 },
+  { id: "google/gemini-2.5-flash", name: "Google Gemini 2.5 Flash", context_length: 1048576 },
 ]
 
 export const AVAILABLE_AI_MODELS = FALLBACK_AI_MODELS

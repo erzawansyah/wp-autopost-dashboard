@@ -2,7 +2,9 @@ import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { decryptCredential } from "@/lib/crypto"
 import { run, publishPostToWordPress } from "@/core/writer"
-import { fetchUserPromptOverrides } from "@/lib/prompts/fetch-user-overrides"
+import { resolveAgentProfile } from "@/core/writer/runtime/resolve-profile"
+import { LEGACY_ENGINE_MAP } from "@/core/writer/presets/registry"
+import { AgentStepEvent } from "@/core/writer/runtime/telemetry"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatcher"
 
@@ -61,6 +63,10 @@ export async function processPostItem({
       wp_target_status,
       categories,
       tags,
+      title,
+      content_html,
+      excerpt,
+      featured_image_url,
       state,
       source_payload,
       scheduled_for,
@@ -102,8 +108,14 @@ export async function processPostItem({
     }
   }
 
+  // Idempotency: Jika konten sudah ada dan sebelumnya gagal sinkronisasi,
+  // lewati pembuatan ulang konten AI (AI bypass)
+  const isRetrySync =
+    post.state === "failed_sync" &&
+    Boolean(post.content_html && post.content_html.trim().length > 0 && post.title)
+
   // Jika belum diklaim oleh pemanggil (misal dipanggil langsung via postId):
-  if (!isAlreadyClaimed) {
+  if (!isAlreadyClaimed && !isRetrySync) {
     // Jika sedang diproses oleh worker lain (dan belum stale < 10 menit lalu)
     if (post.state === "generating_content" || post.state === "syncing_to_wp") {
       const updatedAt = post.updated_at ? new Date(post.updated_at).getTime() : 0
@@ -179,55 +191,14 @@ export async function processPostItem({
     }
   }
 
-  // 3. Kunci status ke 'generating_content' (Database-First State Machine)
-  await supabase
-    .from("post_items")
-    .update({
-      state: "generating_content",
-      last_error: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", postId)
-
   const payloadMeta = (typeof post.source_payload === "object" && post.source_payload !== null
     ? post.source_payload
     : {}) as Record<string, unknown>
 
-  const engine = (payloadMeta.engine as string) || "quick"
-  const aiModel = (payloadMeta.aiModel as string) || undefined
   const style = (payloadMeta.style as string) || "default"
   const language = (payloadMeta.language as string) || "id"
   const userKeys = await getUserDecryptedKeys(post.user_id)
   const apiKey = clientApiKey || (payloadMeta.apiKey as string) || userKeys.openrouterKey || undefined
-
-  await supabase.from("execution_logs").insert({
-    post_item_id: postId,
-    user_id: post.user_id,
-    step: "init_queue",
-    level: "info",
-    message: `[Inisialisasi Antrean] Menerima topik "${post.target_keyword}" untuk diproses oleh engine ${engine} (Bahasa: ${language})`,
-    details: {
-      input: {
-        keyword: post.target_keyword,
-        engine,
-        language,
-        model: aiModel || "default",
-        site: site.site_name,
-        targetStatus: post.wp_target_status || "draft",
-      },
-      output: {
-        status: "accepted",
-        siteBaseUrl: site.base_url,
-      },
-      durationMs: 15,
-    },
-  })
-
-  // 4. Eksekusi System Writer Facade (LangGraph Engine)
-  let generated
-  let executionInfo
-  let nodeLogs: any[] = []
-  let resolvedEnrichment: any = null
 
   const categoryNames: string[] = Array.isArray(post.categories) ? post.categories : []
   const tagList: string[] = Array.isArray(post.tags) ? post.tags : []
@@ -235,96 +206,227 @@ export async function processPostItem({
     ? (payloadMeta.category_ids as unknown[]).map(Number).filter((id) => !isNaN(id) && id > 0)
     : []
 
-  // Ambil override prompt user dari Supabase sebelum panggil engine
-  // Fail-safe: jika gagal, proses tetap berjalan dengan prompt default engine
-  const userPromptOverrides = await fetchUserPromptOverrides(supabase, post.user_id, engine)
+  let generated: {
+    title: string
+    contentHtml: string
+    excerpt?: string
+    slug?: string
+  } | null = null
 
-  try {
-    const writerResult = await run(
-      {
-        engine,
-        content: {
-          keyword: post.target_keyword,
-          brief: post.custom_instructions_override || undefined,
-          style,
-          language,
-        },
-        site: {
-          siteId: site.id,
-          wpSiteId: site.id,
-          baseUrl: site.base_url,
-          username: site.wp_username,
-          applicationPassword: plainPassword,
-        },
-        publishing: {
-          mode: post.wp_target_status || "draft",
-          categoryIds,
-          tagNames: tagList,
-        },
-        model: aiModel,
-        apiKey,
-        customInstructions: post.custom_instructions_override || undefined,
-      },
-      // Inject override prompt user (kosong jika tidak ada kustomisasi)
-      userPromptOverrides
-    )
+  let resolvedEnrichment: any = null
 
-    nodeLogs = writerResult.execution?.nodeLogs || []
-    resolvedEnrichment = writerResult.enrichment
-
-    // Catat log tiap node segera setelah generasi selesai secara real-time
-    for (const log of nodeLogs) {
-      await supabase.from("execution_logs").insert({
-        post_item_id: postId,
-        user_id: post.user_id,
-        step: log.node,
-        level: log.status === "error" ? "error" : "info",
-        message: `[${log.label}] ${log.message || "Selesai"}`,
-        details: { input: log.input, output: log.output, durationMs: log.durationMs },
-      })
+  // 3. JIKA RETRY SYNC: Gunakan konten yang sudah ada tanpa panggil LLM lagi
+  if (isRetrySync) {
+    generated = {
+      title: post.title || post.target_keyword,
+      contentHtml: post.content_html || "",
+      excerpt: post.excerpt || undefined,
     }
-
-    if (!writerResult.success || !writerResult.article) {
-      throw new Error(writerResult.error?.message || "Gagal menghasilkan naskah artikel")
-    }
-
-    generated = writerResult.article
-    executionInfo = writerResult.execution
-  } catch (aiErr: unknown) {
-    const errMsg = aiErr instanceof Error ? aiErr.message : "Kesalahan sistem AI"
-    await supabase
-      .from("post_items")
-      .update({
-        state: "failed_generation",
-        last_error: errMsg,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", postId)
 
     await supabase.from("execution_logs").insert({
       post_item_id: postId,
       user_id: post.user_id,
-      step: "generation",
-      level: "error",
-      message: `[Queue Worker] Gagal generate artikel AI: ${errMsg}`,
+      step: "retry_sync_bypass",
+      level: "info",
+      message: `[Retry Sinkronisasi] Konten artikel sudah tersedia di database. Melewati proses AI untuk langsung kirim ke WordPress.`,
+      details: {
+        title: post.title,
+        contentLength: post.content_html?.length || 0,
+      },
+    })
+  } else {
+    // 4. Kunci status ke 'generating_content' (Database-First State Machine)
+    await supabase
+      .from("post_items")
+      .update({
+        state: "generating_content",
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", postId)
+
+    // Resolusi Agent Profile (Bisa Kustom DB atau Preset Bawaan)
+    const profileRef =
+      (payloadMeta.agentProfileRef as string) ||
+      (payloadMeta.engine ? LEGACY_ENGINE_MAP[payloadMeta.engine as string] : undefined) ||
+      "preset:quick-writer"
+
+    const resolvedProfile = await resolveAgentProfile(profileRef, post.user_id)
+
+    const aiModel = (payloadMeta.aiModel as string) || resolvedProfile.model || resolvedProfile.modelName || undefined
+
+    // Catat inisialisasi antrean ke execution_logs
+    await supabase.from("execution_logs").insert({
+      post_item_id: postId,
+      user_id: post.user_id,
+      step: "init_queue",
+      level: "info",
+      message: `[Inisialisasi Antrean] Menerima topik "${post.target_keyword}" untuk diproses oleh Agen "${resolvedProfile.name}" (${resolvedProfile.mode}, Bahasa: ${language})`,
+      details: {
+        input: {
+          keyword: post.target_keyword,
+          agentRef: resolvedProfile.ref,
+          agentMode: resolvedProfile.mode,
+          language,
+          model: aiModel || "default",
+          site: site.site_name,
+          targetStatus: post.wp_target_status || "draft",
+        },
+        output: {
+          status: "accepted",
+          siteBaseUrl: site.base_url,
+        },
+        durationMs: 15,
+      },
     })
 
-    dispatchWebhookEvent({
-      userId: post.user_id,
-      event: "post.failed",
-      data: {
-        postId,
-        batchId: post.batch_id,
-        keyword: post.target_keyword,
-        error: errMsg,
-        state: "failed_generation",
-      },
-    }).catch(() => {})
+    // Buat row di agent_runs untuk pelacakan performa & telemetri agen
+    let agentRunId: string | null = null
+    try {
+      const { data: runRow } = await supabase
+        .from("agent_runs")
+        .insert({
+          post_item_id: postId,
+          user_id: post.user_id,
+          agent_profile_id: resolvedProfile.isPreset ? null : (resolvedProfile.id || null),
+          agent_profile_ref: resolvedProfile.ref,
+          mode: resolvedProfile.mode,
+          status: "running",
+          total_model_calls: 0,
+          total_tool_calls: 0,
+          step_events: [],
+        })
+        .select("id")
+        .single()
 
-    return {
-      success: false,
-      postId,
-      error: errMsg,
+      if (runRow) {
+        agentRunId = runRow.id
+      }
+    } catch (runErr) {
+      console.warn("[worker] Gagal menginisialisasi record agent_runs:", runErr)
+    }
+
+    // Stream step events ke database execution_logs secara transparan & ringkas
+    const collectedStepEvents: AgentStepEvent[] = []
+    const handleStepEvent = (event: AgentStepEvent) => {
+      collectedStepEvents.push(event)
+      void supabase
+        .from("execution_logs")
+        .insert({
+          post_item_id: postId,
+          user_id: post.user_id,
+          step: event.kind,
+          level: event.status === "error" ? "error" : "info",
+          message: `[${event.tool || event.kind}] ${event.summary}`,
+          details: {
+            kind: event.kind,
+            tool: event.tool,
+            status: event.status,
+            argsPreview: event.argsPreview,
+            durationMs: event.durationMs,
+          },
+        })
+    }
+
+    try {
+      const writerResult = await run(
+        {
+          agentProfileRef: resolvedProfile.ref,
+          content: {
+            keyword: post.target_keyword,
+            brief: post.custom_instructions_override || undefined,
+            style,
+            language,
+          },
+          site: {
+            siteId: site.id,
+            wpSiteId: site.id,
+            baseUrl: site.base_url,
+            username: site.wp_username,
+            applicationPassword: plainPassword,
+          },
+          publishing: {
+            mode: post.wp_target_status || "draft",
+            categoryIds,
+            tagNames: tagList,
+          },
+          model: aiModel,
+          apiKey,
+          userId: post.user_id,
+          customInstructions: post.custom_instructions_override || undefined,
+          onEventListener: handleStepEvent,
+        }
+      )
+
+      resolvedEnrichment = writerResult.enrichment
+
+      if (!writerResult.success || !writerResult.article) {
+        throw new Error(writerResult.error?.message || "Gagal menghasilkan naskah artikel")
+      }
+
+      generated = writerResult.article
+
+      // Update record agent_runs jika berhasil
+      if (agentRunId) {
+        await supabase
+          .from("agent_runs")
+          .update({
+            status: "success",
+            total_model_calls: writerResult.agentRun?.modelCalls || 1,
+            total_tool_calls: writerResult.agentRun?.toolCalls || 0,
+            duration_ms: writerResult.agentRun?.durationMs || writerResult.execution?.durationMs || 0,
+            step_events: writerResult.execution?.stepEvents || collectedStepEvents,
+          })
+          .eq("id", agentRunId)
+      }
+    } catch (aiErr: unknown) {
+      const errMsg = aiErr instanceof Error ? aiErr.message : "Kesalahan sistem AI"
+
+      if (agentRunId) {
+        await supabase
+          .from("agent_runs")
+          .update({
+            status: "failed",
+            error_message: errMsg,
+            step_events: collectedStepEvents,
+          })
+          .eq("id", agentRunId)
+      }
+
+      await supabase
+        .from("post_items")
+        .update({
+          state: "failed_generation",
+          last_error: errMsg,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", postId)
+
+      await supabase.from("execution_logs").insert({
+        post_item_id: postId,
+        user_id: post.user_id,
+        step: "generation",
+        level: "error",
+        message: `[Queue Worker] Gagal generate artikel AI: ${errMsg}`,
+      })
+
+      dispatchWebhookEvent({
+        userId: post.user_id,
+        event: "post.failed",
+        data: {
+          postId,
+          batchId: post.batch_id,
+          keyword: post.target_keyword,
+          error: errMsg,
+          state: "failed_generation",
+        },
+      }).catch(() => {})
+
+      return {
+        success: false,
+        postId,
+        error: errMsg,
+      }
     }
   }
 
@@ -347,7 +449,7 @@ export async function processPostItem({
       title: generated.title,
       content_html: generated.contentHtml,
       excerpt: generated.excerpt,
-      featured_image_url: resolvedEnrichment?.featuredImage?.imageUrl || null,
+      featured_image_url: resolvedEnrichment?.featuredImage?.imageUrl || post.featured_image_url || null,
       categories: resolvedCategoryIds.map(String),
       tags: resolvedTagIds.length > 0 ? resolvedTagIds.map(String) : tagList,
       state: "syncing_to_wp",

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { after } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { processPostItem } from "@/core/queue/worker"
+import { LEGACY_ENGINE_MAP } from "@/core/writer/presets/registry"
 
 export async function POST(request: Request) {
   try {
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
       actionStatus = "draft",
       aiModel,
       apiKey,
+      agentProfileRef,
       engine = "quick",
       style = "default",
       language = "id",
@@ -73,6 +75,11 @@ export async function POST(request: Request) {
           .filter((id: number) => !isNaN(id) && id > 0)
       : []
 
+    const effectiveProfileRef =
+      agentProfileRef ||
+      (engine ? LEGACY_ENGINE_MAP[engine] : undefined) ||
+      "preset:quick-writer"
+
     // 3. Database-First State Machine: Buat entri awal di post_items (state: 'queued_input')
     const { data: initialPost, error: insertPostError } = await supabase
       .from("post_items")
@@ -86,6 +93,7 @@ export async function POST(request: Request) {
         categories: categoryList,
         tags: tagList,
         source_payload: {
+          agentProfileRef: effectiveProfileRef,
           engine,
           aiModel,
           style,
@@ -111,7 +119,7 @@ export async function POST(request: Request) {
       user_id: user.id,
       step: "queue",
       level: "info",
-      message: `[Queue] Artikel masuk antrean latar belakang (Engine: ${engine}, Model: ${aiModel || "bawaan"}) untuk website ${site.site_name}`,
+      message: `[Queue] Artikel masuk antrean latar belakang (Agent: ${effectiveProfileRef}, Model: ${aiModel || "bawaan"}) untuk website ${site.site_name}`,
     })
 
     // 4. Jalankan Background Queue Worker via after() tanpa menahan response HTTP

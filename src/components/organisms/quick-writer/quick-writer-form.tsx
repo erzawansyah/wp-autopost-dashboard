@@ -35,7 +35,9 @@ import {
   Zap,
 } from "lucide-react"
 import { LanguageSelect } from "@/components/molecules/language-select"
+import { AgentProfileSelect } from "@/components/molecules/agent-profile-select"
 import { cn } from "@/lib/utils"
+import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 
 export interface WpSiteOption {
   id: string
@@ -86,6 +88,7 @@ export const AVAILABLE_ENGINES: WritingEngineOption[] = [
 export interface QuickWriterSubmitPayload {
   siteId: string
   keyword: string
+  agentProfileRef?: string
   engine: string
   language: string
   categoryIds: number[]
@@ -117,7 +120,7 @@ export function QuickWriterForm({
 
   // Form states
   const [siteId, setSiteId] = React.useState<string>(initialSiteId || (sites[0]?.id ?? ""))
-  const [engine, setEngine] = React.useState<string>("standard")
+  const [engine, setEngine] = React.useState<string>("preset:quick-writer")
   const [language, setLanguage] = React.useState<string>("id")
   const [keyword, setKeyword] = React.useState<string>("")
   const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<number[]>([])
@@ -125,7 +128,7 @@ export function QuickWriterForm({
   const [tags, setTags] = React.useState<string>("")
   const [customBrief, setCustomBrief] = React.useState<string>("")
   const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">("draft")
-  const [aiModel, setAiModel] = React.useState<string>("openai/gpt-oss-120b")
+  const [aiModel, setAiModel] = React.useState<string>(DEFAULT_AI_MODEL)
   const [customApiKey, setCustomApiKey] = React.useState<string>("")
 
   // Auto-select site jika list berubah
@@ -139,7 +142,7 @@ export function QuickWriterForm({
   React.useEffect(() => {
     if (typeof window === "undefined") return
     const savedKey = localStorage.getItem("custom_openrouter_api_key") || ""
-    const savedModel = localStorage.getItem("custom_openrouter_model") || "openai/gpt-oss-120b"
+    const savedModel = localStorage.getItem("custom_openrouter_model") || DEFAULT_AI_MODEL
     if (savedKey) setCustomApiKey(savedKey)
     if (savedModel) setAiModel(savedModel)
   }, [])
@@ -166,7 +169,7 @@ export function QuickWriterForm({
 
   const handleResetForm = () => {
     setKeyword("")
-    setEngine("standard")
+    setEngine("preset:research-writer")
     setLanguage("id")
     setSelectedCategoryIds([])
     setSelectedCategoryNames([])
@@ -183,6 +186,7 @@ export function QuickWriterForm({
     onSubmit({
       siteId,
       keyword: keyword.trim(),
+      agentProfileRef: engine,
       engine,
       language,
       categoryIds: selectedCategoryIds,
@@ -281,7 +285,7 @@ export function QuickWriterForm({
                       onValueChange={handleSiteChange}
                       disabled={isSubmitting}
                     >
-                      <SelectTrigger className="h-10 text-xs bg-background">
+                      <SelectTrigger className="h-9 text-xs bg-background">
                         <SelectValue placeholder="Pilih website WordPress..." />
                       </SelectTrigger>
                       <SelectContent>
@@ -301,43 +305,12 @@ export function QuickWriterForm({
                   )}
                 </FormField>
 
-                {/* Field 2: Pilih Mesin Penulisan (Engine) */}
-                <FormField
-                  label="Mesin Penulisan (Engine)"
-                  required
-                  hint="Pilih arsitektur engine pipeline penulisan artikel."
-                  tooltip="Engine menentukan alur kerja LangGraph State Machine. Quick Writer Engine berfokus pada kecepatan, validasi mutu mandiri, dan output native Gutenberg blocks."
-                >
-                  <Select
-                    value={engine}
-                    onValueChange={setEngine}
-                    disabled={isSubmitting}
-                  >
-                    <SelectTrigger className="h-10 text-xs bg-background">
-                      <SelectValue placeholder="Pilih engine penulisan..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AVAILABLE_ENGINES.map((eng) => (
-                        <SelectItem
-                          key={eng.id}
-                          value={eng.id}
-                          disabled={!eng.isAvailable}
-                          className="text-xs"
-                        >
-                          <div className="flex items-center justify-between w-full gap-2">
-                            <div className="flex items-center gap-2">
-                              <Zap className="size-3.5 text-primary" />
-                              <span className="font-semibold">{eng.name}</span>
-                            </div>
-                            <span className="text-[10px] text-muted-foreground font-mono">
-                              ({eng.badge})
-                            </span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </FormField>
+                {/* Field 2: Profil Agen Kepenulisan */}
+                <AgentProfileSelect
+                  value={engine}
+                  onChange={setEngine}
+                  disabled={isSubmitting}
+                />
 
                 {/* Field 3: Bahasa Artikel */}
                 <FormField

@@ -73,10 +73,20 @@ export async function GET(
       console.warn("Gagal mengambil log eksekusi:", logsError.message)
     }
 
+    // 3. Ambil catatan performa agent_runs jika ada
+    const { data: agentRun } = await supabase
+      .from("agent_runs")
+      .select("*")
+      .eq("post_item_id", postId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
     return NextResponse.json({
       ok: true,
       post,
       logs: logs || [],
+      agentRun: agentRun || null,
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"

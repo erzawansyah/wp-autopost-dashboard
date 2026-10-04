@@ -1,6 +1,7 @@
 import { ChatOpenRouter, OpenRouterAuthError, OpenRouterRateLimitError } from "@langchain/openrouter"
 import { HumanMessage, SystemMessage } from "@langchain/core/messages"
 import { z } from "zod"
+import { DEFAULT_AI_MODEL } from "./settings"
 
 export interface LlmServiceInterface {
   generate(params: {
@@ -47,7 +48,7 @@ export class OpenRouterLlmService implements LlmServiceInterface {
 
   constructor(apiKey?: string, defaultModel?: string) {
     this.apiKey = getSanitizedApiKey(apiKey)
-    this.defaultModel = defaultModel || process.env.OPENROUTER_DEFAULT_MODEL || "openai/gpt-oss-120b"
+    this.defaultModel = defaultModel || process.env.OPENROUTER_DEFAULT_MODEL || DEFAULT_AI_MODEL
   }
 
   async generate(params: {

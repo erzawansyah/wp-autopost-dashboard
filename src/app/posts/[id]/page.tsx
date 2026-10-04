@@ -60,6 +60,7 @@ export default function PostDetailPage() {
 
   const [post, setPost] = React.useState<PostDetailData | null>(null)
   const [logs, setLogs] = React.useState<DatabaseExecutionLog[]>([])
+  const [agentRun, setAgentRun] = React.useState<any>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [isRetrying, setIsRetrying] = React.useState(false)
@@ -83,6 +84,7 @@ export default function PostDetailPage() {
         const data = await res.json()
         setPost(data.post)
         setLogs(data.logs || [])
+        setAgentRun(data.agentRun || null)
         setError(null)
       } catch (err: unknown) {
         if (!silent) {
@@ -281,6 +283,7 @@ export default function PostDetailPage() {
             <TabsContent value="logs" className="pt-2">
               <PostDetailTelemetry
                 logs={logs}
+                agentRun={agentRun}
                 engineUsed={engineUsed}
                 modelUsed={modelUsed}
                 state={post.state}

@@ -359,6 +359,12 @@ function isTableStart(lines: string[], index: number): boolean {
  * Parser Utama: Mengonversi naskah Markdown murni menjadi rangkaian blok WordPress Gutenberg
  */
 export function markdownToGutenberg(markdown: string): string {
+  const trimmedInput = (markdown || "").trim()
+  // Jika teks secara keseluruhan sudah berformat Gutenberg block comments lengkap, kembalikan langsung
+  if (trimmedInput.startsWith("<!-- wp:") && trimmedInput.includes("<!-- /wp:")) {
+    return trimmedInput
+  }
+
   const blocks: string[] = []
   const rawLines = markdown.split("\n")
 
@@ -370,6 +376,22 @@ export function markdownToGutenberg(markdown: string): string {
     // 1. Baris kosong, lewati
     if (!trimmed) {
       i++
+      continue
+    }
+
+    // Passthrough untuk blok komentar WordPress Gutenberg asli yang sudah ada
+    if (trimmed.startsWith("<!-- wp:")) {
+      const gLines: string[] = []
+      while (i < rawLines.length) {
+        const cur = rawLines[i]
+        gLines.push(cur)
+        if (cur.includes("<!-- /wp:") || (cur.includes("/-->") && cur.includes("<!-- wp:"))) {
+          i++
+          break
+        }
+        i++
+      }
+      blocks.push(gLines.join("\n"))
       continue
     }
 
@@ -405,7 +427,9 @@ export function markdownToGutenberg(markdown: string): string {
         i++
         continue
       }
-      blocks.push(serializeHeading(level, text))
+      // Body postingan blog WordPress tidak boleh menggunakan H1; turunkan H1 menjadi H2
+      const safeLevel = level === 1 ? 2 : level
+      blocks.push(serializeHeading(safeLevel, text))
       i++
       continue
     }

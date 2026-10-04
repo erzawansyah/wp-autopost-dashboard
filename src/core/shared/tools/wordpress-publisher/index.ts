@@ -74,12 +74,25 @@ export async function publishPostToWordPress(
     date: params.metadata?.date,
   }
 
-  const wpResult: WPCreatePostResult = await createWordPressPost({
+  let wpResult: WPCreatePostResult = await createWordPressPost({
     baseUrl: params.baseUrl,
     username: params.username,
     applicationPassword: params.applicationPassword,
     post: postPayload,
   })
+
+  // Fallback resilience: jika WordPress menolak karena author ID tidak valid atau hak akses kurang,
+  // coba kirim ulang secara otomatis tanpa field author agar artikel tetap sukses terbit
+  if (!wpResult.ok && wpResult.error && wpResult.error.toLowerCase().includes("author")) {
+    console.warn(`[wordpress-publisher] Gagal author: ${wpResult.error}. Mengirim ulang tanpa author ID...`)
+    const { author: _dropped, ...fallbackPayload } = postPayload
+    wpResult = await createWordPressPost({
+      baseUrl: params.baseUrl,
+      username: params.username,
+      applicationPassword: params.applicationPassword,
+      post: fallbackPayload,
+    })
+  }
 
   return {
     ok: wpResult.ok,

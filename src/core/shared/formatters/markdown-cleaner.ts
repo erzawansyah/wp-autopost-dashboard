@@ -101,7 +101,80 @@ export function sanitizeFakeImages(text: string): string {
   })
 }
 
-export function cleanMarkdown(rawMarkdown: string): string {
+/**
+ * Membersihkan basa-basi pembuka (conversational preamble) dan penutup dari model AI
+ * Contoh: "Tentu, ini artikel lengkap tentang...", "Berikut draf naskah...", "Semoga artikel ini bermanfaat..."
+ */
+export function sanitizeConversationalPreamblesAndOutros(text: string): string {
+  let result = text
+
+  // 1. Preamble di awal artikel
+  result = result.replace(
+    /^(?:(?:Tentu(?: saja)?,?\s*)?(?:berikut\s+(?:adalah\s+)?(?:draf\s+|artikel\s+|panduan\s+|naskah\s+|ulasan\s+)?(?:lengkap\s+)?(?:mengenai|tentang|terkait)?[^\n.:]+[:.]?)|(?:Sure|Certainly|Here\s+is\s+(?:a|the)\s+(?:comprehensive\s+)?(?:guide|article|blog\s+post|post)\s+(?:about|on)?)[^\n.:]+[:.]?)\s*\n+/i,
+    ""
+  )
+
+  // 2. Outro di akhir artikel
+  result = result.replace(
+    /\n+(?:(?:Semoga\s+artikel\s+ini\s+(?:dapat\s+)?(?:bermanfaat|membantu)[^.\n]*\.?)|(?:Demikian\s+(?:pembahasan|ulasan|panduan)\s+(?:mengenai|tentang)[^.\n]*\.?)|(?:I\s+hope\s+this\s+article\s+helps[^.\n]*\.?))\s*$/i,
+    ""
+  )
+
+  return result
+}
+
+/**
+ * Menghilangkan duplikasi judul H1 di awal naskah dan menurunkan level H1 liar di body menjadi H2.
+ * WordPress merender judul post secara otomatis sebagai H1 di tema, sehingga body naskah tidak boleh memuat H1.
+ */
+export function sanitizeDuplicateTitleAndH1(text: string, expectedTitle?: string): string {
+  let lines = text.split("\n")
+
+  // 1. Cek baris pertama atau baris non-kosong pertama
+  const firstNonEmptyIdx = lines.findIndex((l) => l.trim().length > 0)
+  if (firstNonEmptyIdx !== -1) {
+    const firstLine = lines[firstNonEmptyIdx].trim()
+
+    // Jika baris pertama adalah H1: "# Judul..."
+    const isH1 = /^#\s+(.+)$/.test(firstLine)
+    // Atau jika ada label eksplisit: "**Judul:** ..." atau "Judul: ..." atau "Title: ..."
+    const isTitleLabel = /^(?:\*\*|__)?(?:Judul(?:\s+Artikel)?|Title):?(?:\*\*|__)?\s*.+$/i.test(firstLine)
+
+    if (isH1 || isTitleLabel) {
+      lines.splice(firstNonEmptyIdx, 1)
+    }
+  }
+
+  // 2. Jika ada H1 lain di dalam body ("# Heading"), ubah menjadi H2 ("## Heading")
+  lines = lines.map((line) => {
+    if (/^#\s+[^\s#]/.test(line)) {
+      return line.replace(/^#\s+/, "## ")
+    }
+    return line
+  })
+
+  return lines.join("\n")
+}
+
+/**
+ * Membersihkan frasa slop AI dan klise pembuka mekanis
+ */
+export function sanitizeAISlopPhrases(text: string): string {
+  let result = text
+
+  // 1. "Secara keseluruhan," di awal paragraf
+  result = result.replace(/(^|\n\n)\s*(?:Secara\s+keseluruhan|Kesimpulannya|Dapat\s+disimpulkan\s+bahwa),?\s*/gi, "$1")
+
+  // 2. Frasa pembuka klise kosmik
+  result = result.replace(/(^|\n\n)\s*(?:Di\s+era\s+digital\s+yang\s+serba\s+cepat\s+ini|Dalam\s+kehidupan\s+modern\s+saat\s+ini|Dewasa\s+ini),?\s*/gi, "$1")
+
+  // 3. Frasa penggelembung tanpa makna di awal kalimat
+  result = result.replace(/(^|[.!?]\s+)(?:Tidak\s+dapat\s+dipungkiri\s+bahwa|Perlu\s+digarisbawahi\s+bahwa|Tak\s+dapat\s+dimungkiri\s+bahwa)\s*/gi, "$1")
+
+  return result
+}
+
+export function cleanMarkdown(rawMarkdown: string, expectedTitle?: string): string {
   let cleaned = rawMarkdown.trim()
 
   // Hilangkan pembungkus markdown code block jika model mengembalikan ```markdown ... ```
@@ -112,6 +185,12 @@ export function cleanMarkdown(rawMarkdown: string): string {
   } else if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```\s*/, "").replace(/\s*```$/, "")
   }
+
+  // Bersihkan basa-basi percakapan pembuka & penutup
+  cleaned = sanitizeConversationalPreamblesAndOutros(cleaned)
+
+  // Bersihkan duplikasi judul H1 dan normalkan heading body ke H2/H3
+  cleaned = sanitizeDuplicateTitleAndH1(cleaned, expectedTitle)
 
   // Terapkan aturan nol dash
   cleaned = sanitizeDashes(cleaned)
@@ -127,6 +206,9 @@ export function cleanMarkdown(rawMarkdown: string): string {
 
   // Bersihkan penomoran kaku pada heading subbab
   cleaned = sanitizeNumberedHeadings(cleaned)
+
+  // Bersihkan frasa slop AI dan klise pembuka mekanis
+  cleaned = sanitizeAISlopPhrases(cleaned)
 
   // Normalisasi spasi baris berlebih (maksimal 2 newline berturut-turut)
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n")

@@ -47,6 +47,7 @@ import {
   ScheduleStrategyPicker,
   ScheduleStrategyState,
 } from "@/components/molecules/schedule-strategy-picker"
+import { AgentProfileSelect } from "@/components/molecules/agent-profile-select"
 import {
   calculateScheduleDates,
   ScheduledSlot,
@@ -95,7 +96,7 @@ export function KeywordListForm({
   const [batchName, setBatchName] = React.useState<string>("")
   const [language, setLanguage] = React.useState<string>("id")
   const [rawKeywordsText, setRawKeywordsText] = React.useState<string>("")
-  const [engine, setEngine] = React.useState<string>("quick")
+  const [engine, setEngine] = React.useState<string>("preset:quick-writer")
   const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<number[]>([])
   const [selectedCategoryNames, setSelectedCategoryNames] = React.useState<string[]>([])
   const [tagsInput, setTagsInput] = React.useState<string>("")
@@ -245,6 +246,7 @@ export function KeywordListForm({
                 wpTargetStatus: strategy.instantStatus,
               }
             : undefined,
+        agentProfileRef: engine,
         engine,
         language,
         category_ids: selectedCategoryIds,
@@ -414,102 +416,13 @@ export function KeywordListForm({
             </div>
           </div>
 
-          {/* 2. Pilihan Mesin Penulisan (Engine) - Langsung Tampak & Default Quick */}
+          {/* 2. Pilihan Profil Agen Kepenulisan */}
           <div className="flex flex-col gap-2.5 rounded-lg border border-border/80 bg-muted/15 p-3.5">
-            <div className="flex items-center justify-between">
-              <Label className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                <Bot className="size-3.5 text-primary" />
-                Mesin Penulisan (Writing Engine)
-              </Label>
-              <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary">
-                {engine === "quick"
-                  ? "1-Shot Generator"
-                  : engine === "agentic"
-                  ? "Autonomous ReAct + Tools"
-                  : engine === "deepagent"
-                  ? "LangChain Deep Agents"
-                  : "Web Research & Curated Images"}
-              </Badge>
-            </div>
-
-            <Select value={engine} onValueChange={setEngine} disabled={isSubmitting}>
-              <SelectTrigger className="w-full bg-background text-xs">
-                <SelectValue placeholder="Pilih Engine..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="quick" className="text-xs">
-                  <div className="flex items-center justify-between w-full gap-2">
-                    <div className="flex items-center gap-2">
-                      <Zap className="size-3.5 text-primary" />
-                      <span className="font-semibold">Quick Engine</span>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      (Cepat &amp; Hemat Token)
-                    </span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="standard" className="text-xs">
-                  <div className="flex items-center justify-between w-full gap-2">
-                    <div className="flex items-center gap-2">
-                      <Globe className="size-3.5 text-primary" />
-                      <span className="font-semibold">Standard Engine</span>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      (Riset Web &amp; Kurasi WP Media)
-                    </span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="agentic" className="text-xs">
-                  <div className="flex items-center justify-between w-full gap-2">
-                    <div className="flex items-center gap-2">
-                      <Bot className="size-3.5 text-primary" />
-                      <span className="font-semibold">Agentic Writer</span>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      (LangChain ReAct + Tools)
-                    </span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="deepagent" className="text-xs">
-                  <div className="flex items-center justify-between w-full gap-2">
-                    <div className="flex items-center gap-2">
-                      <Brain className="size-3.5 text-primary" />
-                      <span className="font-semibold">DeepAgent Writer</span>
-                    </div>
-                    <span className="text-[10px] text-muted-foreground font-mono">
-                      (Deep Agents + Skills)
-                    </span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Info Estimasi Kecepatan & Cron Worker */}
-            <div className="rounded-md border border-border/70 bg-card/80 p-2.5 text-xs flex flex-col gap-1">
-              <div className="flex items-center gap-1.5 text-foreground font-medium text-[11px]">
-                <Clock className="size-3 text-primary shrink-0" />
-                <span>Pemrosesan Otomatis: <strong>1 artikel per menit</strong> melalui cron</span>
-              </div>
-              <p className="text-[11px] text-muted-foreground leading-relaxed pl-4.5">
-                {engine === "quick" ? (
-                  <>
-                    Estimasi pengerjaan: <strong>~30–50 detik</strong> per artikel. Model AI menulis secara kreatif dan langsung tanpa jeda riset web eksternal.
-                  </>
-                ) : engine === "agentic" ? (
-                  <>
-                    Estimasi pengerjaan: <strong>~1–2 menit</strong> per artikel. Autonomous agent LangChain bebas memanggil web search, reader, dan unggah media WordPress secara fleksibel.
-                  </>
-                ) : engine === "deepagent" ? (
-                  <>
-                    Estimasi pengerjaan: <strong>~1–3 menit</strong> per artikel. Framework LangChain Deep Agents menggunakan Todo planning, konteks filesystem, dan on-demand skills.
-                  </>
-                ) : (
-                  <>
-                    Estimasi pengerjaan: <strong>~2–3 menit</strong> per artikel. Agen AI melakukan penjelajahan web live untuk mencari fakta, LSI keyword, dan mengunduh gambar beresolusi tinggi ke WordPress.
-                  </>
-                )}
-              </p>
-            </div>
+            <AgentProfileSelect
+              value={engine}
+              onChange={setEngine}
+              disabled={isSubmitting}
+            />
           </div>
 
           {/* 3. Kolom List Kata Kunci (Textarea 1 Baris = 1 Keyword) */}
