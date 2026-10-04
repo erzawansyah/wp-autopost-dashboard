@@ -111,3 +111,39 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+  queue-cron:
+    container_name: wp-autopost-cron
+    image: alpine:latest
+    restart: unless-stopped
+    depends_on:
+      wp-autopost-dashboard:
+        condition: service_healthy
+    environment:
+      - CRON_SECRET=${CRON_SECRET:-}
+      - CRON_LIMIT=${QUEUE_CRON_LIMIT:-5}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        apk add --no-cache curl tzdata
+        echo "[Queue Cron] Service pemicu antrean aktif (Target: http://wp-autopost-dashboard:3000/api/queue/process?limit=$${CRON_LIMIT})."
+        while true; do
+          if [ -n "$$CRON_SECRET" ]; then
+            RESPONSE=$$(curl -s -X POST "http://wp-autopost-dashboard:3000/api/queue/process?limit=$${CRON_LIMIT}" \
+              -H "Authorization: Bearer $$CRON_SECRET" \
+              -H "Accept: text/plain" \
+              -H "Content-Type: application/json")
+          else
+            RESPONSE=$$(curl -s -X POST "http://wp-autopost-dashboard:3000/api/queue/process?limit=$${CRON_LIMIT}" \
+              -H "Accept: text/plain" \
+              -H "Content-Type: application/json")
+          fi
+
+          if [ -n "$$RESPONSE" ]; then
+            printf "%s\n" "$$RESPONSE"
+          fi
+
+          sleep 60
+        done
+
