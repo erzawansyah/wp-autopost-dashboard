@@ -18,6 +18,7 @@ import {
   CalendarClock,
   Wrench,
   FileCode2,
+  BookOpen,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
@@ -54,6 +55,7 @@ const bottomNavItems: NavItem[] = [
   { title: "Skill Registry", href: "/skills", icon: FileCode2, badge: "Deep" },
   { title: "Laboratorium", href: "/lab", icon: FlaskConical, badge: "Lab" },
   { title: "Pengaturan", href: "/settings", icon: Settings },
+  { title: "Help / Docs", href: "/docs", icon: BookOpen },
 ]
 
 function renderNavLink(item: NavItem, pathname: string) {
@@ -196,12 +198,23 @@ export function SidebarNav() {
           </div>
           <span className="text-[10px] font-mono text-muted-foreground">v0.1.2</span>
         </div>
-        <div className="p-2.5 rounded-lg border border-border/70 bg-card text-[11px] flex flex-col gap-1">
-          <span className="flex items-center gap-1.5 font-semibold text-foreground"><WandSparkles className="size-3 text-ai-process" /><span className="hidden lg:inline">Natural writing</span></span>
-          <span className="hidden text-muted-foreground text-[10px] leading-tight lg:block">
-            Artikel bersih dari pola klise dan format kaku buatan AI
-          </span>
-        </div>
+        <Link
+          href="/docs"
+          className="group flex items-center justify-between p-2.5 rounded-lg border border-border/70 bg-card hover:bg-sidebar-accent text-[11px] transition-colors cursor-pointer"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <BookOpen className="size-3.5 text-primary shrink-0" />
+            <div className="flex flex-col min-w-0">
+              <span className="font-semibold text-foreground text-xs group-hover:text-primary transition-colors truncate">
+                Help &amp; Docs
+              </span>
+              <span className="hidden text-muted-foreground text-[10px] leading-tight lg:block truncate">
+                Panduan &amp; Dokumentasi
+              </span>
+            </div>
+          </div>
+          <ChevronRight className="size-3 text-muted-foreground group-hover:text-foreground hidden lg:block shrink-0" />
+        </Link>
       </div>
     </aside>
   )
