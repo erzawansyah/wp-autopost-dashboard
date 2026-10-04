@@ -358,7 +358,7 @@ export default function DocsPage() {
                   <div className="p-3 rounded-lg border border-border/70 bg-card">
                     <h5 className="font-semibold text-foreground mb-1">Web Search Tanpa Kuota API</h5>
                     <p>
-                      Tool <code className="text-primary font-mono">web_search</code> otomatis memanfaatkan SearXNG internal (<code className="font-mono">http://searxng:8080</code>) untuk mencari fakta, berita aktual, dan data referensi tanpa memerlukan API key Tavily atau Brave.
+                      Tool <code className="text-primary font-mono">web_search</code> otomatis memanfaatkan SearXNG internal (<code className="font-mono">http://searxng-internal:8080</code>) untuk mencari fakta, berita aktual, dan data referensi tanpa memerlukan API key Tavily atau Brave.
                     </p>
                   </div>
                   <div className="p-3 rounded-lg border border-border/70 bg-card">
@@ -372,7 +372,7 @@ export default function DocsPage() {
                 <div className="p-3 rounded-lg border border-primary/20 bg-primary/5 text-foreground">
                   <p className="font-semibold text-primary mb-1">Keamanan &amp; Zero Port Exposure:</p>
                   <p className="text-muted-foreground">
-                    SearXNG diisolasi penuh di dalam jaringan internal Docker (<code className="font-mono text-foreground">http://searxng:8080</code>) menggunakan direktif <code className="font-mono text-foreground">expose</code> tanpa membuka port ke host atau internet publik. Hal ini mencegah potensi konflik port pada server dan menjaga mesin pencari aman dari akses pihak ketiga.
+                    SearXNG diisolasi penuh di dalam jaringan internal Docker (<code className="font-mono text-foreground">http://searxng-internal:8080</code>) menggunakan direktif <code className="font-mono text-foreground">expose</code> tanpa membuka port ke host atau internet publik. Hal ini mencegah potensi konflik port pada server dan menjaga mesin pencari aman dari akses pihak ketiga.
                   </p>
                 </div>
               </CardContent>

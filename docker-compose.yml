@@ -12,7 +12,7 @@ services:
     ports:
       - "${HOST_PORT:-3000}:3000"
     depends_on:
-      - searxng
+      - searxng-internal
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -46,7 +46,7 @@ services:
       - PEXELS_API_KEY=${PEXELS_API_KEY:-}
 
       # 5. Self-Hosted Metasearch (SearXNG)
-      - SEARXNG_URL=${SEARXNG_URL:-http://searxng:8080}
+      - SEARXNG_URL=${SEARXNG_URL:-http://searxng-internal:8080}
 
     # Optional: pasang env_file jika di Portainer menggunakan file .env
     # env_file:
@@ -65,7 +65,7 @@ services:
       retries: 3
       start_period: 30s
 
-  searxng:
+  searxng-internal:
     container_name: searxng-internal
     image: searxng/searxng:latest
     restart: unless-stopped
@@ -75,7 +75,7 @@ services:
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
-      - SEARXNG_BASE_URL=http://searxng:8080/
+      - SEARXNG_BASE_URL=http://searxng-internal:8080/
       - SEARXNG_SECRET=${SEARXNG_SECRET:-wp-autopost-dashboard-searxng-internal-key-change-if-public}
     healthcheck:
       test:
