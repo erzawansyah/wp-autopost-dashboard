@@ -4,6 +4,7 @@ import {
   WPCreatePostPayload,
   WPCreatePostResult,
 } from "@/lib/wordpress/client"
+import { processAndSyncArticleMedia } from "@/core/shared/media/auto-media-pipeline"
 
 export interface WordPressPublishParams {
   baseUrl: string
@@ -12,6 +13,8 @@ export interface WordPressPublishParams {
   article: {
     title: string
     contentHtml: string
+    markdownContent?: string
+    featuredImageUrl?: string | null
     excerpt?: string
     slug?: string
   }
@@ -32,21 +35,31 @@ export interface WordPressPublishResult {
   wpPostUrl?: string
   status?: string
   error?: string
+  updatedContentHtml?: string
+  featuredMediaId?: number
 }
 
 /**
  * Universal Tool: WordPress Publisher
- * Memposting artikel naskah Gutenberg Blocks ke WordPress REST API dengan resolusi tag dan author otomatis.
+ * Memposting artikel naskah Gutenberg Blocks ke WordPress REST API dengan:
+ * 1. Otomasi upload gambar inline & featured image ke Media Library (dan replace URL ke badan teks).
+ * 2. Tags handler: verifikasi dan pembuatan tag otomatis jika belum ada di WordPress.
+ * 3. Author fallback resilience: kirim ulang aman jika author ID bermasalah.
  */
 export async function publishPostToWordPress(
   params: WordPressPublishParams
 ): Promise<WordPressPublishResult> {
-  let resolvedTagIds: number[] = params.metadata?.tagIds && params.metadata.tagIds.length > 0
-    ? [...params.metadata.tagIds]
-    : []
+  // 1. Tags Handler: Selesaikan / buat tag jika ada tagNames dan belum ada tagIds
+  let resolvedTagIds: number[] =
+    params.metadata?.tagIds && params.metadata.tagIds.length > 0
+      ? [...params.metadata.tagIds]
+      : []
 
-  // Selesaikan / buat tag jika ada tagNames dan belum ada tagIds
-  if (resolvedTagIds.length === 0 && params.metadata?.tagNames && params.metadata.tagNames.length > 0) {
+  if (
+    resolvedTagIds.length === 0 &&
+    params.metadata?.tagNames &&
+    params.metadata.tagNames.length > 0
+  ) {
     try {
       resolvedTagIds = await resolveOrCreateWordPressTags({
         baseUrl: params.baseUrl,
@@ -59,9 +72,34 @@ export async function publishPostToWordPress(
     }
   }
 
+  // 2. Media Handler: Auto-upload gambar inline & featured image jika ada markdownContent
+  let contentHtml = params.article.contentHtml
+  let featuredMediaId = params.metadata?.featuredMediaId
+
+  if (params.article.markdownContent) {
+    try {
+      const mediaResult = await processAndSyncArticleMedia({
+        baseUrl: params.baseUrl,
+        username: params.username,
+        applicationPassword: params.applicationPassword,
+        markdownContent: params.article.markdownContent,
+        featuredImageUrl: params.article.featuredImageUrl,
+        articleTitle: params.article.title,
+      })
+
+      contentHtml = mediaResult.updatedContentHtml
+      if (mediaResult.featuredMediaId) {
+        featuredMediaId = mediaResult.featuredMediaId
+      }
+    } catch (mediaErr) {
+      console.warn("[wordpress-publisher] Gagal auto-sync media artikel:", mediaErr)
+    }
+  }
+
+  // 3. Susun Payload Akhir untuk WordPress REST API
   const postPayload: WPCreatePostPayload = {
     title: params.article.title,
-    content: params.article.contentHtml,
+    content: contentHtml,
     excerpt: params.article.excerpt,
     status: params.metadata?.status || "draft",
     categories:
@@ -70,7 +108,7 @@ export async function publishPostToWordPress(
         : undefined,
     tags: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
     author: params.metadata?.authorId,
-    featured_media: params.metadata?.featuredMediaId,
+    featured_media: featuredMediaId,
     date: params.metadata?.date,
   }
 
@@ -100,5 +138,7 @@ export async function publishPostToWordPress(
     wpPostUrl: wpResult.wpPostUrl,
     status: wpResult.status,
     error: wpResult.error,
+    updatedContentHtml: contentHtml,
+    featuredMediaId,
   }
 }

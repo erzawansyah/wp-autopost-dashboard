@@ -1,32 +1,22 @@
-import fs from "fs"
-import path from "path"
 import { getLanguageDisplayName } from "@/lib/constants/languages"
+import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 
-let cachedGuardrail: string | null = null
+const DEFAULT_GUARDRAIL_FALLBACK =
+  "Patuhi integritas teknis WordPress: gunakan H2/H3 (dilarang H1), tanpa sitasi footnote [1] atau bab referensi, dan tanpa byline penulis manual."
 
-function loadGuardrailPrompt(): string {
-  if (cachedGuardrail) return cachedGuardrail
+const DEFAULT_USER_PROMPT_FALLBACK = `Tuliskan artikel mendalam, komprehensif, mengalir alami, dan tuntas dengan ketentuan berikut:
+- Topik / Kata Kunci Utama: "{{keyword}}"
+- Bahasa: {{language}}
+- Target Panjang: minimal {{targetWords}} kata
+- Struktur Wajib: Rancang minimal 5 subbab (H2/H3) deskriptif dengan pembahasan multi-paragraf yang tuntas. DILARANG membuat naskah pendek atau ringkasan!
+{{briefNote}}
+{{authorPersona}}
+{{customInstructions}}
 
-  try {
-    const primaryPath = path.join(process.cwd(), "src", "core", "shared", "prompts", "guardrail.md")
-    if (fs.existsSync(primaryPath)) {
-      cachedGuardrail = fs.readFileSync(primaryPath, "utf-8")
-      return cachedGuardrail
-    }
-    const legacyPath = path.join(process.cwd(), "src", "core", "writer", "runtime", "guardrail.md")
-    if (fs.existsSync(legacyPath)) {
-      cachedGuardrail = fs.readFileSync(legacyPath, "utf-8")
-      return cachedGuardrail
-    }
-  } catch (err) {
-    console.warn("[prompt-builder] Gagal membaca guardrail.md dari disk, menggunakan fallback:", err)
-  }
-
-  return "Patuhi integritas teknis WordPress: gunakan H2/H3 (dilarang H1), tanpa sitasi footnote [1] atau bab referensi, dan tanpa byline penulis manual."
-}
+Sajikan naskah lengkap dan seluruh metadata artikel sesuai instruksi alur kerja editorial.`
 
 export function buildSystemPrompt(workflowPrompt: string): string {
-  const guardrail = loadGuardrailPrompt()
+  const guardrail = loadPrompt("system-guardrail.md", DEFAULT_GUARDRAIL_FALLBACK)
   return [
     guardrail.trim(),
     "---",
@@ -41,10 +31,16 @@ export interface UserPromptVariables {
   wordCountTarget: number
   brief?: string
   author?: { name: string; bio?: string }
+  categoryName?: string
+  tagsList?: string
   customInstructions?: string
 }
 
 export function buildUserPrompt(vars: UserPromptVariables): string {
+  const template = loadPrompt("user-prompt.md", DEFAULT_USER_PROMPT_FALLBACK)
+
+  const categoryInfo = vars.categoryName ? `- Target Kategori: ${vars.categoryName}` : ""
+  const tagsInfo = vars.tagsList ? `- Tag Terkait: ${vars.tagsList}` : ""
   const briefNote = vars.brief ? `- Catatan Khusus dari Pengguna: ${vars.brief}` : ""
   const authorPersona = vars.author
     ? `- Sudut Pandang Penulis (Persona): Tulis naskah dari perspektif ${vars.author.name}${vars.author.bio ? ` (${vars.author.bio})` : ""}. (DILARANG mencantumkan teks byline 'Penulis: ...' ke naskah).`
@@ -55,18 +51,14 @@ export function buildUserPrompt(vars: UserPromptVariables): string {
 
   const targetWords = vars.wordCountTarget && vars.wordCountTarget >= 500 ? vars.wordCountTarget : 800
 
-  return [
-    `Tuliskan artikel mendalam, komprehensif, mengalir alami, dan tuntas dengan ketentuan berikut:`,
-    `- Topik / Kata Kunci Utama: "${vars.keyword}"`,
-    `- Bahasa: ${getLanguageDisplayName(vars.language)}`,
-    `- Target Panjang: minimal ${targetWords} kata`,
-    `- Struktur Wajib: Rancang minimal 5 subbab (H2/H3) deskriptif dengan pembahasan multi-paragraf yang tuntas. DILARANG membuat naskah pendek atau ringkasan!`,
+  return renderPrompt(template, {
+    keyword: vars.keyword,
+    language: getLanguageDisplayName(vars.language),
+    targetWords,
+    categoryInfo,
+    tagsInfo,
     briefNote,
     authorPersona,
-    customInstructionsNote,
-    "",
-    "Sajikan naskah lengkap dan seluruh metadata artikel sesuai instruksi alur kerja editorial.",
-  ]
-    .filter(Boolean)
-    .join("\n")
+    customInstructions: customInstructionsNote,
+  })
 }

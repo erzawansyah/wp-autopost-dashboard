@@ -44,6 +44,16 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - **Tulis Cepat Terdaftar di Antrean**: Menghilangkan filter `onlyBatches=true` di `/queue/items`. Artikel standalone dari Tulis Cepat (`batch_id: null`) sekarang dikelompokkan otomatis ke dalam batch virtual `"Tulis Cepat (Quick Writer)"` (`id: "quick-writer"`).
     - **Eliminasi Batch Kosong**: Di halaman Antrean (`/queue/items`), sistem hanya menampilkan kartu batch yang memiliki minimal 1 artikel (`items.length > 0`). Batch kosong tanpa artikel tidak lagi memunculkan kartu nama kosong.
     - **Filter Batch Tidak Kosong**: Dropdown filter batch hanya menampilkan opsi batch yang memiliki artikel, termasuk opsi `"⚡ Tulis Cepat (Quick Writer)"`, sehingga ketika diklik tidak pernah menghasilkan tampilan kosong.
+13. **ADR-054 (LLM Pre-Flight Taxonomy & Author Resolver, Prefix `system-*` Prompts, `set_featured_image` Tool, & Deduplikasi Media)**:
+    - **Eksternalisasi Prompt & Konvensi Prefix `system-*`**: Seluruh prompt disimpan di `src/core/shared/prompts/` tanpa ada prompt hardcode di TypeScript. Semua prompt non-user wajib memakai prefix `system-*` (`system-guardrail.md`, `system-finalize.md`, `system-resolve-taxonomy-author.md`, `system-tool-*.md`).
+    - **LLM-Based Pre-Flight Resolver (`pre-resolve.ts`)**: Resolusi taksonomi (kategori, tag) dan penulis menggunakan LLM dengan template `system-resolve-taxonomy-author.md`. Menganalisis data author, kategori, dan tag dari WP target sebelum agen menulis, dengan fallback heuristik cerdas jika tanpa API key atau saat error jaringan.
+    - **Tool `set_featured_image`**: Tool bagi agent/pipeline untuk mencari gambar sampul landscape web relevan dan menyetel `recorder.featuredImage` secara otomatis.
+    - **Tabel Deduplikasi Media (`uploaded_media`)**: Skema tabel Supabase mencatat `site_id`, `source_url`, `image_id`, dan metadata. Pipeline `uploadMediaToWordPress` memeriksa tabel ini agar gambar yang sama tidak diunggah ulang ke WordPress Media Library.
+14. **ADR-055 (Standardisasi Format Prompt: Prefix `wp-tools-`, Metadata YAML, & Tag `[SYSTEM_PROMPT]` / `[USER_PROMPT]`)**:
+    - **Prefix `wp-tools-` untuk WP Tools**: Seluruh prompt terkait WP Tools (`categories-suggest`, `authors-suggest`, `link-extract`, `link-recommend`) menggunakan prefix `wp-tools-` (`src/core/shared/prompts/wp-tools-*.md`), bukan `system-`.
+    - **Metadata YAML Frontmatter**: Setiap berkas prompt wajib memiliki blok YAML di bagian atas berisi `used-by`, `description`, dan `variables`.
+    - **Tagging Format Prompt**: Konten prompt dibungkus secara terstruktur menggunakan tag `[SYSTEM_PROMPT]...[/SYSTEM_PROMPT]` dan `[USER_PROMPT]...[/USER_PROMPT]`.
+    - **Prompt Loader Berbasis Tag (`loader.ts`)**: Loader mengekstrak metadata YAML, mendeteksi tag pembungkus, dan mendukung pemanggilan dwiarah `loadPrompt`, `loadSectionedPrompt`, serta `loadParsedPrompt`.
 
 ---
 

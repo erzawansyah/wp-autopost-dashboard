@@ -142,6 +142,7 @@ export interface FeaturedImageMeta {
 export interface WpEnrichment {
   categories: number[]
   tags: number[]
+  tagNames?: string[]
   author?: number
   authorDetail?: { id: number; name: string; bio?: string }
   featuredMedia?: number

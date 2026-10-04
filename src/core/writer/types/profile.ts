@@ -31,29 +31,16 @@ export const SYSTEM_LIMIT_BOUNDS = {
 }
 
 /**
- * Daftar tools WordPress inti yang wajib selalu terpasang pada setiap agent
+ * Catatan: Taksonomi, Author, dan Media kini ditangani otomatis oleh sistem via Pre-Flight & Post-Flight pipeline,
+ * sehingga Agent tidak lagi dipaksa memegang tool-tool ini saat proses penulisan naskah.
  */
-export const MANDATORY_TOOL_IDS = [
-  "upload_media",
-  "list_wp_categories",
-  "list_wp_tags",
-  "list_wp_authors",
-] as const
-
-export const MANDATORY_TOOL_ALIASES = [
-  "list_categories",
-  "list_tags",
-  "list_authors",
-] as const
-
-export const ALL_MANDATORY_TOOL_IDS = [
-  ...MANDATORY_TOOL_IDS,
-  ...MANDATORY_TOOL_ALIASES,
-] as const
+export const MANDATORY_TOOL_IDS = [] as const
+export const MANDATORY_TOOL_ALIASES = [] as const
+export const ALL_MANDATORY_TOOL_IDS = [] as const
 
 export function ensureMandatoryToolIds(toolIds: string[] = []): string[] {
   const safeList = Array.isArray(toolIds) ? toolIds : []
-  return Array.from(new Set([...safeList, ...MANDATORY_TOOL_IDS]))
+  return Array.from(new Set(safeList))
 }
 
 export const DEFAULT_STANDARD_LIMITS: AgentLimits = {

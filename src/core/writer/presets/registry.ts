@@ -7,6 +7,8 @@ import {
   MANDATORY_TOOL_IDS,
 } from "../types/profile";
 
+import { loadPrompt } from "@/core/shared/prompts/loader";
+
 export const LEGACY_ENGINE_MAP: Record<string, string> = {
   quick: "preset:quick-writer",
   standard: "preset:research-writer",
@@ -15,15 +17,7 @@ export const LEGACY_ENGINE_MAP: Record<string, string> = {
 };
 
 export function loadPromptFile(filename: string, fallback: string): string {
-  try {
-    const p = path.join(process.cwd(), "src", "core", "shared", "prompts", filename);
-    if (fs.existsSync(p)) {
-      return fs.readFileSync(p, "utf-8").trim();
-    }
-  } catch (err) {
-    console.warn(`[presets/registry] Gagal membaca ${filename} dari disk:`, err);
-  }
-  return fallback.trim();
+  return loadPrompt(filename, fallback);
 }
 
 const QUICK_WRITER_PROMPT = `Anda bertindak sebagai Penulis Konten Kreatif Cepat (1-Shot Content Generator).

@@ -96,18 +96,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     })
     .filter(Boolean) as any[]
 
-  // 3. Pre-Resolution: Resolusi Taksonomi & Author WordPress di latar belakang
-  const preResolved = await preResolveTaxonomyAndAuthor({
-    wpCredentials,
-    requestedAuthorId: request.publishing.authorId,
-    requestedCategoryIds: request.publishing.categoryIds,
-    requestedTagNames: request.publishing.tagNames,
-    keyword,
-    language,
-    recorder,
-  })
-
-  // 4. Inisialisasi LLM
+  // 3. Inisialisasi Kredensial AI & Validasi API Key
   const resolvedApiKey =
     request.apiKey ||
     userKeys.openrouterKey ||
@@ -138,6 +127,20 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
   }
 
   const selectedModel = profile.model || request.model || DEFAULT_AI_MODEL
+
+  // 4. Pre-Resolution: Resolusi Taksonomi & Author WordPress di latar belakang via LLM
+  const preResolved = await preResolveTaxonomyAndAuthor({
+    wpCredentials,
+    requestedAuthorId: request.publishing.authorId,
+    requestedCategoryIds: request.publishing.categoryIds,
+    requestedTagNames: request.publishing.tagNames,
+    keyword,
+    language,
+    brief: request.content.brief,
+    apiKey: resolvedApiKey,
+    model: selectedModel,
+    recorder,
+  })
   const llm = new ChatOpenRouter({
     apiKey: resolvedApiKey,
     model: selectedModel,
@@ -155,6 +158,8 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     wordCountTarget: targetWordCount,
     brief: request.content.brief,
     author: preResolved.author ? { name: preResolved.author.name, bio: preResolved.author.bio } : undefined,
+    categoryName: preResolved.categoryNames.length > 0 ? preResolved.categoryNames.join(", ") : undefined,
+    tagsList: preResolved.tagNames.length > 0 ? preResolved.tagNames.join(", ") : undefined,
     customInstructions: request.customInstructions,
   })
 
@@ -346,7 +351,11 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
   const enrichment: WpEnrichment = {
     categories: finalCategories,
     tags: finalTags,
+    tagNames: preResolved.tagNames,
     author: preResolved.author?.id ?? request.publishing.authorId ?? rawOutput.authorId ?? undefined,
+    authorDetail: preResolved.author
+      ? { id: preResolved.author.id, name: preResolved.author.name, bio: preResolved.author.bio }
+      : undefined,
     featuredMedia: request.publishing.featuredImageId ?? rawOutput.featuredMediaId ?? recorder.featuredMediaId ?? undefined,
     featuredImage: recorder.featuredImage,
     inContentImages: recorder.inContentImages,

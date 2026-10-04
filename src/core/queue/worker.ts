@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { decryptCredential } from "@/lib/crypto"
 import { run, publishPostToWordPress } from "@/core/writer"
+import { processAndSyncArticleMedia } from "@/core/shared/media/auto-media-pipeline"
 import { resolveAgentProfile } from "@/core/writer/runtime/resolve-profile"
 import { LEGACY_ENGINE_MAP } from "@/core/writer/presets/registry"
 import { AgentStepEvent } from "@/core/writer/runtime/telemetry"
@@ -209,6 +210,7 @@ export async function processPostItem({
   let generated: {
     title: string
     contentHtml: string
+    markdownContent?: string
     excerpt?: string
     slug?: string
   } | null = null
@@ -220,6 +222,7 @@ export async function processPostItem({
     generated = {
       title: post.title || post.target_keyword,
       contentHtml: post.content_html || "",
+      markdownContent: post.content_html || "",
       excerpt: post.excerpt || undefined,
     }
 
@@ -430,7 +433,46 @@ export async function processPostItem({
     }
   }
 
-  // 5. Update naskah artikel ke database & ubah status ke 'syncing_to_wp'
+  if (!generated) {
+    return {
+      success: false,
+      postId,
+      error: "Naskah artikel tidak ditemukan",
+    }
+  }
+
+  // 5. Auto-Media Pipeline: Ekstraksi gambar, upload ke WP Media Library, dan replace URL di badan artikel
+  let finalMarkdown = generated.markdownContent || ""
+  let finalContentHtml = generated.contentHtml
+  let finalFeaturedMediaId = resolvedEnrichment?.featuredMedia
+  let finalFeaturedImageUrl = resolvedEnrichment?.featuredImage?.imageUrl || post.featured_image_url || null
+
+  try {
+    const mediaSyncRes = await processAndSyncArticleMedia({
+      baseUrl: site.base_url,
+      username: site.wp_username,
+      applicationPassword: plainPassword,
+      siteId: site.id,
+      userId: post.user_id,
+      postId: post.id,
+      markdownContent: finalMarkdown,
+      featuredImageUrl: finalFeaturedImageUrl,
+      articleTitle: generated.title,
+    })
+
+    finalMarkdown = mediaSyncRes.updatedMarkdown
+    finalContentHtml = mediaSyncRes.updatedContentHtml
+    if (mediaSyncRes.featuredMediaId) {
+      finalFeaturedMediaId = mediaSyncRes.featuredMediaId
+    }
+    if (mediaSyncRes.featuredImageUrl) {
+      finalFeaturedImageUrl = mediaSyncRes.featuredImageUrl
+    }
+  } catch (mediaErr) {
+    console.warn("[worker] Gagal menjalankan auto-media-pipeline:", mediaErr)
+  }
+
+  // Update naskah artikel ke database & ubah status ke 'syncing_to_wp'
   const resolvedCategoryIds: number[] =
     resolvedEnrichment?.categories && resolvedEnrichment.categories.length > 0
       ? resolvedEnrichment.categories
@@ -441,17 +483,22 @@ export async function processPostItem({
       ? resolvedEnrichment.tags
       : []
 
+  const resolvedTagNames: string[] =
+    resolvedEnrichment?.tagNames && resolvedEnrichment.tagNames.length > 0
+      ? resolvedEnrichment.tagNames
+      : tagList
+
   const resolvedAuthorId: number | undefined = resolvedEnrichment?.author
 
   await supabase
     .from("post_items")
     .update({
       title: generated.title,
-      content_html: generated.contentHtml,
+      content_html: finalContentHtml,
       excerpt: generated.excerpt,
-      featured_image_url: resolvedEnrichment?.featuredImage?.imageUrl || post.featured_image_url || null,
+      featured_image_url: finalFeaturedImageUrl,
       categories: resolvedCategoryIds.map(String),
-      tags: resolvedTagIds.length > 0 ? resolvedTagIds.map(String) : tagList,
+      tags: resolvedTagIds.length > 0 ? resolvedTagIds.map(String) : resolvedTagNames,
       state: "syncing_to_wp",
       last_error: null,
       updated_at: new Date().toISOString(),
@@ -472,8 +519,8 @@ export async function processPostItem({
       },
       output: {
         categoryIds: resolvedCategoryIds,
-        tagNames: tagList,
-        featuredMediaId: resolvedEnrichment?.featuredMedia,
+        tagNames: resolvedTagNames,
+        featuredMediaId: finalFeaturedMediaId,
       },
       durationMs: 10,
     },
@@ -487,7 +534,7 @@ export async function processPostItem({
     applicationPassword: plainPassword,
     article: {
       title: generated.title,
-      contentHtml: generated.contentHtml,
+      contentHtml: finalContentHtml,
       excerpt: generated.excerpt,
       slug: generated.slug,
     },
@@ -495,9 +542,9 @@ export async function processPostItem({
       status: post.wp_target_status || "draft",
       categoryIds: resolvedCategoryIds.length > 0 ? resolvedCategoryIds : undefined,
       tagIds: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
-      tagNames: tagList,
+      tagNames: resolvedTagNames,
       authorId: resolvedAuthorId,
-      featuredMediaId: resolvedEnrichment?.featuredMedia,
+      featuredMediaId: finalFeaturedMediaId,
       date: post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined,
     },
   })

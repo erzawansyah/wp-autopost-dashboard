@@ -7,11 +7,13 @@ import { listCategoriesToolDef } from "./definitions/list-categories"
 import { listTagsToolDef } from "./definitions/list-tags"
 import { listAuthorsToolDef } from "./definitions/list-authors"
 import { keywordSuggestionsToolDef } from "./definitions/keyword-suggestions"
+import { setFeaturedImageToolDef } from "./definitions/set-featured-image"
 
 // Daftarkan seluruh tool baku sistem
 ToolRegistry.register(webSearchToolDef)
 ToolRegistry.register(webReaderToolDef)
 ToolRegistry.register(imageSearchToolDef)
+ToolRegistry.register(setFeaturedImageToolDef)
 ToolRegistry.register(uploadMediaToolDef)
 ToolRegistry.register(listCategoriesToolDef)
 ToolRegistry.register(listTagsToolDef)
@@ -28,3 +30,4 @@ export * from "./definitions/list-categories"
 export * from "./definitions/list-tags"
 export * from "./definitions/list-authors"
 export * from "./definitions/keyword-suggestions"
+export * from "./definitions/set-featured-image"

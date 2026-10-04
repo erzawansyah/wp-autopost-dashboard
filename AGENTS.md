@@ -88,6 +88,10 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
     - Seluruh pengembangan fitur pembuatan naskah wajib mengikuti arsitektur **Agent Profile Runtime** di `src/core/writer/`.
     - AI LLM diwajibkan menulis naskah dalam format **Markdown murni** terlebih dahulu, kemudian dikonversi deterministik ke **Native WordPress Gutenberg Blocks** (`<!-- wp:... -->`) sebelum dikirim ke WP REST API.
     - Dilindungi oleh **Anti-Infinite Loop Guards** (deduplikasi pemanggilan tool berturut-turut, circuit breaker setelah 2x gagal berturut-turut, hard limits, dan 1x emergency finalize call). Patuhi [`.agents/rules/writer-components-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/writer-components-standard.md).
+12. **Larangan Keras Hardcoding Prompt LLM (Externalize All Prompts to `src/core/shared/prompts/`)**:
+    - DILARANG KERAS menulis teks prompt (baik System Prompt, User Prompt template, Finalize Prompt, maupun prompt untuk WP Tools / modul AI lainnya) langsung di dalam kode TypeScript (`.ts`/`.tsx`).
+    - Seluruh prompt WAJIB disimpan dalam bentuk berkas terpisah (`.md`) di dalam direktori `src/core/shared/prompts/` dan dimuat menggunakan loader (`loadPrompt` / `loadSectionedPrompt` / `renderPrompt` dari `@/core/shared/prompts/loader`).
+    - Hal ini mutlak agar pengguna memiliki kendali penuh untuk mengontrol, mengedit, dan mengaudit setiap prompt secara mandiri tanpa harus memodifikasi kode sumber aplikasi. Patuhi [`.agents/rules/prompt-management.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/prompt-management.md).
 
 ---
 
@@ -106,6 +110,7 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
 | [`.agents/rules/skills-routing-matrix.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/skills-routing-matrix.md) | `.agents/rules/` | Matriks pemetaan jenis pekerjaan teknis ke skill AI wajib. |
 | [`.agents/rules/windows-shell-execution.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/windows-shell-execution.md) | `.agents/rules/` | Standar eksekusi perintah shell Windows (`npx.cmd`/`npm.cmd`) pencegah `PSSecurityException`. |
 | [`.agents/rules/writer-components-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/writer-components-standard.md) | `.agents/rules/` | Standar Agent Profile Runtime, Universal Tools, loop guard, dan Gutenberg serializer. |
+| [`.agents/rules/prompt-management.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/prompt-management.md) | `.agents/rules/` | Standar larangan hardcode prompt dan kewajiban externalize prompt ke `src/core/shared/prompts/`. |
 | [`.agents/worklogs/`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) | `.agents/worklogs/` | Catatan progres detail per milestone/fase untuk efisiensi context window. |
 | [`.agents/hooks.json`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/hooks.json) | `.agents/` | Lifecycle safety hooks untuk proteksi kredensial dan normalisasi perintah shell Windows. |
 

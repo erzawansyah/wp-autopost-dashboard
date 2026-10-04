@@ -4,6 +4,7 @@ import { decryptCredential } from "@/lib/crypto"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import { fetchWordPressCategories } from "@/lib/wordpress/client"
 import { callOpenRouterJson } from "@/lib/ai/completion"
+import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 
 export async function POST(request: Request) {
   try {
@@ -70,35 +71,12 @@ export async function POST(request: Request) {
       }>
     }>({
       apiKey: userKeys.openrouterKey,
-      systemPrompt: `Kamu adalah arsitek taksonomi konten & SEO WordPress.
-Tugasmu merancang struktur KATEGORI BARU di website WordPress berdasarkan instruksi pengguna.
-Kategori baru harus relevan, logis, tidak bertabrakan/duplikasi dengan kategori yang SUDAH ADA.
-
-Daftar Kategori yang SUDAH ADA di WordPress:
-${JSON.stringify(existingCategories, null, 2)}
-
-Pedoman:
-1. Rancang 3 - 6 kategori baru yang terstruktur dengan baik.
-2. 'name': Nama kategori formal dan rapi (Title Case, bahasa Indonesia).
-3. 'slug': Slug URL yang bersih dan SEO-friendly (lowercase dengan tanda hubung).
-4. 'parentId': ID kategori induk jika kategori ini merupakan sub-kategori dari kategori yang SUDAH ADA, atau 0 jika kategori tingkat atas.
-5. 'description': Deskripsi SEO singkat 1-2 kalimat untuk meta description arsip kategori.
-6. 'rationale': Alasan mengapa kategori ini memperkuat struktur website.`,
-      userPrompt: `Instruksi Pengguna: "${cleanPrompt}"
-
-Keluarkan JSON format:
-{
-  "suggestions": [
-    {
-      "name": "Nama Kategori",
-      "slug": "nama-kategori",
-      "parentId": 0,
-      "parentName": "",
-      "description": "Deskripsi singkat arsip kategori...",
-      "rationale": "Alasan perlunya kategori ini..."
-    }
-  ]
-}`,
+      systemPrompt: renderPrompt(loadSectionedPrompt("wp-tools-categories-suggest.md").systemPrompt, {
+        existingCategories: JSON.stringify(existingCategories, null, 2),
+      }),
+      userPrompt: renderPrompt(loadSectionedPrompt("wp-tools-categories-suggest.md").userPromptTemplate, {
+        userPrompt: cleanPrompt,
+      }),
     })
 
     return NextResponse.json({

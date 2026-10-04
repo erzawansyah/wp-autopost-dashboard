@@ -4,6 +4,7 @@ import { decryptCredential } from "@/lib/crypto"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import { searchWordPressPosts, WPPostSummary } from "@/lib/wordpress/client"
 import { callOpenRouterJson } from "@/lib/ai/completion"
+import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 
 export async function POST(request: Request) {
   try {
@@ -48,21 +49,18 @@ export async function POST(request: Request) {
     const userKeys = await getUserDecryptedKeys(user.id)
 
     // 2. Tahap AI 1: Ekstraksi Topik & Pembuatan Query Pencarian WP REST API
+    const extractPromptConfig = loadSectionedPrompt("wp-tools-link-extract.md")
     const extracted = await callOpenRouterJson<{
       topicSummary: string
       searchQueries: string[]
     }>({
       apiKey: userKeys.openrouterKey,
-      systemPrompt: `Kamu adalah pakar riset SEO WordPress. Tugasmu menganalisis URL artikel baru (dan keyword/instruksi jika ada) untuk mengekstrak topik utama dan merumuskan 3-4 query pencarian yang berbeda untuk mencari artikel-artikel LAMA yang relevan di WordPress via REST API search.`,
-      userPrompt: `URL Artikel Baru: ${cleanUrl}
-Kata Kunci Target (Opsional): ${targetKeyword || "-"}
-Instruksi Tambahan (Opsional): ${extraInstructions || "-"}
-
-Keluarkan JSON dengan format:
-{
-  "topicSummary": "string ringkasan topik spesifik artikel baru",
-  "searchQueries": ["query1", "query2", "query3"]
-}`,
+      systemPrompt: extractPromptConfig.systemPrompt,
+      userPrompt: renderPrompt(extractPromptConfig.userPromptTemplate, {
+        cleanUrl,
+        targetKeyword: targetKeyword || "-",
+        extraInstructions: extraInstructions || "-",
+      }),
     })
 
     const queries = Array.isArray(extracted?.searchQueries) && extracted.searchQueries.length > 0
@@ -145,23 +143,15 @@ Keluarkan JSON dengan format:
       }>
     }>({
       apiKey: userKeys.openrouterKey,
-      systemPrompt: `Kamu adalah pakar Internal Link Building SEO tingkat lanjut.
-Kami memiliki ARTIKEL BARU yang baru saja diterbitkan:
-URL: ${cleanUrl}
-Topik Utama: ${extracted.topicSummary}
-Keyword: ${targetKeyword || extracted.topicSummary}
-
-Kami telah mengumpulkan cuplikan naskah dari artikel-artikel LAMA yang sudah terbit di situs WordPress pengguna.
-Tugasmu adalah membedah naskah artikel lama tersebut, mencari kalimat atau paragraf spesifik yang paling pas untuk disisipkan tautan menuju ARTIKEL BARU tersebut.
-
-Pedoman Penting:
-1. 'anchorText': Wajib teks yang mengalir alami dalam bahasa Indonesia (bisa exact match, partial match, atau variasi kontekstual). JANGAN membuat anchor kaku seperti "klik disini".
-2. 'sentenceOriginal': Cuplikan kalimat ASLI (1-2 kalimat) yang benar-benar ada di dalam 'sampleExcerpt' artikel lama tersebut.
-3. 'sentenceWithLink': Kalimat yang sama persis dengan 'sentenceOriginal', namun bagian anchor text telah dibungkus tautan HTML persis: <a href="${cleanUrl}">${"{anchorText}"}</a>.
-4. 'relevanceReason': Alasan singkat 1 kalimat dalam bahasa Indonesia mengapa tautan ini menambah nilai bagi pembaca artikel lama tersebut.
-5. 'relevanceScore': Skor relevansi angka 50 - 100.
-6. HANYA rekomendasikan artikel lama yang benar-benar relevan secara topikal.`,
-      userPrompt: `ARTIKEL LAMA:\n${JSON.stringify(simplifiedCandidates, null, 2)}\n\nKeluarkan JSON dengan format:\n{\n  "recommendations": [\n    {\n      "postId": 123,\n      "postTitle": "Judul Postingan Lama",\n      "postLink": "https://...",\n      "anchorText": "nama anchor",\n      "sentenceOriginal": "kalimat asli...",\n      "sentenceWithLink": "kalimat asli dengan <a href=\\"${cleanUrl}\\">nama anchor</a>...",\n      "relevanceReason": "alasan relevansi",\n      "relevanceScore": 92\n    }\n  ]\n}`,
+      systemPrompt: renderPrompt(loadSectionedPrompt("wp-tools-link-recommend.md").systemPrompt, {
+        cleanUrl,
+        topicSummary: extracted.topicSummary,
+        targetKeyword: targetKeyword || extracted.topicSummary,
+      }),
+      userPrompt: renderPrompt(loadSectionedPrompt("wp-tools-link-recommend.md").userPromptTemplate, {
+        candidatesJson: JSON.stringify(simplifiedCandidates, null, 2),
+        cleanUrl,
+      }),
     })
 
     const validRecommendations = Array.isArray(analysis?.recommendations)

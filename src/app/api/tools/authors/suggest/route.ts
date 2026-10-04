@@ -4,6 +4,7 @@ import { decryptCredential } from "@/lib/crypto"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import { fetchWordPressUsers } from "@/lib/wordpress/client"
 import { callOpenRouterJson } from "@/lib/ai/completion"
+import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 
 export async function POST(request: Request) {
   try {
@@ -76,40 +77,14 @@ export async function POST(request: Request) {
       }>
     }>({
       apiKey: userKeys.openrouterKey,
-      systemPrompt: `Kamu adalah konsultan strategi editorial & Google E-E-A-T untuk WordPress.
-Tugasmu merancang PERSONA PENULIS (Author Persona) baru yang kredibel dan autentik berdasarkan instruksi pengguna.
-Persona baru harus memiliki keunikan suara dan keahlian nyata tanpa menduplikasi gaya author yang SUDAH ADA.
-
-Daftar Author yang SUDAH ADA di WordPress:
-${JSON.stringify(existingUsers, null, 2)}
-
-Domain Website: ${domainHost}
-
-Pedoman:
-1. Rancang 2 - 3 pilihan persona baru yang realistis.
-2. 'name': Nama manusia asli Indonesia yang terdengar profesional dan natural.
-3. 'username': Username unik huruf kecil tanpa spasi (misal: "budi.santoso").
-4. 'email': Email persona dengan domain website (misal: "budi@${domainHost}").
-5. 'role': Salah satu dari "author", "editor", atau "contributor".
-6. 'bio': Biografi profil 2-3 kalimat standar Google E-E-A-T (menjelaskan latar belakang pengalaman, bidang keahlian, dan dedikasi pada topik).
-7. 'expertise': 2-4 bidang keahlian utama singkat (misal: "Specialty Coffee, Manual Brewing, Roasting").
-8. 'rationale': Alasan mengapa persona ini meningkatkan kepercayaan audiens dan Google.`,
-      userPrompt: `Instruksi Pengguna: "${cleanPrompt}"
-
-Keluarkan JSON format:
-{
-  "suggestions": [
-    {
-      "name": "Nama Penulis",
-      "username": "username.penulis",
-      "email": "username@${domainHost}",
-      "role": "author",
-      "bio": "Biografi profesional E-E-A-T...",
-      "expertise": "Keahlian Utama",
-      "rationale": "Alasan persona ini bagus..."
-    }
-  ]
-}`,
+      systemPrompt: renderPrompt(loadSectionedPrompt("wp-tools-authors-suggest.md").systemPrompt, {
+        existingUsers: JSON.stringify(existingUsers, null, 2),
+        domainHost,
+      }),
+      userPrompt: renderPrompt(loadSectionedPrompt("wp-tools-authors-suggest.md").userPromptTemplate, {
+        userPrompt: cleanPrompt,
+        domainHost,
+      }),
     })
 
     return NextResponse.json({

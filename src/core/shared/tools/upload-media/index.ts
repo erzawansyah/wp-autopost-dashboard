@@ -1,4 +1,5 @@
 import { normalizeAndValidateWpUrl, makeAuthHeader } from "@/lib/wordpress/client"
+import { findExistingUploadedMedia, recordUploadedMedia } from "@/core/shared/media/media-repository"
 
 export interface UploadMediaParams {
   imageUrl: string
@@ -9,6 +10,9 @@ export interface UploadMediaParams {
   baseUrl?: string
   username?: string
   applicationPassword?: string
+  siteId?: string
+  userId?: string
+  postId?: string | null
   timeoutMs?: number
 }
 
@@ -20,6 +24,7 @@ export interface UploadMediaResult {
   altText?: string
   caption?: string
   isSimulated?: boolean
+  isCached?: boolean
   error?: string
 }
 
@@ -48,6 +53,7 @@ function getMimeAndExt(contentType: string | null, url: string): { mime: string;
 /**
  * Universal Tool: uploadMediaToWordPress (upload_media)
  * Mengunduh gambar dari URL dan mengunggahnya ke WordPress Media Library via REST API standar (/wp-json/wp/v2/media).
+ * Dilengkapi dengan Cache Deduplikasi (tabel `uploaded_media`) agar tidak mengunggah ulang gambar yang sama.
  */
 export async function uploadMediaToWordPress(
   params: UploadMediaParams
@@ -59,6 +65,25 @@ export async function uploadMediaToWordPress(
       mediaId: 0,
       sourceUrl: "",
       error: "URL gambar tidak valid atau kosong.",
+    }
+  }
+
+  // 0. Cek Cache Deduplikasi Media di Database Supabase
+  if (params.siteId && imageUrl) {
+    const cached = await findExistingUploadedMedia({
+      siteId: params.siteId,
+      sourceUrl: imageUrl,
+    })
+    if (cached) {
+      return {
+        ok: true,
+        mediaId: cached.imageId,
+        sourceUrl: cached.siteUrl,
+        title: cached.metadata?.title || params.title || "Foto Terupload",
+        altText: cached.metadata?.alt || params.altText,
+        caption: cached.metadata?.caption || params.caption,
+        isCached: true,
+      }
     }
   }
 
@@ -101,7 +126,6 @@ export async function uploadMediaToWordPress(
       },
       signal: downloadController.signal,
     })
-
     clearTimeout(downloadTimer)
 
     if (!imageRes.ok) {
@@ -109,42 +133,53 @@ export async function uploadMediaToWordPress(
         ok: false,
         mediaId: 0,
         sourceUrl: imageUrl,
-        error: `Gagal mengunduh gambar dari sumber asal (HTTP ${imageRes.status}).`,
+        error: `Gagal mengunduh gambar asal dari URL (Status HTTP: ${imageRes.status})`,
       }
     }
 
+    const contentType = imageRes.headers.get("content-type")
+    const { mime, ext } = getMimeAndExt(contentType, imageUrl)
     const imageBuffer = await imageRes.arrayBuffer()
-    const { mime, ext } = getMimeAndExt(imageRes.headers.get("content-type"), imageUrl)
-    const baseName = sanitizeFilename(params.filename || params.title || "foto-artikel")
-    const uploadFilename = `${baseName}-${Date.now().toString().slice(-4)}.${ext}`
 
-    // 2. Unggah ke WordPress REST API /wp-json/wp/v2/media
-    const uploadController = new AbortController()
-    const uploadTimer = setTimeout(() => uploadController.abort(), timeoutMs)
-
-    const uploadEndpoint = `${normalizedUrl}/wp-json/wp/v2/media`
-    const uploadRes = await fetch(uploadEndpoint, {
-      method: "POST",
-      headers: {
-        Authorization: makeAuthHeader(params.username, params.applicationPassword),
-        "Content-Disposition": `attachment; filename="${uploadFilename}"`,
-        "Content-Type": mime,
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
-      },
-      body: Buffer.from(imageBuffer),
-      signal: uploadController.signal,
-    })
-
-    clearTimeout(uploadTimer)
-
-    if (!uploadRes.ok) {
-      const errBody = await uploadRes.json().catch(() => ({}))
-      const msg = errBody?.message || `Gagal mengunggah media ke WordPress (HTTP ${uploadRes.status}).`
+    if (!imageBuffer || imageBuffer.byteLength === 0) {
       return {
         ok: false,
         mediaId: 0,
         sourceUrl: imageUrl,
-        error: msg,
+        error: "Buffer gambar kosong (0 byte).",
+      }
+    }
+
+    const rawFilename = params.filename || params.altText || params.title || "foto-artikel"
+    const safeBaseName = sanitizeFilename(rawFilename)
+    const finalFilename = `${safeBaseName}-${Date.now().toString().slice(-4)}.${ext}`
+
+    // 2. Upload biner gambar ke endpoint WordPress REST API /wp-json/wp/v2/media
+    const uploadController = new AbortController()
+    const uploadTimer = setTimeout(() => uploadController.abort(), timeoutMs)
+
+    const uploadRes = await fetch(`${normalizedUrl}/wp-json/wp/v2/media`, {
+      method: "POST",
+      headers: {
+        Authorization: makeAuthHeader(params.username, params.applicationPassword),
+        "Content-Disposition": `attachment; filename="${finalFilename}"`,
+        "Content-Type": mime,
+        "User-Agent": "WP-Autopost-Dashboard/1.0",
+        Accept: "application/json",
+      },
+      body: Buffer.from(imageBuffer),
+      signal: uploadController.signal,
+    })
+    clearTimeout(uploadTimer)
+
+    if (!uploadRes.ok) {
+      const errBody = await uploadRes.json().catch(() => null)
+      const errDetail = errBody?.message || `Status HTTP ${uploadRes.status}`
+      return {
+        ok: false,
+        mediaId: 0,
+        sourceUrl: imageUrl,
+        error: `WordPress menolak upload media: ${errDetail}`,
       }
     }
 
@@ -171,6 +206,24 @@ export async function uploadMediaToWordPress(
       } catch {
         // Abaikan kegagalan update metadata sekunder jika file utama sudah terunggah
       }
+    }
+
+    // 4. Rekam ke Cache Deduplikasi Media di Database Supabase
+    if (params.siteId && wpSourceUrl && mediaId) {
+      void recordUploadedMedia({
+        userId: params.userId,
+        siteId: params.siteId,
+        postId: params.postId,
+        sourceUrl: imageUrl,
+        siteUrl: wpSourceUrl,
+        imageId: mediaId,
+        metadata: {
+          alt: params.altText,
+          caption: params.caption,
+          title: params.title,
+          mime,
+        },
+      })
     }
 
     return {
