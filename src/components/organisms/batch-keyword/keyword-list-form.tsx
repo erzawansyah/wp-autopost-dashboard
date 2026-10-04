@@ -21,6 +21,7 @@ import {
   Zap,
   Globe,
   Brain,
+  Bookmark,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
@@ -106,11 +107,12 @@ export function KeywordListForm({
 
   const advancedOptionsCount = React.useMemo(() => {
     let count = 0
+    if (batchName.trim().length > 0) count++
     if (selectedCategoryIds.length > 0) count++
     if (tagsInput.trim().length > 0) count++
     if (customBrief.trim().length > 0) count++
     return count
-  }, [selectedCategoryIds, tagsInput, customBrief])
+  }, [batchName, selectedCategoryIds, tagsInput, customBrief])
 
   const handleResetForm = () => {
     setRawKeywordsText("")
@@ -357,65 +359,50 @@ export function KeywordListForm({
             {/* TAB 1: ESSENTIAL / WAJIB (Input Utama Batch)             */}
             {/* ========================================================= */}
             <TabsContent value="essential" className="mt-0 flex flex-col gap-6">
-              {/* 1. Pemilihan Situs WordPress, Bahasa Artikel, & Nama Batch */}
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="site-select" className="text-xs font-medium text-foreground">
-                Website WordPress Target <span className="text-destructive">*</span>
-              </Label>
-              <Select
-                value={selectedSiteId}
-                onValueChange={setSelectedSiteId}
-                disabled={isLoadingSites || isSubmitting}
-              >
-                <SelectTrigger id="site-select" className="w-full text-xs">
-                  <SelectValue placeholder="Pilih website WordPress..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {sites.map((site) => (
-                    <SelectItem key={site.id} value={site.id} className="text-xs">
-                      {site.site_name} ({site.base_url.replace(/^https?:\/\//, "")})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+              {/* 1. Grid 3 Kolom: Website Target, Profil Agen, & Bahasa Artikel (Konsisten dengan Tulis Cepat) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start">
+                {/* Kolom 1: Website WordPress Target */}
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="site-select" className="text-xs font-medium text-foreground">
+                    Website WordPress Target <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={selectedSiteId}
+                    onValueChange={setSelectedSiteId}
+                    disabled={isLoadingSites || isSubmitting}
+                  >
+                    <SelectTrigger id="site-select" className="h-9 w-full text-xs bg-background">
+                      <SelectValue placeholder="Pilih website WordPress..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sites.map((site) => (
+                        <SelectItem key={site.id} value={site.id} className="text-xs">
+                          {site.site_name} ({site.base_url.replace(/^https?:\/\//, "")})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="language-select" className="text-xs font-medium text-foreground">
-                Bahasa Artikel <span className="text-destructive">*</span>
-              </Label>
-              <LanguageSelect
-                value={language}
-                onValueChange={setLanguage}
-                disabled={isSubmitting}
-              />
-            </div>
+                {/* Kolom 2: Profil Agen Kepenulisan */}
+                <AgentProfileSelect
+                  value={engine}
+                  onChange={setEngine}
+                  disabled={isSubmitting}
+                />
 
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="batch-name" className="text-xs font-medium text-foreground">
-                Nama Batch (Opsional)
-              </Label>
-              <Input
-                id="batch-name"
-                type="text"
-                placeholder="Contoh: Niche Berkebun Oktober (Opsional)"
-                value={batchName}
-                onChange={(e) => setBatchName(e.target.value)}
-                disabled={isSubmitting}
-                className="text-xs"
-              />
-            </div>
-          </div>
-
-          {/* 2. Pilihan Profil Agen Kepenulisan */}
-          <div className="flex flex-col gap-2.5 rounded-lg border border-border/80 bg-muted/15 p-3.5">
-            <AgentProfileSelect
-              value={engine}
-              onChange={setEngine}
-              disabled={isSubmitting}
-            />
-          </div>
+                {/* Kolom 3: Bahasa Artikel */}
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="language-select" className="text-xs font-medium text-foreground">
+                    Bahasa Artikel <span className="text-destructive">*</span>
+                  </Label>
+                  <LanguageSelect
+                    value={language}
+                    onValueChange={setLanguage}
+                    disabled={isSubmitting}
+                  />
+                </div>
+              </div>
 
           {/* 3. Kolom List Kata Kunci (Textarea 1 Baris = 1 Keyword) */}
           <div className="flex flex-col gap-2">
@@ -548,6 +535,26 @@ export function KeywordListForm({
                 <Info className="size-4 text-primary shrink-0 mt-0.5" />
                 <p className="leading-relaxed">
                   Pengaturan lanjutan di bawah ini bersifat opsional. Konfigurasi kategori, tag, dan instruksi tambahan yang ditentukan di sini akan diterapkan secara serentak ke seluruh artikel dalam batch kata kunci ini.
+                </p>
+              </div>
+
+              {/* Nama Batch (Opsional) */}
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="batch-name" className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+                  <Bookmark className="size-3.5 text-primary" />
+                  Nama Batch (Opsional)
+                </Label>
+                <Input
+                  id="batch-name"
+                  type="text"
+                  placeholder="Contoh: Niche Berkebun Oktober (Opsional)"
+                  value={batchName}
+                  onChange={(e) => setBatchName(e.target.value)}
+                  disabled={isSubmitting}
+                  className="bg-background text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Beri label kelompok untuk memudahkan pelacakan antrean. Jika dikosongkan, sistem akan membuatkan nama otomatis.
                 </p>
               </div>
 
