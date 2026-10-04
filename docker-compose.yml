@@ -53,14 +53,20 @@ services:
     #   - .env
 
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
 
   searxng:
-    container_name: searxng
+    container_name: searxng-internal
     image: searxng/searxng:latest
     restart: unless-stopped
     # Hanya di-expose ke internal docker network (tidak membuka port ke internet/host luar)
@@ -72,7 +78,11 @@ services:
       - SEARXNG_BASE_URL=http://searxng:8080/
       - SEARXNG_SECRET=${SEARXNG_SECRET:-wp-autopost-dashboard-searxng-internal-key-change-if-public}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://127.0.0.1:8080/healthz || exit 1",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
