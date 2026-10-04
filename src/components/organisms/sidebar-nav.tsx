@@ -20,6 +20,7 @@ import {
   BookOpen,
   PanelLeftClose,
   PanelLeftOpen,
+  TableProperties,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
@@ -44,6 +45,7 @@ const primaryNavItems: NavItem[] = [
 const contentNavItems: NavItem[] = [
   { title: "Tulis Cepat", href: "/posts/new", icon: PenLine },
   { title: "Tulis Massal", href: "/queue", icon: Layers, badge: "Batch" },
+  { title: "Tulis Terstruktur", href: "/write/structured", icon: TableProperties, badge: "CSV" },
 ]
 
 const bottomNavItems: NavItem[] = [
@@ -62,6 +64,7 @@ const ALL_NAV_HREFS = [
   "/queue/items",
   "/posts/new",
   "/queue",
+  "/write/structured",
   "/tools",
   "/agents",
   "/skills",

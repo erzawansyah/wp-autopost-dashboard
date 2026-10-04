@@ -212,7 +212,7 @@ export function parseUniversalBatchInput(
   options?: {
     forcedDelimiter?: string
     forcedHasHeader?: boolean
-    customRoles?: ColumnRole[]
+    customRoles?: Record<number, ColumnRole> | ColumnRole[]
   }
 ): UniversalParseResult {
   const errors: string[] = []
@@ -370,3 +370,5 @@ export function parseUniversalBatchInput(
     errors,
   }
 }
+
+export const parseUniversalBatch = parseUniversalBatchInput
