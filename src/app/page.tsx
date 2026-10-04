@@ -67,6 +67,7 @@ function DashboardContent() {
   const [posts, setPosts] = React.useState<DashboardPost[]>([])
   const [sites, setSites] = React.useState<DashboardSite[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
+  const [processingItemIds, setProcessingItemIds] = React.useState<string[]>([])
   const [currentUser, setCurrentUser] = React.useState<DashboardUser | null>(null)
 
   // Fetch initial data dengan loading state
@@ -248,17 +249,39 @@ function DashboardContent() {
   }
 
   const handleRetryPost = async (id: string) => {
+    if (processingItemIds.includes(id)) return
+    setProcessingItemIds((prev) => [...prev, id])
+
+    // Optimistic UI update jika queued_input
+    setPosts((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, state: "generating_content" as const } : item
+      )
+    )
+
     try {
-      const res = await fetch(`/api/posts/${id}`, { method: "POST" })
+      const targetPost = posts.find((p) => p.id === id)
+      let res: Response
+      if (targetPost?.state === "queued_input") {
+        res = await fetch("/api/queue/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ postId: id, forceNow: true }),
+        })
+      } else {
+        res = await fetch(`/api/posts/${id}`, { method: "POST" })
+      }
       const data = await res.json()
       if (!res.ok) {
-        alert(data.error || "Gagal mengirim ulang artikel ke WordPress.")
+        alert(data.error || "Gagal memproses artikel.")
         return
       }
 
       await loadData()
     } catch {
-      alert("Terjadi gangguan jaringan saat mengirim ulang artikel.")
+      alert("Terjadi gangguan jaringan saat memproses artikel.")
+    } finally {
+      setProcessingItemIds((prev) => prev.filter((itemId) => itemId !== id))
     }
   }
 
@@ -454,6 +477,7 @@ function DashboardContent() {
 
             <QueueDataTable
               items={tableItems}
+              processingItemIds={processingItemIds}
               onRetryItem={handleRetryPost}
               onDeleteItem={handleDeletePost}
               onBulkDelete={handleBulkDelete}

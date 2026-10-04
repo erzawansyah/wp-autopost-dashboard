@@ -14,6 +14,7 @@ export interface ProcessPostItemOptions {
   userId?: string
   clientApiKey?: string
   isAlreadyClaimed?: boolean
+  forceNow?: boolean
 }
 
 export interface ProcessPostItemResult {
@@ -47,6 +48,7 @@ export async function processPostItem({
   userId,
   clientApiKey,
   isAlreadyClaimed,
+  forceNow,
 }: ProcessPostItemOptions): Promise<ProcessPostItemResult> {
   const startTime = Date.now()
   const supabase = await getSupabaseClient()
@@ -528,7 +530,7 @@ export async function processPostItem({
   })
 
   // 6. Kirim ke WordPress REST API via publishPostToWordPress tool
-  const isFutureDate = post.scheduled_for && new Date(post.scheduled_for).getTime() > Date.now()
+  const isFutureDate = !forceNow && post.scheduled_for && new Date(post.scheduled_for).getTime() > Date.now()
   const targetWpStatus = post.wp_target_status === "draft"
     ? "draft"
     : isFutureDate
@@ -553,7 +555,7 @@ export async function processPostItem({
       tagNames: resolvedTagNames,
       authorId: resolvedAuthorId,
       featuredMediaId: finalFeaturedMediaId,
-      date: post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined,
+      date: !forceNow && post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined,
     },
   })
   const wpPublishDuration = Date.now() - wpPublishStart
@@ -783,7 +785,7 @@ export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueu
     const batchMode =
       (item.content_batches as { execution_mode?: string } | null)?.execution_mode ||
       (item.source_payload as { execution_mode?: string } | null)?.execution_mode ||
-      "immediate"
+      (item.scheduled_for ? "scheduled_drip" : "immediate")
 
     if (batchMode === "immediate") {
       return true

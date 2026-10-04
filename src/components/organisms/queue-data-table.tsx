@@ -36,6 +36,7 @@ import {
   Filter,
   X,
   RotateCcw,
+  Loader2,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -65,6 +66,7 @@ export interface QueueTableItem {
 interface QueueDataTableProps {
   items: QueueTableItem[]
   initialStatus?: string
+  processingItemIds?: string[]
   onRetryItem?: (id: string) => void
   onDeleteItem?: (id: string) => void
   onBulkDelete?: (selectedIds: string[]) => Promise<void> | void
@@ -74,6 +76,7 @@ interface QueueDataTableProps {
 export function QueueDataTable({
   items,
   initialStatus,
+  processingItemIds = [],
   onRetryItem,
   onDeleteItem,
   onBulkDelete,
@@ -522,11 +525,20 @@ export function QueueDataTable({
                           <Button
                             variant="outline"
                             size="icon-xs"
+                            disabled={processingItemIds.includes(item.id)}
                             onClick={() => onRetryItem(item.id)}
-                            className="size-7 text-destructive border-destructive/30 hover:bg-destructive/10"
-                            title="Kirim ulang ke WordPress"
+                            className="size-7 text-destructive border-destructive/30 hover:bg-destructive/10 disabled:opacity-70"
+                            title={
+                              processingItemIds.includes(item.id)
+                                ? "Sedang mengirim ulang..."
+                                : "Kirim ulang ke WordPress"
+                            }
                           >
-                            <RefreshCw className="size-3.5" />
+                            {processingItemIds.includes(item.id) ? (
+                              <Loader2 className="size-3.5 animate-spin text-destructive" />
+                            ) : (
+                              <RefreshCw className="size-3.5" />
+                            )}
                           </Button>
                         )}
 
@@ -534,11 +546,20 @@ export function QueueDataTable({
                           <Button
                             variant="outline"
                             size="icon-xs"
+                            disabled={processingItemIds.includes(item.id)}
                             onClick={() => onRetryItem(item.id)}
-                            className="size-7 text-primary border-primary/30 hover:bg-primary/10"
-                            title="Jalankan sekarang"
+                            className="size-7 text-primary border-primary/30 hover:bg-primary/10 disabled:opacity-70"
+                            title={
+                              processingItemIds.includes(item.id)
+                                ? "Sedang memproses..."
+                                : "Jalankan sekarang"
+                            }
                           >
-                            <Play className="size-3.5" />
+                            {processingItemIds.includes(item.id) ? (
+                              <Loader2 className="size-3.5 animate-spin text-primary" />
+                            ) : (
+                              <Play className="size-3.5" />
+                            )}
                           </Button>
                         )}
 

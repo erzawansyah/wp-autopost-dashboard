@@ -101,8 +101,16 @@ export async function POST(request: Request) {
       // Body kosong diperbolehkan
     }
 
-    const postId = (body.postId as string) || undefined
-    const parsedLimit = Number(body.limit)
+    const url = new URL(request.url)
+    const postId =
+      (typeof body.postId === "string" && body.postId.trim() ? body.postId.trim() : undefined) ||
+      (typeof body.id === "string" && body.id.trim() ? body.id.trim() : undefined) ||
+      url.searchParams.get("postId") ||
+      url.searchParams.get("id") ||
+      undefined
+
+    const forceNow = Boolean(body.forceNow || url.searchParams.get("forceNow") === "true")
+    const parsedLimit = Number(body.limit || url.searchParams.get("limit"))
     const limit = Math.min(isNaN(parsedLimit) || parsedLimit <= 0 ? 5 : parsedLimit, 10)
 
     // Proses satu item spesifik berdasarkan postId
@@ -110,6 +118,7 @@ export async function POST(request: Request) {
       const result = await processPostItem({
         postId,
         userId: auth.user?.id,
+        forceNow,
       })
       if (isPlain) {
         const now = getFormattedTimestamp()
@@ -125,6 +134,24 @@ export async function POST(request: Request) {
         )
       }
       return NextResponse.json({ ok: result.success, result })
+    }
+
+    // PENGAMAN KRITIS: Jika dipanggil oleh sesi pengguna (bukan cron) dan tanpa postId,
+    // TOLAK eksekusi massal kecuali jika secara eksplisit meminta 'process_all' atau ?all=true.
+    // Ini mencegah ketidaksengajaan terprosesnya seluruh antrean ketika user mengklik tombol item tunggal.
+    const isExplicitBatchRequest =
+      body.action === "process_all" ||
+      body.processAll === true ||
+      url.searchParams.get("all") === "true"
+
+    if (!auth.isCron && !isExplicitBatchRequest) {
+      return NextResponse.json(
+        {
+          error:
+            "Parameter postId diperlukan untuk memproses artikel. Gunakan action: 'process_all' jika ingin memproses seluruh antrean.",
+        },
+        { status: 400 }
+      )
     }
 
     // 1. ATOMIC CLAIM: Kunci item terlama dari database seketika
@@ -209,7 +236,8 @@ export async function GET(request: Request) {
 
   try {
     const { searchParams } = new URL(request.url)
-    const postId = searchParams.get("postId") || undefined
+    const postId = searchParams.get("postId") || searchParams.get("id") || undefined
+    const forceNow = searchParams.get("forceNow") === "true"
     const parsedLimit = Number(searchParams.get("limit"))
     const limit = Math.min(isNaN(parsedLimit) || parsedLimit <= 0 ? 5 : parsedLimit, 10)
 
@@ -218,6 +246,7 @@ export async function GET(request: Request) {
       const result = await processPostItem({
         postId,
         userId: auth.user?.id,
+        forceNow,
       })
       if (isPlain) {
         const now = getFormattedTimestamp()
@@ -233,6 +262,22 @@ export async function GET(request: Request) {
         )
       }
       return NextResponse.json({ ok: result.success, result })
+    }
+
+    // PENGAMAN KRITIS: Jika dipanggil oleh sesi pengguna (bukan cron) dan tanpa postId,
+    // TOLAK eksekusi massal kecuali jika secara eksplisit meminta ?all=true atau action=process_all.
+    const isExplicitBatchRequest =
+      searchParams.get("all") === "true" ||
+      searchParams.get("action") === "process_all"
+
+    if (!auth.isCron && !isExplicitBatchRequest) {
+      return NextResponse.json(
+        {
+          error:
+            "Parameter postId diperlukan untuk memproses artikel. Gunakan ?all=true jika ingin memproses seluruh antrean.",
+        },
+        { status: 400 }
+      )
     }
 
     // 1. ATOMIC CLAIM

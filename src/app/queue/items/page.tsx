@@ -40,6 +40,7 @@ function QueueItemsContent() {
 
   const [queueItems, setQueueItems] = React.useState<QueueTableItem[]>([])
   const [isLoadingQueue, setIsLoadingQueue] = React.useState(true)
+  const [processingItemIds, setProcessingItemIds] = React.useState<string[]>([])
 
   const [selectedBatchFilter, setSelectedBatchFilter] = React.useState<string>(initialBatchId)
 
@@ -154,16 +155,28 @@ function QueueItemsContent() {
 
   // Retry item gagal, atau jalankan sekarang untuk item berstatus queued_input
   const handleRetryItem = async (id: string) => {
+    if (processingItemIds.includes(id)) return
+
+    setProcessingItemIds((prev) => [...prev, id])
+    // Optimistic UI update: ubah status ke generating_content
+    setQueueItems((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, status: "generating_content" as const } : item
+      )
+    )
+
     try {
       await fetch("/api/queue/process", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: id }),
+        body: JSON.stringify({ postId: id, forceNow: true }),
       })
-      fetchQueue()
-      fetchBatches()
     } catch (err) {
       console.error("[QueueItemsPage] Error retrying item:", err)
+    } finally {
+      setProcessingItemIds((prev) => prev.filter((itemId) => itemId !== id))
+      await fetchQueue()
+      await fetchBatches()
     }
   }
 
@@ -320,6 +333,7 @@ function QueueItemsContent() {
           )}
           <QueueDataTable
             items={filteredQueueItems}
+            processingItemIds={processingItemIds}
             onRetryItem={handleRetryItem}
           />
         </div>
@@ -396,6 +410,7 @@ function QueueItemsContent() {
                   <CardContent className="p-0">
                     <QueueDataTable
                       items={group.items}
+                      processingItemIds={processingItemIds}
                       onRetryItem={handleRetryItem}
                     />
                   </CardContent>
