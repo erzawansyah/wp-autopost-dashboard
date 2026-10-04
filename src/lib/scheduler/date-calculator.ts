@@ -12,12 +12,14 @@ export type ScheduleMode = "random" | "interval" | "instant"
 export interface RandomScheduleConfig {
   startDate: string // ISO string atau datetime-local "YYYY-MM-DDTHH:mm"
   endDate: string // ISO string atau datetime-local "YYYY-MM-DDTHH:mm"
+  wpTargetStatus?: "publish" | "draft"
 }
 
 export interface IntervalScheduleConfig {
   startDate: string // ISO string atau datetime-local "YYYY-MM-DDTHH:mm"
   intervalHours: number // contoh: 2, 6, 12, 24, atau 32 jam sekali
   enableJitter?: boolean // default: true (variasi menit acak agar natural)
+  wpTargetStatus?: "publish" | "draft"
 }
 
 export interface InstantScheduleConfig {
@@ -114,7 +116,7 @@ export function calculateScheduleDates(options: ScheduleCalculationOptions): Sch
           index: idx,
           scheduledFor: slotDate,
           formattedDisplay: formatIndonesianDateTime(slotDate),
-          wpTargetStatus: "publish",
+          wpTargetStatus: randomConfig?.wpTargetStatus || "publish",
         })
       })
       break
@@ -145,7 +147,7 @@ export function calculateScheduleDates(options: ScheduleCalculationOptions): Sch
           index: i,
           scheduledFor: slotDate,
           formattedDisplay: formatIndonesianDateTime(slotDate),
-          wpTargetStatus: "publish",
+          wpTargetStatus: intervalConfig?.wpTargetStatus || "publish",
         })
       }
       break

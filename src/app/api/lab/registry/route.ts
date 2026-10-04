@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { isLabAuthorizedUser } from "@/lib/constants/auth"
+import { hasLabAccess } from "@/lib/constants/auth"
 import { BUILTIN_AGENT_PROFILES, BUILTIN_PRESETS } from "@/core/writer/profiles"
 import { ToolRegistry } from "@/core/writer/tools"
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
@@ -13,8 +13,16 @@ export async function GET() {
       error: authError,
     } = await supabase.auth.getUser()
 
-    if (authError || !user || !isLabAuthorizedUser(user.email)) {
-      return NextResponse.json({ error: "Forbidden: Akses Laboratorium dibatasi" }, { status: 403 })
+    if (authError || !user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+
+    const authorized = await hasLabAccess(supabase, user)
+    if (!authorized) {
+      return NextResponse.json(
+        { error: "Forbidden: Aktifkan Developer Mode di Pengaturan Profil untuk mengakses Laboratorium" },
+        { status: 403 }
+      )
     }
 
     // Ambil daftar website pengguna untuk memudahkan pengujian tools langsung

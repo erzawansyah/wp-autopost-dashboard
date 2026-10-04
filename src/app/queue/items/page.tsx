@@ -1,13 +1,9 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useSearchParams } from "next/navigation"
 import {
   ListChecks,
-  Plus,
-  RefreshCw,
-  History,
   Filter,
   X,
   Globe,
@@ -18,6 +14,7 @@ import {
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
+import { BatchModuleActions } from "@/components/molecules/batch-module-actions"
 import { Button } from "@/components/atoms/button"
 import { Badge } from "@/components/atoms/badge"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/atoms/card"
@@ -155,7 +152,7 @@ function QueueItemsContent() {
     }
   }
 
-  // Retry item antrean tunggal
+  // Retry item gagal, atau jalankan sekarang untuk item berstatus queued_input
   const handleRetryItem = async (id: string) => {
     try {
       await fetch("/api/queue/process", {
@@ -234,51 +231,19 @@ function QueueItemsContent() {
     <div className="flex flex-col gap-6">
       {/* Header Halaman */}
       <PageHeader
-        title="Antrean Artikel"
-        description="Pantau proses pengerjaan artikel oleh AI, jadwal cron per menit, dan status pengiriman ke WordPress."
+        title="Antrean"
+        description="Status tiap artikel, jadwal tayang, dan hasil pengiriman ke WordPress."
         icon={ListChecks}
         actions={
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
+            <BatchModuleActions
+              show={["batches", "create"]}
+              onRefresh={() => {
                 fetchBatches()
                 fetchQueue()
               }}
-              disabled={isLoadingBatches || isLoadingQueue}
-              className="gap-1.5 text-xs cursor-pointer"
-            >
-              <RefreshCw
-                className={`size-3.5 ${
-                  isLoadingBatches || isLoadingQueue ? "animate-spin" : ""
-                }`}
-              />
-              <span>Segarkan Data</span>
-            </Button>
-
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-              className="gap-1.5 text-xs cursor-pointer"
-            >
-              <Link href="/batches">
-                <History className="size-3.5 text-muted-foreground" />
-                <span>Daftar Batch</span>
-              </Link>
-            </Button>
-
-            <Button
-              size="sm"
-              asChild
-              className="gap-1.5 text-xs cursor-pointer font-semibold shadow-xs"
-            >
-              <Link href="/queue">
-                <Plus className="size-3.5" />
-                <span>Buat Batch Baru</span>
-              </Link>
-            </Button>
+              isRefreshing={isLoadingBatches || isLoadingQueue}
+            />
           </div>
         }
       />
@@ -369,7 +334,7 @@ function QueueItemsContent() {
             </div>
           ) : groupedBatches.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border p-12 text-center text-xs text-muted-foreground">
-              Belum ada antrean artikel yang terdaftar. Buat artikel di Tulis Cepat atau Buat Batch di menu Bulk Artikel.
+              Belum ada antrean artikel yang terdaftar. Buat artikel di menu Tulis Cepat atau Tulis Massal.
             </div>
           ) : (
             groupedBatches.map((group) => {

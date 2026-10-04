@@ -9,7 +9,6 @@ import { Badge } from "@/components/atoms/badge"
 import { Loader2, FlaskConical, Wrench, Cpu, Zap, BookOpen } from "lucide-react"
 
 import { useRouter } from "next/navigation"
-import { isLabAuthorizedUser } from "@/lib/constants/auth"
 
 import { LabToolsRunner } from "@/components/organisms/lab/lab-tools-runner"
 import { LabEngineRunner } from "@/components/organisms/lab/lab-engine-runner"
@@ -33,10 +32,10 @@ export default function LabPage() {
   })
 
   React.useEffect(() => {
-    fetch("/api/auth/me")
+    fetch("/api/settings/user")
       .then((res) => res.json())
-      .then((data) => {
-        if (data.user?.email && isLabAuthorizedUser(data.user.email)) {
+      .then((settingsData) => {
+        if (settingsData?.ok && settingsData?.developerMode === true) {
           setIsAuthorized(true)
           setAuthChecking(false)
         } else {

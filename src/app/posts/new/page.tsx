@@ -14,21 +14,21 @@ import {
   type WpSiteOption,
   type QuickWriterSubmitPayload,
 } from "@/components/organisms/quick-writer/quick-writer-form"
+import { BatchModuleActions } from "@/components/molecules/batch-module-actions"
 import {
   Sparkles,
   FlaskConical,
-  ListOrdered,
   AlertCircle,
   Loader2,
   CheckCircle2,
 } from "lucide-react"
-import { isLabAuthorizedUser } from "@/lib/constants/auth"
+import { useDeveloperMode } from "@/lib/hooks/use-developer-mode"
 
 export default function NewPostPage() {
   const router = useRouter()
+  const { developerMode } = useDeveloperMode()
   const [sites, setSites] = React.useState<WpSiteOption[]>([])
   const [isLoadingSites, setIsLoadingSites] = React.useState(true)
-  const [userEmail, setUserEmail] = React.useState<string | null>(null)
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = React.useState(false)
@@ -65,15 +65,6 @@ export default function NewPostPage() {
           setIsLoadingSites(false)
         }
       })
-
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (isMounted && data.user?.email) {
-          setUserEmail(data.user.email)
-        }
-      })
-      .catch(() => {})
 
     return () => {
       isMounted = false
@@ -134,41 +125,31 @@ export default function NewPostPage() {
       <PageContainer size="default">
         {/* Header Standar */}
         <PageHeader
-          title="Tulis Cepat (Quick Writer)"
-          description="Hasilkan satu artikel mendalam berstandar anti-slop. Proses berjalan di latar belakang sehingga Anda tidak perlu menunggu di halaman ini."
+          title="Tulis Cepat"
+          description="Tulis dan terbitkan satu artikel langsung ke website WordPress target."
           icon={Sparkles}
           badge={
-            <Badge variant="outline" className="text-[10px] uppercase tracking-wider font-mono border-primary/30 text-primary">
-              Mode Background
+            <Badge variant="outline" className="text-[10px] font-mono border-primary/30 text-primary">
+              Single Post
             </Badge>
           }
           actions={
             <div className="flex items-center gap-2">
-              {isLabAuthorizedUser(userEmail) && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  asChild
-                  className="gap-1.5 text-xs font-medium cursor-pointer"
-                >
-                  <Link href="/lab">
-                    <FlaskConical className="size-3.5 text-primary" />
-                    <span className="hidden sm:inline">Laboratorium</span>
-                    <span className="sm:hidden">Lab</span>
-                  </Link>
-                </Button>
-              )}
-              <Button
-                size="sm"
-                variant="outline"
-                asChild
-                className="gap-1.5 text-xs font-medium cursor-pointer"
-              >
-                <Link href="/">
-                  <ListOrdered className="size-3.5 text-muted-foreground" />
-                  <span>Dashboard &amp; Antrean</span>
-                </Link>
-              </Button>
+              <BatchModuleActions show={["items"]}>
+                {developerMode && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    asChild
+                    className="gap-1.5 text-xs cursor-pointer"
+                  >
+                    <Link href="/lab">
+                      <FlaskConical className="size-3.5 text-primary" />
+                      <span>Laboratorium</span>
+                    </Link>
+                  </Button>
+                )}
+              </BatchModuleActions>
             </div>
           }
         />

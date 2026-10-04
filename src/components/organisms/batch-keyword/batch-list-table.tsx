@@ -75,7 +75,7 @@ export function BatchListTable({
       <EmptyState
         icon={Layers}
         title="Belum Ada Batch Antrean"
-        description="Anda belum membuat batch kata kunci masal. Buat batch pertama Anda di tab 'Buat Antrean Baru' di atas."
+        description="Belum ada batch. Buat yang pertama lewat menu Tulis Massal."
       />
     )
   }

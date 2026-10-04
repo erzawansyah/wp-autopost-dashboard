@@ -110,6 +110,9 @@ export async function POST(request: Request) {
         ? `Batch: ${cleanKeywords[0]}`
         : `Batch: ${cleanKeywords[0]} (+${cleanKeywords.length - 1} topik)`
 
+    const effectiveExecutionMode =
+      body.executionMode === "scheduled_drip" ? "scheduled_drip" : "immediate"
+
     const { data: batch, error: batchError } = await supabase
       .from("content_batches")
       .insert({
@@ -117,8 +120,9 @@ export async function POST(request: Request) {
         wp_site_id: site.id,
         name: batchName?.trim() || defaultBatchName,
         source_type: "manual",
-        execution_mode: scheduleMode === "instant" ? "immediate" : "scheduled_drip",
+        execution_mode: effectiveExecutionMode,
         schedule_config: {
+          executionMode: effectiveExecutionMode,
           mode: scheduleMode,
           randomConfig: scheduleMode === "random" ? randomConfig : undefined,
           intervalConfig: scheduleMode === "interval" ? intervalConfig : undefined,
@@ -172,7 +176,7 @@ export async function POST(request: Request) {
         target_keyword: kw,
         state: "queued_input",
         scheduled_for: slot ? slot.scheduledFor.toISOString() : new Date().toISOString(),
-        wp_target_status: slot ? slot.wpTargetStatus : "future",
+        wp_target_status: slot?.wpTargetStatus || body.targetStatus || "publish",
         categories: categoryList,
         tags: tagList,
         custom_instructions_override: customBrief || null,
@@ -184,6 +188,7 @@ export async function POST(request: Request) {
           category_ids: selectedCategoryIds,
           batch_name: batch.name,
           schedule_mode: scheduleMode,
+          execution_mode: effectiveExecutionMode,
           slot_index: idx,
         },
       }
@@ -201,8 +206,8 @@ export async function POST(request: Request) {
       )
     }
 
-    // 6. Jika mode instan dan target publish, picu eksekusi artikel pertama di background
-    if (scheduleMode === "instant" && insertedItems.length > 0) {
+    // 6. Jika mode immediate dan ada item, picu eksekusi artikel pertama di background
+    if (effectiveExecutionMode === "immediate" && insertedItems.length > 0) {
       const firstItemId = insertedItems[0].id
       after(async () => {
         try {

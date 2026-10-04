@@ -8,19 +8,25 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
+  FlaskConical,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
 import { Label } from "@/components/atoms/label"
 import { Switch } from "@/components/atoms/switch"
 import { UserSettingsResponse, NotificationPrefs } from "@/types/settings"
+import { useDeveloperMode } from "@/lib/hooks/use-developer-mode"
 
 export function ProfileSettingsForm() {
+  const { developerMode: globalDevMode, setDeveloperMode } = useDeveloperMode()
   const [data, setData] = React.useState<UserSettingsResponse | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
   const [isSaved, setIsSaved] = React.useState(false)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+
+  // Developer mode local state
+  const [devMode, setDevMode] = React.useState<boolean>(globalDevMode)
 
   // Notification prefs
   const [notifPrefs, setNotifPrefs] = React.useState<NotificationPrefs>({
@@ -39,13 +45,17 @@ export function ProfileSettingsForm() {
         if (result.notificationPrefs) {
           setNotifPrefs((prev) => ({ ...prev, ...result.notificationPrefs }))
         }
+        if (typeof result.developerMode === "boolean") {
+          setDevMode(result.developerMode)
+          setDeveloperMode(result.developerMode)
+        }
       }
     } catch (err) {
       console.error("Gagal mengambil data user settings:", err)
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [setDeveloperMode])
 
   React.useEffect(() => {
     fetchSettings()
@@ -59,6 +69,7 @@ export function ProfileSettingsForm() {
     try {
       const payload = {
         notificationPrefs: notifPrefs,
+        developerMode: devMode,
       }
 
       const res = await fetch("/api/settings/user", {
@@ -197,6 +208,38 @@ export function ProfileSettingsForm() {
               onCheckedChange={(checked) =>
                 setNotifPrefs((prev) => ({ ...prev, in_app_toast: checked }))
               }
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Mode Pengembang (Developer Mode) */}
+      <Card className="border-border/80 bg-card/90">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <FlaskConical className="size-4 text-primary" />
+            Mode Pengembang (Developer Mode)
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Akses modul eksperimental, perkakas pengujian tool agen, dan sandbox internal.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium text-foreground">
+                Laboratorium Pengujian Agen (/lab)
+              </Label>
+              <p className="text-[11px] text-muted-foreground">
+                Tampilkan menu Laboratorium di navigasi untuk menguji perkakas riset web, visual, dan pipeline agen.
+              </p>
+            </div>
+            <Switch
+              checked={devMode}
+              onCheckedChange={(checked) => {
+                setDevMode(checked)
+                setDeveloperMode(checked)
+              }}
             />
           </div>
         </CardContent>

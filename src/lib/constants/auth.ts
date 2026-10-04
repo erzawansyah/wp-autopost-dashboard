@@ -1,13 +1,28 @@
 /**
- * Konfigurasi Otorisasi Khusus & Akses Fitur Internal
+ * Konfigurasi Otorisasi & Akses Fitur Internal
  */
-
-export const LAB_AUTHORIZED_EMAIL = "erazfa@gmail.com"
 
 /**
- * Memeriksa apakah email pengguna berhak mengakses menu & halaman Laboratorium
+ * Memeriksa otorisasi laboratorium di sisi server berbasis preferensi Developer Mode
  */
-export function isLabAuthorizedUser(email?: string | null): boolean {
-  if (!email || typeof email !== "string") return false
-  return email.trim().toLowerCase() === LAB_AUTHORIZED_EMAIL.toLowerCase()
+export async function hasLabAccess(
+  supabase: any,
+  user: { id: string; email?: string | null }
+): Promise<boolean> {
+  if (!user || !user.id) return false
+
+  const { data } = await supabase
+    .from("user_settings")
+    .select("notification_prefs")
+    .eq("user_id", user.id)
+    .maybeSingle()
+
+  return Boolean(data?.notification_prefs?.developer_mode)
+}
+
+/**
+ * @deprecated Akses Laboratorium kini sepenuhnya dikendalikan via Developer Mode di Pengaturan Profil
+ */
+export function isLabAuthorizedUser(_email?: string | null): boolean {
+  return false
 }

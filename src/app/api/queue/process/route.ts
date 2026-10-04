@@ -138,7 +138,12 @@ export async function POST(request: Request) {
           headers: { "Content-Type": "text/plain; charset=utf-8" },
         })
       }
-      return NextResponse.json({ ok: true, processedCount: 0, results: [] })
+      return NextResponse.json({
+        ok: true,
+        processedCount: 0,
+        results: [],
+        message: "Tidak ada antrean tertunda saat ini yang siap diproses (sesuai jadwal waktu).",
+      })
     }
 
     // 2. SYNCHRONOUS PROCESSING: Proses semua artikel yang sudah diklaim, tunggu hingga selesai.
@@ -240,7 +245,12 @@ export async function GET(request: Request) {
           headers: { "Content-Type": "text/plain; charset=utf-8" },
         })
       }
-      return NextResponse.json({ ok: true, processedCount: 0, results: [] })
+      return NextResponse.json({
+        ok: true,
+        processedCount: 0,
+        results: [],
+        message: "Tidak ada antrean tertunda saat ini yang siap diproses (sesuai jadwal waktu).",
+      })
     }
 
     // 2. SYNCHRONOUS PROCESSING

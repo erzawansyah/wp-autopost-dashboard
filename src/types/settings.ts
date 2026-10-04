@@ -8,6 +8,7 @@ export interface NotificationPrefs {
   email_on_batch_complete?: boolean
   notify_on_queue_empty?: boolean
   in_app_toast?: boolean
+  developer_mode?: boolean
 }
 
 export interface SearchPreferences {
@@ -27,6 +28,7 @@ export interface UserSettingsResponse {
   searxngUrl: string | null
   searchPreferences: SearchPreferences
   notificationPrefs: NotificationPrefs
+  developerMode?: boolean
   updatedAt?: string
 }
 

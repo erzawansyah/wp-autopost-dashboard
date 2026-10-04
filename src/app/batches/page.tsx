@@ -1,13 +1,12 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { History, Plus, RefreshCw, ListChecks, Layers } from "lucide-react"
+import { History } from "lucide-react"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
-import { Button } from "@/components/atoms/button"
+import { BatchModuleActions } from "@/components/molecules/batch-module-actions"
 import {
   BatchListTable,
   BatchItemData,
@@ -62,46 +61,16 @@ export default function BatchesPage() {
     <DashboardLayout>
       <PageContainer size="default">
         <PageHeader
-          title="Daftar Batch Konten"
-          description="Pantau seluruh kelompok pembuatan artikel masal, progres cron worker, dan website tujuan publikasi."
+          title="Daftar Batch"
+          description="Semua batch artikel beserta progres dan website tujuannya."
           icon={History}
           actions={
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchBatches}
-                disabled={isLoadingBatches}
-                className="gap-1.5 text-xs cursor-pointer"
-              >
-                <RefreshCw
-                  className={`size-3.5 ${isLoadingBatches ? "animate-spin" : ""}`}
-                />
-                <span>Segarkan Data</span>
-              </Button>
-
-              <Button
-                variant="outline"
-                size="sm"
-                asChild
-                className="gap-1.5 text-xs cursor-pointer"
-              >
-                <Link href="/queue/items">
-                  <ListChecks className="size-3.5 text-muted-foreground" />
-                  <span>Lihat Semua Antrean</span>
-                </Link>
-              </Button>
-
-              <Button
-                size="sm"
-                asChild
-                className="gap-1.5 text-xs cursor-pointer font-semibold shadow-xs"
-              >
-                <Link href="/queue">
-                  <Plus className="size-3.5" />
-                  <span>Buat Batch Baru</span>
-                </Link>
-              </Button>
+              <BatchModuleActions
+                show={["items", "create"]}
+                onRefresh={fetchBatches}
+                isRefreshing={isLoadingBatches}
+              />
             </div>
           }
         />

@@ -36,6 +36,7 @@ import {
 } from "lucide-react"
 import { LanguageSelect } from "@/components/molecules/language-select"
 import { AgentProfileSelect } from "@/components/molecules/agent-profile-select"
+import { PublishStatusSwitcher } from "@/components/molecules/publish-status-switcher"
 import { cn } from "@/lib/utils"
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 
@@ -168,10 +169,10 @@ export function QuickWriterForm({
           <div>
             <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
               <Sparkles className="size-4 text-primary" />
-              <span>Formulir Pembuatan Artikel Cepat</span>
+              <span>Tulis Cepat</span>
             </CardTitle>
             <CardDescription className="text-xs text-muted-foreground mt-0.5">
-              Tulis artikel SEO mendalam dengan bahasa wajar anti-slop, langsung terbit ke WordPress.
+              Buat dan publikasikan satu artikel langsung ke WordPress target.
             </CardDescription>
           </div>
 
@@ -309,47 +310,12 @@ export function QuickWriterForm({
                 </div>
               </FormField>
 
-              {/* Status Publikasi WordPress (Compact Selector) */}
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-muted/15 px-3.5 py-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <FileText className="size-3.5 text-primary shrink-0" />
-                  <span className="font-semibold text-foreground">Status Penerbitan:</span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {actionStatus === "draft"
-                      ? "Simpan sebagai Draf (Aman ditinjau dulu)"
-                      : "Langsung terbitkan live"}
-                  </span>
-                </div>
-
-                <div className="flex items-center gap-1 bg-muted p-0.5 rounded-md shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setActionStatus("draft")}
-                    disabled={isSubmitting}
-                    className={cn(
-                      "px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer",
-                      actionStatus === "draft"
-                        ? "bg-card text-foreground shadow-2xs font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Simpan Draf
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActionStatus("publish")}
-                    disabled={isSubmitting}
-                    className={cn(
-                      "px-3 py-1 text-xs font-medium rounded transition-colors cursor-pointer",
-                      actionStatus === "publish"
-                        ? "bg-primary text-primary-foreground shadow-2xs font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                  >
-                    Langsung Terbit
-                  </button>
-                </div>
-              </div>
+              {/* Status Publikasi WordPress (Unified Molecule) */}
+              <PublishStatusSwitcher
+                value={actionStatus}
+                onChange={setActionStatus}
+                disabled={isSubmitting}
+              />
             </TabsContent>
 
             {/* ========================================================= */}

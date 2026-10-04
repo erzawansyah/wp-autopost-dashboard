@@ -528,6 +528,13 @@ export async function processPostItem({
   })
 
   // 6. Kirim ke WordPress REST API via publishPostToWordPress tool
+  const isFutureDate = post.scheduled_for && new Date(post.scheduled_for).getTime() > Date.now()
+  const targetWpStatus = post.wp_target_status === "draft"
+    ? "draft"
+    : isFutureDate
+    ? "future"
+    : "publish"
+
   const wpPublishStart = Date.now()
   const wpResult = await publishPostToWordPress({
     baseUrl: site.base_url,
@@ -540,7 +547,7 @@ export async function processPostItem({
       slug: generated.slug,
     },
     metadata: {
-      status: post.wp_target_status || "draft",
+      status: targetWpStatus,
       categoryIds: resolvedCategoryIds.length > 0 ? resolvedCategoryIds : undefined,
       tagIds: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
       tagNames: resolvedTagNames,
@@ -614,10 +621,10 @@ export async function processPostItem({
   }
 
   const finalState =
-    post.wp_target_status === "publish"
-      ? "published_on_wp"
-      : post.wp_target_status === "future"
+    targetWpStatus === "future"
       ? "scheduled_on_wp"
+      : targetWpStatus === "publish"
+      ? "published_on_wp"
       : "saved_draft_on_wp"
 
   await supabase
@@ -741,27 +748,70 @@ export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueu
     console.warn("[claimNextPendingQueueItems] Gagal auto-healing item stale:", healErr)
   }
 
-  // 1. Ambil kandidat antrean terlama yang masih 'queued_input'
+  // 1. Ambil kandidat antrean yang masih 'queued_input'
+  const now = new Date()
+  const nowIso = now.toISOString()
+
+  // Ambil kandidat antrean beserta status execution_mode batch
   const { data: candidates, error } = await supabase
     .from("post_items")
-    .select("id, user_id, target_keyword")
+    .select(`
+      id,
+      user_id,
+      target_keyword,
+      scheduled_for,
+      created_at,
+      batch_id,
+      source_payload,
+      content_batches ( execution_mode )
+    `)
     .eq("state", "queued_input")
     .order("created_at", { ascending: true })
-    .limit(limit * 3)
+    .limit(limit * 5)
 
   if (error || !candidates || candidates.length === 0) {
     return []
   }
 
+  // Filter kandidat yang memenuhi syarat eksekusi:
+  // - Tanpa jadwal -> boleh dieksekusi sekarang
+  // - Mode immediate (Eksekusi Langsung) -> langsung dieksekusi hari ini juga secara berurutan
+  // - Mode scheduled_drip (Eksekusi Bertahap) -> HANYA dieksekusi 10 menit sebelum jam tayang
+  const eligibleCandidates = candidates.filter((item) => {
+    if (!item.scheduled_for) return true
+
+    const batchMode =
+      (item.content_batches as { execution_mode?: string } | null)?.execution_mode ||
+      (item.source_payload as { execution_mode?: string } | null)?.execution_mode ||
+      "immediate"
+
+    if (batchMode === "immediate") {
+      return true
+    }
+
+    // Bertahap: eksekusi 10 menit sebelum jadwal
+    const scheduledTime = new Date(item.scheduled_for).getTime()
+    return scheduledTime <= now.getTime() + 10 * 60 * 1000
+  })
+
+  if (eligibleCandidates.length === 0) {
+    return []
+  }
+
+  // Urutkan kandidat: item yang jadwalnya lebih dulu diprioritaskan
+  const sortedCandidates = [...eligibleCandidates].sort((a, b) => {
+    const timeA = a.scheduled_for ? new Date(a.scheduled_for).getTime() : new Date(a.created_at).getTime()
+    const timeB = b.scheduled_for ? new Date(b.scheduled_for).getTime() : new Date(b.created_at).getTime()
+    return timeA - timeB
+  })
+
   const claimedItems: ClaimedQueueItem[] = []
 
-  for (const item of candidates) {
+  for (const item of sortedCandidates) {
     if (claimedItems.length >= limit) break
 
     // 2. ATOMIC CLAIM LOCK:
     // Update state menjadi 'generating_content' HANYA jika saat ini masih berstatus 'queued_input'.
-    // Jika 2 worker masuk bersamaan, hanya 1 worker yang berhasil mengklaim baris ini.
-    const nowIso = new Date().toISOString()
     const { data: claimed, error: claimErr } = await supabase
       .from("post_items")
       .update({
@@ -774,7 +824,7 @@ export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueu
       .select("id, user_id, target_keyword")
       .maybeSingle()
 
-    // Jika gagal klaim (sudah diambil/sedang dikerjakan worker lain), lewati item ini
+    // Jika gagal klaim (sudah diambil worker lain), lewati item ini
     if (claimErr || !claimed) {
       continue
     }

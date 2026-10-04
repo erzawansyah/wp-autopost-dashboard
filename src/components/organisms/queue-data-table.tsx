@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/atoms/select"
 import Link from "next/link"
+import { formatIndonesianDateTime } from "@/lib/scheduler/date-calculator"
 import {
   ExternalLink,
   RefreshCw,
@@ -388,6 +389,7 @@ export function QueueDataTable({
               <TableHead className="text-xs font-semibold">Judul &amp; Topik</TableHead>
               <TableHead className="text-xs font-semibold">Website Tujuan</TableHead>
               <TableHead className="text-xs font-semibold">Status</TableHead>
+              <TableHead className="text-xs font-semibold">Jadwal Tayang</TableHead>
               <TableHead className="text-xs font-semibold">Kategori</TableHead>
               <TableHead className="text-xs font-semibold text-right">Aksi</TableHead>
             </TableRow>
@@ -395,7 +397,7 @@ export function QueueDataTable({
           <TableBody>
             {filteredItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-64 text-center">
+                <TableCell colSpan={7} className="h-64 text-center">
                   <EmptyState
                     title="Tidak ada artikel yang cocok"
                     description="Coba ubah kata kunci pencarian atau ganti filter status di atas."
@@ -481,6 +483,13 @@ export function QueueDataTable({
                       <StatusBadge status={item.status} />
                     </TableCell>
 
+                    {/* Schedule Col */}
+                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                      {item.scheduledFor
+                        ? formatIndonesianDateTime(new Date(item.scheduledFor))
+                        : "—"}
+                    </TableCell>
+
                     {/* Category Col */}
                     <TableCell>
                       <span className="text-xs text-muted-foreground bg-secondary/80 px-2 py-0.5 rounded-md font-medium">
@@ -518,6 +527,18 @@ export function QueueDataTable({
                             title="Kirim ulang ke WordPress"
                           >
                             <RefreshCw className="size-3.5" />
+                          </Button>
+                        )}
+
+                        {item.status === "queued_input" && onRetryItem && (
+                          <Button
+                            variant="outline"
+                            size="icon-xs"
+                            onClick={() => onRetryItem(item.id)}
+                            className="size-7 text-primary border-primary/30 hover:bg-primary/10"
+                            title="Jalankan sekarang"
+                          >
+                            <Play className="size-3.5" />
                           </Button>
                         )}
 

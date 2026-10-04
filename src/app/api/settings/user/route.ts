@@ -35,6 +35,8 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
     }
 
+    const isDevMode = Boolean(data?.notification_prefs?.developer_mode)
+
     const response: UserSettingsResponse = {
       ok: true,
       userId: user.id,
@@ -48,6 +50,7 @@ export async function GET() {
       searxngUrl: data?.searxng_url || null,
       searchPreferences: data?.search_preferences || { default_provider: "auto" },
       notificationPrefs: data?.notification_prefs || {},
+      developerMode: isDevMode,
       updatedAt: data?.updated_at || undefined,
     }
 
@@ -80,6 +83,7 @@ export async function PUT(request: Request) {
       searxngUrl,
       searchPreferences,
       notificationPrefs,
+      developerMode,
     } = body
 
     // Ambil record yang sudah ada
@@ -131,11 +135,16 @@ export async function PUT(request: Request) {
       updates.search_preferences = { default_provider: "auto" }
     }
 
-    if (notificationPrefs && typeof notificationPrefs === "object") {
-      updates.notification_prefs = {
+    if (
+      (notificationPrefs && typeof notificationPrefs === "object") ||
+      typeof developerMode === "boolean"
+    ) {
+      const mergedPrefs = {
         ...(existing?.notification_prefs || {}),
-        ...notificationPrefs,
+        ...(notificationPrefs && typeof notificationPrefs === "object" ? notificationPrefs : {}),
+        ...(typeof developerMode === "boolean" ? { developer_mode: developerMode } : {}),
       }
+      updates.notification_prefs = mergedPrefs
     } else if (!existing) {
       updates.notification_prefs = {}
     }

@@ -46,6 +46,7 @@ import { LanguageSelect } from "@/components/molecules/language-select"
 import {
   ScheduleStrategyPicker,
   ScheduleStrategyState,
+  ScheduleMode,
 } from "@/components/molecules/schedule-strategy-picker"
 import { AgentProfileSelect } from "@/components/molecules/agent-profile-select"
 import {
@@ -114,7 +115,7 @@ export function KeywordListForm({
   const handleResetForm = () => {
     setRawKeywordsText("")
     setBatchName("")
-    setEngine("quick")
+    setEngine("preset:quick-writer")
     setLanguage("id")
     setSelectedCategoryIds([])
     setSelectedCategoryNames([])
@@ -123,15 +124,16 @@ export function KeywordListForm({
     setActiveTab("essential")
   }
 
-  // 2. Schedule Strategy State
+  // 2. Schedule Strategy State (Default: Eksekusi Langsung)
   const [strategy, setStrategy] = React.useState<ScheduleStrategyState>({
+    executionMode: "immediate",
     mode: "interval",
     randomStartDate: defaultDates.nowLocal,
     randomEndDate: defaultDates.sevenDaysLocal,
     intervalStartDate: defaultDates.nowLocal,
-    intervalHours: 32, // default 32 jam sekali sesuai contoh user
+    intervalHours: 12,
     intervalJitter: true,
-    instantStatus: "publish",
+    targetStatus: "publish",
   })
 
   // 3. Status submission
@@ -179,14 +181,13 @@ export function KeywordListForm({
       randomConfig: {
         startDate: strategy.randomStartDate,
         endDate: strategy.randomEndDate,
+        wpTargetStatus: strategy.targetStatus,
       },
       intervalConfig: {
         startDate: strategy.intervalStartDate,
         intervalHours: strategy.intervalHours,
         enableJitter: strategy.intervalJitter,
-      },
-      instantConfig: {
-        wpTargetStatus: strategy.instantStatus,
+        wpTargetStatus: strategy.targetStatus,
       },
     })
   }, [cleanKeywords.length, strategy])
@@ -224,12 +225,14 @@ export function KeywordListForm({
         siteId: selectedSiteId,
         batchName: batchName.trim() || undefined,
         keywords: cleanKeywords,
+        executionMode: strategy.executionMode, // "immediate" | "scheduled_drip"
         scheduleMode: strategy.mode,
         randomConfig:
           strategy.mode === "random"
             ? {
                 startDate: strategy.randomStartDate,
                 endDate: strategy.randomEndDate,
+                wpTargetStatus: strategy.targetStatus,
               }
             : undefined,
         intervalConfig:
@@ -238,12 +241,7 @@ export function KeywordListForm({
                 startDate: strategy.intervalStartDate,
                 intervalHours: strategy.intervalHours,
                 enableJitter: strategy.intervalJitter,
-              }
-            : undefined,
-        instantConfig:
-          strategy.mode === "instant"
-            ? {
-                wpTargetStatus: strategy.instantStatus,
+                wpTargetStatus: strategy.targetStatus,
               }
             : undefined,
         agentProfileRef: engine,
@@ -292,18 +290,12 @@ export function KeywordListForm({
       <CardHeader className="pb-4 border-b border-border/60">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-primary">
-              <Layers className="size-4" />
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-wider">
-                Modul 2 / Ingesti Kata Kunci Masal
-              </span>
-            </div>
-            <CardTitle className="text-base font-bold text-foreground mt-0.5">
-              Buat Antrean Artikel dari Daftar Kata Kunci
+            <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+              <Layers className="size-4 text-primary" />
+              <span>Tulis Massal</span>
             </CardTitle>
             <CardDescription className="text-xs text-muted-foreground mt-0.5">
-              Salin dan tempel daftar kata kunci (satu per baris) lalu atur strategi jadwal tayang
-              secara acak, per pola interval jam, atau instan hari ini.
+              Buat banyak artikel sekaligus dari daftar kata kunci, langsung atau terjadwal.
             </CardDescription>
           </div>
 
@@ -503,11 +495,10 @@ export function KeywordListForm({
                   Pratinjau Jadwal Tayang ({cleanKeywords.length} Artikel)
                 </span>
                 <span className="font-mono text-[10px] text-muted-foreground">
+                  {strategy.executionMode === "immediate" ? "⚡ Buat Sekarang • " : "⏳ Buat Bertahap • "}
                   {strategy.mode === "random"
                     ? "Acak Merata"
-                    : strategy.mode === "interval"
-                    ? `Tiap ${strategy.intervalHours} jam`
-                    : "Instan Hari Ini"}
+                    : `Tiap ${strategy.intervalHours} jam`}
                 </span>
               </div>
 
@@ -652,8 +643,9 @@ export function KeywordListForm({
                 <>
                   <Send className="size-4" />
                   <span>
-                    Jadwalkan {cleanKeywords.length > 0 ? `${cleanKeywords.length} Artikel` : ""} ke
-                    Antrean
+                    {strategy.executionMode === "immediate"
+                      ? `Tulis ${cleanKeywords.length > 0 ? `${cleanKeywords.length} Artikel ` : ""}Sekarang`
+                      : `Jadwalkan ${cleanKeywords.length > 0 ? `${cleanKeywords.length} Artikel ` : ""}Bertahap`}
                   </span>
                 </>
               )}

@@ -15,7 +15,6 @@ import {
   WandSparkles,
   ChevronRight,
   FlaskConical,
-  CalendarClock,
   Wrench,
   FileCode2,
   BookOpen,
@@ -25,7 +24,7 @@ import {
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip"
-import { isLabAuthorizedUser } from "@/lib/constants/auth"
+import { useDeveloperMode } from "@/lib/hooks/use-developer-mode"
 
 interface NavItem {
   title: string
@@ -44,15 +43,11 @@ const primaryNavItems: NavItem[] = [
 
 const contentNavItems: NavItem[] = [
   { title: "Tulis Cepat", href: "/posts/new", icon: PenLine },
-  { title: "Bulk Artikel", href: "/queue", icon: Layers, badge: "Batch" },
-  { title: "Artikel Terjadwal", href: "/scheduled", icon: CalendarClock, badge: "Drip" },
-]
-
-const toolsNavItems: NavItem[] = [
-  { title: "WP Tools", href: "/tools", icon: Wrench },
+  { title: "Tulis Massal", href: "/queue", icon: Layers, badge: "Batch" },
 ]
 
 const bottomNavItems: NavItem[] = [
+  { title: "WP Tools", href: "/tools", icon: Wrench },
   { title: "Profil Agen", href: "/agents", icon: Bot },
   { title: "Skill Registry", href: "/skills", icon: FileCode2, badge: "Deep" },
   { title: "Laboratorium", href: "/lab", icon: FlaskConical, badge: "Lab" },
@@ -67,7 +62,6 @@ const ALL_NAV_HREFS = [
   "/queue/items",
   "/posts/new",
   "/queue",
-  "/scheduled",
   "/tools",
   "/agents",
   "/skills",
@@ -219,6 +213,8 @@ export function SidebarNav() {
     })
   }
 
+  const { developerMode } = useDeveloperMode()
+
   React.useEffect(() => {
     fetch("/api/auth/me")
       .then((res) => res.json())
@@ -233,11 +229,11 @@ export function SidebarNav() {
   const filteredBottomNavItems = React.useMemo(() => {
     return bottomNavItems.filter((item) => {
       if (item.href === "/lab") {
-        return isLabAuthorizedUser(userEmail)
+        return Boolean(developerMode)
       }
       return true
     })
-  }, [userEmail])
+  }, [developerMode])
 
   return (
     <aside
@@ -349,16 +345,6 @@ export function SidebarNav() {
             </div>
           )}
           {contentNavItems.map((item) => renderNavLink(item, pathname, isCollapsed))}
-
-          {/* Separator */}
-          <div className="my-2 border-t border-sidebar-border/70" />
-
-          {!isCollapsed && (
-            <div className="hidden px-3 pb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
-              Tools
-            </div>
-          )}
-          {toolsNavItems.map((item) => renderNavLink(item, pathname, isCollapsed))}
         </div>
 
         {/* Bottom Menus */}
