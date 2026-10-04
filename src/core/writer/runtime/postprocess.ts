@@ -19,7 +19,7 @@ export interface PostprocessInput {
 export function postprocessArticle(input: PostprocessInput): GeneratedArticle {
   let md = (input.rawMarkdown || "").trim()
 
-  // Safety net: Jika rawMarkdown ternyata string JSON mentah yang belum ter-unwrap
+  // Safety net 1: Jika rawMarkdown ternyata string JSON mentah yang belum ter-unwrap
   if (md.startsWith("{") && md.endsWith("}")) {
     try {
       const parsed = JSON.parse(md)
@@ -28,6 +28,23 @@ export function postprocessArticle(input: PostprocessInput): GeneratedArticle {
         md = norm.markdownContent
       }
     } catch {}
+  } else if (md.startsWith("[") && md.endsWith("]")) {
+    try {
+      const parsedArray = JSON.parse(md)
+      if (Array.isArray(parsedArray)) {
+        const textParts = parsedArray
+          .map((p) => (typeof p === "string" ? p : p?.text || ""))
+          .filter(Boolean)
+        if (textParts.length > 0) {
+          md = textParts.join("\n\n")
+        }
+      }
+    } catch {}
+  }
+
+  // Safety net 2: Normalisasi literal \n jika teks ter-escape (mencegah seluruh teks menyatu 1 baris)
+  if (md.includes("\\n") && (!md.includes("\n") || md.split("\n").length <= 2)) {
+    md = md.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
   }
 
   const cleanedTitle = sanitizeDashes((input.rawTitle || "").trim())

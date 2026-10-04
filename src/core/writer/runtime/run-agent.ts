@@ -248,20 +248,43 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     if (agentResult.structuredResponse) {
       rawOutput = agentResult.structuredResponse
     } else {
-      // Ambil pesan terakhir
+      // Ambil pesan terakhir dan ekstrak teks secara bersih (menghindari double JSON stringify)
       const messages = agentResult.messages || []
       const lastMsg = messages[messages.length - 1]
-      const rawText =
-        typeof lastMsg?.content === "string"
-          ? lastMsg.content
-          : JSON.stringify(lastMsg?.content || "")
+
+      const extractRawMessageText = (content: unknown): string => {
+        if (typeof content === "string") return content
+        if (Array.isArray(content)) {
+          return content
+            .map((part) => {
+              if (typeof part === "string") return part
+              if (
+                typeof part === "object" &&
+                part !== null &&
+                "text" in part &&
+                typeof (part as any).text === "string"
+              ) {
+                return (part as any).text
+              }
+              return ""
+            })
+            .filter(Boolean)
+            .join("\n\n")
+        }
+        return ""
+      }
+
+      const rawText = extractRawMessageText(lastMsg?.content)
 
       rawOutput = extractArticleJsonFromText(rawText)
       if (!rawOutput?.markdownContent && rawText.length > 200) {
+        const unescaped = rawText.includes("\\n")
+          ? rawText.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
+          : rawText
         rawOutput = {
           title: request.content.title || `Panduan Lengkap ${keyword}`,
           excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
-          markdownContent: rawText,
+          markdownContent: unescaped,
         }
       }
     }

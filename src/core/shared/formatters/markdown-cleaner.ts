@@ -174,8 +174,48 @@ export function sanitizeAISlopPhrases(text: string): string {
   return result
 }
 
+/**
+ * Membersihkan heading generik robotik (misal: "## Pembuka", "## Pendahuluan")
+ * Paragraf pembuka artikel blog berkualitas mengalir langsung tanpa heading bertuliskan "Pembuka".
+ */
+export function sanitizeGenericHeadings(text: string): string {
+  let result = text
+  // Hapus heading "## Pembuka" atau "## Pendahuluan" di bagian awal naskah
+  result = result.replace(/^(?:#{2,3}\s*(?:Pembuka|Pendahuluan|Pengantar|Introduction)\s*\n+)/im, "")
+
+  // Ubah heading kesimpulan klise menjadi heading bernilai praktis
+  result = result.replace(
+    /^(#{2,3})\s*(?:Kesimpulan(?:\s+Praktis|\s+Akhir)?|Rangkuman(?:\s+Praktis)?|Penutup)\s*$/gim,
+    "$1 Langkah Nyata dan Rekomendasi"
+  )
+
+  return result
+}
+
+/**
+ * Membersihkan pengumuman meta artikel mekanis ("Dalam artikel ini, kita akan membahas...", "Artikel ini bertujuan untuk...")
+ */
+export function sanitizeMetaAnnouncements(text: string): string {
+  let result = text
+  result = result.replace(
+    /(?:(?:Dalam|Pada)\s+artikel\s+ini,?\s*(?:kita|penulis|kami)?\s*(?:akan\s+)?(?:membahas|mengupas|menjelaskan|mengulas|mempelajari)[^.\n]*[.!?]\s*)/gi,
+    ""
+  )
+  result = result.replace(
+    /(?:Artikel\s+ini\s+(?:akan\s+)?(?:membahas|mengupas|menjelaskan|bertujuan\s+untuk|hadir\s+untuk)[^.\n]*[.!?]\s*)/gi,
+    ""
+  )
+  return result
+}
+
 export function cleanMarkdown(rawMarkdown: string, expectedTitle?: string): string {
-  let cleaned = rawMarkdown.trim()
+  let cleaned = (rawMarkdown || "").trim()
+
+  // 0. Normalisasi newline dan unescape literal \n jika teks ter-escape (krusial mencegah seluruh artikel 1 baris)
+  cleaned = cleaned.replace(/\r\n/g, "\n")
+  if (cleaned.includes("\\n")) {
+    cleaned = cleaned.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
+  }
 
   // Hilangkan pembungkus markdown code block jika model mengembalikan ```markdown ... ```
   if (cleaned.startsWith("```markdown")) {
@@ -191,6 +231,12 @@ export function cleanMarkdown(rawMarkdown: string, expectedTitle?: string): stri
 
   // Bersihkan duplikasi judul H1 dan normalkan heading body ke H2/H3
   cleaned = sanitizeDuplicateTitleAndH1(cleaned, expectedTitle)
+
+  // Bersihkan heading generik seperti "## Pembuka" dan ubah "## Kesimpulan Praktis"
+  cleaned = sanitizeGenericHeadings(cleaned)
+
+  // Bersihkan meta announcement klise ("Dalam artikel ini, kita akan membahas...")
+  cleaned = sanitizeMetaAnnouncements(cleaned)
 
   // Terapkan aturan nol dash
   cleaned = sanitizeDashes(cleaned)

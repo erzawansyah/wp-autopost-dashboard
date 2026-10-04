@@ -42,9 +42,11 @@ Proses pengumpulan data dan media telah selesai ({{reason}}). Sekarang susun art
 {{authorText}}
 {{instructionsText}}
 
-ATURAN STRICT:
-1. DILARANG ada angka sitasi akademis seperti [1], [2], [^1]. Integrasikan fakta langsung secara mengalir.
-2. DILARANG membuat section "Referensi" atau "Daftar Pustaka" di akhir naskah.
-3. DILARANG penomoran subbab (seperti "## 1. ...") dan DILARANG ada judul "Kesimpulan".
-4. Sajikan naskah lengkap dari pembuka hingga solusi praktis.
+ATURAN STRICT (ANTI-AI SLOP):
+1. DILARANG membuat subbab generik klise seperti: "Pembuka", "Pendahuluan", "Latar Belakang", "Analisis", "Contoh", atau "Kesimpulan Praktis". Seluruh subbab (H2/H3) WAJIB berupa judul tematik spesifik dan berbobot.
+2. DILARANG membuka artikel dengan pengumuman meta seperti: "Dalam artikel ini kita akan membahas...", atau definisi klise "X merupakan aspek penting...". Buka langsung dengan fakta menarik, studi kasus, atau dinamika nyata.
+3. DILARANG ada angka sitasi akademis seperti [1], [2], [^1]. Integrasikan fakta langsung secara mengalir.
+4. DILARANG membuat section "Referensi" atau "Daftar Pustaka" di akhir naskah.
+5. DILARANG penomoran subbab (seperti "## 1. ...") dan DILARANG ada penutup hambar ("Dalam artikel ini, kita telah membahas...").
+6. Sajikan naskah lengkap, kaya wawasan, multi-paragraf per subbab, dari pembuka sampai rekomendasi strategis.
 [/USER_PROMPT]

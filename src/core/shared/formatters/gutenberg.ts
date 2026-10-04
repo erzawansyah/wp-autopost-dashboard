@@ -359,14 +359,19 @@ function isTableStart(lines: string[], index: number): boolean {
  * Parser Utama: Mengonversi naskah Markdown murni menjadi rangkaian blok WordPress Gutenberg
  */
 export function markdownToGutenberg(markdown: string): string {
-  const trimmedInput = (markdown || "").trim()
+  let normalizedInput = (markdown || "").trim().replace(/\r\n/g, "\n")
+  // Unescape literal \n jika teks ter-escape
+  if (normalizedInput.includes("\\n")) {
+    normalizedInput = normalizedInput.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
+  }
+
   // Jika teks secara keseluruhan sudah berformat Gutenberg block comments lengkap, kembalikan langsung
-  if (trimmedInput.startsWith("<!-- wp:") && trimmedInput.includes("<!-- /wp:")) {
-    return trimmedInput
+  if (normalizedInput.startsWith("<!-- wp:") && normalizedInput.includes("<!-- /wp:")) {
+    return normalizedInput
   }
 
   const blocks: string[] = []
-  const rawLines = markdown.split("\n")
+  const rawLines = normalizedInput.split("\n")
 
   let i = 0
   while (i < rawLines.length) {
@@ -421,7 +426,19 @@ export function markdownToGutenberg(markdown: string): string {
     const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
     if (headingMatch && headingMatch[1] && headingMatch[2]) {
       const level = headingMatch[1].length
-      const text = headingMatch[2]
+      let text = headingMatch[2]
+
+      // Critical Safety Guard: Cegah seluruh artikel terbawa masuk ke dalam tag heading
+      // jika ada newline atau pembatas subbab yang terselip di dalam teks
+      if (text.includes("\n") || text.includes("\\n") || text.includes("##")) {
+        const parts = text.split(/\r?\n|\\n/)
+        text = parts[0].trim()
+        const remaining = parts.slice(1).filter((p) => p.trim().length > 0)
+        if (remaining.length > 0) {
+          rawLines.splice(i + 1, 0, ...remaining)
+        }
+      }
+
       // Abaikan H1 jika naskah diawali H1 (karena judul post di WP adalah entitas terpisah)
       if (level === 1 && blocks.length === 0) {
         i++
