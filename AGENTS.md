@@ -85,13 +85,23 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
     - Di sistem Windows, Agent WAJIB menyusun perintah shell menggunakan ekstensi `.cmd` secara eksplisit (`npx.cmd ...` dan `npm.cmd ...`) agar tidak terblokir oleh PowerShell script execution policy.
     - Dilindungi oleh lifecycle safety hook **`windows-command-normalizer`** di [`.agents/hooks.json`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/hooks.json). Patuhi [`.agents/rules/windows-shell-execution.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/windows-shell-execution.md).
 11. **Standardisasi Komponen System Writer (Agent Profile Runtime & Gutenberg)**:
-    - Seluruh pengembangan fitur pembuatan naskah wajib mengikuti arsitektur **Agent Profile Runtime** di `src/core/writer/`.
+    - Seluruh pengembangan fitur pembuatan naskah wajib mengikuti arsitektur **Agent Profile Runtime** di `src/core/writer/profiles/builtin.ts`.
+    - Menggunakan **Pre-Flight Taxonomy & Author Resolver** (`pre-resolve.ts`) untuk mengunci kategori, tag, dan persona author sebelum agen mulai menulis (DILARANG menambahkan tool administratif `list_wp_*` ke toolset agen).
+    - Mempersenjatai agen dengan **6 Universal Tools Murni Riset & Visual** (`keyword_suggestions`, `web_search`, `web_reader`, `image_search`, `set_featured_image`, dan `upload_media`).
     - AI LLM diwajibkan menulis naskah dalam format **Markdown murni** terlebih dahulu, kemudian dikonversi deterministik ke **Native WordPress Gutenberg Blocks** (`<!-- wp:... -->`) sebelum dikirim ke WP REST API.
     - Dilindungi oleh **Anti-Infinite Loop Guards** (deduplikasi pemanggilan tool berturut-turut, circuit breaker setelah 2x gagal berturut-turut, hard limits, dan 1x emergency finalize call). Patuhi [`.agents/rules/writer-components-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/writer-components-standard.md).
-12. **Larangan Keras Hardcoding Prompt LLM (Externalize All Prompts to `src/core/shared/prompts/`)**:
+12. **Larangan Keras Hardcoding Prompt LLM & Aturan 3 Pilar Prompts**:
     - DILARANG KERAS menulis teks prompt (baik System Prompt, User Prompt template, Finalize Prompt, maupun prompt untuk WP Tools / modul AI lainnya) langsung di dalam kode TypeScript (`.ts`/`.tsx`).
-    - Seluruh prompt WAJIB disimpan dalam bentuk berkas terpisah (`.md`) di dalam direktori `src/core/shared/prompts/` dan dimuat menggunakan loader (`loadPrompt` / `loadSectionedPrompt` / `renderPrompt` dari `@/core/shared/prompts/loader`).
-    - Hal ini mutlak agar pengguna memiliki kendali penuh untuk mengontrol, mengedit, dan mengaudit setiap prompt secara mandiri tanpa harus memodifikasi kode sumber aplikasi. Patuhi [`.agents/rules/prompt-management.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/prompt-management.md).
+    - Fallback pada fungsi `loadPrompt(file, fallback)` hanya boleh berupa deskripsi ringkas 1 kalimat sebagai fallback keselamatan, bukan salinan naskah prompt multiline raksasa.
+    - Seluruh prompt WAJIB disimpan dalam bentuk berkas terpisah (`.md`) di dalam direktori `src/core/shared/prompts/` mengikuti **3 Pilar Utama**:
+      1. `wp-tools-*`: Perkakas taksonomi, author persona, dan link building.
+      2. `system-*`: Fondasi sistem (guardrail, finalize, dan pre-resolve).
+      3. `agent-*`: Profil agen dan template pesan pengguna.
+    - Setiap berkas prompt WAJIB memiliki blok **YAML frontmatter** (`description`, `used_by`, `variables`) dan dibungkus tag terstruktur (`[SYSTEM_PROMPT]`, `[USER_PROMPT]`, `[OUTPUT_FORMAT]` dengan tanda `?` untuk field opsional). Patuhi [`.agents/rules/prompt-management.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/prompt-management.md).
+13. **Disiplin Kebersihan Codebase & Zero Dead Code**:
+    - DILARANG meninggalkan komponen fosil (misal modal lama yang sudah digantikan single-page), interface usang (`engine.ts`), atau tool usang yang sudah tidak dipakai.
+    - Seluruh terminologi wajib konsisten menggunakan **Agent Profile** (bukan engine).
+    - Kode wajib lolos uji audit `.workspaces/scripts/audit-codebase.ts` dan bebas error kompilasi `npx.cmd tsc --noEmit`. Patuhi [`.agents/rules/codebase-hygiene.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/codebase-hygiene.md).
 
 ---
 
@@ -102,15 +112,16 @@ Setiap Agent yang bekerja di repositori ini **WAJIB** mematuhi pedoman perilaku 
 | [`PRD.md`](file:///d:/Antigravity/wp-autopost-dashboard/PRD.md) | Root | Spesifikasi kebutuhan produk Panitera, 9 modul utama, 9-state queue, edge cases, dan NFR. |
 | [`ARCHITECTURE.md`](file:///d:/Antigravity/wp-autopost-dashboard/ARCHITECTURE.md) | Root | Cetak biru arsitektur sistem, 9 tabel Supabase, Agent Profile Runtime, dan katalog REST API. |
 | [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md) | Root | Design system visual, tema Dark/Light, token warna semantik, dan pola UX Trello-Fluent. |
-| [`MEMORY.md`](file:///d:/Antigravity/wp-autopost-dashboard/MEMORY.md) | Root | *Living Memory*, status fase aktif, ringkasan keputusan arsitektur (ADR-001 s/d ADR-053), dan gotchas. |
+| [`MEMORY.md`](file:///d:/Antigravity/wp-autopost-dashboard/MEMORY.md) | Root | *Living Memory*, status fase aktif, ringkasan keputusan arsitektur (ADR-001 s/d ADR-059), dan gotchas. |
 | [`docs/`](file:///d:/Antigravity/wp-autopost-dashboard/docs/) | `docs/` | Dokumentasi panduan pengguna interaktif (in-app reader di `/docs`). |
+| [`.agents/rules/codebase-hygiene.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/codebase-hygiene.md) | `.agents/rules/` | Standar disiplin kebersihan kode, zero dead code, eliminasi fosil, dan konsistensi istilah. |
 | [`.agents/rules/page-layout-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/page-layout-standard.md) | `.agents/rules/` | Standar mutlak struktur halaman, PageHeader (title, desc, action), dan PageContainer. |
 | [`.agents/rules/security.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/security.md) | `.agents/rules/` | Standar keamanan SaaS Multi-Tenant, RLS Supabase, enkripsi AES-256-GCM, dan proteksi SSRF. |
 | [`.agents/rules/atomic-design-and-styling.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/atomic-design-and-styling.md) | `.agents/rules/` | Pedoman Atomic Design dan larangan arbitrary hex code pada Tailwind CSS v4. |
 | [`.agents/rules/skills-routing-matrix.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/skills-routing-matrix.md) | `.agents/rules/` | Matriks pemetaan jenis pekerjaan teknis ke skill AI wajib. |
 | [`.agents/rules/windows-shell-execution.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/windows-shell-execution.md) | `.agents/rules/` | Standar eksekusi perintah shell Windows (`npx.cmd`/`npm.cmd`) pencegah `PSSecurityException`. |
-| [`.agents/rules/writer-components-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/writer-components-standard.md) | `.agents/rules/` | Standar Agent Profile Runtime, Universal Tools, loop guard, dan Gutenberg serializer. |
-| [`.agents/rules/prompt-management.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/prompt-management.md) | `.agents/rules/` | Standar larangan hardcode prompt dan kewajiban externalize prompt ke `src/core/shared/prompts/`. |
+| [`.agents/rules/writer-components-standard.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/writer-components-standard.md) | `.agents/rules/` | Standar Agent Profile Runtime, Pre-Flight Resolver, 6 Universal Tools, loop guard, dan Gutenberg serializer. |
+| [`.agents/rules/prompt-management.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/prompt-management.md) | `.agents/rules/` | Standar 3 pilar prompt (`wp-tools-*`, `system-*`, `agent-*`), YAML frontmatter, tag seksi, dan larangan hardcode prompt. |
 | [`.agents/worklogs/`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) | `.agents/worklogs/` | Catatan progres detail per milestone/fase untuk efisiensi context window. |
 | [`.agents/hooks.json`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/hooks.json) | `.agents/` | Lifecycle safety hooks untuk proteksi kredensial dan normalisasi perintah shell Windows. |
 

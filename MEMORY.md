@@ -54,6 +54,25 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - **Metadata YAML Frontmatter**: Setiap berkas prompt wajib memiliki blok YAML di bagian atas berisi `used-by`, `description`, dan `variables`.
     - **Tagging Format Prompt**: Konten prompt dibungkus secara terstruktur menggunakan tag `[SYSTEM_PROMPT]...[/SYSTEM_PROMPT]` dan `[USER_PROMPT]...[/USER_PROMPT]`.
     - **Prompt Loader Berbasis Tag (`loader.ts`)**: Loader mengekstrak metadata YAML, mendeteksi tag pembungkus, dan mendukung pemanggilan dwiarah `loadPrompt`, `loadSectionedPrompt`, serta `loadParsedPrompt`.
+15. **ADR-056 (Injeksi Konteks Website & Persona ke Workflow Prompt Agen + Fleksibel Output Schema)**:
+    - **Injeksi Variabel Dinamis ke Workflow Prompt Agen (`preset-*.md`)**: `buildSystemPrompt` di `prompt-builder.ts` kini menerima `SystemPromptVariables` (`siteName`, `siteUrl`, `authorName`, `authorBio`, `categoryName`, `language`). Agen AI kini menyadari nama website, brand, dan persona spesifik tempat artikel akan diterbitkan.
+    - **Tag `[OUTPUT_FORMAT]` dengan Inferensi JSON Schema**: Mendukung notasi tanda tanya `?` pada nama key untuk mendeklarasikan field opsional/nullable secara ringkas dan manusiawi. Loader secara otomatis mengonversinya menjadi format JSON Schema standar (`strict: true`) yang dikirim ke `callOpenRouterJson` dengan fallback otomatis ke `json_object` jika model LLM tertentu belum mendukung `json_schema`.
+16. **ADR-057 (Restrukturisasi Nomenklatur Prompt: 3 Pilar Utama `wp-tools-*`, `system-*`, dan `agent-*`)**:
+    - **3 Pilar Prompt di `src/core/shared/prompts/`**:
+      1. `wp-tools-*`: Kumpulan prompt khusus WP Tools (`wp-tools-categories-suggest.md`, `wp-tools-authors-suggest.md`, `wp-tools-link-extract.md`, `wp-tools-link-recommend.md`).
+      2. `system-*`: Prompt fondasi inti infrastruktur runtime (`system-guardrail.md`, `system-finalize.md`, `system-resolve-taxonomy-author.md`).
+      3. `agent-*`: Seluruh prompt yang mengatur perilaku dan input agent kepenulisan (`agent-user-prompt.md`, `agent-quick-writer.md`, `agent-research-writer.md`, `agent-deep-research.md`), menggantikan konvensi `preset-*` dan `user-prompt.md`.
+    - **Standardisasi YAML Frontmatter**: Seluruh 11 prompt menggunakan skema `description`, `used_by` (array path), dan `variables` (array objek `{ key, desc }`).
+    - **Backward-Compatible Prompt Resolution**: `loader.ts` otomatis memetakan alias nama lama (`preset-quick-writer`, `user-prompt`, dsb.) ke berkas `agent-*` yang baru sehingga aman dari pemanggilan legasi.
+17. **ADR-058 (Eliminasi Tool Taksonomi Obsolete & Konsolidasi 6 Universal Tools Penulis)**:
+    - **Pembersihan Tool Usang**: Mengeliminasi tool `list_wp_categories`, `list_wp_tags`, dan `list_wp_authors` dari `ToolRegistry` dan profil agen (`preset:research-writer` & `preset:deep-research`).
+    - **Efisiensi Kuota Tool Calls & Token**: Penghapusan ini menjamin kuota `maxToolCalls` tidak terbuang untuk urusan administratif WordPress yang sudah selesai di tahap Pre-Flight Resolver (`pre-resolve.ts`).
+    - **6 Universal Tools Aktif**: Agen kini fokus 100% pada riset dan kurasi visual (`keyword_suggestions`, `web_search`, `web_reader`, `image_search`, `set_featured_image`, dan `upload_media`).
+18. **ADR-059 (Audit Menyeluruh & Pembersihan Fosil Codebase / Dead Code Cleanup)**:
+    - **Eliminasi 6 Komponen Fosil**: Menghapus `quick-single-modal.tsx`, `bulk-batch-modal.tsx`, `writing-progress-panel.tsx`, `quick-writer-result-card.tsx`, `coming-soon-view.tsx`, dan `node-execution-logs-viewer.tsx` (1.400+ baris dead code dari era prototipe awal).
+    - **Eliminasi Types & Shared Tools Usang**: Menghapus `engine.ts` (interface `WritingEngine` & `WriterStateAnnotation` lama) serta 5 subfolder tool lama di `src/core/shared/tools/` (`get-categories`, `get-tags`, `create-tags`, `get-author`, `image-embedder`).
+    - **Sentralisasi Profil ke `src/core/writer/profiles/builtin.ts`**: Menghilangkan seluruh hardcoded prompt string fallback raksasa dan beralih ke `loadPrompt("agent-*.md")` murni. Menyediakan `src/core/writer/presets/registry.ts` sebagai shim tipis untuk backward-compatibility.
+    - **Eliminasi Dead Code UI**: Menghapus deklarasi `AVAILABLE_ENGINES` usang di `quick-writer-form.tsx` yang sudah digantikan oleh molekul `AgentProfileSelect`.
 
 ---
 

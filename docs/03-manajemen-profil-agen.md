@@ -27,9 +27,12 @@ Setiap agen dapat dipersenjatai dengan tools mandiri sesuai kebutuhan:
 1. **`web_search`**: Mencari referensi faktual, data statistik, dan kutipan dari internet via SearXNG, Tavily, atau Brave.
 2. **`web_reader`**: Membaca dan mengekstrak naskah teks lengkap dari tautan URL artikel rujukan.
 3. **`image_search`**: Mencari foto landscape berkualitas tinggi bebas royalti (lebar minimal 1280px) untuk featured image atau foto subbab.
-4. **`keyword_suggestions`**: Menggali autocomplete search engine dan entitas kata kunci LSI untuk memetakan struktur subbab H2/H3.
-5. **`list_wp_categories` & `list_wp_tags`**: Membaca taksonomi aktif dari situs WordPress yang ditargetkan.
-6. **`list_wp_authors`**: Membaca daftar author terdaftar di WordPress agar artikel diterbitkan atas nama persona yang tepat.
+4. **`set_featured_image`**: Memilih dan menyetel gambar sampul utama (Featured Image) secara langsung dari kurasi gambar web.
+5. **`upload_media`**: Mengunggah foto hasil kurasi ke WordPress Media Library dan menyematkannya ke dalam subbab naskah.
+6. **`keyword_suggestions`**: Menggali autocomplete search engine dan entitas kata kunci LSI untuk memetakan struktur subbab H2/H3.
+
+> [!NOTE]
+> Taksonomi (kategori & tag) dan pemilihan author WordPress tidak lagi memerlukan tool manual karena diselesaikan secara otomatis oleh **Pre-Flight Taxonomy & Author Resolver** sebelum agen mulai menulis.
 
 ---
 
