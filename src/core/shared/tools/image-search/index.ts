@@ -22,15 +22,15 @@ export interface ImageSearchResult {
   credit?: string
   width?: number
   height?: number
-  source: "bing" | "pexels" | "unsplash" | "curated"
+  source: "bing" | "pexafy" | "searxng" | "curated"
 }
 
 export type ImageSearchProvider =
   | "auto"
+  | "pexafy"
+  | "searxng"
   | "bing_scraper"
   | "bing_api"
-  | "pexels"
-  | "unsplash"
   | "curated"
 
 export interface ImageSearchParams {
@@ -39,6 +39,8 @@ export interface ImageSearchParams {
   orientation?: "landscape" | "portrait" | "squarish"
   minWidth?: number
   provider?: ImageSearchProvider
+  pexafyApiKey?: string
+  searxngUrl?: string
 }
 
 const DEFAULT_MIN_WIDTH = 1280
@@ -368,63 +370,131 @@ async function searchBingAsyncScraper(query: string, count: number, minWidth: nu
 }
 
 /**
- * 3. Pexels API
+ * 3. Pexafy API Search (Semantic Multi-Source Stock Photos)
  */
-async function searchPexels(query: string, count: number, apiKey: string): Promise<ImageSearchResult[]> {
+async function searchWithPexafy(
+  query: string,
+  count: number,
+  apiKey: string,
+  minWidth: number
+): Promise<ImageSearchResult[]> {
   try {
-    const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=${count}&orientation=landscape`
+    const url = `https://api.pexafy.com/api/v1/search/photos?q=${encodeURIComponent(query)}&per_page=${Math.max(count, 10)}&orientation=landscape`
     const res = await fetch(url, {
-      headers: { Authorization: apiKey },
+      headers: {
+        "x-api-key": apiKey,
+        "Accept": "application/json",
+      },
+      signal: AbortSignal.timeout(10000),
     })
 
-    if (!res.ok) return []
+    if (!res.ok) {
+      console.warn(`[image-search] Pexafy API error HTTP ${res.status}`)
+      return []
+    }
 
     const data = await res.json()
-    if (!data.photos || !Array.isArray(data.photos)) return []
+    const photos = data?.data
+    if (!Array.isArray(photos)) return []
 
-    return data.photos.map((p: any) => ({
-      url: p.src?.large2x || p.src?.large || p.src?.original,
-      alt: p.alt || query,
-      caption: p.alt ? `${p.alt} (Foto oleh ${p.photographer} via Pexels)` : `Ilustrasi ${query} via Pexels`,
-      credit: p.photographer ? `Pexels / ${p.photographer}` : "Pexels",
-      width: p.width,
-      height: p.height,
-      source: "pexels" as const,
-    }))
+    const results: ImageSearchResult[] = []
+    for (const item of photos) {
+      if (results.length >= count) break
+      const itemWidth = item.width ? Number(item.width) : 0
+      if (itemWidth > 0 && itemWidth < minWidth) continue
+
+      const mediaUrl = item.urls?.regular || item.preview_url_large || item.source_image_url
+      if (!mediaUrl || typeof mediaUrl !== "string" || !mediaUrl.startsWith("http")) continue
+
+      const isLive = await verifyImageAccessible(mediaUrl, 2500)
+      if (!isLive) continue
+
+      const alt = item.alt_description || query
+      const photographer = item.photographer_full_name || "Pexafy Contributor"
+      const origin = item.source || "Pexafy"
+
+      results.push({
+        url: mediaUrl,
+        alt,
+        caption: `${alt} (Foto oleh ${photographer} via ${origin})`,
+        credit: `${origin} / ${photographer}`,
+        width: itemWidth || minWidth,
+        height: item.height ? Number(item.height) : undefined,
+        source: "pexafy" as const,
+      })
+    }
+
+    return results
   } catch (err) {
-    console.warn("[image-search] Gagal memanggil Pexels API:", err)
+    console.warn("[image-search] Gagal memanggil Pexafy API:", err)
     return []
   }
 }
 
 /**
- * 4. Unsplash API
+ * 4. SearxNG Image Search (Self-Hosted Metasearch Engine)
  */
-async function searchUnsplash(query: string, count: number, accessKey: string): Promise<ImageSearchResult[]> {
+async function searchWithSearxngImages(
+  query: string,
+  count: number,
+  searxngUrl: string,
+  minWidth: number
+): Promise<ImageSearchResult[]> {
   try {
-    const url = `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=${count}&orientation=landscape`
+    const base = searxngUrl.replace(/\/+$/, "")
+    const url = `${base}/search?q=${encodeURIComponent(query)}&categories=images&format=json`
     const res = await fetch(url, {
-      headers: { Authorization: `Client-ID ${accessKey}` },
+      headers: getRandomBrowserHeaders("page"),
+      signal: AbortSignal.timeout(10000),
     })
 
-    if (!res.ok) return []
+    if (!res.ok) {
+      console.warn(`[image-search] SearxNG Image API error HTTP ${res.status}`)
+      return []
+    }
 
     const data = await res.json()
-    if (!data.results || !Array.isArray(data.results)) return []
+    const items = data?.results
+    if (!Array.isArray(items)) return []
 
-    return data.results.map((p: any) => ({
-      url: p.urls?.regular || p.urls?.full,
-      alt: p.alt_description || p.description || query,
-      caption: p.description
-        ? `${p.description} (Foto oleh ${p.user?.name || "Unsplash"} via Unsplash)`
-        : `Ilustrasi ${query} (Foto oleh ${p.user?.name || "Unsplash"} via Unsplash)`,
-      credit: p.user?.name ? `Unsplash / ${p.user.name}` : "Unsplash",
-      width: p.width,
-      height: p.height,
-      source: "unsplash" as const,
-    }))
+    const results: ImageSearchResult[] = []
+    for (const item of items) {
+      if (results.length >= count) break
+      const mediaUrl = item.img_src || item.url
+      if (!mediaUrl || typeof mediaUrl !== "string" || !mediaUrl.startsWith("http")) continue
+
+      let width = 0
+      let height = 0
+      if (typeof item.resolution === "string") {
+        const match = item.resolution.match(/(\d+)\s*[xX]\s*(\d+)/)
+        if (match) {
+          width = parseInt(match[1], 10)
+          height = parseInt(match[2], 10)
+        }
+      }
+
+      if (width > 0 && width < minWidth) continue
+
+      const isLive = await verifyImageAccessible(mediaUrl, 2500)
+      if (!isLive) continue
+
+      const title = item.title || query
+      const source = item.source || item.engine || "SearxNG"
+
+      results.push({
+        url: mediaUrl,
+        alt: title,
+        caption: `${title} (Sumber: ${source})`,
+        credit: source,
+        width: width || minWidth,
+        height: height || undefined,
+        source: "searxng" as const,
+      })
+    }
+
+    return results
   } catch (err) {
-    console.warn("[image-search] Gagal memanggil Unsplash API:", err)
+    console.warn("[image-search] Gagal memanggil SearxNG Image API:", err)
     return []
   }
 }
@@ -465,7 +535,26 @@ export async function searchRoyaltyFreeImages(params: ImageSearchParams): Promis
 
   if (!query) return []
 
+  const pexafyKey = params.pexafyApiKey || process.env.PEXAFY_API_KEY
+  const searxngUrl = params.searxngUrl || process.env.SEARXNG_URL
+
   // 1. Eksekusi jika pengguna memilih METODE SPESIFIK:
+  if (provider === "pexafy") {
+    if (pexafyKey) {
+      const results = await searchWithPexafy(query, count, pexafyKey, minWidth)
+      if (results.length > 0) return results
+    }
+    return getCuratedUnsplashImages(query, count)
+  }
+
+  if (provider === "searxng") {
+    if (searxngUrl) {
+      const results = await searchWithSearxngImages(query, count, searxngUrl, minWidth)
+      if (results.length > 0) return results
+    }
+    return getCuratedUnsplashImages(query, count)
+  }
+
   if (provider === "bing_api") {
     const bingApiKey = process.env.BING_SEARCH_API_KEY || process.env.BING_API_KEY
     if (bingApiKey) {
@@ -481,49 +570,33 @@ export async function searchRoyaltyFreeImages(params: ImageSearchParams): Promis
     return getCuratedUnsplashImages(query, count)
   }
 
-  if (provider === "pexels") {
-    if (process.env.PEXELS_API_KEY) {
-      const results = await searchPexels(query, count, process.env.PEXELS_API_KEY)
-      if (results.length > 0) return results
-    }
-    return getCuratedUnsplashImages(query, count)
-  }
-
-  if (provider === "unsplash") {
-    if (process.env.UNSPLASH_ACCESS_KEY) {
-      const results = await searchUnsplash(query, count, process.env.UNSPLASH_ACCESS_KEY)
-      if (results.length > 0) return results
-    }
-    return getCuratedUnsplashImages(query, count)
-  }
-
   if (provider === "curated") {
     return getCuratedUnsplashImages(query, count)
   }
 
   // 2. Mode DEFAULT ("auto"): Pipeline Bertingkat Cerdas
-  // 2.1 Coba Bing Official API jika ada key
+  // 2.1 Coba Pexafy jika ada API key
+  if (pexafyKey) {
+    const pexafyResults = await searchWithPexafy(query, count, pexafyKey, minWidth)
+    if (pexafyResults.length > 0) return pexafyResults
+  }
+
+  // 2.2 Coba SearxNG jika ada URL
+  if (searxngUrl) {
+    const searxngResults = await searchWithSearxngImages(query, count, searxngUrl, minWidth)
+    if (searxngResults.length > 0) return searxngResults
+  }
+
+  // 2.3 Coba Bing Official API jika ada key
   const bingApiKey = process.env.BING_SEARCH_API_KEY || process.env.BING_API_KEY
   if (bingApiKey) {
     const bingApiResults = await searchBingOfficialApi(query, count, bingApiKey, minWidth)
     if (bingApiResults.length > 0) return bingApiResults
   }
 
-  // 2.2 Coba Bing Async Scraper (Creative Commons, Wide Landscape, minWidth >= 1280px, Live Verified)
+  // 2.4 Coba Bing Async Scraper (Creative Commons, Wide Landscape, minWidth >= 1280px, Live Verified)
   const bingScraperResults = await searchBingAsyncScraper(query, count, minWidth)
   if (bingScraperResults.length > 0) return bingScraperResults
-
-  // 2.3 Coba Pexels jika ada PEXELS_API_KEY
-  if (process.env.PEXELS_API_KEY) {
-    const pexelsResults = await searchPexels(query, count, process.env.PEXELS_API_KEY)
-    if (pexelsResults.length > 0) return pexelsResults
-  }
-
-  // 2.4 Coba Unsplash jika ada UNSPLASH_ACCESS_KEY
-  if (process.env.UNSPLASH_ACCESS_KEY) {
-    const unsplashResults = await searchUnsplash(query, count, process.env.UNSPLASH_ACCESS_KEY)
-    if (unsplashResults.length > 0) return unsplashResults
-  }
 
   // 2.5 Fallback cerdas: gunakan Unsplash Curated CDN (lebar 1280px)
   return getCuratedUnsplashImages(query, count)

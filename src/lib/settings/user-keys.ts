@@ -41,8 +41,8 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       tavilyKey: safeDecrypt(data.encrypted_tavily_key),
       braveKey: safeDecrypt(data.encrypted_brave_key),
       serpapiKey: safeDecrypt(data.encrypted_serpapi_key),
-      pexelsKey: safeDecrypt(data.encrypted_pexels_key),
-      unsplashKey: safeDecrypt(data.encrypted_unsplash_key),
+      pexafyKey: safeDecrypt(data.encrypted_pexafy_key),
+      searxngUrl: data.searxng_url ? String(data.searxng_url).trim() : undefined,
       searchPreferences: (data.search_preferences as DecryptedUserKeys["searchPreferences"]) || {
         default_provider: "auto",
       },

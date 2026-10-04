@@ -4,7 +4,6 @@ import * as React from "react"
 import Link from "next/link"
 import {
   User,
-  Mail,
   ShieldCheck,
   Bell,
   KeyRound,
@@ -12,16 +11,11 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  Bot,
-  Search,
-  Image as ImageIcon,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
-import { Input } from "@/components/atoms/input"
 import { Label } from "@/components/atoms/label"
 import { Switch } from "@/components/atoms/switch"
-import { Badge } from "@/components/atoms/badge"
 import { UserSettingsResponse, NotificationPrefs } from "@/types/settings"
 
 export function ProfileSettingsForm() {
@@ -30,11 +24,6 @@ export function ProfileSettingsForm() {
   const [isSaving, setIsSaving] = React.useState(false)
   const [isSaved, setIsSaved] = React.useState(false)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
-
-  // Keys form
-  const [pexelsKey, setPexelsKey] = React.useState("")
-  const [unsplashKey, setUnsplashKey] = React.useState("")
-  const [serpapiKey, setSerpapiKey] = React.useState("")
 
   // Notification prefs
   const [notifPrefs, setNotifPrefs] = React.useState<NotificationPrefs>({
@@ -52,15 +41,6 @@ export function ProfileSettingsForm() {
         setData(result)
         if (result.notificationPrefs) {
           setNotifPrefs((prev) => ({ ...prev, ...result.notificationPrefs }))
-        }
-        if (result.keys?.pexels?.configured) {
-          setPexelsKey("••••••••••••••••")
-        }
-        if (result.keys?.unsplash?.configured) {
-          setUnsplashKey("••••••••••••••••")
-        }
-        if (result.keys?.serpapi?.configured) {
-          setSerpapiKey("••••••••••••••••")
         }
       }
     } catch (err) {
@@ -80,26 +60,8 @@ export function ProfileSettingsForm() {
     setErrorMessage(null)
 
     try {
-      const payload: Record<string, unknown> = {
+      const payload = {
         notificationPrefs: notifPrefs,
-      }
-
-      if (pexelsKey.trim() && !pexelsKey.includes("•")) {
-        payload.pexelsKey = pexelsKey.trim()
-      } else if (pexelsKey.trim() === "") {
-        payload.pexelsKey = ""
-      }
-
-      if (unsplashKey.trim() && !unsplashKey.includes("•")) {
-        payload.unsplashKey = unsplashKey.trim()
-      } else if (unsplashKey.trim() === "") {
-        payload.unsplashKey = ""
-      }
-
-      if (serpapiKey.trim() && !serpapiKey.includes("•")) {
-        payload.serpapiKey = serpapiKey.trim()
-      } else if (serpapiKey.trim() === "") {
-        payload.serpapiKey = ""
       }
 
       const res = await fetch("/api/settings/user", {
@@ -110,7 +72,7 @@ export function ProfileSettingsForm() {
 
       const resData = await res.json()
       if (!res.ok || !resData.ok) {
-        setErrorMessage(resData.error || "Gagal menyimpan preferensi.")
+        setErrorMessage(resData.error || "Gagal menyimpan preferensi profil.")
       } else {
         setIsSaved(true)
         setTimeout(() => setIsSaved(false), 3000)
@@ -128,7 +90,7 @@ export function ProfileSettingsForm() {
       <Card className="border-border/80 bg-card/60">
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
           <Loader2 className="size-6 animate-spin text-primary" />
-          <p className="mt-2 text-xs text-muted-foreground">Memuat preferensi profil...</p>
+          <p className="mt-2 text-xs text-muted-foreground">Memuat profil akun...</p>
         </CardContent>
       </Card>
     )
@@ -146,7 +108,7 @@ export function ProfileSettingsForm() {
       {isSaved && (
         <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400">
           <CheckCircle2 className="size-4 shrink-0" />
-          <span>Preferensi dan kunci BYOK berhasil disimpan dengan enkripsi AES-256-GCM.</span>
+          <span>Preferensi profil berhasil disimpan.</span>
         </div>
       )}
 
@@ -178,154 +140,26 @@ export function ProfileSettingsForm() {
         </CardContent>
       </Card>
 
-      {/* Status Hub Kunci BYOK */}
-      <Card className="border-border/80 bg-card/90">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <KeyRound className="size-4 text-primary" />
-            Status Provider Kunci BYOK
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Kunci API Anda dienkripsi di database server dan tidak dapat dibaca oleh pihak lain.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
-            <div className="flex items-center gap-2">
-              <Bot className="size-4 text-ai-process" />
-              <div className="flex flex-col">
-                <span className="text-xs font-medium">OpenRouter AI</span>
-                <span className="text-[10px] text-muted-foreground">Model &amp; Penulisan</span>
-              </div>
+      {/* Banner Menuju Pusat Kunci API */}
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0 mt-0.5 sm:mt-0">
+              <KeyRound className="size-5" />
             </div>
-            <div className="flex items-center gap-1.5">
-              <Badge variant={data?.keys.openrouter.configured ? "default" : "outline"} className="text-[10px]">
-                {data?.keys.openrouter.configured ? "Tersambung" : "Default Env"}
-              </Badge>
-              <Button asChild variant="ghost" size="sm" className="size-7 p-0">
-                <Link href="/settings/ai">
-                  <ExternalLink className="size-3" />
-                </Link>
-              </Button>
+            <div className="space-y-1">
+              <h4 className="text-sm font-semibold text-foreground">Pengelolaan Kunci API Terpusat</h4>
+              <p className="text-xs text-muted-foreground leading-relaxed max-w-xl">
+                Semua API Key (OpenRouter AI, Web Search Tavily/Brave/SearxNG, dan Pexafy Image Search) kini dikelola dalam satu tempat di <strong>Pusat Kunci API (BYOK)</strong>.
+              </p>
             </div>
           </div>
-
-          <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
-            <div className="flex items-center gap-2">
-              <Search className="size-4 text-primary" />
-              <div className="flex flex-col">
-                <span className="text-xs font-medium">Tavily Search</span>
-                <span className="text-[10px] text-muted-foreground">Riset Topik AI</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Badge variant={data?.keys.tavily.configured ? "default" : "outline"} className="text-[10px]">
-                {data?.keys.tavily.configured ? "Tersambung" : "Belum Diatur"}
-              </Badge>
-              <Button asChild variant="ghost" size="sm" className="size-7 p-0">
-                <Link href="/settings/search">
-                  <ExternalLink className="size-3" />
-                </Link>
-              </Button>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
-            <div className="flex items-center gap-2">
-              <Search className="size-4 text-primary" />
-              <div className="flex flex-col">
-                <span className="text-xs font-medium">Brave Search</span>
-                <span className="text-[10px] text-muted-foreground">Riset Web Terbuka</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Badge variant={data?.keys.brave.configured ? "default" : "outline"} className="text-[10px]">
-                {data?.keys.brave.configured ? "Tersambung" : "Belum Diatur"}
-              </Badge>
-              <Button asChild variant="ghost" size="sm" className="size-7 p-0">
-                <Link href="/settings/search">
-                  <ExternalLink className="size-3" />
-                </Link>
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Kunci Media & Gambar Tambahan */}
-      <Card className="border-border/80 bg-card/90">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <ImageIcon className="size-4 text-primary" />
-            Kunci Media &amp; Gambar Resmi (Opsional)
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Digunakan oleh Image Curator Node untuk mencari gambar royalti bebas resolusi tinggi.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="pexels-key" className="text-xs font-medium">
-                Pexels API Key
-              </Label>
-              {data?.keys.pexels.configured && (
-                <Badge variant="outline" className="text-[10px] text-emerald-600">
-                  Tersimpan
-                </Badge>
-              )}
-            </div>
-            <Input
-              id="pexels-key"
-              type="password"
-              placeholder="Kosongkan jika menggunakan scraper bawaan"
-              value={pexelsKey}
-              onChange={(e) => setPexelsKey(e.target.value)}
-              className="font-mono text-xs"
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="unsplash-key" className="text-xs font-medium">
-                Unsplash Access Key
-              </Label>
-              {data?.keys.unsplash.configured && (
-                <Badge variant="outline" className="text-[10px] text-emerald-600">
-                  Tersimpan
-                </Badge>
-              )}
-            </div>
-            <Input
-              id="unsplash-key"
-              type="password"
-              placeholder="Kosongkan jika menggunakan katalog CDN kurasi"
-              value={unsplashKey}
-              onChange={(e) => setUnsplashKey(e.target.value)}
-              className="font-mono text-xs"
-            />
-          </div>
-
-          <div className="space-y-1.5 sm:col-span-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="serpapi-key" className="text-xs font-medium">
-                SerpAPI Key (Fallback Cadangan Mesin Pencari)
-              </Label>
-              {data?.keys.serpapi.configured && (
-                <Badge variant="outline" className="text-[10px] text-emerald-600">
-                  Tersimpan
-                </Badge>
-              )}
-            </div>
-            <Input
-              id="serpapi-key"
-              type="password"
-              placeholder="Kunci SerpAPI untuk Google Search (opsional)"
-              value={serpapiKey}
-              onChange={(e) => setSerpapiKey(e.target.value)}
-              className="font-mono text-xs"
-            />
-          </div>
+          <Button asChild variant="default" size="sm" className="shrink-0 gap-1.5 text-xs">
+            <Link href="/settings/keys">
+              <span>Buka Pusat Kunci API</span>
+              <ExternalLink className="size-3.5" />
+            </Link>
+          </Button>
         </CardContent>
       </Card>
 
@@ -401,7 +235,7 @@ export function ProfileSettingsForm() {
           className="cursor-pointer gap-1.5 text-xs px-5"
         >
           {isSaving && <Loader2 className="size-3.5 animate-spin" />}
-          Simpan Semua Preferensi
+          Simpan Preferensi
         </Button>
       </div>
     </form>

@@ -10,11 +10,14 @@ import {
   Globe,
   History,
   ListChecks,
-  SlidersHorizontal,
+  Bot,
   Settings,
   WandSparkles,
   ChevronRight,
   FlaskConical,
+  CalendarClock,
+  Wrench,
+  FileCode2,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
@@ -39,16 +42,22 @@ const primaryNavItems: NavItem[] = [
 const contentNavItems: NavItem[] = [
   { title: "Tulis Cepat", href: "/posts/new", icon: PenLine },
   { title: "Bulk Artikel", href: "/queue", icon: Layers, badge: "Batch" },
+  { title: "Artikel Terjadwal", href: "/scheduled", icon: CalendarClock, badge: "Drip" },
+]
+
+const toolsNavItems: NavItem[] = [
+  { title: "WP Tools", href: "/tools", icon: Wrench },
 ]
 
 const bottomNavItems: NavItem[] = [
-  { title: "Format Prompt", href: "/prompts", icon: SlidersHorizontal },
+  { title: "Profil Agen", href: "/agents", icon: Bot },
+  { title: "Skill Registry", href: "/skills", icon: FileCode2, badge: "Deep" },
   { title: "Laboratorium", href: "/lab", icon: FlaskConical, badge: "Lab" },
   { title: "Pengaturan", href: "/settings", icon: Settings },
 ]
 
 function renderNavLink(item: NavItem, pathname: string) {
-  const isActive = pathname === item.href
+  const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href + "/"))
   const Icon = item.icon
 
   const link = (
@@ -159,6 +168,14 @@ export function SidebarNav() {
             Penerbitan Konten
           </div>
           {contentNavItems.map((item) => renderNavLink(item, pathname))}
+
+          {/* Separator */}
+          <div className="my-2 border-t border-sidebar-border/70" />
+
+          <div className="hidden px-3 pb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
+            Tools
+          </div>
+          {toolsNavItems.map((item) => renderNavLink(item, pathname))}
         </div>
 
         {/* Bottom Menus */}

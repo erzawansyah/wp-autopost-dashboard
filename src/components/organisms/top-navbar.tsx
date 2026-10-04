@@ -68,11 +68,7 @@ export function TopNavbar({
   return (
     <header className="sticky top-0 z-30 flex min-h-[68px] items-center justify-between gap-4 border-b border-border/80 bg-background/85 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
       {/* Left: Global Site Selector & Context */}
-        <div className="flex items-center gap-3">
-          <div className="hidden items-center gap-2 text-xs font-medium text-muted-foreground sm:flex">
-            <Globe className="size-3.5 text-primary" />
-            <span>Workspace</span>
-        </div>
+      <div className="flex items-center gap-3">
         <Select
           value={selectedSite}
           onValueChange={(val) => onSelectSite && onSelectSite(val)}

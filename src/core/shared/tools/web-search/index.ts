@@ -22,6 +22,7 @@ export type WebSearchProvider =
   | "auto"
   | "tavily"
   | "brave"
+  | "searxng"
   | "bing_scraper"
   | "serpapi"
   | "open_knowledge"
@@ -32,6 +33,7 @@ export interface WebSearchParams {
   language?: string
   provider?: WebSearchProvider
   apiKey?: string
+  searxngUrl?: string
 }
 
 interface BrowserProfile {
@@ -359,7 +361,43 @@ async function searchWithBrave(query: string, limit: number, apiKey: string): Pr
 }
 
 /**
- * 4. Pencarian via SerpAPI (jika API key tersedia)
+ * 4. Pencarian via SearxNG Metasearch API
+ */
+async function searchWithSearxngWeb(query: string, limit: number, searxngUrl: string): Promise<WebSearchResult[]> {
+  try {
+    const base = searxngUrl.replace(/\/+$/, "")
+    const url = `${base}/search?q=${encodeURIComponent(query)}&categories=general&format=json`
+    const res = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        ...getRandomBrowserHeaders(),
+      },
+      signal: AbortSignal.timeout(10000),
+    })
+
+    if (!res.ok) {
+      console.warn(`[web-search] SearxNG Web API error HTTP ${res.status}`)
+      return []
+    }
+
+    const data = await res.json()
+    const results = data?.results
+    if (!Array.isArray(results)) return []
+
+    return results.slice(0, limit).map((r: any) => ({
+      title: r.title || query,
+      url: r.url,
+      snippet: cleanHtmlText(r.content || ""),
+      source: r.engine || "searxng",
+    }))
+  } catch (err) {
+    console.warn("[web-search] Gagal memanggil SearxNG Web API:", err)
+    return []
+  }
+}
+
+/**
+ * 5. Pencarian via SerpAPI (jika API key tersedia)
  */
 async function searchWithSerpApi(query: string, limit: number, apiKey: string, language: string): Promise<WebSearchResult[]> {
   try {
@@ -500,6 +538,7 @@ export async function webSearch(params: WebSearchParams): Promise<WebSearchResul
   const tavilyKey = (provider === "tavily" && params.apiKey) ? params.apiKey : getApiKey("TAVILY_API_KEY")
   const braveKey = (provider === "brave" && params.apiKey) ? params.apiKey : getApiKey("BRAVE_API_KEY")
   const serpKey = (provider === "serpapi" && params.apiKey) ? params.apiKey : getApiKey("SERP_API_KEY")
+  const searxngUrl = params.searxngUrl || getApiKey("SEARXNG_URL")
 
   if (provider === "bing_scraper") {
     const results = await searchBingWebScraper(query, limit, language)
@@ -518,6 +557,14 @@ export async function webSearch(params: WebSearchParams): Promise<WebSearchResul
   if (provider === "brave") {
     if (braveKey) {
       const results = await searchWithBrave(query, limit, braveKey)
+      if (results.length > 0) return results
+    }
+    return searchWithOpenKnowledge(query, limit, language)
+  }
+
+  if (provider === "searxng") {
+    if (searxngUrl) {
+      const results = await searchWithSearxngWeb(query, limit, searxngUrl)
       if (results.length > 0) return results
     }
     return searchWithOpenKnowledge(query, limit, language)
@@ -548,16 +595,22 @@ export async function webSearch(params: WebSearchParams): Promise<WebSearchResul
     if (braveRes.length > 0) return braveRes
   }
 
-  // 2.3 Coba SerpAPI jika API key tersedia
+  // 2.3 Coba SearxNG jika URL tersedia
+  if (searxngUrl) {
+    const searxngRes = await searchWithSearxngWeb(query, limit, searxngUrl)
+    if (searxngRes.length > 0) return searxngRes
+  }
+
+  // 2.4 Coba SerpAPI jika API key tersedia
   if (serpKey) {
     const serpRes = await searchWithSerpApi(query, limit, serpKey, language)
     if (serpRes.length > 0) return serpRes
   }
 
-  // 2.4 Coba Bing Web Live Scraper (Zero-Config, Hasil Web Luas & Aktual)
+  // 2.5 Coba Bing Web Live Scraper (Zero-Config, Hasil Web Luas & Aktual)
   const bingScraperRes = await searchBingWebScraper(query, limit, language)
   if (bingScraperRes.length > 0) return bingScraperRes
 
-  // 2.5 Fallback cerdas: Open Knowledge Base Wikipedia
+  // 2.6 Fallback cerdas: Open Knowledge Base Wikipedia
   return searchWithOpenKnowledge(query, limit, language)
 }

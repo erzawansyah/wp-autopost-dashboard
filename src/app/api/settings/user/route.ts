@@ -43,9 +43,9 @@ export async function GET() {
         tavily: maskKey(data?.encrypted_tavily_key),
         brave: maskKey(data?.encrypted_brave_key),
         serpapi: maskKey(data?.encrypted_serpapi_key),
-        pexels: maskKey(data?.encrypted_pexels_key),
-        unsplash: maskKey(data?.encrypted_unsplash_key),
+        pexafy: maskKey(data?.encrypted_pexafy_key),
       },
+      searxngUrl: data?.searxng_url || null,
       searchPreferences: data?.search_preferences || { default_provider: "auto" },
       notificationPrefs: data?.notification_prefs || {},
       updatedAt: data?.updated_at || undefined,
@@ -76,8 +76,8 @@ export async function PUT(request: Request) {
       tavilyKey,
       braveKey,
       serpapiKey,
-      pexelsKey,
-      unsplashKey,
+      pexafyKey,
+      searxngUrl,
       searchPreferences,
       notificationPrefs,
     } = body
@@ -116,8 +116,11 @@ export async function PUT(request: Request) {
     processKey(tavilyKey, "encrypted_tavily_key", existing?.encrypted_tavily_key)
     processKey(braveKey, "encrypted_brave_key", existing?.encrypted_brave_key)
     processKey(serpapiKey, "encrypted_serpapi_key", existing?.encrypted_serpapi_key)
-    processKey(pexelsKey, "encrypted_pexels_key", existing?.encrypted_pexels_key)
-    processKey(unsplashKey, "encrypted_unsplash_key", existing?.encrypted_unsplash_key)
+    processKey(pexafyKey, "encrypted_pexafy_key", existing?.encrypted_pexafy_key)
+
+    if (searxngUrl !== undefined) {
+      updates.searxng_url = typeof searxngUrl === "string" && searxngUrl.trim() ? searxngUrl.trim().replace(/\/+$/, "") : null
+    }
 
     if (searchPreferences && typeof searchPreferences === "object") {
       updates.search_preferences = {

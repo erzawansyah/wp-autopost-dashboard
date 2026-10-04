@@ -11,7 +11,7 @@ export interface NotificationPrefs {
 }
 
 export interface SearchPreferences {
-  default_provider?: "auto" | "tavily" | "brave" | "bing_scraper" | "serpapi" | "open_knowledge"
+  default_provider?: "auto" | "tavily" | "brave" | "searxng" | "bing_scraper" | "serpapi" | "open_knowledge"
 }
 
 export interface UserSettingsResponse {
@@ -22,9 +22,9 @@ export interface UserSettingsResponse {
     tavily: MaskedKeyInfo
     brave: MaskedKeyInfo
     serpapi: MaskedKeyInfo
-    pexels: MaskedKeyInfo
-    unsplash: MaskedKeyInfo
+    pexafy: MaskedKeyInfo
   }
+  searxngUrl: string | null
   searchPreferences: SearchPreferences
   notificationPrefs: NotificationPrefs
   updatedAt?: string
@@ -35,6 +35,9 @@ export interface DecryptedUserKeys {
   tavilyKey?: string
   braveKey?: string
   serpapiKey?: string
+  pexafyKey?: string
+  searxngUrl?: string
+  // Legacy optional properties for graceful compatibility
   pexelsKey?: string
   unsplashKey?: string
   searchPreferences: SearchPreferences

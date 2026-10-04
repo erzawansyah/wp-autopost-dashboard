@@ -15,21 +15,92 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => ({}))
-    const { provider, apiKey } = body
+    const { provider, apiKey, searxngUrl } = body
 
-    if (!provider || !["tavily", "brave"].includes(provider)) {
+    if (!provider || !["tavily", "brave", "searxng", "pexafy"].includes(provider)) {
       return NextResponse.json(
-        { ok: false, error: "Provider tidak valid. Pilih antara 'tavily' atau 'brave'." },
+        { ok: false, error: "Provider tidak valid. Pilih antara 'tavily', 'brave', 'searxng', atau 'pexafy'." },
         { status: 400 }
       )
+    }
+
+    if (provider === "searxng") {
+      const urlToTest = typeof searxngUrl === "string" ? searxngUrl.trim().replace(/\/+$/, "") : ""
+      if (!urlToTest) {
+        return NextResponse.json(
+          { ok: false, error: "URL instance SearxNG belum diisi." },
+          { status: 400 }
+        )
+      }
+      try {
+        new URL(urlToTest)
+      } catch {
+        return NextResponse.json(
+          { ok: false, error: "Format URL SearxNG tidak valid." },
+          { status: 400 }
+        )
+      }
+
+      const res = await fetch(`${urlToTest}/search?q=test&format=json`, {
+        signal: AbortSignal.timeout(8000),
+      })
+      const latencyMs = Date.now() - startTime
+
+      if (!res.ok) {
+        return NextResponse.json(
+          { ok: false, error: `Instance SearxNG merespons kode HTTP ${res.status}. Pastikan format=json diaktifkan di settings.yml SearxNG Anda.`, latencyMs },
+          { status: res.status }
+        )
+      }
+
+      const data = await res.json().catch(() => null)
+      if (!data || !Array.isArray(data.results)) {
+        return NextResponse.json(
+          { ok: false, error: "SearxNG merespons tetapi format JSON tidak valid. Pastikan output format=json diizinkan.", latencyMs },
+          { status: 422 }
+        )
+      }
+
+      return NextResponse.json({
+        ok: true,
+        latencyMs,
+        message: `Koneksi ke instance SearxNG (${urlToTest}) berhasil terverifikasi!`,
+      })
     }
 
     const cleanKey = typeof apiKey === "string" ? apiKey.trim() : ""
     if (!cleanKey) {
       return NextResponse.json(
-        { ok: false, error: `Kunci API ${provider === "tavily" ? "Tavily" : "Brave"} belum diisi.` },
+        { ok: false, error: `Kunci API ${provider === "tavily" ? "Tavily" : provider === "brave" ? "Brave" : "Pexafy"} belum diisi.` },
         { status: 400 }
       )
+    }
+
+    if (provider === "pexafy") {
+      const res = await fetch("https://api.pexafy.com/api/v1/search/photos?q=landscape&per_page=1", {
+        headers: {
+          "x-api-key": cleanKey,
+          Accept: "application/json",
+        },
+        signal: AbortSignal.timeout(10000),
+      })
+
+      const latencyMs = Date.now() - startTime
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        const errorMsg =
+          res.status === 401 || res.status === 403
+            ? "API Key Pexafy tidak valid atau ditolak."
+            : `Pexafy API merespons kode HTTP ${res.status}: ${data.message || data.error || ""}`
+        return NextResponse.json({ ok: false, error: errorMsg, latencyMs }, { status: res.status })
+      }
+
+      return NextResponse.json({
+        ok: true,
+        latencyMs,
+        message: "Koneksi ke Pexafy API berhasil terverifikasi!",
+      })
     }
 
     if (provider === "tavily") {
