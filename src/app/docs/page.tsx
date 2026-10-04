@@ -370,9 +370,9 @@ export default function DocsPage() {
                 </div>
 
                 <div className="p-3 rounded-lg border border-primary/20 bg-primary/5 text-foreground">
-                  <p className="font-semibold text-primary mb-1">Konfigurasi SearXNG Mandiri:</p>
+                  <p className="font-semibold text-primary mb-1">Keamanan &amp; Zero Port Exposure:</p>
                   <p className="text-muted-foreground">
-                    Konfigurasi engine dan format JSON tersimpan di folder <code className="font-mono text-foreground">searxng/settings.yml</code>. Pengguna juga tetap dapat mengakses UI SearXNG langsung melalui browser di port host <code className="font-mono text-foreground">http://localhost:8080</code>.
+                    SearXNG diisolasi penuh di dalam jaringan internal Docker (<code className="font-mono text-foreground">http://searxng:8080</code>) menggunakan direktif <code className="font-mono text-foreground">expose</code> tanpa membuka port ke host atau internet publik. Hal ini mencegah potensi konflik port pada server dan menjaga mesin pencari aman dari akses pihak ketiga.
                   </p>
                 </div>
               </CardContent>

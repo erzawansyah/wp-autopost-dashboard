@@ -55,6 +55,6 @@ docker compose up -d --build
 ```
 
 Setelah berjalan:
-- **WP Autopost Dashboard**: `http://localhost:3000`
-- **SearXNG Instance**: `http://localhost:8080` (terkoneksi otomatis ke aplikasi via internal docker network `http://searxng:8080`)
+- **WP Autopost Dashboard**: `http://localhost:3000` (atau port host yang diatur)
+- **SearXNG Engine**: Berjalan di dalam internal Docker network (`http://searxng:8080`) **tanpa mengekspos port ke internet/host luar**, sehingga aman dari akses publik dan bebas dari potensi konflik port.
 

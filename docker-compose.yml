@@ -63,12 +63,13 @@ services:
     container_name: searxng
     image: searxng/searxng:latest
     restart: unless-stopped
-    ports:
-      - "${SEARXNG_PORT:-8080}:8080"
+    # Hanya di-expose ke internal docker network (tidak membuka port ke internet/host luar)
+    expose:
+      - "8080"
     volumes:
       - ./searxng:/etc/searxng:rw
     environment:
-      - SEARXNG_BASE_URL=http://localhost:${SEARXNG_PORT:-8080}/
+      - SEARXNG_BASE_URL=http://searxng:8080/
       - SEARXNG_SECRET=${SEARXNG_SECRET:-wp-autopost-dashboard-searxng-internal-key-change-if-public}
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/healthz || exit 1"]
