@@ -120,6 +120,30 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     userKeys.openrouterKey ||
     getSanitizedApiKey()
 
+  if (!resolvedApiKey) {
+    const errorMsg =
+      "API Key OpenRouter belum dikonfigurasi. Karena platform Panitera menggunakan sistem BYOK (Bring Your Own Key), silakan tambahkan API Key Anda di menu Pengaturan ➔ Kunci API (/settings/keys)."
+    recorder.recordEvent({
+      kind: "guard",
+      status: "error",
+      durationMs: 0,
+      summary: errorMsg,
+    })
+    return {
+      success: false,
+      sources: [],
+      enrichment: { categories: [], tags: [] },
+      recorder,
+      stopReason: "missing_api_key",
+      error: {
+        code: "MISSING_API_KEY",
+        message: errorMsg,
+        node: "llm_initialization",
+        retryable: false,
+      },
+    }
+  }
+
   const selectedModel = profile.model || request.model || DEFAULT_AI_MODEL
   const llm = new ChatOpenRouter({
     apiKey: resolvedApiKey,
@@ -127,7 +151,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     temperature: profile.temperature ?? 0.35,
     maxTokens: 4096,
     siteUrl: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
-    siteName: process.env.OPENROUTER_APP_NAME || "WP Autopost Dashboard",
+    siteName: process.env.OPENROUTER_APP_NAME || "Panitera",
   })
 
   // 5. Prompting

@@ -1,5 +1,5 @@
 services:
-  wp-autopost-dashboard:
+  panitera:
     build:
       context: .
       dockerfile: Dockerfile
@@ -7,7 +7,7 @@ services:
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}}
         NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}}
-    container_name: wp-autopost-dashboard
+    container_name: panitera
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-3000}:3000"
@@ -18,34 +18,21 @@ services:
       - PORT=3000
       - HOSTNAME=0.0.0.0
 
-      # 1. Supabase (Database & Auth)
+      # 1. Supabase (Database & Multi-Tenant Auth)
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY:-${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-}}
       - NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:-${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}}
       - SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY:-${SUPABASE_SERVICE_ROLE_KEY:-}}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-${SUPABASE_SECRET_KEY:-}}
-      - SUPABASE_PROJECT_REF=${SUPABASE_PROJECT_REF:-}
-      - SUPABASE_ACCESS_TOKEN=${SUPABASE_ACCESS_TOKEN:-}
 
-      # 2. Security & Encryption (AES-256-GCM Master Key)
+      # 2. Keamanan & Kriptografi (Wajib untuk Enkripsi Kunci User & Password WP)
       - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY}
       - CRON_SECRET=${CRON_SECRET:-}
       - WEBHOOK_SIGNATURE_SECRET=${WEBHOOK_SIGNATURE_SECRET:-}
 
-      # 3. AI Providers
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - OPENROUTER_DEFAULT_MODEL=${OPENROUTER_DEFAULT_MODEL:-anthropic/claude-3.5-sonnet}
+      # 3. Pengaturan Platform & SearXNG Internal
+      - OPENROUTER_APP_NAME=${OPENROUTER_APP_NAME:-Panitera}
       - OPENROUTER_SITE_URL=${OPENROUTER_SITE_URL:-http://localhost:3000}
-      - OPENROUTER_APP_NAME=${OPENROUTER_APP_NAME:-WP Autopost Dashboard}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-
-      # 4. SEO & Integrations
-      - DATAFORSEO_LOGIN=${DATAFORSEO_LOGIN:-}
-      - DATAFORSEO_PASSWORD=${DATAFORSEO_PASSWORD:-}
-      - PEXELS_API_KEY=${PEXELS_API_KEY:-}
-
-      # 5. Self-Hosted Metasearch (SearXNG)
       - SEARXNG_URL=${SEARXNG_URL:-http://searxng-internal:8080}
 
     # Optional: pasang env_file jika di Portainer menggunakan file .env
@@ -89,11 +76,11 @@ services:
       start_period: 15s
 
   queue-cron:
-    container_name: wp-autopost-cron
+    container_name: panitera-cron
     image: alpine:latest
     restart: unless-stopped
     depends_on:
-      wp-autopost-dashboard:
+      panitera:
         condition: service_healthy
     volumes:
       - cron-logs:/var/log/cron
@@ -106,15 +93,15 @@ services:
       - |
         apk add --no-cache curl tzdata
         mkdir -p /var/log/cron
-        echo "[Queue Cron] Service pemicu antrean aktif (Target: http://wp-autopost-dashboard:3000/api/queue/process?limit=$${CRON_LIMIT})."
+        echo "[Queue Cron] Service pemicu antrean aktif (Target: http://panitera:3000/api/queue/process?limit=$${CRON_LIMIT})."
         while true; do
           if [ -n "$$CRON_SECRET" ]; then
-            RESPONSE=$$(curl -s -X POST "http://wp-autopost-dashboard:3000/api/queue/process?limit=$${CRON_LIMIT}" \
+            RESPONSE=$$(curl -s -X POST "http://panitera:3000/api/queue/process?limit=$${CRON_LIMIT}" \
               -H "Authorization: Bearer $$CRON_SECRET" \
               -H "Accept: text/plain" \
               -H "Content-Type: application/json")
           else
-            RESPONSE=$$(curl -s -X POST "http://wp-autopost-dashboard:3000/api/queue/process?limit=$${CRON_LIMIT}" \
+            RESPONSE=$$(curl -s -X POST "http://panitera:3000/api/queue/process?limit=$${CRON_LIMIT}" \
               -H "Accept: text/plain" \
               -H "Content-Type: application/json")
           fi
@@ -128,6 +115,6 @@ services:
 
 volumes:
   cron-logs:
-    name: wp_autopost_cron_logs
+    name: panitera_cron_logs
 
 
