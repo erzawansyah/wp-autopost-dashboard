@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { after } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { processPostItem } from "@/core/queue/worker"
-import { LEGACY_ENGINE_MAP } from "@/core/writer/presets/registry"
+import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import {
   calculateScheduleDates,
   ScheduleMode,

@@ -4,7 +4,7 @@ import { decryptCredential } from "@/lib/crypto"
 import { run, publishPostToWordPress } from "@/core/writer"
 import { processAndSyncArticleMedia } from "@/core/shared/media/auto-media-pipeline"
 import { resolveAgentProfile } from "@/core/writer/runtime/resolve-profile"
-import { LEGACY_ENGINE_MAP } from "@/core/writer/presets/registry"
+import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import { AgentStepEvent } from "@/core/writer/runtime/telemetry"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatcher"
@@ -343,6 +343,7 @@ export async function processPostItem({
           },
           site: {
             siteId: site.id,
+            siteName: site.site_name,
             wpSiteId: site.id,
             baseUrl: site.base_url,
             username: site.wp_username,

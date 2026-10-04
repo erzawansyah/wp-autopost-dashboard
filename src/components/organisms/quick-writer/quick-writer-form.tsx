@@ -46,44 +46,6 @@ export interface WpSiteOption {
   status?: string
 }
 
-export interface WritingEngineOption {
-  id: string
-  name: string
-  shortDesc: string
-  badge: string
-  isAvailable: boolean
-}
-
-export const AVAILABLE_ENGINES: WritingEngineOption[] = [
-  {
-    id: "standard",
-    name: "Standard Engine",
-    shortDesc: "Riset topik mendalam & sisipan gambar otomatis",
-    badge: "Rekomendasi",
-    isAvailable: true,
-  },
-  {
-    id: "quick",
-    name: "Quick Writer Engine",
-    shortDesc: "LangGraph State Machine (Cepat & Ringkas)",
-    badge: "Cepat",
-    isAvailable: true,
-  },
-  {
-    id: "agentic",
-    name: "Agentic Writer",
-    shortDesc: "LangChain ReAct Agent + Tools Mandiri",
-    badge: "Agentic AI",
-    isAvailable: true,
-  },
-  {
-    id: "deepagent",
-    name: "DeepAgent Writer",
-    shortDesc: "LangChain Deep Agents + Todo Planning & Skills",
-    badge: "Deep Agent",
-    isAvailable: true,
-  },
-]
 
 export interface QuickWriterSubmitPayload {
   siteId: string

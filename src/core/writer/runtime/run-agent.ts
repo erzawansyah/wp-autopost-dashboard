@@ -20,6 +20,7 @@ import { postprocessArticle } from "./postprocess"
 import { extractArticleJsonFromText, ArticleOutput } from "./output-schema"
 import { preResolveTaxonomyAndAuthor } from "./pre-resolve"
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
+import { getLanguageDisplayName } from "@/lib/constants/languages"
 import "../tools" // Pastikan seluruh tool terdaftar ke registry
 
 export interface RunAgentOptions {
@@ -151,7 +152,23 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
   })
 
   // 5. Prompting
-  const systemPrompt = buildSystemPrompt(profile.workflowPrompt)
+  let siteUrl = request.site?.baseUrl || ""
+  let siteName = request.site?.siteName || ""
+  if (!siteName && siteUrl) {
+    try {
+      const parsed = new URL(siteUrl)
+      siteName = parsed.hostname.replace(/^www\./, "")
+    } catch {}
+  }
+
+  const systemPrompt = buildSystemPrompt(profile.workflowPrompt, {
+    siteName,
+    siteUrl,
+    authorName: preResolved.author?.name,
+    authorBio: preResolved.author?.bio,
+    categoryName: preResolved.categoryNames.length > 0 ? preResolved.categoryNames.join(", ") : undefined,
+    language: getLanguageDisplayName(language),
+  })
   const userPromptText = buildUserPrompt({
     keyword,
     language,

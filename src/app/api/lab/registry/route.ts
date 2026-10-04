@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { isLabAuthorizedUser } from "@/lib/constants/auth"
-import { BUILTIN_PRESETS } from "@/core/writer/presets/registry"
+import { BUILTIN_AGENT_PROFILES, BUILTIN_PRESETS } from "@/core/writer/profiles"
 import { ToolRegistry } from "@/core/writer/tools"
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 
@@ -49,8 +49,8 @@ export async function GET() {
           altText: "Contoh foto teknologi",
           isFeatured: true,
         }
-      } else if (t.id === "list_wp_categories" || t.id === "list_wp_tags" || t.id === "list_wp_authors") {
-        defaultParams = {}
+      } else if (t.id === "set_featured_image") {
+        defaultParams = { query: "modern workspace technology", altText: "Featured image sampul" }
       }
 
       const requiresSite = (t.requirements || []).some((r) => r.type === "wp_site")

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { BUILTIN_PRESETS } from "@/core/writer/presets/registry"
+import { BUILTIN_AGENT_PROFILES, BUILTIN_PRESETS } from "@/core/writer/profiles"
 import { AgentLimits, clampLimits, SYSTEM_LIMIT_BOUNDS, ensureMandatoryToolIds } from "@/core/writer/types/profile"
 
 export async function GET() {

@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin"
 import { AgentProfile, clampLimits, ensureMandatoryToolIds } from "../types/profile"
-import { getBuiltinPreset, resolveLegacyEngineToPreset } from "../presets/registry"
+import { getBuiltinProfile, resolveLegacyEngineToProfile } from "../profiles/builtin"
 
 /**
  * Mencari dan memuat konfigurasi Agent Profile dari Preset bawaan atau Supabase database
@@ -12,16 +12,16 @@ export async function resolveAgentProfile(
   const targetRef = refOrId || "preset:research-writer"
 
   // 1. Cek Preset Bawaan (preset:quick-writer, preset:research-writer, preset:deep-research)
-  const builtin = getBuiltinPreset(targetRef)
+  const builtin = getBuiltinProfile(targetRef)
   if (builtin) {
     return builtin
   }
 
   // 2. Cek Legacy Engine Name (quick, standard, agentic, deepagent)
-  const legacyMapped = resolveLegacyEngineToPreset(targetRef)
-  const mappedPreset = getBuiltinPreset(legacyMapped)
-  if (mappedPreset && legacyMapped !== targetRef) {
-    return mappedPreset
+  const legacyMapped = resolveLegacyEngineToProfile(targetRef)
+  const mappedProfile = getBuiltinProfile(legacyMapped)
+  if (mappedProfile && legacyMapped !== targetRef) {
+    return mappedProfile
   }
 
   // 3. Jika bukan preset, cari di tabel agent_profiles Supabase
@@ -62,5 +62,5 @@ export async function resolveAgentProfile(
   }
 
   // 4. Fallback aman jika ID tidak ditemukan: Research Writer
-  return getBuiltinPreset("preset:research-writer")!
+  return getBuiltinProfile("preset:research-writer")!
 }
