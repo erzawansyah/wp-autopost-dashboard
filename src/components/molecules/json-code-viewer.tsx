@@ -9,22 +9,25 @@ interface JsonCodeViewerProps {
   title?: string
   maxHeight?: string
   defaultExpanded?: boolean
+  rawText?: boolean
 }
 
 export function JsonCodeViewer({
   data,
   title,
   maxHeight = "max-h-96",
+  rawText = false,
 }: JsonCodeViewerProps) {
   const [copied, setCopied] = React.useState(false)
 
   const formattedContent = React.useMemo(() => {
     if (typeof data === "string") {
+      if (rawText) return data
       try {
         const parsed = JSON.parse(data)
         return JSON.stringify(parsed, null, 2)
       } catch {
-        return JSON.stringify({ output: data }, null, 2)
+        return data
       }
     }
     try {
@@ -32,7 +35,7 @@ export function JsonCodeViewer({
     } catch {
       return String(data)
     }
-  }, [data])
+  }, [data, rawText])
 
   const handleCopy = () => {
     navigator.clipboard.writeText(formattedContent)

@@ -16,6 +16,7 @@ import {
   FileText,
   Search,
 } from "lucide-react"
+import Link from "next/link"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
@@ -222,11 +223,13 @@ export default function SkillsPage() {
           actions={
             <Button
               size="sm"
-              onClick={() => setIsUploadOpen(true)}
+              asChild
               className="gap-2 text-xs font-semibold"
             >
-              <UploadCloud className="size-3.5" />
-              <span>Unggah SKILL.md</span>
+              <Link href="/skills/new">
+                <Plus className="size-3.5" />
+                <span>Tambah Skill Baru</span>
+              </Link>
             </Button>
           }
         />
@@ -311,9 +314,11 @@ export default function SkillsPage() {
                 {searchQuery ? "Tidak ada skill yang cocok dengan kata kunci pencarian Anda." : "Belum ada skill kustom yang ditambahkan."}
               </span>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setIsUploadOpen(true)} className="text-xs gap-1.5 mt-2">
-              <Plus className="size-3.5" />
-              <span>Unggah File SKILL.md</span>
+            <Button size="sm" asChild className="text-xs gap-1.5 mt-2">
+              <Link href="/skills/new">
+                <Plus className="size-3.5" />
+                <span>Tambah Skill Baru</span>
+              </Link>
             </Button>
           </div>
         ) : (
@@ -391,7 +396,7 @@ export default function SkillsPage() {
 
         {/* Modal Upload / Buat Skill */}
         <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-base font-bold flex items-center gap-2">
                 <UploadCloud className="size-4 text-primary" />
@@ -519,7 +524,7 @@ export default function SkillsPage() {
 
         {/* Modal View Detail Konten SKILL.md */}
         <Dialog open={Boolean(viewingSkill)} onOpenChange={(open) => !open && setViewingSkill(null)}>
-          <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogContent className="max-w-4xl max-h-[85vh] flex flex-col">
             <DialogHeader>
               <div className="flex items-center gap-2">
                 <DialogTitle className="text-base font-bold text-foreground">

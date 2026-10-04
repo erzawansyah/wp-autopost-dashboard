@@ -11,6 +11,7 @@ import { Badge } from "@/components/atoms/badge"
 import { Label } from "@/components/atoms/label"
 import { Switch } from "@/components/atoms/switch"
 import { FormField } from "@/components/molecules/form-field"
+import { MarkdownPreview } from "@/components/molecules/markdown-preview"
 import {
   Bot,
   BrainCircuit,
@@ -19,15 +20,19 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
-  Zap,
   Save,
   ArrowLeft,
   Loader2,
   Copy,
-  Info,
-  ShieldCheck,
   FileCode2,
   HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  Lightbulb,
+  Check,
+  Plus,
+  Eye,
+  Sliders,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -68,66 +73,6 @@ interface AgentProfileEditorProps {
   isEditing?: boolean
 }
 
-const TEMPLATES = [
-  {
-    name: "Template Quick Writer (1-Shot)",
-    prompt: `Anda bertindak sebagai Penulis Konten Kreatif Cepat (1-Shot Content Generator).
-Tugas Anda adalah menulis artikel yang komprehensif, mengalir alami, dan tuntas dalam sekali eksekusi tanpa memerlukan alat riset eksternal.
-
-ALUR KERJA PENULISAN CEPAT:
-1. Hook Pembuka Konkret:
-   - Buka tulisan secara langsung dengan masalah nyata, fakta menarik, atau skenario praktis yang relevan dengan topik.
-   - Hindari pembuka klise seperti definisi kamus umum atau basa-basi kosong.
-2. Pengembangan Struktur Tematik (H2 & H3):
-   - Rancang minimal 5 subbab deskriptif yang memiliki benang merah logis (misalnya: membedah masalah, analisis penyebab/faktor kunci, komparasi solusi, panduan langkah praktis, dan antisipasi kendala).
-   - Setiap subbab wajib dikembangkan secara mendalam dengan beberapa paragraf penjelasan berbobot, contoh nyata, atau tips aplikatif.
-3. Gaya Bahasa Alami & Mengalir:
-   - Gunakan bahasa yang hidup, komunikatif, dan bervariasi dalam panjang kalimat agar nyaman dibaca.
-   - Hindari formula klise AI dan jangan menggunakan subbab kaku seperti "Kesimpulan" atau "Penutup".
-4. Penutup Berdampak:
-   - Akhiri artikel dengan kesimpulan kontekstual, rekomendasi langkah konkret berikutnya, atau pandangan ke depan yang memberdayakan pembaca.`,
-  },
-  {
-    name: "Template Research & Media Writer",
-    prompt: `Anda bertindak sebagai Jurnalis Investigatif & Kurator Konten WordPress Profesional.
-Anda memiliki kebebasan otonom untuk menggunakan tools yang tersedia guna menghasilkan artikel faktual, kaya data, dan berdaya tarik visual tinggi.
-
-ALUR KERJA OTONOM:
-1. Riset Data & Fakta Terkini:
-   - Gunakan \`web_search\` dengan kata kunci pencarian yang spesifik untuk mencari data statistik terkini, regulasi resmi, studi kasus, atau kutipan pakar.
-   - Jika menemukan artikel rujukan atau laporan yang sangat berbobot, gunakan \`web_reader\` untuk membaca intisari pembahasannya.
-   - Formulasikan temuan riset langsung ke dalam kalimat naratif naskah (sebutkan nama lembaga atau narasumbernya secara alami).
-2. Kurasi Media Visual:
-   - Cari foto yang relevan dengan topik menggunakan \`image_search\` (gunakan kata kunci visual bahasa Inggris agar hasil fotonya estetik).
-   - Siapkan 1 foto terbaik sebagai gambar sampul utama (Featured Image), serta 1–2 foto pendukung untuk mempercantik subbab artikel.
-3. Penyusunan Naskah & Integrasi Media:
-   - Rancang minimal 5 subbab tematik (H2/H3) yang membahas topik secara komprehensif, mengalir alami, dan faktual.
-   - Sematkan foto pendukung yang diperoleh ke dalam subbab artikel yang relevan beserta takarir (caption) deskriptif.
-4. Finalisasi Format:
-   - Pastikan seluruh konten menggunakan Markdown murni dan kembalikan output JSON terstruktur lengkap dengan judul memikat dan ringkasan (excerpt).`,
-  },
-  {
-    name: "Template Deep Research Agent",
-    prompt: `Anda bertindak sebagai Senior Investigative Reporter & Managing Editor WordPress dengan kapabilitas penalaran bertahap (Deep Agent).
-Tugas Anda adalah membedah topik secara multidimensi, melakukan verifikasi data silang, dan menghasilkan karya jurnalistik yang berbobot tinggi serta humanis.
-
-ALUR KERJA INVESTIGATIF MENDALAM:
-1. Perencanaan Investigasi (Planning):
-   - Identifikasi pilar-pilar penting bahasan: latar belakang masalah, data riil lapangan, regulasi/kebijakan, perdebatan perspektif, dan implikasi solusi.
-2. Investigasi Multi-Sudut Pandang:
-   - Lakukan penelusuran bertahap menggunakan \`web_search\` untuk mengumpulkan bukti empiris, statistik industri, dan studi komparatif.
-   - Gunakan \`web_reader\` untuk mendalami dokumen sumber primer, whitepaper, atau wawancara mendalam.
-   - Lakukan verifikasi silang: jika terdapat klaim yang bertolak belakang, jelaskan kedua sudut pandang secara adil dan objektif.
-3. Kurasi Media Editorial:
-   - Cari foto yang memiliki kekuatan visual jurnalistik via \`image_search\` (gunakan kata kunci visual bahasa Inggris).
-   - Siapkan 1 foto utama paling memikat sebagai gambar sampul (Featured Image), serta 1–2 foto pendukung untuk memperkuat subbab analisis naskah.
-4. Penulisan Naskah Humanis & Mendalam:
-   - Terapkan standar penulisan humanis (anti-ai-editor): variasi ritme kalimat tinggi, narasi kaya detail inderawi dan analogi tajam, tanpa pengulangan kata robotik.
-   - Rancang minimal 5–7 subbab deskriptif yang mengalir tuntas dan sematkan foto pendukung pada bagian yang relevan.
-   - Tutup artikel dengan analisis implikasi jangka panjang, prediksi tren, atau rekomendasi strategis yang aplikatif.`,
-  },
-]
-
 export const BUILTIN_TOOL_IDS = new Set([
   "upload_media",
   "list_wp_categories",
@@ -145,13 +90,13 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
   const [name, setName] = React.useState(initialData?.name || "")
   const [description, setDescription] = React.useState(initialData?.description || "")
   const [mode, setMode] = React.useState<"standard" | "deep">(initialData?.mode || "standard")
-  const [temperature, setTemperature] = React.useState(initialData?.temperature ?? 0.35)
-  const [workflowPrompt, setWorkflowPrompt] = React.useState(initialData?.workflowPrompt || TEMPLATES[1].prompt)
+  const [temperature, setTemperature] = React.useState(initialData?.temperature ?? 0.75)
+  const [workflowPrompt, setWorkflowPrompt] = React.useState(initialData?.workflowPrompt || "")
   const [selectedToolIds, setSelectedToolIds] = React.useState<string[]>(() => {
     if (initialData?.toolIds) {
       return initialData.toolIds.filter((id) => !BUILTIN_TOOL_IDS.has(id))
     }
-    return ["web_search", "image_search"]
+    return ["keyword_suggestions", "web_search", "image_search"]
   })
   const [selectedSkillSlugs, setSelectedSkillSlugs] = React.useState<string[]>(
     initialData?.skills || ["anti-ai-editor"]
@@ -170,10 +115,23 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
 
   // Tools catalog with eligibility
   const [tools, setTools] = React.useState<ToolItemWithStatus[]>([])
-  const [templates, setTemplates] = React.useState(TEMPLATES)
   const [isLoadingTools, setIsLoadingTools] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+
+  // Prompt View Mode: raw vs preview
+  const [promptViewMode, setPromptViewMode] = React.useState<"raw" | "preview">("raw")
+
+  // Fold / Collapse States untuk Kotak Konfigurasi di Sidebar Kanan
+  const [isIdentityOpen, setIsIdentityOpen] = React.useState(true)
+  const [isToolsOpen, setIsToolsOpen] = React.useState(true)
+  const [isSkillsOpen, setIsSkillsOpen] = React.useState(true)
+  const [isLimitsOpen, setIsLimitsOpen] = React.useState(false)
+
+  // Interactive Prompt UI States
+  const textareaRef = React.useRef<HTMLTextAreaElement>(null)
+  const [isHelperOpen, setIsHelperOpen] = React.useState(false)
+  const [copiedKey, setCopiedKey] = React.useState<string | null>(null)
 
   // Sync if initialData is provided/updated asynchronously (e.g. clone)
   React.useEffect(() => {
@@ -205,10 +163,10 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
           const sData = await skillsRes.json()
           setAvailableSkills(sData.skills || [])
         }
-        if (templatesRes && templatesRes.ok) {
+        if (templatesRes && templatesRes.ok && !initialData?.workflowPrompt) {
           const tData = await templatesRes.json()
-          if (tData.templates && Array.isArray(tData.templates) && tData.templates.length > 0) {
-            setTemplates(tData.templates)
+          if (tData.templates && Array.isArray(tData.templates) && tData.templates.length > 1) {
+            setWorkflowPrompt(tData.templates[1].prompt)
           }
         }
       } catch (err) {
@@ -219,12 +177,11 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
       }
     }
     loadToolsAndSkills()
-  }, [])
+  }, [initialData?.workflowPrompt])
 
-  const optionalTools = React.useMemo(
-    () => tools.filter((tool) => !BUILTIN_TOOL_IDS.has(tool.id)),
-    [tools]
-  )
+  const optionalTools = React.useMemo(() => {
+    return tools.filter((t) => !BUILTIN_TOOL_IDS.has(t.id))
+  }, [tools])
 
   const handleToggleTool = (toolId: string) => {
     setSelectedToolIds((prev) =>
@@ -238,11 +195,124 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
     )
   }
 
-  const handleApplyTemplate = (tmpl: typeof TEMPLATES[0]) => {
-    if (confirm(`Ganti alur kerja dengan "${tmpl.name}"?`)) {
-      setWorkflowPrompt(tmpl.prompt)
+  // Sisipkan teks ke posisi kursor textarea secara halus
+  const handleInsertText = (textToInsert: string) => {
+    // Jika sedang dalam mode preview, alihkan otomatis ke mode raw agar user bisa melihat teks tersisip
+    if (promptViewMode === "preview") {
+      setPromptViewMode("raw")
     }
+
+    setTimeout(() => {
+      const textarea = textareaRef.current
+      if (!textarea) {
+        setWorkflowPrompt((prev) => `${prev} ${textToInsert}`)
+        return
+      }
+
+      const start = textarea.selectionStart ?? 0
+      const end = textarea.selectionEnd ?? 0
+      const currentVal = textarea.value
+
+      const updatedVal =
+        currentVal.substring(0, start) + textToInsert + currentVal.substring(end)
+
+      setWorkflowPrompt(updatedVal)
+
+      setTimeout(() => {
+        textarea.focus()
+        const nextPos = start + textToInsert.length
+        textarea.setSelectionRange(nextPos, nextPos)
+      }, 0)
+    }, 10)
   }
+
+  const handleCopyExample = (key: string, exampleText: string) => {
+    navigator.clipboard.writeText(exampleText)
+    setCopiedKey(key)
+    setTimeout(() => setCopiedKey(null), 2000)
+  }
+
+  // Daftar panduan instruksi spesifik untuk tools & skill yang aktif dipilih
+  const activeGuidanceItems = React.useMemo(() => {
+    const items: Array<{
+      id: string
+      type: "tool" | "skill"
+      name: string
+      role: string
+      example: string
+    }> = []
+
+    if (selectedToolIds.includes("keyword_suggestions")) {
+      items.push({
+        id: "keyword_suggestions",
+        type: "tool",
+        name: "keyword_suggestions",
+        role: "Saran LSI & Ide Subbab",
+        example:
+          "Gunakan `keyword_suggestions` di awal perencanaan untuk mencari variasi kata kunci LSI dan topik penelusuran sebagai inspirasi subbab (H2/H3).",
+      })
+    }
+
+    if (selectedToolIds.includes("web_search")) {
+      items.push({
+        id: "web_search",
+        type: "tool",
+        name: "web_search",
+        role: "Riset Fakta & Data Web",
+        example:
+          "Gunakan `web_search` untuk mencari data statistik terkini, studi kasus, atau kutipan pakar terkait topik.",
+      })
+    }
+
+    if (selectedToolIds.includes("image_search")) {
+      items.push({
+        id: "image_search",
+        type: "tool",
+        name: "image_search",
+        role: "Pencarian Gambar Estetik",
+        example:
+          "Cari foto yang relevan dengan topik menggunakan `image_search` (gunakan kata kunci visual bahasa Inggris agar hasil foto estetik).",
+      })
+    }
+
+    if (selectedToolIds.includes("web_reader")) {
+      items.push({
+        id: "web_reader",
+        type: "tool",
+        name: "web_reader",
+        role: "Membaca Isi URL Rujukan",
+        example:
+          "Jika menemukan artikel rujukan atau laporan berbobot dari hasil pencarian, gunakan `web_reader` untuk membaca intisari pembahasannya.",
+      })
+    }
+
+    if (mode === "deep") {
+      if (selectedSkillSlugs.includes("anti-ai-editor")) {
+        items.push({
+          id: "anti-ai-editor",
+          type: "skill",
+          name: "anti-ai-editor",
+          role: "Humanisasi Naskah (Anti-AI Slop)",
+          example:
+            "Terapkan standar penulisan humanis anti-ai-editor: variasikan panjang kalimat dan hindari kata klise chatbot.",
+        })
+      }
+
+      selectedSkillSlugs
+        .filter((slug) => slug !== "anti-ai-editor")
+        .forEach((slug) => {
+          items.push({
+            id: slug,
+            type: "skill",
+            name: slug,
+            role: `Panduan Keahlian ${slug}`,
+            example: `Terapkan pedoman keahlian dari skill ${slug} selama proses riset dan penulisan naskah.`,
+          })
+        })
+    }
+
+    return items
+  }, [selectedToolIds, mode, selectedSkillSlugs])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -289,476 +359,689 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
         body: JSON.stringify(payload),
       })
 
-      const data = await res.json()
       if (!res.ok) {
+        const data = await res.json()
         throw new Error(data.error || "Gagal menyimpan profil agen")
       }
 
       router.push("/agents")
       router.refresh()
     } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : "Kesalahan sistem saat menyimpan")
+      const msg = err instanceof Error ? err.message : "Terjadi kesalahan saat menyimpan profil agen"
+      setErrorMessage(msg)
     } finally {
       setIsSaving(false)
     }
   }
 
+  const promptWordCount = workflowPrompt.trim().split(/\s+/).filter(Boolean).length
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 max-w-4xl pb-12">
+    <form onSubmit={handleSubmit} className="space-y-6">
       {errorMessage && (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-xs text-destructive">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive flex items-center gap-2">
           <AlertTriangle className="size-4 shrink-0" />
           <span>{errorMessage}</span>
         </div>
       )}
 
-      {/* 1. Pengaturan Dasar Profil */}
-      <Card className="border-border bg-card shadow-xs">
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-            <Sparkles className="size-4 text-primary" />
-            <span>Identitas & Mode Agen</span>
-          </CardTitle>
-          <CardDescription className="text-xs text-muted-foreground">
-            Tentukan nama, deskripsi, dan arsitektur eksekusi agen.
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField label="Nama Profil Agen" required hint="Beri nama yang mewakili peran agen ini.">
-              <Input
-                placeholder="Contoh: Investigative Tech Reporter"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                disabled={isSaving}
-                className="text-xs"
-              />
-            </FormField>
-
-            <FormField label="Deskripsi Singkat" hint="Ringkasan tugas atau niche artikel.">
-              <Input
-                placeholder="Contoh: Menulis artikel analisis teknologi dengan riset fakta web dan foto curated."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                disabled={isSaving}
-                className="text-xs"
-              />
-            </FormField>
-          </div>
-
-          {/* Mode Selector */}
-          <div className="pt-2">
-            <Label className="text-xs font-semibold text-foreground mb-2 block">
-              Arsitektur / Mode Runtime Agen
-            </Label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div
-                onClick={() => setMode("standard")}
-                className={cn(
-                  "flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer transition-all",
-                  mode === "standard"
-                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                    : "border-border hover:border-border/80 bg-card"
-                )}
-              >
-                <div className="size-8 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5">
-                  <Bot className="size-4 text-foreground" />
+      {/* Grid Layout: Kolom Utama (Prompt Editor) + Sidebar Kanan (Seluruh Konfigurasi Lainnya) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* =========================================================================
+            KOLOM UTAMA: KHUSUS PROMPT EDITOR & PREVIEW (lg: 7 cols, xl: 8 cols)
+            ========================================================================= */}
+        <div className="lg:col-span-7 xl:col-span-8 flex flex-col gap-5 min-w-0">
+          <Card className="border-border bg-card shadow-xs">
+            <CardHeader className="pb-3 border-b border-border/60">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
+                    <Bot className="size-4 text-primary" />
+                    <span>Alur Kerja Penulisan (Workflow Prompt)</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs text-muted-foreground mt-0.5">
+                    Tuliskan instruksi langkah demi langkah bagaimana agen harus meriset, menyusun subbab, dan menggunakan tools.
+                  </CardDescription>
                 </div>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-foreground">Standard Agent</span>
-                    <Badge variant="outline" className="text-[9px] font-mono">
-                      createAgent
-                    </Badge>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Arsitektur LangChain ReAct agent terpadu. Sangat cepat, hemat token, dan efisien untuk pemanggilan tools langsung.
-                  </p>
-                </div>
-              </div>
 
-              <div
-                onClick={() => setMode("deep")}
-                className={cn(
-                  "flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer transition-all",
-                  mode === "deep"
-                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                    : "border-border hover:border-border/80 bg-card"
-                )}
-              >
-                <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5 text-primary">
-                  <BrainCircuit className="size-4" />
-                </div>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-foreground">Deep Agent</span>
-                    <Badge variant="outline" className="text-[9px] font-mono border-primary/30 text-primary">
-                      createDeepAgent
-                    </Badge>
-                  </div>
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Framework LangChain Deep Agents dengan Todo list planning, state backend, dan integrasi skill anti-ai-editor.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 2. Seleksi Tools & Ketersediaan */}
-      <Card className="border-border bg-card shadow-xs">
-        <CardHeader className="pb-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-                <Wrench className="size-4 text-primary" />
-                <span>Katalog Tools</span>
-              </CardTitle>
-              <CardDescription className="text-xs text-muted-foreground mt-0.5">
-                Pilih tools yang diizinkan untuk digunakan oleh agen ini selama proses riset dan penulisan artikel.
-              </CardDescription>
-            </div>
-            <Badge variant="secondary" className="text-xs font-mono">
-              {selectedToolIds.length} Terpilih
-            </Badge>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          {isLoadingTools ? (
-            <div className="flex items-center justify-center py-8 text-muted-foreground gap-2 text-xs">
-              <Loader2 className="size-4 animate-spin text-primary" />
-              <span>Memeriksa ketersediaan tools...</span>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {optionalTools.map((tool) => {
-                const isSelected = selectedToolIds.includes(tool.id)
-                return (
-                  <div
-                    key={tool.id}
-                    onClick={() => handleToggleTool(tool.id)}
-                    className={cn(
-                      "flex items-center justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-all",
-                      isSelected
-                        ? "border-primary/60 bg-primary/5"
-                        : "border-border hover:border-border/80 bg-card"
-                    )}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="text-xs font-semibold text-foreground truncate">
-                        {tool.label}
-                      </span>
-                      <code className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono shrink-0">
-                        {tool.id}
-                      </code>
-                      <TooltipProvider delayDuration={150}>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-muted-foreground hover:text-foreground inline-flex items-center focus:outline-none shrink-0"
-                              aria-label={`Informasi tentang ${tool.label}`}
-                            >
-                              <HelpCircle className="size-3.5" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent side="top" className="max-w-xs text-xs">
-                            {tool.description}
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-
-                    <div className="flex items-center gap-2.5 shrink-0">
-                      {/* Status Ketersediaan */}
-                      {tool.isEligible ? (
-                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
-                          <CheckCircle2 className="size-3" /> Siap
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-1">
-                          <AlertTriangle className="size-3" /> {tool.blockedReason || "Perlu Konfigurasi"}
-                        </span>
-                      )}
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => {}} // handled by parent onClick
-                        className="size-4 rounded border-border text-primary focus:ring-primary"
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 2b. Deep Agent Skills Selection (Hanya untuk Mode Deep) */}
-      {mode === "deep" && (
-        <Card className="border-border bg-card shadow-xs">
-          <CardHeader className="pb-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-                  <FileCode2 className="size-4 text-primary" />
-                  <span>Skill Tambahan Deep Agent (Skill Registry)</span>
-                </CardTitle>
-                <CardDescription className="text-xs text-muted-foreground mt-0.5">
-                  Pilih pedoman keahlian (file SKILL.md) yang diinjeksikan ke Deep Agent runtime untuk memandu riset dan gaya editorial.
-                </CardDescription>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" asChild className="h-8 text-xs gap-1.5">
-                  <Link href="/skills" target="_blank">
-                    <FileCode2 className="size-3.5 text-primary" />
-                    <span>Buka Skill Registry</span>
-                  </Link>
-                </Button>
-                <Badge variant="secondary" className="text-xs font-mono">
-                  {selectedSkillSlugs.length} Skill Terpilih
-                </Badge>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent>
-            {isLoadingSkills ? (
-              <div className="flex items-center justify-center py-6 text-muted-foreground gap-2 text-xs">
-                <Loader2 className="size-4 animate-spin text-primary" />
-                <span>Memuat registry skill...</span>
-              </div>
-            ) : availableSkills.length === 0 ? (
-              <div className="text-center py-6 text-xs text-muted-foreground">
-                Belum ada skill yang terdaftar di sistem. Kunjungi{" "}
-                <Link href="/skills" className="text-primary hover:underline">
-                  Skill Registry
-                </Link>{" "}
-                untuk mengunggah file SKILL.md.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {availableSkills.map((skill) => {
-                  const isSelected = selectedSkillSlugs.includes(skill.slug)
-                  return (
-                    <div
-                      key={skill.id}
-                      onClick={() => handleToggleSkill(skill.slug)}
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* View Mode Toggle: Raw vs Preview */}
+                  <div className="inline-flex items-center rounded-lg border border-border bg-muted/30 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setPromptViewMode("raw")}
                       className={cn(
-                        "flex items-center justify-between gap-3 p-3 rounded-lg border cursor-pointer transition-all",
-                        isSelected
-                          ? "border-primary/60 bg-primary/5"
+                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer",
+                        promptViewMode === "raw"
+                          ? "bg-background text-foreground shadow-2xs font-semibold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <FileCode2 className="size-3.5" />
+                      <span>Raw</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPromptViewMode("preview")}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all cursor-pointer",
+                        promptViewMode === "preview"
+                          ? "bg-background text-foreground shadow-2xs font-semibold"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      <Eye className="size-3.5" />
+                      <span>Pratinjau</span>
+                    </button>
+                  </div>
+
+                  <Badge variant="outline" className="text-xs font-mono h-7 px-2">
+                    {promptWordCount} Kata
+                  </Badge>
+                </div>
+              </div>
+            </CardHeader>
+
+            <CardContent className="space-y-4 pt-4">
+              {/* Quick-Insert Toolbar: Sisipkan nama tool/skill ke posisi kursor (Aktif saat Raw) */}
+              {promptViewMode === "raw" && (
+                <div className="flex items-center gap-2 flex-wrap p-2.5 rounded-lg border border-border/70 bg-muted/20">
+                  <span className="text-[11px] font-medium text-muted-foreground shrink-0 flex items-center gap-1.5">
+                    <Sparkles className="size-3.5 text-primary" />
+                    <span>Sisipkan ke kursor:</span>
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {selectedToolIds.map((toolId) => (
+                      <button
+                        key={toolId}
+                        type="button"
+                        onClick={() => handleInsertText(`\`${toolId}\``)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-background hover:bg-primary/10 hover:text-primary border border-border/80 text-foreground transition-colors cursor-pointer shadow-2xs"
+                        title={`Sisipkan \`${toolId}\` ke posisi kursor`}
+                      >
+                        <Plus className="size-2.5 text-muted-foreground" />
+                        <span>{toolId}</span>
+                      </button>
+                    ))}
+
+                    {mode === "deep" &&
+                      selectedSkillSlugs.map((slug) => (
+                        <button
+                          key={slug}
+                          type="button"
+                          onClick={() => handleInsertText(`\`${slug}\``)}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-primary/5 hover:bg-primary/15 text-primary border border-primary/25 transition-colors cursor-pointer shadow-2xs"
+                          title={`Sisipkan skill \`${slug}\` ke posisi kursor`}
+                        >
+                          <Plus className="size-2.5 text-primary" />
+                          <span>{slug}</span>
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Area Editor Raw / Tampilan Preview Terformat */}
+              {promptViewMode === "raw" ? (
+                <Textarea
+                  ref={textareaRef}
+                  rows={20}
+                  value={workflowPrompt}
+                  onChange={(e) => setWorkflowPrompt(e.target.value)}
+                  disabled={isSaving}
+                  className="font-mono text-xs leading-relaxed bg-background resize-y min-h-[480px]"
+                  placeholder="Tuliskan peran agen dan instruksi langkah demi langkah...&#10;Contoh:&#10;1. Gunakan keyword_suggestions untuk memetakan ide subbab LSI...&#10;2. Gunakan web_search untuk mencari data statistik terbaru...&#10;3. Cari foto sampul via image_search..."
+                />
+              ) : (
+                <MarkdownPreview content={workflowPrompt} className="min-h-[480px]" />
+              )}
+
+              {/* Collapsible / Accordion Helper: Panduan Penggunaan Tools & Skill Aktif */}
+              <div className="rounded-lg border border-border/80 bg-card overflow-hidden transition-all shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setIsHelperOpen((prev) => !prev)}
+                  className="w-full flex items-center justify-between p-3 text-left hover:bg-muted/40 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="size-6 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                      <Lightbulb className="size-3.5" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-semibold text-foreground">
+                        Panduan &amp; Contoh Instruksi Tools Aktif
+                      </span>
+                      <span className="text-[11px] text-muted-foreground ml-2">
+                        ({activeGuidanceItems.length} Tersedia untuk Profil Ini)
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                      {isHelperOpen ? "Sembunyikan Panduan" : "Buka Contoh Instruksi"}
+                    </span>
+                    {isHelperOpen ? (
+                      <ChevronUp className="size-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="size-4 text-muted-foreground" />
+                    )}
+                  </div>
+                </button>
+
+                {isHelperOpen && (
+                  <div className="p-3 pt-0 border-t border-border/60 space-y-3">
+                    <p className="text-[11px] text-muted-foreground leading-relaxed pt-2.5">
+                      <strong>Tips:</strong> Agen bekerja paling optimal jika Anda menyebutkan nama tool secara eksplisit di dalam alur kerja (misal: <em>&quot;Gunakan `web_search` untuk mencari...&quot;</em>). Berikut adalah contoh format perintah yang disesuaikan dengan tools &amp; skill yang sedang Anda aktifkan di sidebar kanan:
+                    </p>
+
+                    <div className="flex flex-col gap-2.5">
+                      {activeGuidanceItems.map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-2.5 rounded-lg border border-border/70 bg-muted/20 hover:border-border transition-all flex flex-col justify-between gap-2"
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <code className="text-[11px] font-mono font-bold text-foreground bg-muted px-1.5 py-0.5 rounded">
+                                  {item.name}
+                                </code>
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "text-[9px] py-0 h-4",
+                                    item.type === "skill"
+                                      ? "border-primary/40 text-primary"
+                                      : "border-border text-muted-foreground"
+                                  )}
+                                >
+                                  {item.role}
+                                </Badge>
+                              </div>
+                            </div>
+                            <p className="text-[11px] text-foreground/85 leading-relaxed italic bg-background/70 p-2 rounded border border-border/40 font-mono text-[10.5px]">
+                              &ldquo;{item.example}&rdquo;
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 pt-0.5 self-end">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              className="h-6 text-[10px] gap-1 px-2 font-mono"
+                              onClick={() => handleCopyExample(item.id, item.example)}
+                            >
+                              {copiedKey === item.id ? (
+                                <>
+                                  <Check className="size-2.5 text-emerald-600 dark:text-emerald-400" />
+                                  <span className="text-emerald-600 dark:text-emerald-400">Tersalin</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="size-2.5" />
+                                  <span>Salin</span>
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="xs"
+                              className="h-6 text-[10px] gap-1 px-2 font-mono bg-background hover:bg-primary/10 hover:text-primary hover:border-primary/30"
+                              onClick={() => handleInsertText(`\n- ${item.example}`)}
+                            >
+                              <Plus className="size-2.5" />
+                              <span>Sisipkan ke Prompt</span>
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* =========================================================================
+            SIDEBAR KANAN: SELURUH KONFIGURASI AGEN SELAIN PROMPT (lg: 5 cols, xl: 4 cols)
+            ========================================================================= */}
+        <div className="lg:col-span-5 xl:col-span-4 flex flex-col gap-4 min-w-0">
+          {/* 1. Identitas & Mode Agen (Foldable) */}
+          <Card className="border-border bg-card shadow-xs">
+            <CardHeader
+              className="pb-3 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-lg"
+              onClick={() => setIsIdentityOpen((prev) => !prev)}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Sparkles className="size-3.5 text-primary" />
+                  <span>Identitas Agen</span>
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] font-mono">
+                    {mode === "deep" ? "Deep Agent" : "Standard"}
+                  </Badge>
+                  {isIdentityOpen ? (
+                    <ChevronUp className="size-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+
+            {isIdentityOpen && (
+              <CardContent className="space-y-3.5 pt-0">
+                <FormField label="Nama Profil Agen" required hint="Beri nama yang mewakili peran agen ini.">
+                  <Input
+                    placeholder="Contoh: Investigative Tech Reporter"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    disabled={isSaving}
+                    className="text-xs"
+                  />
+                </FormField>
+
+                <FormField label="Deskripsi Singkat" hint="Ringkasan peran atau niche artikel.">
+                  <Textarea
+                    rows={2}
+                    placeholder="Contoh: Menulis artikel analisis mendalam dengan riset fakta web dan foto curated."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    disabled={isSaving}
+                    className="text-xs resize-none"
+                  />
+                </FormField>
+
+                {/* Mode Selector */}
+                <div>
+                  <Label className="text-xs font-semibold text-foreground mb-1.5 block">
+                    Arsitektur Runtime
+                  </Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div
+                      onClick={() => setMode("standard")}
+                      className={cn(
+                        "p-2.5 rounded-lg border text-left transition-all cursor-pointer",
+                        mode === "standard"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary/20"
                           : "border-border hover:border-border/80 bg-card"
                       )}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-xs font-semibold text-foreground truncate">{skill.name}</span>
-                        {skill.is_system && (
-                          <Badge variant="outline" className="text-[10px] py-0 h-4 border-primary/40 text-primary shrink-0">
-                            Sistem
-                          </Badge>
-                        )}
-                        <code className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded font-mono shrink-0">
-                          {skill.slug}
-                        </code>
-                        {skill.description && (
-                          <TooltipProvider delayDuration={150}>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="text-muted-foreground hover:text-foreground inline-flex items-center focus:outline-none shrink-0"
-                                  aria-label={`Informasi tentang ${skill.name}`}
-                                >
-                                  <HelpCircle className="size-3.5" />
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="max-w-xs text-xs">
-                                {skill.description}
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        )}
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Bot className="size-3.5 text-primary" />
+                        <span className="text-xs font-bold text-foreground">Standard</span>
                       </div>
+                      <p className="text-[10px] text-muted-foreground leading-tight">
+                        ReAct cepat &amp; hemat token.
+                      </p>
+                    </div>
 
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => {}}
-                        className="size-4 rounded border-border text-primary focus:ring-primary shrink-0"
+                    <div
+                      onClick={() => setMode("deep")}
+                      className={cn(
+                        "p-2.5 rounded-lg border text-left transition-all cursor-pointer",
+                        mode === "deep"
+                          ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                          : "border-border hover:border-border/80 bg-card"
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <BrainCircuit className="size-3.5 text-primary" />
+                        <span className="text-xs font-bold text-foreground">Deep Agent</span>
+                      </div>
+                      <p className="text-[10px] text-muted-foreground leading-tight">
+                        Task planning &amp; Skills.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Default Profile Switch */}
+                <div className="pt-2 border-t border-border/60 flex items-center justify-between">
+                  <div>
+                    <Label className="text-xs font-semibold text-foreground">Jadikan Default</Label>
+                    <p className="text-[10.5px] text-muted-foreground">Otomatis dipilih di Tulis Cepat &amp; Batch</p>
+                  </div>
+                  <Switch checked={isDefault} onCheckedChange={setIsDefault} />
+                </div>
+              </CardContent>
+            )}
+          </Card>
+
+          {/* 2. Katalog Universal Tools (Foldable) */}
+          <Card className="border-border bg-card shadow-xs">
+            <CardHeader
+              className="pb-3 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-lg"
+              onClick={() => setIsToolsOpen((prev) => !prev)}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Wrench className="size-3.5 text-primary" />
+                  <span>Universal Tools</span>
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary" className="text-xs font-mono">
+                    {selectedToolIds.length} Terpilih
+                  </Badge>
+                  {isToolsOpen ? (
+                    <ChevronUp className="size-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+
+            {isToolsOpen && (
+              <CardContent className="pt-0">
+                {isLoadingTools ? (
+                  <div className="flex items-center justify-center py-6 text-muted-foreground gap-2 text-xs">
+                    <Loader2 className="size-4 animate-spin text-primary" />
+                    <span>Memeriksa tools...</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {optionalTools.map((tool) => {
+                      const isSelected = selectedToolIds.includes(tool.id)
+                      return (
+                        <div
+                          key={tool.id}
+                          onClick={() => handleToggleTool(tool.id)}
+                          className={cn(
+                            "flex items-center justify-between gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all",
+                            isSelected
+                              ? "border-primary/60 bg-primary/5"
+                              : "border-border hover:border-border/80 bg-card"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs font-semibold text-foreground truncate">
+                              {tool.label}
+                            </span>
+                            <TooltipProvider delayDuration={150}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="text-muted-foreground hover:text-foreground inline-flex items-center focus:outline-none shrink-0"
+                                    aria-label={`Informasi tentang ${tool.label}`}
+                                  >
+                                    <HelpCircle className="size-3.5" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs text-xs">
+                                  {tool.description}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {tool.isEligible ? (
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-0.5">
+                                <CheckCircle2 className="size-3" /> Siap
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium flex items-center gap-0.5">
+                                <AlertTriangle className="size-3" /> Konfig
+                              </span>
+                            )}
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}} // handled by parent onClick
+                              className="size-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            )}
+          </Card>
+
+          {/* 3. Deep Agent Skills Selection (Foldable - Hanya jika mode === "deep") */}
+          {mode === "deep" && (
+            <Card className="border-border bg-card shadow-xs">
+              <CardHeader
+                className="pb-3 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-lg"
+                onClick={() => setIsSkillsOpen((prev) => !prev)}
+              >
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <FileCode2 className="size-3.5 text-primary" />
+                    <span>Skill Registry</span>
+                  </CardTitle>
+                  <div className="flex items-center gap-2">
+                    <Button variant="ghost" size="xs" asChild className="h-6 text-[10px] px-2 text-primary" onClick={(e) => e.stopPropagation()}>
+                      <Link href="/skills" target="_blank">
+                        Buka Registry
+                      </Link>
+                    </Button>
+                    <Badge variant="secondary" className="text-xs font-mono">
+                      {selectedSkillSlugs.length} Aktif
+                    </Badge>
+                    {isSkillsOpen ? (
+                      <ChevronUp className="size-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="size-4 text-muted-foreground" />
+                    )}
+                  </div>
+                </div>
+              </CardHeader>
+
+              {isSkillsOpen && (
+                <CardContent className="pt-0">
+                  {isLoadingSkills ? (
+                    <div className="flex items-center justify-center py-6 text-muted-foreground gap-2 text-xs">
+                      <Loader2 className="size-4 animate-spin text-primary" />
+                      <span>Memuat skill...</span>
+                    </div>
+                  ) : availableSkills.length === 0 ? (
+                    <div className="text-center py-4 text-xs text-muted-foreground">
+                      Belum ada skill yang terdaftar di sistem.
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {availableSkills.map((skill) => {
+                        const isSelected = selectedSkillSlugs.includes(skill.slug)
+                        return (
+                          <div
+                            key={skill.slug}
+                            onClick={() => handleToggleSkill(skill.slug)}
+                            className={cn(
+                              "flex items-center justify-between gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all",
+                              isSelected
+                                ? "border-primary/60 bg-primary/5"
+                                : "border-border hover:border-border/80 bg-card"
+                            )}
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-xs font-semibold text-foreground truncate">
+                                {skill.name}
+                              </span>
+                              {skill.is_system && (
+                                <Badge variant="outline" className="text-[9px] py-0 h-4 border-primary/30 text-primary shrink-0">
+                                  Sistem
+                                </Badge>
+                              )}
+                            </div>
+
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {}} // handled by parent onClick
+                              className="size-4 rounded border-border text-primary focus:ring-primary cursor-pointer shrink-0"
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              )}
+            </Card>
+          )}
+
+          {/* 4. Parameter & Batas Runtime (Foldable) */}
+          <Card className="border-border bg-card shadow-xs">
+            <CardHeader
+              className="pb-3 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-lg"
+              onClick={() => setIsLimitsOpen((prev) => !prev)}
+            >
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold text-foreground flex items-center gap-2">
+                  <Sliders className="size-3.5 text-primary" />
+                  <span>Parameter &amp; Batas Runtime</span>
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] font-mono">
+                    Temp {temperature.toFixed(2)}
+                  </Badge>
+                  {isLimitsOpen ? (
+                    <ChevronUp className="size-4 text-muted-foreground" />
+                  ) : (
+                    <ChevronDown className="size-4 text-muted-foreground" />
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+
+            {isLimitsOpen && (
+              <CardContent className="space-y-4 pt-0">
+                {/* Temperature Slider */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <Label className="font-semibold text-foreground">Temperatur Kreativitas</Label>
+                    <span className="font-mono text-primary font-bold">{temperature.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.0"
+                    max="1.0"
+                    step="0.05"
+                    value={temperature}
+                    onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                    className="w-full accent-primary cursor-pointer"
+                  />
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+                    <span>Presisi (0.0)</span>
+                    <span>Default (0.75)</span>
+                    <span>Kreatif (1.0)</span>
+                  </div>
+                </div>
+
+                {/* Limits Grid */}
+                <div className="pt-2 border-t border-border/60 space-y-3">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground font-medium flex items-center justify-between">
+                        <span>Max Model Calls</span>
+                        <span className="font-mono text-primary font-bold">{maxModelCalls}</span>
+                      </Label>
+                      <Input
+                        type="number"
+                        min={3}
+                        max={35}
+                        value={maxModelCalls}
+                        onChange={(e) => setMaxModelCalls(Number(e.target.value))}
+                        className="text-xs h-8"
                       />
                     </div>
-                  )
-                })}
-              </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground font-medium flex items-center justify-between">
+                        <span>Max Tool Calls</span>
+                        <span className="font-mono text-primary font-bold">{maxToolCalls}</span>
+                      </Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        max={50}
+                        value={maxToolCalls}
+                        onChange={(e) => setMaxToolCalls(Number(e.target.value))}
+                        className="text-xs h-8"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground font-medium flex items-center justify-between">
+                        <span>Timeout (detik)</span>
+                        <span className="font-mono text-primary font-bold">{timeoutSeconds}s</span>
+                      </Label>
+                      <Input
+                        type="number"
+                        min={30}
+                        max={480}
+                        value={timeoutSeconds}
+                        onChange={(e) => setTimeoutSeconds(Number(e.target.value))}
+                        className="text-xs h-8"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs text-foreground font-medium flex items-center justify-between">
+                        <span>Target Min Kata</span>
+                        <span className="font-mono text-primary font-bold">{minWordCount}</span>
+                      </Label>
+                      <Input
+                        type="number"
+                        min={300}
+                        max={5000}
+                        value={minWordCount}
+                        onChange={(e) => setMinWordCount(Number(e.target.value))}
+                        className="text-xs h-8"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
             )}
-          </CardContent>
-        </Card>
-      )}
+          </Card>
 
-      {/* 3. Workflow Prompt Editor */}
-      <Card className="border-border bg-card shadow-xs">
-        <CardHeader className="pb-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-                <Bot className="size-4 text-primary" />
-                <span>Alur Kerja & Panduan Penulisan (Workflow Prompt)</span>
-              </CardTitle>
-              <CardDescription className="text-xs text-muted-foreground mt-0.5">
-                Tulis instruksi langkah demi langkah bagaimana agen harus meriset, menyusun subbab, dan menggunakan tools.
-              </CardDescription>
-            </div>
+          {/* 5. Action Card: Tombol Simpan & Batal (DI BAGIAN BAWAH SIDEBAR) */}
+          <Card className="border-border bg-card shadow-xs">
+            <CardContent className="p-4 space-y-3">
+              <Button
+                type="submit"
+                disabled={isSaving}
+                className="w-full gap-2 font-semibold shadow-xs"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    <span>Menyimpan Profil...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="size-4" />
+                    <span>{isEditing ? "Simpan Perubahan Profil" : "Simpan Profil Agen"}</span>
+                  </>
+                )}
+              </Button>
 
-            {/* Quick Templates */}
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] text-muted-foreground">Template:</span>
-              {templates.map((tmpl, idx) => (
-                <Button
-                  key={idx}
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  className="text-[10px] h-7 px-2 font-mono gap-1"
-                  onClick={() => handleApplyTemplate(tmpl)}
-                >
-                  <Copy className="size-2.5" />
-                  <span>{tmpl.name.replace("Template ", "")}</span>
-                </Button>
-              ))}
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardContent className="space-y-3">
-          <div className="rounded-lg border border-border/70 bg-muted/20 p-2.5 text-xs text-muted-foreground flex items-start gap-2">
-            <ShieldCheck className="size-4 text-primary shrink-0 mt-0.5" />
-            <p className="text-[11px] leading-relaxed">
-              <strong>Sistem Guardrail Otomatis:</strong> Anda tidak perlu mendikte larangan slop AI (seperti <em>&quot;jangan gunakan tanda pisah em-dash&quot;</em> atau <em>&quot;jangan gunakan kata klise&quot;</em>) di sini. Sistem System Writer telah mengunci pedoman kualitas editorial dan konversi blok Gutenberg secara mutlak di lapisan runtime.
-            </p>
-          </div>
-
-          <Textarea
-            rows={12}
-            value={workflowPrompt}
-            onChange={(e) => setWorkflowPrompt(e.target.value)}
-            disabled={isSaving}
-            className="font-mono text-xs leading-relaxed bg-background"
-            placeholder="Tuliskan peran agen dan instruksi alur kerja bertahap..."
-          />
-        </CardContent>
-      </Card>
-
-      {/* 4. Batas Komputasi & Anti-Loop Limits */}
-      <Card className="border-border bg-card shadow-xs">
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-            <Clock className="size-4 text-primary" />
-            <span>Batas Eksekusi & Anti-Infinite Loop Guards</span>
-          </CardTitle>
-          <CardDescription className="text-xs text-muted-foreground">
-            Mencegah pengeluaran token berlebih atau agen terjebak pemanggilan tool berulang tanpa henti.
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs text-foreground font-medium flex items-center justify-between">
-                <span>Max Model Calls</span>
-                <span className="font-mono font-bold text-primary">{maxModelCalls}</span>
-              </Label>
-              <Input
-                type="number"
-                min={3}
-                max={35}
-                value={maxModelCalls}
-                onChange={(e) => setMaxModelCalls(Number(e.target.value))}
-                className="text-xs h-8"
-              />
-              <p className="text-[10px] text-muted-foreground">Batas LLM inference (3-35)</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-foreground font-medium flex items-center justify-between">
-                <span>Max Tool Calls</span>
-                <span className="font-mono font-bold text-primary">{maxToolCalls}</span>
-              </Label>
-              <Input
-                type="number"
-                min={0}
-                max={50}
-                value={maxToolCalls}
-                onChange={(e) => setMaxToolCalls(Number(e.target.value))}
-                className="text-xs h-8"
-              />
-              <p className="text-[10px] text-muted-foreground">Total pemanggilan tools (0-50)</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-foreground font-medium flex items-center justify-between">
-                <span>Timeout (Detik)</span>
-                <span className="font-mono font-bold text-primary">{timeoutSeconds}s</span>
-              </Label>
-              <Input
-                type="number"
-                min={30}
-                max={480}
-                value={timeoutSeconds}
-                onChange={(e) => setTimeoutSeconds(Number(e.target.value))}
-                className="text-xs h-8"
-              />
-              <p className="text-[10px] text-muted-foreground">Batas waktu run (30-480s)</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-xs text-foreground font-medium flex items-center justify-between">
-                <span>Min Kata Artikel</span>
-                <span className="font-mono font-bold text-primary">{minWordCount}</span>
-              </Label>
-              <Input
-                type="number"
-                min={300}
-                max={5000}
-                value={minWordCount}
-                onChange={(e) => setMinWordCount(Number(e.target.value))}
-                className="text-xs h-8"
-              />
-              <p className="text-[10px] text-muted-foreground">Target panjang teks (300-5000)</p>
-            </div>
-          </div>
-
-          <div className="pt-2 border-t border-border/60 flex items-center justify-between">
-            <div>
-              <Label className="text-xs font-semibold text-foreground">Jadikan Sebagai Profil Default</Label>
-              <p className="text-[11px] text-muted-foreground">
-                Profil ini akan otomatis terpilih di formulir Tulis Cepat dan Pembuatan Batch Artikel.
-              </p>
-            </div>
-            <Switch checked={isDefault} onCheckedChange={setIsDefault} />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Actions */}
-      <div className="flex items-center justify-between pt-2">
-        <Button asChild variant="outline" size="sm" type="button" className="gap-1.5">
-          <Link href="/agents">
-            <ArrowLeft className="size-3.5" />
-            <span>Kembali ke Katalog</span>
-          </Link>
-        </Button>
-
-        <Button type="submit" size="sm" disabled={isSaving} className="gap-1.5 shadow-xs">
-          {isSaving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
-          <span>{isEditing ? "Simpan Perubahan" : "Buat Profil Agen"}</span>
-        </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSaving}
+                onClick={() => router.push("/agents")}
+                className="w-full gap-2 text-xs"
+              >
+                <ArrowLeft className="size-3.5" />
+                <span>Batal &amp; Kembali</span>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </form>
   )
