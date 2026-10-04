@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import {
   AgentProfile,
   DEFAULT_STANDARD_LIMITS,
@@ -10,6 +12,18 @@ export const LEGACY_ENGINE_MAP: Record<string, string> = {
   agentic: "preset:research-writer",
   deepagent: "preset:deep-research",
 };
+
+export function loadPromptFile(filename: string, fallback: string): string {
+  try {
+    const p = path.join(process.cwd(), "src", "core", "shared", "prompts", filename);
+    if (fs.existsSync(p)) {
+      return fs.readFileSync(p, "utf-8").trim();
+    }
+  } catch (err) {
+    console.warn(`[presets/registry] Gagal membaca ${filename} dari disk:`, err);
+  }
+  return fallback.trim();
+}
 
 const QUICK_WRITER_PROMPT = `Anda bertindak sebagai Penulis Konten Kreatif Cepat (1-Shot Content Generator).
 Tugas Anda adalah menulis artikel yang komprehensif, mengalir alami, dan tuntas dalam sekali eksekusi tanpa memerlukan alat riset eksternal.
@@ -64,6 +78,14 @@ ALUR KERJA INVESTIGATIF MENDALAM:
    - Rancang minimal 5–7 subbab deskriptif yang mengalir tuntas.
    - Tutup artikel dengan analisis implikasi jangka panjang, prediksi tren, atau rekomendasi strategis yang aplikatif.`;
 
+export function getPresetPrompts() {
+  return {
+    quick: loadPromptFile("preset-quick-writer.md", QUICK_WRITER_PROMPT),
+    research: loadPromptFile("preset-research-writer.md", RESEARCH_WRITER_PROMPT),
+    deep: loadPromptFile("preset-deep-research.md", DEEP_RESEARCH_PROMPT),
+  };
+}
+
 export const BUILTIN_PRESETS: AgentProfile[] = [
   {
     ref: "preset:quick-writer",
@@ -72,7 +94,9 @@ export const BUILTIN_PRESETS: AgentProfile[] = [
       "Generasi cepat mandiri tanpa tools eksternal. Hemat token, efisien, dan cocok untuk topik umum atau artikel instan.",
     mode: "standard",
     temperature: 0.35,
-    workflowPrompt: QUICK_WRITER_PROMPT,
+    get workflowPrompt() {
+      return loadPromptFile("preset-quick-writer.md", QUICK_WRITER_PROMPT);
+    },
     toolIds: [],
     limits: {
       ...DEFAULT_STANDARD_LIMITS,
@@ -92,7 +116,9 @@ export const BUILTIN_PRESETS: AgentProfile[] = [
       "Agent otonom bertenaga pencarian web live, pembaca URL, kurasi foto bebas royalti, dan integrasi WordPress Media Library.",
     mode: "standard",
     temperature: 0.35,
-    workflowPrompt: RESEARCH_WRITER_PROMPT,
+    get workflowPrompt() {
+      return loadPromptFile("preset-research-writer.md", RESEARCH_WRITER_PROMPT);
+    },
     toolIds: [
       "web_search",
       "web_reader",
@@ -113,7 +139,9 @@ export const BUILTIN_PRESETS: AgentProfile[] = [
       "Deep Agent investigatif dengan task planning internal, penalaran bertahap, dan penerapan prinsip humanisasi naskah.",
     mode: "deep",
     temperature: 0.35,
-    workflowPrompt: DEEP_RESEARCH_PROMPT,
+    get workflowPrompt() {
+      return loadPromptFile("preset-deep-research.md", DEEP_RESEARCH_PROMPT);
+    },
     toolIds: [
       "web_search",
       "web_reader",

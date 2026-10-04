@@ -172,6 +172,7 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
 
   // Tools catalog with eligibility
   const [tools, setTools] = React.useState<ToolItemWithStatus[]>([])
+  const [templates, setTemplates] = React.useState(TEMPLATES)
   const [isLoadingTools, setIsLoadingTools] = React.useState(true)
   const [isSaving, setIsSaving] = React.useState(false)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
@@ -193,9 +194,10 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
   React.useEffect(() => {
     async function loadToolsAndSkills() {
       try {
-        const [toolsRes, skillsRes] = await Promise.all([
+        const [toolsRes, skillsRes, templatesRes] = await Promise.all([
           fetch("/api/agents/tools"),
           fetch("/api/skills"),
+          fetch("/api/agents/templates"),
         ])
         if (toolsRes.ok) {
           const data = await toolsRes.json()
@@ -205,8 +207,14 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
           const sData = await skillsRes.json()
           setAvailableSkills(sData.skills || [])
         }
+        if (templatesRes && templatesRes.ok) {
+          const tData = await templatesRes.json()
+          if (tData.templates && Array.isArray(tData.templates) && tData.templates.length > 0) {
+            setTemplates(tData.templates)
+          }
+        }
       } catch (err) {
-        console.error("Gagal memuat tools/skills:", err)
+        console.error("Gagal memuat tools/skills/templates:", err)
       } finally {
         setIsLoadingTools(false)
         setIsLoadingSkills(false)
@@ -613,7 +621,7 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
             {/* Quick Templates */}
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[11px] text-muted-foreground">Template:</span>
-              {TEMPLATES.map((tmpl, idx) => (
+              {templates.map((tmpl, idx) => (
                 <Button
                   key={idx}
                   type="button"
