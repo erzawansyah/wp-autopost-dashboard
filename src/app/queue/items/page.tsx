@@ -12,6 +12,7 @@ import {
   X,
   Globe,
   Layers,
+  Zap,
   Loader2,
 } from "lucide-react"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
@@ -61,11 +62,11 @@ function QueueItemsContent() {
     }
   }, [])
 
-  // 2. Fetch queue items
+  // 2. Fetch queue items (termasuk hasil dari Tulis Cepat / Quick Writer)
   const fetchQueue = React.useCallback(async () => {
     setIsLoadingQueue(true)
     try {
-      const res = await fetch("/api/queue?onlyBatches=true")
+      const res = await fetch("/api/queue?limit=100")
       const data = await res.json()
       if (res.ok && Array.isArray(data.items)) {
         const formatted: QueueTableItem[] = data.items.map(
@@ -97,8 +98,10 @@ function QueueItemsContent() {
             scheduledFor: item.scheduled_for || undefined,
             wpPostUrl: item.wp_post_url || undefined,
             lastError: item.last_error || undefined,
-            batchId: item.batch_id || undefined,
-            batchName: item.content_batches?.name || "Batch Tanpa Nama",
+            batchId: item.batch_id || "quick-writer",
+            batchName:
+              item.content_batches?.name ||
+              (item.batch_id ? "Batch Tanpa Nama" : "Tulis Cepat (Quick Writer)"),
           })
         )
         setQueueItems(formatted)
@@ -125,6 +128,13 @@ function QueueItemsContent() {
 
   // Hapus Batch beserta seluruh antreannya
   const handleDeleteBatch = async (batchId: string) => {
+    const isQuick = batchId === "quick-writer"
+    const confirmMsg = isQuick
+      ? "Apakah Anda yakin ingin menghapus seluruh riwayat artikel hasil Tulis Cepat?"
+      : "Apakah Anda yakin ingin menghapus batch ini beserta seluruh antreannya?"
+
+    if (!window.confirm(confirmMsg)) return
+
     try {
       const res = await fetch(`/api/batches?id=${batchId}`, {
         method: "DELETE",
@@ -161,6 +171,7 @@ function QueueItemsContent() {
   }
 
   // Pengelompokan Item Antrean per Batch
+  // HANYA menampilkan batch yang memiliki minimal 1 artikel (tidak menampilkan batch kosong)
   const groupedBatches = React.useMemo(() => {
     const map = new Map<string, { batchInfo?: BatchItemData; items: QueueTableItem[] }>()
 
@@ -169,29 +180,55 @@ function QueueItemsContent() {
     }
 
     for (const item of queueItems) {
-      if (item.batchId) {
-        if (!map.has(item.batchId)) {
-          map.set(item.batchId, { items: [] })
-        }
-        map.get(item.batchId)!.items.push(item)
+      const bId = item.batchId || "quick-writer"
+      if (!map.has(bId)) {
+        map.set(bId, { items: [] })
       }
+      map.get(bId)!.items.push(item)
     }
 
-    return Array.from(map.entries()).map(([batchId, data]) => ({
-      batchId,
-      batchInfo: data.batchInfo,
-      items: data.items,
-    }))
+    // Filter mutlak: hanya kembalikan batch yang memiliki artikel agar tidak ada card kosong
+    return Array.from(map.entries())
+      .filter(([_, data]) => data.items.length > 0)
+      .map(([batchId, data]) => ({
+        batchId,
+        batchInfo: data.batchInfo,
+        items: data.items,
+      }))
   }, [batches, queueItems])
 
   const filteredQueueItems = React.useMemo(() => {
     if (selectedBatchFilter === "all") {
       return queueItems
     }
-    return queueItems.filter((i) => i.batchId === selectedBatchFilter)
+    return queueItems.filter((i) => (i.batchId || "quick-writer") === selectedBatchFilter)
   }, [queueItems, selectedBatchFilter])
 
-  const activeBatchDetail = batches.find((b) => b.id === selectedBatchFilter)
+  const activeBatchDetail = React.useMemo(() => {
+    if (selectedBatchFilter === "all") return undefined
+    const found = batches.find((b) => b.id === selectedBatchFilter)
+    if (found) return found
+
+    if (selectedBatchFilter === "quick-writer") {
+      const quickItems = queueItems.filter((i) => (i.batchId || "quick-writer") === "quick-writer")
+      const completed = quickItems.filter((i) =>
+        i.status === "published_on_wp" || i.status === "saved_draft_on_wp" || i.status === "scheduled_on_wp"
+      ).length
+      return {
+        id: "quick-writer",
+        name: "Tulis Cepat (Quick Writer)",
+        source_type: "quick_writer",
+        execution_mode: "instant",
+        status: "completed",
+        total_items: quickItems.length,
+        completed_items: completed,
+        created_at: new Date().toISOString(),
+        wp_sites: quickItems[0] ? { id: "wp", site_name: quickItems[0].siteName, base_url: quickItems[0].siteDomain } : null,
+      } as BatchItemData
+    }
+
+    return undefined
+  }, [batches, selectedBatchFilter, queueItems])
 
   return (
     <div className="flex flex-col gap-6">
@@ -260,14 +297,20 @@ function QueueItemsContent() {
                 <SelectValue placeholder="Pilih Batch..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all" className="text-xs">
-                  Semua Batch ({queueItems.length} artikel)
+                <SelectItem value="all" className="text-xs font-medium">
+                  Semua Antrean ({queueItems.length} artikel)
                 </SelectItem>
-                {batches.map((b) => (
-                  <SelectItem key={b.id} value={b.id} className="text-xs">
-                    {b.name} ({b.completed_items}/{b.total_items})
-                  </SelectItem>
-                ))}
+                {groupedBatches.map((g) => {
+                  const isQuick = g.batchId === "quick-writer"
+                  const name = isQuick
+                    ? "⚡ Tulis Cepat (Quick Writer)"
+                    : g.batchInfo?.name || `Batch ${g.batchId.slice(0, 8)}`
+                  return (
+                    <SelectItem key={g.batchId} value={g.batchId} className="text-xs">
+                      {name} ({g.items.length} artikel)
+                    </SelectItem>
+                  )
+                })}
               </SelectContent>
             </Select>
           </div>
@@ -292,6 +335,11 @@ function QueueItemsContent() {
           {activeBatchDetail && (
             <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
+                {selectedBatchFilter === "quick-writer" ? (
+                  <Zap className="size-4 text-amber-500" />
+                ) : (
+                  <Layers className="size-4 text-primary" />
+                )}
                 <span className="font-semibold text-foreground">{activeBatchDetail.name}</span>
                 <Badge variant="outline" className="text-[10px] bg-background">
                   {activeBatchDetail.completed_items} / {activeBatchDetail.total_items} Selesai
@@ -321,20 +369,31 @@ function QueueItemsContent() {
             </div>
           ) : groupedBatches.length === 0 ? (
             <div className="rounded-lg border border-dashed border-border p-12 text-center text-xs text-muted-foreground">
-              Belum ada antrean artikel yang terdaftar. Buat batch pertama Anda di menu Bulk Artikel.
+              Belum ada antrean artikel yang terdaftar. Buat artikel di Tulis Cepat atau Buat Batch di menu Bulk Artikel.
             </div>
           ) : (
             groupedBatches.map((group) => {
-              const batchTitle =
-                group.batchInfo?.name || group.items[0]?.batchName || `Batch ${group.batchId.slice(0, 8)}`
-              const siteName =
-                group.batchInfo?.wp_sites?.site_name || group.items[0]?.siteName || "WordPress"
+              const isQuick = group.batchId === "quick-writer"
+              const batchTitle = isQuick
+                ? "Tulis Cepat (Quick Writer)"
+                : group.batchInfo?.name || group.items[0]?.batchName || `Batch ${group.batchId.slice(0, 8)}`
+              const siteName = isQuick
+                ? (group.items[0]?.siteName ? `${group.items[0].siteName}` : "WordPress")
+                : group.batchInfo?.wp_sites?.site_name || group.items[0]?.siteName || "WordPress"
 
               return (
                 <Card key={group.batchId} className="border-border/80 bg-card/90 shadow-2xs overflow-hidden">
                   <CardHeader className="py-3 px-4 bg-muted/20 border-b border-border/60 flex flex-row items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <Layers className="size-4 text-primary shrink-0" />
+                      {isQuick ? (
+                        <div className="size-8 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20">
+                          <Zap className="size-4" />
+                        </div>
+                      ) : (
+                        <div className="size-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0 border border-primary/20">
+                          <Layers className="size-4" />
+                        </div>
+                      )}
                       <div>
                         <CardTitle className="text-xs font-semibold text-foreground flex items-center gap-2">
                           <span>{batchTitle}</span>
@@ -363,7 +422,7 @@ function QueueItemsContent() {
                         size="sm"
                         onClick={() => handleDeleteBatch(group.batchId)}
                         className="h-7 size-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10 cursor-pointer"
-                        title="Hapus batch ini beserta antreannya"
+                        title={isQuick ? "Hapus semua artikel hasil Tulis Cepat" : "Hapus batch ini beserta antreannya"}
                       >
                         <X className="size-3.5" />
                       </Button>

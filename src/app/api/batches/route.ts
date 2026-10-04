@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { after } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { processPostItem } from "@/core/queue/worker"
+import { LEGACY_ENGINE_MAP } from "@/core/writer/presets/registry"
 import {
   calculateScheduleDates,
   ScheduleMode,
@@ -31,6 +32,7 @@ export async function POST(request: Request) {
       randomConfig,
       intervalConfig,
       instantConfig,
+      agentProfileRef,
       engine = "quick",
       language = "id",
       category_ids = [],
@@ -39,6 +41,11 @@ export async function POST(request: Request) {
       customBrief = "",
       aiModel,
     } = body
+
+    const effectiveProfileRef =
+      agentProfileRef ||
+      (engine ? LEGACY_ENGINE_MAP[engine] : undefined) ||
+      "preset:quick-writer"
 
     if (!siteId) {
       return NextResponse.json(
@@ -118,6 +125,7 @@ export async function POST(request: Request) {
           instantConfig: scheduleMode === "instant" ? instantConfig : undefined,
         },
         ai_config: {
+          agentProfileRef: effectiveProfileRef,
           engine,
           aiModel,
           language,
@@ -169,6 +177,7 @@ export async function POST(request: Request) {
         tags: tagList,
         custom_instructions_override: customBrief || null,
         source_payload: {
+          agentProfileRef: effectiveProfileRef,
           engine,
           aiModel,
           language,
@@ -262,7 +271,49 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ batches: batches || [] })
+    // Periksa apakah pengguna memiliki artikel dari Tulis Cepat (Quick Writer) yang tidak masuk batch masal
+    const { data: standaloneItems, count: standaloneCount } = await supabase
+      .from("post_items")
+      .select("id, state, created_at, wp_sites ( id, site_name, base_url )", { count: "exact" })
+      .eq("user_id", user.id)
+      .is("batch_id", null)
+      .order("created_at", { ascending: false })
+
+    let allBatches = batches || []
+    const totalQuick = standaloneCount || 0
+
+    if (totalQuick > 0) {
+      const completedQuick = (standaloneItems || []).filter((item) =>
+        item.state === "published_on_wp" ||
+        item.state === "saved_draft_on_wp" ||
+        item.state === "scheduled_on_wp"
+      ).length
+
+      const hasGenerating = (standaloneItems || []).some(
+        (item) => item.state === "generating_content" || item.state === "syncing_to_wp"
+      )
+
+      const latestItem = standaloneItems?.[0]
+      const wpSite = Array.isArray(latestItem?.wp_sites) ? latestItem?.wp_sites[0] : latestItem?.wp_sites
+
+      const quickWriterBatch = {
+        id: "quick-writer",
+        name: "Tulis Cepat (Quick Writer)",
+        source_type: "quick_writer",
+        execution_mode: "instant",
+        status: hasGenerating ? "running" : "completed",
+        total_items: totalQuick,
+        completed_items: completedQuick,
+        schedule_config: { mode: "instant" },
+        created_at: latestItem?.created_at || new Date().toISOString(),
+        updated_at: latestItem?.created_at || new Date().toISOString(),
+        wp_sites: wpSite ? [wpSite] : [],
+      }
+
+      allBatches = [quickWriterBatch, ...(batches || [])] as any
+    }
+
+    return NextResponse.json({ batches: allBatches })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
     return NextResponse.json({ error: message }, { status: 500 })
@@ -295,6 +346,24 @@ export async function DELETE(request: Request) {
 
     if (!batchId) {
       return NextResponse.json({ error: "ID Batch wajib disertakan." }, { status: 400 })
+    }
+
+    // Jika yang dihapus adalah grup virtual Tulis Cepat
+    if (batchId === "quick-writer") {
+      const { error: deleteQuickErr } = await supabase
+        .from("post_items")
+        .delete()
+        .is("batch_id", null)
+        .eq("user_id", user.id)
+
+      if (deleteQuickErr) {
+        return NextResponse.json({ error: deleteQuickErr.message }, { status: 500 })
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Seluruh riwayat artikel Tulis Cepat berhasil dihapus.",
+      })
     }
 
     // 1. Hapus semua post_items yang terkait dengan batch ini milik user

@@ -55,7 +55,11 @@ export async function GET(request: Request) {
       query = query.eq("wp_site_id", siteId)
     }
     if (batchId) {
-      query = query.eq("batch_id", batchId)
+      if (batchId === "quick-writer" || batchId === "standalone") {
+        query = query.is("batch_id", null)
+      } else {
+        query = query.eq("batch_id", batchId)
+      }
     }
     if (searchParams.get("onlyBatches") === "true" || searchParams.get("hasBatch") === "true") {
       query = query.not("batch_id", "is", null)
@@ -69,7 +73,21 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ items: items || [] })
+    const formattedItems = (items || []).map((item) => {
+      if (!item.batch_id) {
+        return {
+          ...item,
+          content_batches: {
+            id: "quick-writer",
+            name: "Tulis Cepat (Quick Writer)",
+            execution_mode: "instant",
+          },
+        }
+      }
+      return item
+    })
+
+    return NextResponse.json({ items: formattedItems })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
     return NextResponse.json({ error: message }, { status: 500 })

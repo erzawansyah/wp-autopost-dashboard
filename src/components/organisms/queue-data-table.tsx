@@ -432,10 +432,22 @@ export function QueueDataTable({
                         >
                           {item.title}
                         </Link>
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5">
                           <span className="font-mono bg-muted/60 px-1 rounded">
                             Topik: {item.targetKeyword}
                           </span>
+                          {item.batchName && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[9px] h-4 px-1.5 font-normal tracking-tight ${
+                                item.batchId === "quick-writer"
+                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                  : "bg-primary/5 text-primary border-primary/20"
+                              }`}
+                            >
+                              {item.batchId === "quick-writer" ? "⚡ Tulis Cepat" : item.batchName}
+                            </Badge>
+                          )}
                           {item.wordCount && (
                             <span>{item.wordCount.toLocaleString()} kata</span>
                           )}

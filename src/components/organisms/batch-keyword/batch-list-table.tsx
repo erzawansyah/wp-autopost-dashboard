@@ -191,9 +191,16 @@ export function BatchListTable({
                   >
                     <td className="px-4 py-3 font-medium text-foreground">
                       <div className="flex flex-col gap-0.5">
-                        <span className="font-semibold text-xs">{b.name}</span>
+                        <span className="font-semibold text-xs flex items-center gap-1.5">
+                          {b.id === "quick-writer" && (
+                            <Badge variant="outline" className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 text-[9px] h-4 px-1 font-normal">
+                              ⚡ Tulis Cepat
+                            </Badge>
+                          )}
+                          <span>{b.name}</span>
+                        </span>
                         <span className="font-mono text-[10px] text-muted-foreground">
-                          ID: {b.id.slice(0, 8)}...
+                          {b.id === "quick-writer" ? "Grup Artikel Tulis Cepat" : `ID: ${b.id.slice(0, 8)}...`}
                         </span>
                       </div>
                     </td>
