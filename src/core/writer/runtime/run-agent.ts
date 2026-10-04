@@ -238,7 +238,10 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
       },
       {
         configurable: { thread_id: threadId },
-        recursionLimit: Math.min(100, limits.maxModelCalls * 2 + 10),
+        recursionLimit:
+          profile.mode === "deep"
+            ? Math.min(150, limits.maxModelCalls * 3 + 25)
+            : Math.min(100, limits.maxModelCalls * 2 + 10),
         signal: timeoutController.signal,
       }
     )

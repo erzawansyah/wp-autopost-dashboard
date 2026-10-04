@@ -89,53 +89,34 @@ ATURAN STRICT:
   try {
     let structuredResult: ArticleOutput | null = null
 
-    // Coba via withStructuredOutput terlebih dahulu
-    try {
-      const structuredModel = llm.withStructuredOutput(ArticleOutputSchema, {
-        name: "finalize_article",
-      })
-      structuredResult = (await structuredModel.invoke([
-        { role: "system", content: systemPrompt },
-        { role: "user", content: finalizeUserPrompt },
-      ])) as ArticleOutput
-    } catch (structErr) {
-      console.warn("[finalize] withStructuredOutput gagal, mencoba salvage & direct invoke:", structErr)
+    // Format Markdown-First Universal: Aman untuk semua model AI (termasuk model thinking/reasoning tanpa risiko error tool_choice)
+    const directPrompt = `${finalizeUserPrompt}\n\nFORMAT OUTPUT:\nTITLE: [Judul artikel maksimal 60 karakter]\nEXCERPT: [Ringkasan meta deskripsi 130-160 karakter]\n---\n[Naskah artikel lengkap dalam format Markdown murni]`
 
-      // 1. Coba salvage naskah dari teks mentah error / llmOutput terlebih dahulu
-      const rawErrorText = (structErr as any)?.llmOutput || (structErr as any)?.message || ""
-      const salvaged = extractArticleJsonFromText(rawErrorText)
+    const directRes = await llm.invoke([
+      { role: "system", content: systemPrompt },
+      { role: "user", content: directPrompt },
+    ])
 
-      if (salvaged?.markdownContent && salvaged.markdownContent.length > 200) {
-        structuredResult = {
-          title: salvaged.title || `Panduan Lengkap ${keyword}`,
-          excerpt: salvaged.excerpt || `Ulasan lengkap dan terpercaya mengenai ${keyword}.`,
-          markdownContent: salvaged.markdownContent,
-          categoryIds: salvaged.categoryIds,
-          tagNames: salvaged.tagNames,
-          authorId: salvaged.authorId,
-          featuredMediaId: salvaged.featuredMediaId,
-        }
-      } else {
-        // 2. Jika salvage belum cukup, lakukan direct invoke format Markdown-First
-        const directPrompt = `${finalizeUserPrompt}\n\nFORMAT OUTPUT:\nTITLE: [Judul artikel maksimal 60 karakter]\nEXCERPT: [Ringkasan meta deskripsi 130-160 karakter]\n---\n[Naskah artikel lengkap dalam format Markdown murni]`
-        const directRes = await llm.invoke([
-          { role: "system", content: systemPrompt },
-          { role: "user", content: directPrompt },
-        ])
-        const contentStr = typeof directRes.content === "string" ? directRes.content : JSON.stringify(directRes.content)
-        const parsed = extractArticleJsonFromText(contentStr)
+    const contentStr = typeof directRes.content === "string" ? directRes.content : JSON.stringify(directRes.content)
+    const parsed = extractArticleJsonFromText(contentStr)
 
-        if (parsed?.markdownContent && parsed.markdownContent.length > 200) {
-          structuredResult = {
-            title: parsed.title || `Panduan Lengkap ${keyword}`,
-            excerpt: parsed.excerpt || `Ulasan lengkap dan terpercaya mengenai ${keyword}.`,
-            markdownContent: parsed.markdownContent,
-            categoryIds: parsed.categoryIds,
-            tagNames: parsed.tagNames,
-            authorId: parsed.authorId,
-            featuredMediaId: parsed.featuredMediaId,
-          }
-        }
+    if (parsed?.markdownContent && parsed.markdownContent.length > 150) {
+      structuredResult = {
+        title: parsed.title || `Panduan Lengkap ${keyword}`,
+        excerpt: parsed.excerpt || `Ulasan lengkap dan terpercaya mengenai ${keyword}.`,
+        markdownContent: parsed.markdownContent,
+        categoryIds: parsed.categoryIds,
+        tagNames: parsed.tagNames,
+        authorId: parsed.authorId,
+        featuredMediaId: parsed.featuredMediaId,
+      }
+    } else if (contentStr && contentStr.trim().length > 150) {
+      // Jaring pengaman darurat jika model tidak mematuhi header TITLE/EXCERPT
+      const cleanFallback = contentStr.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()
+      structuredResult = {
+        title: `Panduan Lengkap ${keyword}`,
+        excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
+        markdownContent: cleanFallback,
       }
     }
 

@@ -71,7 +71,10 @@ export function normalizeArticleOutput(parsed: any): Partial<ArticleOutput> | nu
  */
 export function extractArticleJsonFromText(text: string): Partial<ArticleOutput> | null {
   if (!text) return null
-  const trimmed = text.trim()
+  // Hapus tag reasoning / thinking (<think>...</think>) dari model penalaran seperti DeepSeek R1 / Qwen Thinking
+  const sanitized = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()
+  if (!sanitized) return null
+  const trimmed = sanitized
 
   // 1. Coba parse jika formatnya JSON murni
   try {
@@ -180,6 +183,20 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
         excerpt: detectedExcerpt,
         markdownContent: cleanBody,
       }
+    }
+  }
+
+  // 4. Parser Naskah Naratif Murni (bila naskah diawali langsung dengan paragraf pembuka tanpa heading/label)
+  if (trimmed.length > 150) {
+    const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    const firstHeading = lines.find((l) => l.startsWith("#") || l.startsWith("##"))
+    const title = firstHeading ? firstHeading.replace(/^#+\s*/, "").trim() : undefined
+    const excerpt = lines[0] && !lines[0].startsWith("#") ? lines[0].slice(0, 160).trim() : undefined
+
+    return {
+      title,
+      excerpt,
+      markdownContent: trimmed,
     }
   }
 
