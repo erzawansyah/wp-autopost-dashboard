@@ -34,7 +34,7 @@ export const BUILTIN_AGENT_PROFILES: AgentProfile[] = [
     description:
       "Generasi cepat mandiri tanpa tools eksternal. Hemat token, efisien, dan cocok untuk topik umum atau artikel instan.",
     mode: "standard",
-    temperature: 0.35,
+    temperature: 0.95,
     get workflowPrompt() {
       return loadPromptFile("agent-quick-writer.md", "Penulis Konten Cepat 1-Shot.")
     },
@@ -56,7 +56,7 @@ export const BUILTIN_AGENT_PROFILES: AgentProfile[] = [
     description:
       "Agent otonom bertenaga pencarian web live, pembaca URL, kurasi foto bebas royalti, dan integrasi WordPress Media Library.",
     mode: "standard",
-    temperature: 0.35,
+    temperature: 0.95,
     get workflowPrompt() {
       return loadPromptFile("agent-research-writer.md", "Jurnalis Investigatif & Kurator Konten.")
     },
@@ -78,7 +78,7 @@ export const BUILTIN_AGENT_PROFILES: AgentProfile[] = [
     description:
       "Deep Agent investigatif dengan task planning internal, penalaran bertahap, dan penerapan prinsip humanisasi naskah.",
     mode: "deep",
-    temperature: 0.35,
+    temperature: 0.95,
     get workflowPrompt() {
       return loadPromptFile("agent-deep-research.md", "Senior Investigative Reporter Deep Agent.")
     },

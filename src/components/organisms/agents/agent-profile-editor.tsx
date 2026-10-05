@@ -89,7 +89,7 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
   const [name, setName] = React.useState(initialData?.name || "")
   const [description, setDescription] = React.useState(initialData?.description || "")
   const [mode, setMode] = React.useState<"standard" | "deep">(initialData?.mode || "standard")
-  const [temperature, setTemperature] = React.useState(initialData?.temperature ?? 0.75)
+  const [temperature, setTemperature] = React.useState(initialData?.temperature ?? 0.95)
   const [workflowPrompt, setWorkflowPrompt] = React.useState(initialData?.workflowPrompt || "")
   const [selectedToolIds, setSelectedToolIds] = React.useState<string[]>(() => {
     if (initialData?.toolIds) {

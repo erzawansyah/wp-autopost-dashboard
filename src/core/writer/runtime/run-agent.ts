@@ -1,66 +1,77 @@
-import { ChatOpenRouter } from "@langchain/openrouter"
-import { HumanMessage } from "@langchain/core/messages"
-import { StructuredTool } from "@langchain/core/tools"
-import { getSanitizedApiKey } from "@/lib/ai/openrouter"
-import { DecryptedUserKeys } from "@/types/settings"
+import { ChatOpenRouter } from "@langchain/openrouter";
+import { HumanMessage } from "@langchain/core/messages";
+import { StructuredTool } from "@langchain/core/tools";
+import { getSanitizedApiKey } from "@/lib/ai/openrouter";
+import { DecryptedUserKeys } from "@/types/settings";
 import {
   WriterRequest,
   GeneratedArticle,
   ArticleSource,
   WpEnrichment,
   WriterError,
-} from "../types/contracts"
-import { AgentProfile, clampLimits, ALL_MANDATORY_TOOL_IDS } from "../types/profile"
-import { RunRecorder, AgentStepEvent } from "./telemetry"
-import { checkToolEligibility } from "../tools/eligibility"
-import { ToolRegistry } from "../tools/registry"
-import { buildSystemPrompt, buildUserPrompt } from "./prompt-builder"
-import { buildWriterAgent } from "./build-agent"
-import { executeSingleFinalizeCall } from "./finalize"
-import { postprocessArticle } from "./postprocess"
-import { extractArticleJsonFromText, ArticleOutput } from "./output-schema"
-import { preResolveTaxonomyAndAuthor } from "./pre-resolve"
-import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
-import { getLanguageDisplayName } from "@/lib/constants/languages"
-import { createLangSmithTracer, setupLangSmithEnvironment, flushLangSmithTracer } from "@/core/shared/langsmith"
-import "../tools" // Pastikan seluruh tool terdaftar ke registry
+} from "../types/contracts";
+import {
+  AgentProfile,
+  clampLimits,
+  ALL_MANDATORY_TOOL_IDS,
+} from "../types/profile";
+import { RunRecorder, AgentStepEvent } from "./telemetry";
+import { checkToolEligibility } from "../tools/eligibility";
+import { ToolRegistry } from "../tools/registry";
+import { buildSystemPrompt, buildUserPrompt } from "./prompt-builder";
+import { buildWriterAgent } from "./build-agent";
+import { executeSingleFinalizeCall } from "./finalize";
+import { postprocessArticle } from "./postprocess";
+import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
+import { preResolveTaxonomyAndAuthor } from "./pre-resolve";
+import { DEFAULT_AI_MODEL } from "@/lib/ai/settings";
+import { getLanguageDisplayName } from "@/lib/constants/languages";
+import {
+  createLangSmithTracer,
+  setupLangSmithEnvironment,
+  flushLangSmithTracer,
+} from "@/core/shared/langsmith";
+import "../tools"; // Pastikan seluruh tool terdaftar ke registry
 
 export interface RunAgentOptions {
-  request: WriterRequest
-  profile: AgentProfile
-  userKeys: DecryptedUserKeys
-  onEventListener?: (event: AgentStepEvent) => void
-  abortSignal?: AbortSignal
+  request: WriterRequest;
+  profile: AgentProfile;
+  userKeys: DecryptedUserKeys;
+  onEventListener?: (event: AgentStepEvent) => void;
+  abortSignal?: AbortSignal;
 }
 
 export interface RunAgentResult {
-  success: boolean
-  article?: GeneratedArticle
-  sources: ArticleSource[]
-  enrichment: WpEnrichment
-  recorder: RunRecorder
-  stopReason: string
-  error?: WriterError
+  success: boolean;
+  article?: GeneratedArticle;
+  sources: ArticleSource[];
+  enrichment: WpEnrichment;
+  recorder: RunRecorder;
+  stopReason: string;
+  error?: WriterError;
 }
 
-export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgentResult> {
-  const { request, userKeys, onEventListener, abortSignal } = options
+export async function runAgentWriter(
+  options: RunAgentOptions,
+): Promise<RunAgentResult> {
+  const { request, userKeys, onEventListener, abortSignal } = options;
   const profile = {
     ...options.profile,
     limits: clampLimits(options.profile.limits, options.profile.mode),
-  }
+  };
 
-  const recorder = new RunRecorder(onEventListener)
-  const limits = profile.limits
-  const keyword = request.content.keyword
-  const language = request.content.language || "id"
-  const targetWordCount = request.content.wordCountTarget || limits.minWordCount || 800
+  const recorder = new RunRecorder(onEventListener);
+  const limits = profile.limits;
+  const keyword = request.content.keyword;
+  const language = request.content.language || "id";
+  const targetWordCount =
+    request.content.wordCountTarget || limits.minWordCount || 800;
 
   // Siapkan environment tracing LangSmith secara transparan
-  setupLangSmithEnvironment(userKeys)
+  setupLangSmithEnvironment(userKeys);
 
   // 1. Kredensial WordPress
-  const site = request.site
+  const site = request.site;
   const wpCredentials =
     site?.baseUrl && site?.username && site?.applicationPassword
       ? {
@@ -68,14 +79,18 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
           username: site.username,
           applicationPassword: site.applicationPassword,
         }
-      : undefined
+      : undefined;
 
   // 2. Evaluasi kelayakan tool (Eligibility Guard)
   // Tool WordPress inti selalu built-in aktif secara otomatis pada setiap agent
   const effectiveToolIds = Array.from(
-    new Set([...(profile.toolIds || []), ...ALL_MANDATORY_TOOL_IDS])
-  )
-  const eligibility = checkToolEligibility(effectiveToolIds, userKeys, wpCredentials)
+    new Set([...(profile.toolIds || []), ...ALL_MANDATORY_TOOL_IDS]),
+  );
+  const eligibility = checkToolEligibility(
+    effectiveToolIds,
+    userKeys,
+    wpCredentials,
+  );
 
   // Catat tool yang diblokir sebagai event guard
   for (const blocked of eligibility.blockedTools) {
@@ -85,38 +100,36 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
       status: "blocked",
       durationMs: 1,
       summary: `Tool '${blocked.id}' dilewati: ${blocked.reason}`,
-    })
+    });
   }
 
   // Bangun instance tool yang memenuhi syarat
   const activeTools = eligibility.eligibleToolIds
     .map((id) => {
-      const def = ToolRegistry.get(id)
-      if (!def) return null
+      const def = ToolRegistry.get(id);
+      if (!def) return null;
       return def.build({
         userKeys,
         wpCredentials,
         language,
         recorder,
-      })
+      });
     })
-    .filter(Boolean) as StructuredTool[]
+    .filter(Boolean) as StructuredTool[];
 
   // 3. Inisialisasi Kredensial AI & Validasi API Key
   const resolvedApiKey =
-    request.apiKey ||
-    userKeys.openrouterKey ||
-    getSanitizedApiKey()
+    request.apiKey || userKeys.openrouterKey || getSanitizedApiKey();
 
   if (!resolvedApiKey) {
     const errorMsg =
-      "API Key OpenRouter belum dikonfigurasi. Karena platform Panitera menggunakan sistem BYOK (Bring Your Own Key), silakan tambahkan API Key Anda di menu Pengaturan ➔ Kunci API (/settings/keys)."
+      "API Key OpenRouter belum dikonfigurasi. Karena platform Panitera menggunakan sistem BYOK (Bring Your Own Key), silakan tambahkan API Key Anda di menu Pengaturan ➔ Kunci API (/settings/keys).";
     recorder.recordEvent({
       kind: "guard",
       status: "error",
       durationMs: 0,
       summary: errorMsg,
-    })
+    });
     return {
       success: false,
       sources: [],
@@ -129,7 +142,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
         node: "llm_initialization",
         retryable: false,
       },
-    }
+    };
   }
 
   const selectedModel =
@@ -137,7 +150,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     userKeys.defaultAiModel ||
     profile.model ||
     process.env.OPENROUTER_DEFAULT_MODEL ||
-    DEFAULT_AI_MODEL
+    DEFAULT_AI_MODEL;
 
   // 4. Pre-Resolution: Resolusi Taksonomi & Author WordPress di latar belakang via LLM
   const preResolved = await preResolveTaxonomyAndAuthor({
@@ -151,23 +164,23 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     apiKey: resolvedApiKey,
     model: selectedModel,
     recorder,
-  })
+  });
   const llm = new ChatOpenRouter({
     apiKey: resolvedApiKey,
     model: selectedModel,
-    temperature: profile.temperature ?? 0.35,
-    maxTokens: 4096,
+    temperature: profile.temperature ?? 0.95,
+    maxTokens: 16384,
     siteUrl: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
     siteName: process.env.OPENROUTER_APP_NAME || "Panitera",
-  })
+  });
 
   // 5. Prompting
-  const siteUrl = request.site?.baseUrl || ""
-  let siteName = request.site?.siteName || ""
+  const siteUrl = request.site?.baseUrl || "";
+  let siteName = request.site?.siteName || "";
   if (!siteName && siteUrl) {
     try {
-      const parsed = new URL(siteUrl)
-      siteName = parsed.hostname.replace(/^www\./, "")
+      const parsed = new URL(siteUrl);
+      siteName = parsed.hostname.replace(/^www\./, "");
     } catch {}
   }
 
@@ -176,24 +189,35 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     siteUrl,
     authorName: preResolved.author?.name,
     authorBio: preResolved.author?.bio,
-    categoryName: preResolved.categoryNames.length > 0 ? preResolved.categoryNames.join(", ") : undefined,
+    categoryName:
+      preResolved.categoryNames.length > 0
+        ? preResolved.categoryNames.join(", ")
+        : undefined,
     language: getLanguageDisplayName(language),
-  })
+  });
   const userPromptText = buildUserPrompt({
     keyword,
     title: request.content.title,
     language,
     wordCountTarget: targetWordCount,
     brief: request.content.brief,
-    author: preResolved.author ? { name: preResolved.author.name, bio: preResolved.author.bio } : undefined,
-    categoryName: preResolved.categoryNames.length > 0 ? preResolved.categoryNames.join(", ") : undefined,
-    tagsList: preResolved.tagNames.length > 0 ? preResolved.tagNames.join(", ") : undefined,
+    author: preResolved.author
+      ? { name: preResolved.author.name, bio: preResolved.author.bio }
+      : undefined,
+    categoryName:
+      preResolved.categoryNames.length > 0
+        ? preResolved.categoryNames.join(", ")
+        : undefined,
+    tagsList:
+      preResolved.tagNames.length > 0
+        ? preResolved.tagNames.join(", ")
+        : undefined,
     customInstructions: request.customInstructions,
     hasTools: activeTools.length > 0,
-  })
+  });
 
   // 5. Bangun Writer Agent
-  let agent: Awaited<ReturnType<typeof buildWriterAgent>> | null = null
+  let agent: Awaited<ReturnType<typeof buildWriterAgent>> | null = null;
   try {
     agent = await buildWriterAgent({
       mode: profile.mode,
@@ -203,15 +227,18 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
       limits,
       recorder,
       skills: profile.skills,
-    })
+    });
   } catch (agentBuildErr: unknown) {
-    const errText = agentBuildErr instanceof Error ? agentBuildErr.message : String(agentBuildErr)
+    const errText =
+      agentBuildErr instanceof Error
+        ? agentBuildErr.message
+        : String(agentBuildErr);
     recorder.recordEvent({
       kind: "guard",
       status: "error",
       durationMs: 1,
       summary: `Gagal menginisialisasi agent: ${errText}`,
-    })
+    });
     return {
       success: false,
       sources: [],
@@ -223,28 +250,30 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
         message: `Gagal membangun agent: ${errText}`,
         retryable: false,
       },
-    }
+    };
   }
 
   // 6. Timeout Controller
-  const timeoutMs = limits.timeoutSeconds * 1000
-  const timeoutController = new AbortController()
+  const timeoutMs = limits.timeoutSeconds * 1000;
+  const timeoutController = new AbortController();
   const timer = setTimeout(() => {
-    timeoutController.abort()
-  }, timeoutMs)
+    timeoutController.abort();
+  }, timeoutMs);
 
   if (abortSignal) {
-    abortSignal.addEventListener("abort", () => timeoutController.abort(), { once: true })
+    abortSignal.addEventListener("abort", () => timeoutController.abort(), {
+      once: true,
+    });
   }
 
-  let rawOutput: Partial<ArticleOutput> | null = null
-  let stopReason = "completed"
-  const threadId = `agent-run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
+  let rawOutput: Partial<ArticleOutput> | null = null;
+  let stopReason = "completed";
+  const threadId = `agent-run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
   // Inisialisasi LangSmith Tracer jika kredensial tersedia (BYOK atau environment variables)
   const langsmithTracer = createLangSmithTracer({
     userKeys,
-  })
+  });
 
   if (langsmithTracer) {
     recorder.recordEvent({
@@ -252,7 +281,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
       status: "ok",
       durationMs: 1,
       summary: `LangSmith Tracing aktif (Project: ${langsmithTracer.projectName})`,
-    })
+    });
   }
 
   // 7. Eksekusi Agent Loop
@@ -269,7 +298,9 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
             : Math.max(80, Math.min(200, limits.maxModelCalls * 10 + 40)),
         signal: timeoutController.signal,
         runName: `Panitera [${profile.mode === "deep" ? "Deep Agent" : "Standard Agent"}]: ${keyword.slice(0, 45)}`,
-        tags: [profile.mode, "panitera", `lang:${language}`, siteName].filter(Boolean),
+        tags: [profile.mode, "panitera", `lang:${language}`, siteName].filter(
+          Boolean,
+        ),
         metadata: {
           keyword,
           siteUrl,
@@ -280,91 +311,95 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
           userId: request.userId,
         },
         callbacks: langsmithTracer ? [langsmithTracer] : undefined,
-      }
-    )
+      },
+    );
 
-    clearTimeout(timer)
+    clearTimeout(timer);
 
     // Periksa apakah model mengembalikan structured response langsung
     if ("structuredResponse" in agentResult && agentResult.structuredResponse) {
-      rawOutput = agentResult.structuredResponse as ArticleOutput
+      rawOutput = agentResult.structuredResponse as ArticleOutput;
     } else {
       // Ambil pesan terakhir dan ekstrak teks secara bersih (menghindari double JSON stringify)
-      const messages = agentResult.messages || []
-      const lastMsg = messages[messages.length - 1]
+      const messages = agentResult.messages || [];
+      const lastMsg = messages[messages.length - 1];
 
       const extractRawMessageText = (content: unknown): string => {
-        if (typeof content === "string") return content
+        if (typeof content === "string") return content;
         if (Array.isArray(content)) {
           return content
             .map((part) => {
-              if (typeof part === "string") return part
+              if (typeof part === "string") return part;
               if (
                 typeof part === "object" &&
                 part !== null &&
                 "text" in part &&
                 typeof (part as { text?: unknown }).text === "string"
               ) {
-                return (part as { text: string }).text
+                return (part as { text: string }).text;
               }
-              return ""
+              return "";
             })
             .filter(Boolean)
-            .join("\n\n")
+            .join("\n\n");
         }
-        return ""
-      }
+        return "";
+      };
 
-      const rawText = extractRawMessageText(lastMsg?.content)
+      const rawText = extractRawMessageText(lastMsg?.content);
 
-      rawOutput = extractArticleJsonFromText(rawText)
+      rawOutput = extractArticleJsonFromText(rawText);
       if (!rawOutput?.markdownContent && rawText.length > 200) {
         const unescaped = rawText.includes("\\n")
           ? rawText.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
-          : rawText
+          : rawText;
         rawOutput = {
           title: request.content.title || `Panduan Lengkap ${keyword}`,
           excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
           markdownContent: unescaped,
-        }
+        };
       }
     }
   } catch (invokeErr: unknown) {
-    clearTimeout(timer)
-    const errText = invokeErr instanceof Error ? invokeErr.message : String(invokeErr)
-    const isTimeout = timeoutController.signal.aborted || errText.includes("abort") || errText.includes("timeout")
+    clearTimeout(timer);
+    const errText =
+      invokeErr instanceof Error ? invokeErr.message : String(invokeErr);
+    const isTimeout =
+      timeoutController.signal.aborted ||
+      errText.includes("abort") ||
+      errText.includes("timeout");
     const isLimit =
       errText.includes("ModelCallLimitMiddlewareError") ||
       errText.includes("ToolCallLimitExceededError") ||
-      errText.includes("recursionLimit")
+      errText.includes("recursionLimit");
 
     stopReason = isTimeout
       ? "timeout_exceeded"
       : isLimit
-      ? "limit_reached"
-      : "agent_loop_interrupted"
+        ? "limit_reached"
+        : "agent_loop_interrupted";
 
     recorder.recordEvent({
       kind: "guard",
       status: "blocked",
       durationMs: 1,
       summary: `Eksekusi agent terhenti (${stopReason}): ${errText.slice(0, 120)}`,
-    })
+    });
   }
 
   // 8. Evaluasi Kelengkapan Naskah & Trigger Single Finalize Call jika diperlukan
   const rawWords = rawOutput?.markdownContent
     ? rawOutput.markdownContent.split(/\s+/).filter(Boolean).length
-    : 0
+    : 0;
 
   const needsFinalize =
     !rawOutput?.markdownContent ||
-    rawWords < Math.max(250, Math.round(limits.minWordCount * 0.6))
+    rawWords < Math.max(250, Math.round(limits.minWordCount * 0.6));
 
   if (needsFinalize) {
     console.log(
-      `[runAgentWriter] Naskah belum lengkap (${rawWords} kata, stopReason: ${stopReason}). Menjalankan Single Finalize Call...`
-    )
+      `[runAgentWriter] Naskah belum lengkap (${rawWords} kata, stopReason: ${stopReason}). Menjalankan Single Finalize Call...`,
+    );
 
     const finalizeResult = await executeSingleFinalizeCall({
       llm,
@@ -373,30 +408,35 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
       language,
       targetWordCount,
       brief: request.content.brief,
-      author: preResolved.author ? { name: preResolved.author.name, bio: preResolved.author.bio } : undefined,
+      author: preResolved.author
+        ? { name: preResolved.author.name, bio: preResolved.author.bio }
+        : undefined,
       customInstructions: request.customInstructions,
       recorder,
       reason: stopReason,
       callbacks: langsmithTracer ? [langsmithTracer] : undefined,
-    })
+    });
 
     if (finalizeResult && finalizeResult.markdownContent) {
-      rawOutput = finalizeResult
-      stopReason = stopReason === "completed" ? "finalized_after_short_draft" : `finalized_after_${stopReason}`
+      rawOutput = finalizeResult;
+      stopReason =
+        stopReason === "completed"
+          ? "finalized_after_short_draft"
+          : `finalized_after_${stopReason}`;
     }
   }
 
   // 9. Hasil Akhir
   if (!rawOutput?.markdownContent || rawOutput.markdownContent.length < 200) {
-    const finalErrorMsg = `Agent gagal menghasilkan naskah artikel yang memenuhi kriteria (${stopReason}).`
+    const finalErrorMsg = `Agent gagal menghasilkan naskah artikel yang memenuhi kriteria (${stopReason}).`;
     recorder.recordEvent({
       kind: "summary",
       status: "error",
       durationMs: 1,
       summary: finalErrorMsg,
-    })
+    });
 
-    await flushLangSmithTracer(langsmithTracer)
+    await flushLangSmithTracer(langsmithTracer);
 
     return {
       success: false,
@@ -409,51 +449,62 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
         message: finalErrorMsg,
         retryable: true,
       },
-    }
+    };
   }
 
   // 10. Postprocessing ke Native WordPress Gutenberg Blocks (Global & Tersembunyi dari User)
   const generatedArticle = postprocessArticle({
-    rawTitle: rawOutput.title || request.content.title || `Panduan Lengkap ${keyword}`,
+    rawTitle:
+      rawOutput.title || request.content.title || `Panduan Lengkap ${keyword}`,
     rawExcerpt: rawOutput.excerpt || `Ulasan lengkap mengenai ${keyword}.`,
     rawMarkdown: rawOutput.markdownContent,
-  })
+  });
 
   // Gabungkan taksonomi dari hasil pre-resolution, temuan agent, dan request manual
   const finalCategories =
     rawOutput.categoryIds && rawOutput.categoryIds.length > 0
       ? rawOutput.categoryIds
       : preResolved.categoryIds.length > 0
-      ? preResolved.categoryIds
-      : request.publishing.categoryIds || []
+        ? preResolved.categoryIds
+        : request.publishing.categoryIds || [];
 
   const finalTags: number[] =
-    preResolved.tagIds.length > 0
-      ? preResolved.tagIds
-      : []
+    preResolved.tagIds.length > 0 ? preResolved.tagIds : [];
 
   const enrichment: WpEnrichment = {
     categories: finalCategories,
     categoryNames: preResolved.categoryNames,
     tags: finalTags,
     tagNames: preResolved.tagNames,
-    author: preResolved.author?.id ?? request.publishing.authorId ?? rawOutput.authorId ?? undefined,
+    author:
+      preResolved.author?.id ??
+      request.publishing.authorId ??
+      rawOutput.authorId ??
+      undefined,
     authorDetail: preResolved.author
-      ? { id: preResolved.author.id, name: preResolved.author.name, bio: preResolved.author.bio }
+      ? {
+          id: preResolved.author.id,
+          name: preResolved.author.name,
+          bio: preResolved.author.bio,
+        }
       : undefined,
-    featuredMedia: request.publishing.featuredImageId ?? rawOutput.featuredMediaId ?? recorder.featuredMediaId ?? undefined,
+    featuredMedia:
+      request.publishing.featuredImageId ??
+      rawOutput.featuredMediaId ??
+      recorder.featuredMediaId ??
+      undefined,
     featuredImage: recorder.featuredImage,
     inContentImages: recorder.inContentImages,
-  }
+  };
 
   recorder.recordEvent({
     kind: "summary",
     status: "ok",
     durationMs: 1,
     summary: `Artikel sukses dibuat: "${generatedArticle.title}" (${generatedArticle.wordCount} kata, ${stopReason})`,
-  })
+  });
 
-  await flushLangSmithTracer(langsmithTracer)
+  await flushLangSmithTracer(langsmithTracer);
 
   return {
     success: true,
@@ -462,5 +513,5 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     enrichment,
     recorder,
     stopReason,
-  }
+  };
 }

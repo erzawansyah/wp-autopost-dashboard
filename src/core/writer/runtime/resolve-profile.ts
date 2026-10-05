@@ -43,7 +43,7 @@ export async function resolveAgentProfile(
           description: data.description || undefined,
           mode,
           model: data.model || undefined,
-          temperature: typeof data.temperature === "number" ? data.temperature : 0.35,
+          temperature: typeof data.temperature === "number" ? data.temperature : 0.95,
           workflowPrompt: data.workflow_prompt,
           toolIds: ensureMandatoryToolIds(Array.isArray(data.tool_ids) ? data.tool_ids : []),
           skills: Array.isArray(data.skills) ? data.skills : undefined,

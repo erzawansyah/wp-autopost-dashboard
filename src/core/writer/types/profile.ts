@@ -126,7 +126,7 @@ export const AgentProfileSchema = z.object({
   description: z.string().max(500).optional(),
   mode: z.enum(["standard", "deep"]).default("standard"),
   model: z.string().optional(),
-  temperature: z.number().min(0).max(2).default(0.35),
+  temperature: z.number().min(0).max(2).default(0.95),
   workflowPrompt: z.string().min(10).max(12000),
   toolIds: z.array(z.string()).default([]),
   skills: z.array(z.string()).default([]),
