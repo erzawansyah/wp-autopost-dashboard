@@ -68,6 +68,10 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
         (typeof notifPrefs?.default_ai_model === "string" ? notifPrefs.default_ai_model : undefined) ||
         process.env.OPENROUTER_DEFAULT_MODEL ||
         undefined,
+      reasoningEffort:
+        (searchPrefs?.reasoning_effort as "low" | "medium" | "high" | undefined) ||
+        (notifPrefs?.reasoning_effort as "low" | "medium" | "high" | undefined) ||
+        "low",
       searchPreferences: (data.search_preferences as DecryptedUserKeys["searchPreferences"]) || {
         default_provider: "auto",
       },

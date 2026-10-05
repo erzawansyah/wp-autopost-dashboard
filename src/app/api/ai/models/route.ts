@@ -19,12 +19,16 @@ export interface OpenRouterModelItem {
     tokenizer?: string
     instruct_type?: string
   }
+  supported_parameters?: string[]
+  supports_tools: boolean
+  supports_reasoning: boolean
 }
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
     const clientKey = searchParams.get("apiKey")
+    const toolsOnly = searchParams.get("toolsOnly") !== "false" // default: true (hanya tampilkan model yang mendukung tool calling)
     const sanitizedKey = getSanitizedApiKey(clientKey || process.env.OPENROUTER_API_KEY)
 
     const headers: Record<string, string> = {
@@ -53,6 +57,7 @@ export async function GET(request: Request) {
       name?: string
       description?: string
       context_length?: number
+      supported_parameters?: string[]
       pricing?: {
         prompt?: string
         completion?: string
@@ -71,25 +76,46 @@ export async function GET(request: Request) {
     const data = await res.json()
     const rawModels: RawOpenRouterModel[] = Array.isArray(data?.data) ? data.data : []
 
+    // Filter hanya model yang mendukung tool calling jika toolsOnly aktif
+    const filteredRawModels = toolsOnly
+      ? rawModels.filter((m) => {
+          const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : []
+          return params.includes("tools") || params.includes("tool_choice")
+        })
+      : rawModels
+
     // Petakan dan rapikan format model
-    const models: OpenRouterModelItem[] = rawModels.map((m) => ({
-      id: m.id,
-      name: m.name || m.id,
-      description: m.description,
-      context_length: m.context_length,
-      pricing: m.pricing
-        ? {
-            prompt: m.pricing.prompt ?? "0",
-            completion: m.pricing.completion ?? "0",
-          }
-        : undefined,
-      top_provider: m.top_provider,
-      architecture: m.architecture,
-    }))
+    const models: OpenRouterModelItem[] = filteredRawModels.map((m) => {
+      const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : []
+      const supportsTools = params.includes("tools") || params.includes("tool_choice")
+      const supportsReasoning =
+        params.includes("reasoning") ||
+        params.includes("reasoning_effort") ||
+        params.includes("include_reasoning")
+
+      return {
+        id: m.id,
+        name: m.name || m.id,
+        description: m.description,
+        context_length: m.context_length,
+        pricing: m.pricing
+          ? {
+              prompt: m.pricing.prompt ?? "0",
+              completion: m.pricing.completion ?? "0",
+            }
+          : undefined,
+        top_provider: m.top_provider,
+        architecture: m.architecture,
+        supported_parameters: params,
+        supports_tools: supportsTools,
+        supports_reasoning: supportsReasoning,
+      }
+    })
 
     return NextResponse.json({
       ok: true,
       count: models.length,
+      toolsOnly,
       models,
     })
   } catch (err: unknown) {

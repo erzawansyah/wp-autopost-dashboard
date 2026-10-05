@@ -62,6 +62,10 @@ export async function GET() {
         ((data?.search_preferences as Record<string, unknown> | null)?.default_ai_model as string | undefined) ||
         ((data?.notification_prefs as Record<string, unknown> | null)?.default_ai_model as string | undefined) ||
         null,
+      reasoningEffort:
+        ((data?.search_preferences as Record<string, unknown> | null)?.reasoning_effort as "low" | "medium" | "high" | undefined) ||
+        ((data?.notification_prefs as Record<string, unknown> | null)?.reasoning_effort as "low" | "medium" | "high" | undefined) ||
+        "low",
       searchPreferences: data?.search_preferences || { default_provider: "auto" },
       notificationPrefs: data?.notification_prefs || {},
       developerMode: isDevMode,
@@ -91,6 +95,7 @@ export async function PUT(request: Request) {
     const {
       openrouterKey,
       defaultAiModel,
+      reasoningEffort,
       tavilyKey,
       braveKey,
       serpapiKey,
@@ -151,6 +156,13 @@ export async function PUT(request: Request) {
     if (defaultAiModel !== undefined) {
       nextSearchPrefs.default_ai_model =
         typeof defaultAiModel === "string" && defaultAiModel.trim() ? defaultAiModel.trim() : null
+    }
+
+    if (reasoningEffort !== undefined) {
+      nextSearchPrefs.reasoning_effort =
+        reasoningEffort === "high" || reasoningEffort === "medium" || reasoningEffort === "low"
+          ? reasoningEffort
+          : "low"
     }
 
     updates.search_preferences = nextSearchPrefs

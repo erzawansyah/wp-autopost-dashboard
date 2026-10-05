@@ -26,6 +26,7 @@ import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
 import { preResolveTaxonomyAndAuthor } from "./pre-resolve";
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings";
 import { getLanguageDisplayName } from "@/lib/constants/languages";
+import { getOpenRouterReasoningConfig, ReasoningEffort } from "@/lib/ai/reasoning";
 import {
   createLangSmithTracer,
   setupLangSmithEnvironment,
@@ -166,14 +167,20 @@ export async function runAgentWriter(
     model: selectedModel,
     recorder,
   });
+
+  const effectiveReasoningEffort: ReasoningEffort =
+    (request.reasoningEffort as ReasoningEffort) ||
+    (profile.reasoningEffort as ReasoningEffort) ||
+    (userKeys.reasoningEffort as ReasoningEffort) ||
+    "low";
+
   const llm = new ChatOpenRouter({
     apiKey: resolvedApiKey,
     model: selectedModel,
     temperature: profile.temperature ?? 0.95,
     maxTokens: 16384,
-    // Batasi reasoning OpenRouter maks 1000 token agar tidak menghabiskan budget naskah,
-    // dan tetap 100% kompatibel dengan model yang mewajibkan reasoning (seperti DeepSeek / Space Bunny).
-    modelKwargs: { reasoning: { max_tokens: 1000 } },
+    // Konfigurasi reasoning bertingkat (low, medium, high) OpenRouter terstandardisasi
+    modelKwargs: { reasoning: getOpenRouterReasoningConfig(effectiveReasoningEffort) },
     siteUrl: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
     siteName: process.env.OPENROUTER_APP_NAME || "Panitera",
   });

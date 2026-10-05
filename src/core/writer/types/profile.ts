@@ -101,6 +101,8 @@ export interface AgentProfile {
   model?: string
   modelName?: string
   temperature: number
+  /** Level penalaran OpenRouter: 'low' | 'medium' | 'high' */
+  reasoningEffort?: "low" | "medium" | "high"
   /** Prompt alur instruksi yang bebas ditentukan/diedit oleh user */
   workflowPrompt: string
   /** Daftar tool ID yang diizinkan untuk digunakan oleh agent */

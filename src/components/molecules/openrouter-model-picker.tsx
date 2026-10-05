@@ -20,6 +20,8 @@ import {
   Sparkles,
   Zap,
   Globe2,
+  Wrench,
+  Brain,
 } from "lucide-react"
 
 interface OpenrouterModelPickerProps {
@@ -234,7 +236,7 @@ export function OpenrouterModelPicker({
                 <span>
                   {isLoading
                     ? "Mengambil model dari OpenRouter endpoint..."
-                    : `${filteredModels.length} model ditemukan (${models.length} total dari OpenRouter)`}
+                    : `${filteredModels.length} model Tool-Ready (${models.length} total)`}
                 </span>
               </div>
               {hasFetched && (
@@ -297,13 +299,25 @@ export function OpenrouterModelPicker({
                           </Badge>
                         )}
                       </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="text-[11px] font-mono text-muted-foreground truncate">
+                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                        <span className="text-[11px] font-mono text-muted-foreground truncate max-w-[200px]">
                           {m.id}
                         </span>
                         {providerName && (
                           <span className="text-[10px] text-muted-foreground/80 px-1 py-0 rounded bg-muted/50 uppercase font-semibold">
                             {providerName}
+                          </span>
+                        )}
+                        {m.supports_tools !== false && (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1 rounded">
+                            <Wrench className="size-2.5" />
+                            Tools
+                          </span>
+                        )}
+                        {m.supports_reasoning && (
+                          <span className="inline-flex items-center gap-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-400 bg-amber-500/10 px-1 rounded">
+                            <Brain className="size-2.5" />
+                            Reasoning
                           </span>
                         )}
                       </div>

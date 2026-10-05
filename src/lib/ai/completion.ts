@@ -1,4 +1,5 @@
 import { DEFAULT_AI_MODEL } from "./settings"
+import { getOpenRouterReasoningConfig, ReasoningEffort } from "./reasoning"
 
 export interface CallAiJsonParams {
   apiKey?: string
@@ -7,6 +8,7 @@ export interface CallAiJsonParams {
   userPrompt: string
   temperature?: number
   jsonSchema?: Record<string, unknown>
+  reasoningEffort?: ReasoningEffort
 }
 
 /**
@@ -43,7 +45,7 @@ export async function callOpenRouterJson<T = unknown>(params: CallAiJsonParams):
     body: JSON.stringify({
       model,
       temperature: params.temperature ?? 0.4,
-      reasoning: { max_tokens: 1000 },
+      reasoning: getOpenRouterReasoningConfig(params.reasoningEffort || "low"),
       messages: [
         {
           role: "system",
@@ -72,7 +74,7 @@ export async function callOpenRouterJson<T = unknown>(params: CallAiJsonParams):
       body: JSON.stringify({
         model,
         temperature: params.temperature ?? 0.4,
-        reasoning: { max_tokens: 1000 },
+        reasoning: getOpenRouterReasoningConfig(params.reasoningEffort || "low"),
         messages: [
           {
             role: "system",

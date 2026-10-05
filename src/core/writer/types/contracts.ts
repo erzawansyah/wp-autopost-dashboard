@@ -58,6 +58,7 @@ export const WriterRequestSchema = z.object({
   // Engine-specific options & overrides
   model: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
+  reasoningEffort: z.enum(["low", "medium", "high"]).optional(),
   apiKey: z.string().optional(),
   customInstructions: z.string().max(2000).optional(),
   engineOptions: z.record(z.string(), z.unknown()).optional(),

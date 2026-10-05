@@ -380,6 +380,11 @@ export async function processPostItem({
             tagNames: tagList,
           },
           model: aiModel,
+          reasoningEffort:
+            (payloadMeta.reasoningEffort as "low" | "medium" | "high" | undefined) ||
+            resolvedProfile.reasoningEffort ||
+            userKeys.reasoningEffort ||
+            "low",
           apiKey,
           userId: post.user_id,
           customInstructions: post.custom_instructions_override || undefined,

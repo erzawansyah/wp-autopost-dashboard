@@ -20,13 +20,16 @@ import {
   ShieldCheck,
   RefreshCw,
   ArrowLeft,
+  Check,
 } from "lucide-react"
 
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
+import { REASONING_EFFORT_OPTIONS, ReasoningEffort } from "@/lib/ai/reasoning"
 
 export default function AiSettingsPage() {
   const [apiKey, setApiKey] = React.useState("")
   const [selectedModel, setSelectedModel] = React.useState(DEFAULT_AI_MODEL)
+  const [reasoningEffort, setReasoningEffort] = React.useState<ReasoningEffort>("low")
   const [isTesting, setIsTesting] = React.useState(false)
   const [testResult, setTestResult] = React.useState<{
     ok: boolean
@@ -58,6 +61,11 @@ export default function AiSettingsPage() {
             }
             if (data.defaultAiModel) {
               setSelectedModel(data.defaultAiModel)
+            }
+            if (data.reasoningEffort) {
+              setReasoningEffort(data.reasoningEffort)
+            } else if (data.searchPreferences?.reasoning_effort) {
+              setReasoningEffort(data.searchPreferences.reasoning_effort)
             }
           }
         })
@@ -121,6 +129,7 @@ export default function AiSettingsPage() {
         body: JSON.stringify({
           openrouterKey: apiKey.trim(),
           defaultAiModel: selectedModel,
+          reasoningEffort,
         }),
       })
     } catch (err) {
@@ -225,7 +234,7 @@ export default function AiSettingsPage() {
               {/* Select Default Global Model */}
               <FormField
                 label="Model AI Global Seluruh Aplikasi"
-                hint="Daftar model diambil secara dinamis dari endpoint OpenRouter. Model ini otomatis digunakan di seluruh Lab Nodes, Lab Engine, Quick Writer, dan Batch Queue."
+                hint="Daftar model diambil secara dinamis dari endpoint OpenRouter (hanya model Tool-Ready yang mendukung tools call). Model ini otomatis digunakan di seluruh Lab Nodes, Lab Engine, Quick Writer, dan Batch Queue."
                 tooltip="Model default aplikasi. Anda dapat mencari dan memilih dari ratusan model OpenRouter (GPT-4o, Claude 3.5, Gemini, DeepSeek, Llama, Qwen, dsb.). Sistem akan langsung merujuk ke pilihan global ini."
               >
                 <OpenrouterModelPicker
@@ -234,6 +243,50 @@ export default function AiSettingsPage() {
                   apiKey={apiKey.trim() || undefined}
                 />
               </FormField>
+
+              {/* Tingkat Penalaran (Reasoning Effort) */}
+              <div className="space-y-2 pt-2 border-t border-border/50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-semibold text-foreground/90">
+                      Tingkat Penalaran AI (Reasoning Effort)
+                    </span>
+                    <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded border border-border bg-muted/30">
+                      {reasoningEffort}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Mengatur intensitas berpikir model reasoning (OpenAI o-series, Qwen Thinking, DeepSeek, dsb.).
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                  {REASONING_EFFORT_OPTIONS.map((opt) => {
+                    const isSelected = reasoningEffort === opt.value
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setReasoningEffort(opt.value)}
+                        className={`flex flex-col text-left p-3 rounded-lg border transition-all cursor-pointer ${
+                          isSelected
+                            ? "border-primary bg-primary/10 text-foreground ring-1 ring-primary/30 shadow-2xs"
+                            : "border-border/80 bg-background/50 hover:bg-muted/40 text-muted-foreground"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full mb-1">
+                          <span className={`text-xs font-semibold ${isSelected ? "text-primary" : "text-foreground"}`}>
+                            {opt.label}
+                          </span>
+                          {isSelected && <Check className="size-3.5 text-primary" />}
+                        </div>
+                        <span className="text-[11px] leading-relaxed">
+                          {opt.description}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
 
               {/* Info Box: Keamanan & Cara Mendapatkan Key */}
               <div className="p-3.5 rounded-lg border border-border/70 bg-muted/20 text-xs space-y-2">

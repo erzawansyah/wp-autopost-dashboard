@@ -14,6 +14,7 @@ export interface NotificationPrefs {
 export interface SearchPreferences {
   default_provider?: "auto" | "tavily" | "brave" | "searxng" | "bing_scraper" | "serpapi" | "open_knowledge"
   default_ai_model?: string
+  reasoning_effort?: "low" | "medium" | "high"
 }
 
 export interface UserSettingsResponse {
@@ -28,6 +29,7 @@ export interface UserSettingsResponse {
     langsmith: MaskedKeyInfo
   }
   defaultAiModel?: string | null
+  reasoningEffort?: "low" | "medium" | "high"
   langsmithProject?: string | null
   searxngUrl: string | null
   searchPreferences: SearchPreferences
@@ -39,6 +41,7 @@ export interface UserSettingsResponse {
 export interface DecryptedUserKeys {
   openrouterKey?: string
   defaultAiModel?: string
+  reasoningEffort?: "low" | "medium" | "high"
   tavilyKey?: string
   braveKey?: string
   serpapiKey?: string

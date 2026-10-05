@@ -42,6 +42,8 @@ export function getSanitizedApiKey(customApiKey?: string): string {
   return rawKey.trim().replace(/^["']|["']$/g, "")
 }
 
+import { getOpenRouterReasoningConfig, ReasoningEffort } from "./reasoning"
+
 export class OpenRouterLlmService implements LlmServiceInterface {
   private apiKey: string
   private defaultModel: string
@@ -58,6 +60,7 @@ export class OpenRouterLlmService implements LlmServiceInterface {
     temperature?: number
     outputSchema?: z.ZodTypeAny
     maxTokens?: number
+    reasoningEffort?: ReasoningEffort
   }): Promise<{ content: string; tokenUsage: { prompt: number; completion: number; total: number } }> {
     if (!this.apiKey) {
       throw new Error(
@@ -71,7 +74,7 @@ export class OpenRouterLlmService implements LlmServiceInterface {
       model: selectedModel,
       temperature: params.temperature ?? 0.7,
       maxTokens: params.maxTokens,
-      modelKwargs: { reasoning: { max_tokens: 1000 } },
+      modelKwargs: { reasoning: getOpenRouterReasoningConfig(params.reasoningEffort || "low") },
       siteUrl: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
       siteName: process.env.OPENROUTER_APP_NAME || "WP Autopost Dashboard",
     })

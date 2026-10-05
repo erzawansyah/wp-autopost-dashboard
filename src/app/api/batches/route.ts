@@ -40,6 +40,7 @@ export async function POST(request: Request) {
       tags = [],
       customBrief = "",
       aiModel,
+      reasoningEffort,
     } = body
 
     const effectiveProfileRef =
@@ -161,6 +162,7 @@ export async function POST(request: Request) {
           agentProfileRef: effectiveProfileRef,
           engine,
           aiModel,
+          reasoningEffort: reasoningEffort || undefined,
           language,
           category_ids,
           category_names,
@@ -239,6 +241,7 @@ export async function POST(request: Request) {
           agentProfileRef: effectiveProfileRef,
           engine,
           aiModel,
+          reasoningEffort: reasoningEffort || undefined,
           language,
           category_ids: selectedCategoryIds,
           batch_name: batch.name,
