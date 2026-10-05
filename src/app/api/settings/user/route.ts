@@ -58,6 +58,10 @@ export async function GET() {
         process.env.LANGCHAIN_PROJECT ||
         "panitera",
       searxngUrl: data?.searxng_url || null,
+      defaultAiModel:
+        (data?.search_preferences as any)?.default_ai_model ||
+        (data?.notification_prefs as any)?.default_ai_model ||
+        null,
       searchPreferences: data?.search_preferences || { default_provider: "auto" },
       notificationPrefs: data?.notification_prefs || {},
       developerMode: isDevMode,
@@ -86,6 +90,7 @@ export async function PUT(request: Request) {
     const body = await request.json().catch(() => ({}))
     const {
       openrouterKey,
+      defaultAiModel,
       tavilyKey,
       braveKey,
       serpapiKey,
@@ -138,14 +143,17 @@ export async function PUT(request: Request) {
       updates.searxng_url = typeof searxngUrl === "string" && searxngUrl.trim() ? searxngUrl.trim().replace(/\/+$/, "") : null
     }
 
-    if (searchPreferences && typeof searchPreferences === "object") {
-      updates.search_preferences = {
-        ...(existing?.search_preferences || {}),
-        ...searchPreferences,
-      }
-    } else if (!existing) {
-      updates.search_preferences = { default_provider: "auto" }
+    const nextSearchPrefs: Record<string, unknown> = {
+      ...(existing?.search_preferences || {}),
+      ...(searchPreferences && typeof searchPreferences === "object" ? searchPreferences : {}),
     }
+
+    if (defaultAiModel !== undefined) {
+      nextSearchPrefs.default_ai_model =
+        typeof defaultAiModel === "string" && defaultAiModel.trim() ? defaultAiModel.trim() : null
+    }
+
+    updates.search_preferences = nextSearchPrefs
 
     // Tangani notification_prefs dan kredensial LangSmith (disimpan aman terenkripsi di jsonb)
     const existingPrefs = (existing?.notification_prefs as Record<string, unknown>) || {}

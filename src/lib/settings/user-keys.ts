@@ -55,6 +55,11 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
         process.env.LANGCHAIN_PROJECT ||
         "panitera",
       searxngUrl: data.searxng_url ? String(data.searxng_url).trim() : undefined,
+      defaultAiModel:
+        (data.search_preferences as any)?.default_ai_model ||
+        (data.notification_prefs as any)?.default_ai_model ||
+        process.env.OPENROUTER_DEFAULT_MODEL ||
+        undefined,
       searchPreferences: (data.search_preferences as DecryptedUserKeys["searchPreferences"]) || {
         default_provider: "auto",
       },

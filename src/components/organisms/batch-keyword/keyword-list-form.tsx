@@ -105,6 +105,23 @@ export function KeywordListForm({
   const [tagsInput, setTagsInput] = React.useState<string>("")
   const [customBrief, setCustomBrief] = React.useState<string>("")
   const [activeTab, setActiveTab] = React.useState<string>("essential")
+  const [aiModel, setAiModel] = React.useState<string>("")
+
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      const localModel = localStorage.getItem("custom_openrouter_model")
+      if (localModel) setAiModel(localModel)
+    }
+
+    fetch("/api/settings/user")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok && data.defaultAiModel) {
+          setAiModel(data.defaultAiModel)
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   const advancedOptionsCount = React.useMemo(() => {
     let count = 0
@@ -249,6 +266,7 @@ export function KeywordListForm({
             : undefined,
         agentProfileRef: engine,
         engine,
+        aiModel: aiModel.trim() || undefined,
         language,
         category_ids: selectedCategoryIds,
         category_names: selectedCategoryNames,

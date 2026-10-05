@@ -131,7 +131,12 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     }
   }
 
-  const selectedModel = profile.model || request.model || DEFAULT_AI_MODEL
+  const selectedModel =
+    request.model ||
+    userKeys.defaultAiModel ||
+    profile.model ||
+    process.env.OPENROUTER_DEFAULT_MODEL ||
+    DEFAULT_AI_MODEL
 
   // 4. Pre-Resolution: Resolusi Taksonomi & Author WordPress di latar belakang via LLM
   const preResolved = await preResolveTaxonomyAndAuthor({

@@ -13,6 +13,7 @@ export interface NotificationPrefs {
 
 export interface SearchPreferences {
   default_provider?: "auto" | "tavily" | "brave" | "searxng" | "bing_scraper" | "serpapi" | "open_knowledge"
+  default_ai_model?: string
 }
 
 export interface UserSettingsResponse {
@@ -26,6 +27,7 @@ export interface UserSettingsResponse {
     pexafy: MaskedKeyInfo
     langsmith: MaskedKeyInfo
   }
+  defaultAiModel?: string | null
   langsmithProject?: string | null
   searxngUrl: string | null
   searchPreferences: SearchPreferences
@@ -36,6 +38,7 @@ export interface UserSettingsResponse {
 
 export interface DecryptedUserKeys {
   openrouterKey?: string
+  defaultAiModel?: string
   tavilyKey?: string
   braveKey?: string
   serpapiKey?: string

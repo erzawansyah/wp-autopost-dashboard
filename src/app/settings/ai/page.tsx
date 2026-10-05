@@ -43,18 +43,25 @@ export default function AiSettingsPage() {
       const savedModel = localStorage.getItem("custom_openrouter_model") || DEFAULT_AI_MODEL
       if (savedKey) {
         setApiKey(savedKey)
-      } else {
-        // Ambil status dari database jika di localStorage belum ada
-        fetch("/api/settings/user")
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.ok && data.keys?.openrouter?.configured) {
+      }
+      if (savedModel) {
+        setSelectedModel(savedModel)
+      }
+
+      // Ambil status dari database
+      fetch("/api/settings/user")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.ok) {
+            if (data.keys?.openrouter?.configured && !savedKey) {
               setApiKey("••••••••••••••••")
             }
-          })
-          .catch(() => {})
-      }
-      if (savedModel) setSelectedModel(savedModel)
+            if (data.defaultAiModel) {
+              setSelectedModel(data.defaultAiModel)
+            }
+          }
+        })
+        .catch(() => {})
     })
     return () => cancelAnimationFrame(handle)
   }, [])
@@ -111,7 +118,10 @@ export default function AiSettingsPage() {
       await fetch("/api/settings/user", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openrouterKey: apiKey.trim() }),
+        body: JSON.stringify({
+          openrouterKey: apiKey.trim(),
+          defaultAiModel: selectedModel,
+        }),
       })
     } catch (err) {
       console.warn("Gagal menyimpan kunci ke database:", err)

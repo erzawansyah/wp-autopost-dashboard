@@ -125,6 +125,9 @@ export default function ApiKeysSettingsPage() {
         if (data.searxngUrl) {
           setSearxngUrl(data.searxngUrl)
         }
+        if (data.defaultAiModel) {
+          setSelectedModel(data.defaultAiModel)
+        }
         if (data.searchPreferences?.default_provider) {
           setDefaultSearchProvider(data.searchPreferences.default_provider)
         }
@@ -133,7 +136,7 @@ export default function ApiKeysSettingsPage() {
       // Sync custom model from localStorage
       if (typeof window !== "undefined") {
         const localModel = localStorage.getItem("custom_openrouter_model")
-        if (localModel) setSelectedModel(localModel)
+        if (localModel && !data.defaultAiModel) setSelectedModel(localModel)
         const localAiKey = localStorage.getItem("custom_openrouter_api_key")
         if (localAiKey && !data.keys?.openrouter?.configured) {
           setOpenrouterKey(localAiKey)
@@ -280,8 +283,10 @@ export default function ApiKeysSettingsPage() {
 
     try {
       const payload: Record<string, unknown> = {
+        defaultAiModel: selectedModel,
         searchPreferences: {
           default_provider: defaultSearchProvider,
+          default_ai_model: selectedModel,
         },
         searxngUrl: searxngUrl.trim() || "",
       }

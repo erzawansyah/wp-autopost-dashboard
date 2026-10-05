@@ -101,13 +101,24 @@ export function QuickWriterForm({
     }
   }, [sites, siteId])
 
-  // Muat kunci OpenRouter dari localStorage jika ada
+  // Muat kunci OpenRouter dan model dari localStorage dan server jika ada
   React.useEffect(() => {
     if (typeof window === "undefined") return
     const savedKey = localStorage.getItem("custom_openrouter_api_key") || ""
-    const savedModel = localStorage.getItem("custom_openrouter_model") || DEFAULT_AI_MODEL
+    const savedModel = localStorage.getItem("custom_openrouter_model")
     if (savedKey) setCustomApiKey(savedKey)
     if (savedModel) setAiModel(savedModel)
+
+    fetch("/api/settings/user")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.ok) {
+          if (data.defaultAiModel && !savedModel) {
+            setAiModel(data.defaultAiModel)
+          }
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // Hitung jumlah opsi lanjutan yang aktif/diatur oleh user

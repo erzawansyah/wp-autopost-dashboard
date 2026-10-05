@@ -258,7 +258,13 @@ export async function processPostItem({
 
     const resolvedProfile = await resolveAgentProfile(profileRef, post.user_id)
 
-    const aiModel = (payloadMeta.aiModel as string) || resolvedProfile.model || resolvedProfile.modelName || undefined
+    const aiModel =
+      (payloadMeta.aiModel as string) ||
+      userKeys.defaultAiModel ||
+      resolvedProfile.model ||
+      resolvedProfile.modelName ||
+      process.env.OPENROUTER_DEFAULT_MODEL ||
+      undefined
 
     // Catat inisialisasi antrean ke execution_logs
     await supabase.from("execution_logs").insert({
