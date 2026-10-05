@@ -35,6 +35,30 @@ interface AgentProfileSelectProps {
   description?: string
 }
 
+const DEFAULT_FALLBACK_PRESETS: AgentProfileOption[] = [
+  {
+    ref: "preset:quick-writer",
+    name: "Quick Writer",
+    description: "Generasi cepat mandiri tanpa tools eksternal. Hemat token dan efisien.",
+    mode: "standard",
+    isPreset: true,
+  },
+  {
+    ref: "preset:research-writer",
+    name: "Research Journalist",
+    description: "Riset web mendalam, kurasi gambar, dan gaya jurnalistik komprehensif.",
+    mode: "standard",
+    isPreset: true,
+  },
+  {
+    ref: "preset:deep-research",
+    name: "Deep Editorial",
+    description: "Orkestrasi multi-turn mandiri dengan penelusuran fakta dan blok Gutenberg lengkap.",
+    mode: "deep",
+    isPreset: true,
+  },
+]
+
 export function AgentProfileSelect({
   value,
   onChange,
@@ -48,7 +72,7 @@ export function AgentProfileSelect({
     presets: AgentProfileOption[]
     userProfiles: AgentProfileOption[]
   }>({
-    presets: [],
+    presets: DEFAULT_FALLBACK_PRESETS,
     userProfiles: [],
   })
   const [loading, setLoading] = React.useState(true)
@@ -58,26 +82,48 @@ export function AgentProfileSelect({
     async function fetchProfiles() {
       try {
         const res = await fetch("/api/agents")
-        if (!res.ok) throw new Error("Gagal mengambil daftar profil agen")
+        if (!res.ok) {
+          console.warn("[AgentProfileSelect] Server merespons non-OK, menggunakan fallback preset bawaan.")
+          if (isMounted) {
+            setProfiles({
+              presets: DEFAULT_FALLBACK_PRESETS,
+              userProfiles: [],
+            })
+            if (!value) {
+              onChange("preset:quick-writer")
+            }
+          }
+          return
+        }
         const data = await res.json()
         if (isMounted) {
+          const loadedPresets = data.presets && data.presets.length > 0 ? data.presets : DEFAULT_FALLBACK_PRESETS
           setProfiles({
-            presets: data.presets || [],
+            presets: loadedPresets,
             userProfiles: data.userProfiles || [],
           })
           // Prioritaskan preset quick-writer atau profil yang bertanda isDefault
           if (!value) {
             const defaultAgent =
-              data.presets?.find((p: AgentProfileOption) => p.ref === "preset:quick-writer") ||
+              loadedPresets.find((p: AgentProfileOption) => p.ref === "preset:quick-writer") ||
               data.userProfiles?.find((p: AgentProfileOption) => p.isDefault) ||
-              data.presets?.[0]
+              loadedPresets[0]
             if (defaultAgent) {
               onChange(defaultAgent.ref)
             }
           }
         }
       } catch (err) {
-        console.error("[AgentProfileSelect] Error:", err)
+        console.warn("[AgentProfileSelect] Gagal memuat profil agen, menggunakan fallback bawaan:", err)
+        if (isMounted) {
+          setProfiles({
+            presets: DEFAULT_FALLBACK_PRESETS,
+            userProfiles: [],
+          })
+          if (!value) {
+            onChange("preset:quick-writer")
+          }
+        }
       } finally {
         if (isMounted) setLoading(false)
       }

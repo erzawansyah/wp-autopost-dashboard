@@ -12,7 +12,12 @@ export async function GET() {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      // Jika belum terautentikasi (guest/unauthenticated), tetap sajikan profil preset bawaan sistem
+      return NextResponse.json({
+        presets: BUILTIN_PRESETS,
+        userProfiles: [],
+        all: BUILTIN_PRESETS,
+      })
     }
 
     // Ambil profile kustom milik pengguna dari database
@@ -25,7 +30,13 @@ export async function GET() {
 
     if (dbError) {
       console.error("[API/agents] Error fetching agent profiles:", dbError)
-      return NextResponse.json({ error: "Gagal memuat profil agen." }, { status: 500 })
+      // Tetap kembalikan preset bawaan agar UI formulir penulisan tidak lumpuh
+      return NextResponse.json({
+        presets: BUILTIN_PRESETS,
+        userProfiles: [],
+        all: BUILTIN_PRESETS,
+        warning: "Gagal memuat profil kustom dari database.",
+      })
     }
 
     // Map profile database ke format standar

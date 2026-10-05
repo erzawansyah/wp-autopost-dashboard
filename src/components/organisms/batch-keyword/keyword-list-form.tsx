@@ -23,7 +23,9 @@ import {
   Globe,
   Brain,
   Bookmark,
+  Plus,
 } from "lucide-react"
+import { FormField } from "@/components/molecules/form-field"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
 import { Badge } from "@/components/atoms/badge"
@@ -310,10 +312,10 @@ export function KeywordListForm({
           <div>
             <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
               <Layers className="size-4 text-primary" />
-              <span>Tulis Massal</span>
+              <span>Input Daftar Kata Kunci (Batch)</span>
             </CardTitle>
             <CardDescription className="text-xs text-muted-foreground mt-0.5">
-              Buat banyak artikel sekaligus dari daftar kata kunci, langsung atau terjadwal.
+              Masukkan satu atau banyak kata kunci untuk dibuat dan dijadwalkan secara masal.
             </CardDescription>
           </div>
 
@@ -375,30 +377,64 @@ export function KeywordListForm({
             {/* TAB 1: ESSENTIAL / WAJIB (Input Utama Batch)             */}
             {/* ========================================================= */}
             <TabsContent value="essential" className="mt-0 flex flex-col gap-6">
-              {/* 1. Grid 3 Kolom: Website Target, Profil Agen, & Bahasa Artikel (Konsisten dengan Tulis Cepat) */}
+              {/* 1. Grid 3 Kolom: Website Target, Profil Agen, & Bahasa Artikel */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start">
                 {/* Kolom 1: Website WordPress Target */}
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="site-select" className="text-xs font-medium text-foreground">
-                    Website WordPress Target <span className="text-destructive">*</span>
-                  </Label>
-                  <Select
-                    value={effectiveSiteId}
-                    onValueChange={setSelectedSiteId}
-                    disabled={isLoadingSites || isSubmitting}
-                  >
-                    <SelectTrigger id="site-select" className="h-9 w-full text-xs bg-background">
-                      <SelectValue placeholder="Pilih website WordPress..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {sites.map((site) => (
-                        <SelectItem key={site.id} value={site.id} className="text-xs">
-                          {site.site_name} ({site.base_url.replace(/^https?:\/\//, "")})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <FormField
+                  id="site-select"
+                  label="Website WordPress Target"
+                  required
+                  tooltip="Website WordPress tujuan yang akan menerima dan menerbitkan postingan artikel ini via REST API."
+                  hint="Pilih website blog WordPress tujuan penerbitan artikel."
+                >
+                  {isLoadingSites ? (
+                    <div className="flex h-9 w-full items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-xs text-muted-foreground">
+                      <Loader2 className="size-3.5 animate-spin text-primary" />
+                      <span>Memuat daftar website...</span>
+                    </div>
+                  ) : sites.length === 0 ? (
+                    <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-800 dark:text-amber-300">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle className="size-4 shrink-0" />
+                        <span className="text-[11px]">Belum ada website terhubung.</span>
+                      </div>
+                      <Button
+                        type="button"
+                        asChild
+                        size="xs"
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium text-[10px] h-6 px-2"
+                      >
+                        <Link href="/sites" className="flex items-center gap-1">
+                          <Plus className="size-3" />
+                          <span>Hubungkan</span>
+                        </Link>
+                      </Button>
+                    </div>
+                  ) : (
+                    <Select
+                      value={effectiveSiteId}
+                      onValueChange={setSelectedSiteId}
+                      disabled={isSubmitting}
+                    >
+                      <SelectTrigger id="site-select" className="h-9 w-full text-xs bg-background">
+                        <SelectValue placeholder="Pilih website WordPress..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sites.map((site) => (
+                          <SelectItem key={site.id} value={site.id} className="text-xs">
+                            <div className="flex items-center gap-2">
+                              <Globe className="size-3.5 text-muted-foreground" />
+                              <span className="font-semibold">{site.site_name}</span>
+                              <span className="text-[11px] text-muted-foreground font-mono">
+                                ({site.base_url.replace(/^https?:\/\//, "").replace(/\/$/, "")})
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </FormField>
 
                 {/* Kolom 2: Profil Agen Kepenulisan */}
                 <AgentProfileSelect
@@ -408,17 +444,23 @@ export function KeywordListForm({
                 />
 
                 {/* Kolom 3: Bahasa Artikel */}
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="language-select" className="text-xs font-medium text-foreground">
-                    Bahasa Artikel <span className="text-destructive">*</span>
-                  </Label>
+                <FormField
+                  id="language-select"
+                  label="Bahasa Artikel"
+                  required
+                  hint="Bahasa utama penulisan konten artikel."
+                  tooltip="AI System Writer akan menghasilkan judul, heading, paragraf, dan meta SEO sesuai bahasa yang dipilih."
+                >
                   <LanguageSelect
                     value={language}
                     onValueChange={setLanguage}
                     disabled={isSubmitting}
                   />
-                </div>
+                </FormField>
               </div>
+
+              {/* Pemisah Garis Halus */}
+              <div className="border-t border-border/60" />
 
           {/* 2. Kolom List Kata Kunci (1 Baris = 1 Kata Kunci) */}
           <div className="flex flex-col gap-2">
@@ -475,6 +517,9 @@ export function KeywordListForm({
               diabaikan.
             </p>
           </div>
+
+          {/* Pemisah Garis Halus */}
+          <div className="border-t border-border/60" />
 
           {/* 4. Pengaturan Strategi Jadwal Tayang (Random / Interval / Instant) */}
           <div className="flex flex-col gap-2 pt-2">
@@ -554,69 +599,73 @@ export function KeywordListForm({
               </div>
 
               {/* Nama Batch (Opsional) */}
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="batch-name" className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                  <Bookmark className="size-3.5 text-primary" />
-                  Nama Batch (Opsional)
-                </Label>
-                <Input
-                  id="batch-name"
-                  type="text"
-                  placeholder="Contoh: Niche Berkebun Oktober (Opsional)"
-                  value={batchName}
-                  onChange={(e) => setBatchName(e.target.value)}
-                  disabled={isSubmitting}
-                  className="bg-background text-xs"
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Beri label kelompok untuk memudahkan pelacakan antrean. Jika dikosongkan, sistem akan membuatkan nama otomatis.
-                </p>
-              </div>
+              <FormField
+                id="batch-name"
+                label="Nama Batch (Opsional)"
+                hint="Beri label kelompok untuk memudahkan pelacakan antrean. Jika dikosongkan, sistem akan membuatkan nama otomatis dari kata kunci pertama."
+                tooltip="Penamaan unik untuk memudahkan pencarian dan identifikasi batch ini di daftar antrean."
+              >
+                <div className="relative">
+                  <Bookmark className="absolute left-3 top-2.5 size-4 text-muted-foreground pointer-events-none" />
+                  <Input
+                    id="batch-name"
+                    type="text"
+                    placeholder="Contoh: Niche Berkebun Oktober (Opsional)"
+                    value={batchName}
+                    onChange={(e) => setBatchName(e.target.value)}
+                    disabled={isSubmitting}
+                    className="pl-9 bg-background text-xs h-9"
+                  />
+                </div>
+              </FormField>
 
-              {/* Kategori WordPress Multi-select */}
-              <div className="flex flex-col gap-1.5">
-                <Label className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                  <FolderTree className="size-3.5 text-primary" />
-                  Kategori WordPress (Untuk Seluruh Batch)
-                </Label>
-                <WPCategorySelect
-                  siteId={effectiveSiteId}
-                  selectedCategoryIds={selectedCategoryIds}
-                  onChange={(ids, names) => {
-                    setSelectedCategoryIds(ids)
-                    setSelectedCategoryNames(names)
-                  }}
-                  disabled={isSubmitting || !effectiveSiteId}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  Jika dikosongkan, AI akan otomatis menentukan kategori yang paling cocok dari
-                  situs Anda.
-                </p>
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
+                {/* Kategori WordPress Multi-select */}
+                <FormField
+                  label="Kategori WordPress (Untuk Seluruh Batch)"
+                  hint="Jika dikosongkan, AI akan otomatis menentukan kategori yang paling cocok dari situs Anda."
+                  tooltip="Kategori diambil langsung secara dinamis dari WordPress REST API situs target."
+                >
+                  <WPCategorySelect
+                    siteId={effectiveSiteId}
+                    selectedCategoryIds={selectedCategoryIds}
+                    onChange={(ids, names) => {
+                      setSelectedCategoryIds(ids)
+                      setSelectedCategoryNames(names)
+                    }}
+                    disabled={isSubmitting || !effectiveSiteId}
+                  />
+                </FormField>
 
-              {/* Tags WordPress */}
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="tags-input" className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                  <Tag className="size-3.5 text-primary" />
-                  Tag WordPress (Pisahkan dengan koma)
-                </Label>
-                <Input
+                {/* Tags WordPress */}
+                <FormField
                   id="tags-input"
-                  type="text"
-                  placeholder="berkebun, tanaman hias, tips organik"
-                  value={tagsInput}
-                  onChange={(e) => setTagsInput(e.target.value)}
-                  disabled={isSubmitting}
-                  className="bg-background text-xs"
-                />
+                  label="Tag WordPress (Untuk Seluruh Batch)"
+                  hint="Pisahkan tag dengan tanda koma (misal: berkebun, tanaman hias, tips organik)."
+                  tooltip="Tag akan dibuat otomatis di WordPress jika belum ada sebelumnya."
+                >
+                  <div className="relative">
+                    <Tag className="absolute left-3 top-2.5 size-4 text-muted-foreground pointer-events-none" />
+                    <Input
+                      id="tags-input"
+                      type="text"
+                      placeholder="berkebun, tanaman hias, tips organik"
+                      value={tagsInput}
+                      onChange={(e) => setTagsInput(e.target.value)}
+                      disabled={isSubmitting}
+                      className="pl-9 bg-background text-xs h-9"
+                    />
+                  </div>
+                </FormField>
               </div>
 
               {/* Custom Brief / Instruksi Khusus */}
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="batch-brief" className="flex items-center gap-1.5 text-xs font-medium text-foreground">
-                  <FileText className="size-3.5 text-primary" />
-                  Instruksi Tambahan (Berlaku untuk Seluruh Batch)
-                </Label>
+              <FormField
+                id="batch-brief"
+                label="Instruksi Khusus / Sudut Pandang Penulis (Opsional)"
+                hint="Arahan editorial khusus yang wajib dipatuhi AI untuk semua artikel di batch kata kunci ini."
+                tooltip="Brief ini akan disuntikkan ke dalam sistem instruksi AI bersama profil kepenulisan yang dipilih."
+              >
                 <Textarea
                   id="batch-brief"
                   rows={4}
@@ -624,9 +673,9 @@ export function KeywordListForm({
                   value={customBrief}
                   onChange={(e) => setCustomBrief(e.target.value)}
                   disabled={isSubmitting}
-                  className="bg-background text-xs"
+                  className="bg-background text-xs resize-none"
                 />
-              </div>
+              </FormField>
             </TabsContent>
           </Tabs>
 
