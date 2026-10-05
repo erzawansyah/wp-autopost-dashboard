@@ -1,13 +1,29 @@
-import path from "path"
-import fs from "fs"
 import { createAgent } from "langchain"
-import { createDeepAgent, StateBackend } from "deepagents"
-import { MemorySaver } from "@langchain/langgraph"
+import { createDeepAgent, StoreBackend } from "deepagents"
+import { InMemoryStore, MemorySaver } from "@langchain/langgraph"
 import { StructuredTool } from "@langchain/core/tools"
 import { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { AgentMode, AgentLimits } from "../types/profile"
 import { RunRecorder } from "./telemetry"
 import { buildGuardMiddlewareStack } from "./guards"
+import { resolveSkillsForAgent } from "./resolve-skills"
+
+/**
+ * Backend Store Read-Only untuk Skills DeepAgent:
+ * Membaca file SKILL.md dari virtual namespace ["filesystem"] (InMemoryStore),
+ * sekaligus memproteksi dari operasi penulisan (write/edit/delete).
+ */
+class ReadOnlyStoreBackend extends StoreBackend {
+  async write() {
+    return { error: "Izin ditolak: Deep Writer Agent beroperasi dalam mode baca (read-only) untuk file skill." }
+  }
+  async edit() {
+    return { error: "Izin ditolak: Deep Writer Agent beroperasi dalam mode baca (read-only) untuk file skill." }
+  }
+  async delete() {
+    return { error: "Izin ditolak: Deep Writer Agent dilarang menghapus file skill." }
+  }
+}
 
 export interface BuildAgentParams {
   mode: AgentMode
@@ -17,42 +33,56 @@ export interface BuildAgentParams {
   limits: AgentLimits
   recorder: RunRecorder
   skills?: string[]
+  userId?: string
 }
 
 export async function buildWriterAgent(params: BuildAgentParams) {
-  const { mode, model, tools, systemPrompt, limits, recorder, skills = [] } = params
+  const { mode, model, tools, systemPrompt, limits, recorder, skills = [], userId } = params
   const middleware = buildGuardMiddlewareStack(limits, recorder)
   const checkpointer = new MemorySaver()
 
   if (mode === "deep") {
-    // Kumpulkan path direktori skill yang valid
-    const curatedSkills: string[] = []
-    const requestedSkills = skills.length > 0 ? skills : ["anti-ai-editor"]
+    // 1. Resolusi skill secara dinamis dari database Supabase agent_skills (dengan hybrid fallback disk)
+    const resolvedSkills = await resolveSkillsForAgent({
+      requestedSlugs: skills,
+      userId,
+    })
 
-    for (const skillSlug of requestedSkills) {
-      // 1. Cek di .agents/skills/<slug>
-      const systemPath = path.join(process.cwd(), ".agents", "skills", skillSlug)
-      if (fs.existsSync(path.join(systemPath, "SKILL.md"))) {
-        curatedSkills.push(systemPath)
-        continue
-      }
+    const store = new InMemoryStore()
+    const nowIso = new Date().toISOString()
 
-      // 2. Cek di .workspaces/skills/<slug>
-      const userPath = path.join(process.cwd(), ".workspaces", "skills", skillSlug)
-      if (fs.existsSync(path.join(userPath, "SKILL.md"))) {
-        curatedSkills.push(userPath)
-        continue
-      }
+    // 2. Masukkan setiap skill yang ter-resolve ke dalam InMemoryStore di namespace ["filesystem"]
+    for (const s of resolvedSkills) {
+      await store.put(
+        ["filesystem"],
+        `/skills/${s.slug}/SKILL.md`,
+        {
+          content: s.content,
+          created_at: nowIso,
+          modified_at: nowIso,
+        }
+      )
     }
 
+    if (resolvedSkills.length > 0) {
+      recorder.recordEvent({
+        kind: "guard",
+        status: "ok",
+        durationMs: 1,
+        summary: `Skills System aktif (${resolvedSkills.length} skill dinamis terpasang: ${resolvedSkills.map((s) => s.slug).join(", ")})`,
+      })
+    }
+
+    // 3. Bangun DeepAgent dengan virtual StoreBackend di namespace ["filesystem"]
     const agent = await createDeepAgent({
       name: "deep-writer-agent",
       model,
       tools,
       systemPrompt,
       middleware,
-      backend: (cfg) => new StateBackend(cfg),
-      skills: curatedSkills.length > 0 ? curatedSkills : undefined,
+      backend: (config) => new ReadOnlyStoreBackend(config, { namespace: ["filesystem"] }),
+      store,
+      skills: resolvedSkills.length > 0 ? ["/skills/"] : undefined,
       checkpointer,
     })
 

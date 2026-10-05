@@ -113,6 +113,7 @@ export async function run(
     request,
     profile,
     userKeys,
+    userId: effectiveUserId,
     onEventListener: effectiveEventListener,
     abortSignal: normalizedOptions.abortSignal,
   })

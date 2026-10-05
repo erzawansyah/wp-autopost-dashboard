@@ -37,6 +37,7 @@ export interface RunAgentOptions {
   request: WriterRequest;
   profile: AgentProfile;
   userKeys: DecryptedUserKeys;
+  userId?: string;
   onEventListener?: (event: AgentStepEvent) => void;
   abortSignal?: AbortSignal;
 }
@@ -227,6 +228,7 @@ export async function runAgentWriter(
       limits,
       recorder,
       skills: profile.skills,
+      userId: options.userId || request.userId,
     });
   } catch (agentBuildErr: unknown) {
     const errText =
