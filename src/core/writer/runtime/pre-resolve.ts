@@ -134,6 +134,29 @@ export async function preResolveTaxonomyAndAuthor(
 
   // 2. Eksekusi Resolusi Cerdas via LLM (system-resolve-taxonomy-author.md)
   let llmSuccess = false
+  const isTechnicalAdminUser = (u: WPUserItem) => {
+    const slug = (u.slug || "").toLowerCase().trim()
+    const name = (u.name || "").toLowerCase().trim()
+    const connUser = (wpCredentials.username || "").toLowerCase().trim()
+    return (
+      slug === "admin" ||
+      slug === "administrator" ||
+      slug === "root" ||
+      slug === "webmaster" ||
+      slug.endsWith("_admin") ||
+      slug.startsWith("admin_") ||
+      slug.includes("admin") ||
+      name === "admin" ||
+      name === "administrator" ||
+      name.endsWith("_admin") ||
+      (connUser.length > 0 &&
+        (slug === connUser || name === connUser) &&
+        (connUser.includes("admin") || connUser === "root"))
+    )
+  }
+
+  const nonAdminUsers = users.filter((u) => !isTechnicalAdminUser(u))
+
   if (apiKey && (users.length > 0 || existingCategories.length > 0)) {
     const llmStart = Date.now()
     try {
@@ -150,7 +173,13 @@ export async function preResolveTaxonomyAndAuthor(
               : "Belum ada kategori terdaftar",
           existingAuthors:
             users.length > 0
-              ? users.map((u) => `- ID: ${u.id}, Nama: "${u.name}", Bio/Deskripsi: "${u.description || '-'}"`).join("\n")
+              ? users
+                  .map((u) => {
+                    const isAdm = isTechnicalAdminUser(u)
+                    const label = isAdm && nonAdminUsers.length > 0 ? " (AKUN ADMIN TEKNIS - JANGAN DIPILIH)" : ""
+                    return `- ID: ${u.id}, Nama: "${u.name}", Bio/Deskripsi: "${u.description || '-'}"${label}`
+                  })
+                  .join("\n")
               : "Belum ada data author",
           existingTags:
             existingTags.length > 0
@@ -184,12 +213,30 @@ export async function preResolveTaxonomyAndAuthor(
         if (llmResult) {
           // A. Resolusi Penulis dari LLM
           if (llmResult.selectedAuthorId) {
-            const matchedUser = users.find((u) => u.id === Number(llmResult.selectedAuthorId))
+            let matchedUser = users.find((u) => u.id === Number(llmResult.selectedAuthorId))
+
+            // Proteksi Anti-Admin: Jika LLM memilih akun admin teknis padahal ada akun penulis non-admin dan user tidak minta ID spesifik
+            if (
+              matchedUser &&
+              !requestedAuthorId &&
+              isTechnicalAdminUser(matchedUser) &&
+              nonAdminUsers.length > 0
+            ) {
+              const fallbackAuthor =
+                nonAdminUsers.find((u) => u.description && u.description.trim().length > 0) ||
+                nonAdminUsers[0]
+              matchedUser = fallbackAuthor
+            }
+
             if (matchedUser) {
               result.author = {
                 id: matchedUser.id,
                 name: matchedUser.name,
-                bio: matchedUser.description || llmResult.selectedAuthorBio || undefined,
+                bio:
+                  matchedUser.description ||
+                  (matchedUser.id === Number(llmResult.selectedAuthorId)
+                    ? llmResult.selectedAuthorBio
+                    : undefined),
                 slug: matchedUser.slug,
               }
             }
@@ -256,13 +303,11 @@ export async function preResolveTaxonomyAndAuthor(
       selectedUser = users.find((u) => u.id === requestedAuthorId)
     }
 
-    if (!selectedUser) {
-      const normalizedConnUser = wpCredentials.username.toLowerCase().trim()
-      selectedUser = users.find(
-        (u) =>
-          u.slug.toLowerCase() === normalizedConnUser ||
-          u.name.toLowerCase() === normalizedConnUser
-      )
+    // Utamakan selalu akun persona non-admin
+    if (!selectedUser && nonAdminUsers.length > 0) {
+      selectedUser =
+        nonAdminUsers.find((u) => u.description && u.description.trim().length > 0) ||
+        nonAdminUsers[0]
     }
 
     if (!selectedUser) {

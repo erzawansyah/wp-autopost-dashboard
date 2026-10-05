@@ -68,11 +68,10 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - **Pembersihan Tool Usang**: Mengeliminasi tool `list_wp_categories`, `list_wp_tags`, dan `list_wp_authors` dari `ToolRegistry` dan profil agen (`preset:research-writer` & `preset:deep-research`).
     - **Efisiensi Kuota Tool Calls & Token**: Penghapusan ini menjamin kuota `maxToolCalls` tidak terbuang untuk urusan administratif WordPress yang sudah selesai di tahap Pre-Flight Resolver (`pre-resolve.ts`).
     - **6 Universal Tools Aktif**: Agen kini fokus 100% pada riset dan kurasi visual (`keyword_suggestions`, `web_search`, `web_reader`, `image_search`, `set_featured_image`, dan `upload_media`).
-18. **ADR-059 (Audit Menyeluruh & Pembersihan Fosil Codebase / Dead Code Cleanup)**:
-    - **Eliminasi 6 Komponen Fosil**: Menghapus `quick-single-modal.tsx`, `bulk-batch-modal.tsx`, `writing-progress-panel.tsx`, `quick-writer-result-card.tsx`, `coming-soon-view.tsx`, dan `node-execution-logs-viewer.tsx` (1.400+ baris dead code dari era prototipe awal).
-    - **Eliminasi Types & Shared Tools Usang**: Menghapus `engine.ts` (interface `WritingEngine` & `WriterStateAnnotation` lama) serta 5 subfolder tool lama di `src/core/shared/tools/` (`get-categories`, `get-tags`, `create-tags`, `get-author`, `image-embedder`).
-    - **Sentralisasi Profil ke `src/core/writer/profiles/builtin.ts`**: Menghilangkan seluruh hardcoded prompt string fallback raksasa dan beralih ke `loadPrompt("agent-*.md")` murni. Menyediakan `src/core/writer/presets/registry.ts` sebagai shim tipis untuk backward-compatibility.
-    - **Eliminasi Dead Code UI**: Menghapus deklarasi `AVAILABLE_ENGINES` usang di `quick-writer-form.tsx` yang sudah digantikan oleh molekul `AgentProfileSelect`.
+18. **ADR-059 (Pembersihan Fosil Codebase)**: Eliminasi 6 modal/komponen usang (1.400+ baris), hapus interface engine lama, sentralisasi profil ke `builtin.ts`.
+19. **ADR-060 (Aturan Anti-Admin Author Resolution & Prioritas Persona E-E-A-T)**:
+    - Menambahkan aturan mutlak di prompt `system-resolve-taxonomy-author.md` dan filter `isTechnicalAdminUser` di `pre-resolve.ts`.
+    - Sistem dan LLM dilarang memilih akun admin teknis (`admin`, `administrator`, `*_admin`, dll.) jika masih ada akun persona manusia lain di WordPress, meskipun bidang keahliannya lintas topik. Akun admin hanya dijadikan pilihan darurat jika situs benar-benar hanya memiliki 1 akun tunggal.
 
 ---
 

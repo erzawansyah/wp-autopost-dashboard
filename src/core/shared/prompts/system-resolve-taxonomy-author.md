@@ -36,9 +36,11 @@ Pedoman Penentuan:
 
 2. PENULIS (AUTHOR):
    - Evaluasi daftar Penulis yang SUDAH ADA di WordPress.
-   - Pilih satu Penulis yang memiliki deskripsi/keahlian paling cocok dengan topik artikel.
-   - Jika pengguna sudah menentukan 'requestedAuthorId', utamakan ID tersebut.
-   - Jika deskripsi penulis kosong, pilih akun yang paling sesuai atau akun utama website.
+   - ATURAN MUTLAK ANTI-ADMIN: DILARANG KERAS memilih akun admin teknis website (seperti nama/slug 'admin', 'administrator', '*_admin', 'root', 'webmaster', atau akun berlabel 'AKUN ADMIN TEKNIS') jika masih ada akun penulis manusia lain yang tersedia di daftar.
+   - Selalu prioritaskan akun penulis persona/nama orang nyata (misal: yang memiliki bio deskripsi atau nama orang) demi kredibilitas E-E-A-T pembaca, meskipun keahlian spesifiknya tidak 100% persis dengan topik artikel.
+   - Pilih satu Penulis persona yang paling mendekati atau paling layak mewakili artikel.
+   - Jika pengguna secara eksplisit sudah menentukan 'requestedAuthorId', barulah utamakan ID tersebut.
+   - Akun admin HANYA boleh dipilih sebagai pilihan darurat terakhir jika dan hanya jika website tersebut benar-benar HANYA memiliki 1 akun tunggal (yaitu akun admin itu sendiri).
 
 3. TAGS:
    - Pilih 3 hingga 5 tag yang sangat relevan dan memperkuat SEO artikel.
