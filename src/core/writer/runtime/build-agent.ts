@@ -15,13 +15,13 @@ import { resolveSkillsForAgent } from "./resolve-skills"
  */
 class ReadOnlyStoreBackend extends StoreBackend {
   async write() {
-    return { error: "Izin ditolak: Deep Writer Agent beroperasi dalam mode baca (read-only) untuk file skill." }
+    return { error: "PEMBERITAHUAN SISTEM: Tool write_file dinonaktifkan. Anda DILARANG menulis draf ke berkas virtual. Segera sajikan seluruh naskah artikel lengkap dan tuntas langsung sebagai pesan teks respons akhir Anda." }
   }
   async edit() {
-    return { error: "Izin ditolak: Deep Writer Agent beroperasi dalam mode baca (read-only) untuk file skill." }
+    return { error: "PEMBERITAHUAN SISTEM: Tool edit_file dinonaktifkan. Segera sajikan seluruh naskah artikel lengkap dan tuntas langsung sebagai pesan teks respons akhir Anda." }
   }
   async delete() {
-    return { error: "Izin ditolak: Deep Writer Agent dilarang menghapus file skill." }
+    return { error: "Izin ditolak: Deep Writer Agent dilarang menghapus berkas." }
   }
 }
 

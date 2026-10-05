@@ -71,7 +71,7 @@ export class OpenRouterLlmService implements LlmServiceInterface {
       model: selectedModel,
       temperature: params.temperature ?? 0.7,
       maxTokens: params.maxTokens,
-      modelKwargs: { reasoning: { enabled: false } },
+      modelKwargs: { reasoning: { max_tokens: 1000 } },
       siteUrl: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
       siteName: process.env.OPENROUTER_APP_NAME || "WP Autopost Dashboard",
     })

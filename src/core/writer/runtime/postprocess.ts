@@ -48,7 +48,13 @@ export function postprocessArticle(input: PostprocessInput): GeneratedArticle {
   }
 
   const cleanedTitle = sanitizeDashes((input.rawTitle || "").trim())
+    .replace(/^(?:judul\s*artikel|judul|title)\s*:\s*/i, "")
+    .replace(/^["']|["']$/g, "")
+    .trim()
   const cleanedExcerpt = sanitizeDashes((input.rawExcerpt || "").trim())
+    .replace(/^(?:ringkasan\s*artikel|ringkasan|excerpt)\s*:\s*/i, "")
+    .replace(/^["']|["']$/g, "")
+    .trim()
   const cleanedMarkdown = cleanMarkdown(md, cleanedTitle)
 
   // Serialisasi Markdown deterministik ke komentar blok WordPress Gutenberg resmi (<!-- wp:... -->)

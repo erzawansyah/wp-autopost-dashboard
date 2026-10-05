@@ -43,6 +43,7 @@ export async function callOpenRouterJson<T = unknown>(params: CallAiJsonParams):
     body: JSON.stringify({
       model,
       temperature: params.temperature ?? 0.4,
+      reasoning: { max_tokens: 1000 },
       messages: [
         {
           role: "system",
@@ -71,6 +72,7 @@ export async function callOpenRouterJson<T = unknown>(params: CallAiJsonParams):
       body: JSON.stringify({
         model,
         temperature: params.temperature ?? 0.4,
+        reasoning: { max_tokens: 1000 },
         messages: [
           {
             role: "system",
