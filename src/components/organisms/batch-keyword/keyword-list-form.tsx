@@ -120,9 +120,9 @@ export function KeywordListForm({
       .then((res) => res.json())
       .then((data) => {
         if (data.ok && data.defaultAiModel) {
-          const savedModel = typeof window !== "undefined" ? localStorage.getItem("custom_openrouter_model") : null
-          if (!savedModel) {
-            setAiModel(data.defaultAiModel)
+          setAiModel(data.defaultAiModel)
+          if (typeof window !== "undefined") {
+            localStorage.setItem("custom_openrouter_model", data.defaultAiModel)
           }
         }
       })
@@ -265,7 +265,7 @@ export function KeywordListForm({
             : undefined,
         agentProfileRef: engine,
         engine,
-        aiModel: aiModel.trim() || undefined,
+        aiModel: undefined,
         language,
         category_ids: selectedCategoryIds,
         category_names: selectedCategoryNames,

@@ -61,6 +61,7 @@ export default function AiSettingsPage() {
             }
             if (data.defaultAiModel) {
               setSelectedModel(data.defaultAiModel)
+              localStorage.setItem("custom_openrouter_model", data.defaultAiModel)
             }
             if (data.reasoningEffort) {
               setReasoningEffort(data.reasoningEffort)

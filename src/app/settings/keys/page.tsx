@@ -130,6 +130,9 @@ export default function ApiKeysSettingsPage() {
         }
         if (data.defaultAiModel) {
           setSelectedModel(data.defaultAiModel)
+          if (typeof window !== "undefined") {
+            localStorage.setItem("custom_openrouter_model", data.defaultAiModel)
+          }
         }
         if (data.reasoningEffort) {
           setReasoningEffort(data.reasoningEffort)

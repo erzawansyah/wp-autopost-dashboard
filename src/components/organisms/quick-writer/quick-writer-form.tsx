@@ -59,7 +59,7 @@ export interface QuickWriterSubmitPayload {
   tags: string
   customBrief: string
   actionStatus: "draft" | "publish"
-  aiModel: string
+  aiModel?: string
   apiKey?: string
 }
 
@@ -105,15 +105,15 @@ export function QuickWriterForm({
     return ""
   })
 
-  // Muat kunci OpenRouter dan model dari server jika belum diatur di localStorage
+  // Muat kunci OpenRouter dan model dari server (Single Source of Truth)
   React.useEffect(() => {
     fetch("/api/settings/user")
       .then((res) => res.json())
       .then((data) => {
         if (data.ok && data.defaultAiModel) {
-          const savedModel = typeof window !== "undefined" ? localStorage.getItem("custom_openrouter_model") : null
-          if (!savedModel) {
-            setAiModel(data.defaultAiModel)
+          setAiModel(data.defaultAiModel)
+          if (typeof window !== "undefined") {
+            localStorage.setItem("custom_openrouter_model", data.defaultAiModel)
           }
         }
       })
@@ -167,7 +167,7 @@ export function QuickWriterForm({
       tags: tags.trim(),
       customBrief: customBrief.trim(),
       actionStatus,
-      aiModel,
+      aiModel: undefined,
       apiKey: customApiKey.trim() || undefined,
     })
   }
