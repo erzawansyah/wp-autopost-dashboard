@@ -365,6 +365,11 @@ export async function processPostItem({
           userId: post.user_id,
           customInstructions: post.custom_instructions_override || undefined,
           onEventListener: handleStepEvent,
+        },
+        {
+          userId: post.user_id,
+          userKeys,
+          onEventListener: handleStepEvent,
         }
       )
 

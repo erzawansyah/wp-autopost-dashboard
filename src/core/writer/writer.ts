@@ -83,26 +83,37 @@ export async function run(
     requestId,
   }
 
+  const effectiveUserId =
+    normalizedOptions.userId ||
+    request.userId ||
+    (rawObj.userId as string | undefined)
+
   // 2. Resolusi Agent Profile (dari opsi, DB Supabase, atau preset bawaan)
   const targetRef = request.agentProfileRef || request.engine || "preset:research-writer"
   const profile =
     normalizedOptions.profile ||
-    (await resolveAgentProfile(targetRef, normalizedOptions.userId))
+    (await resolveAgentProfile(targetRef, effectiveUserId))
 
   // 3. Ambil Kunci BYOK User jika belum dioper
   const userKeys =
     normalizedOptions.userKeys ||
-    (normalizedOptions.userId ? await getUserDecryptedKeys(normalizedOptions.userId) : {
+    (effectiveUserId ? await getUserDecryptedKeys(effectiveUserId) : {
       searchPreferences: { default_provider: "auto" },
       notificationPrefs: {},
     })
+
+  const effectiveEventListener =
+    normalizedOptions.onEventListener ||
+    (typeof rawObj.onEventListener === "function"
+      ? (rawObj.onEventListener as (event: AgentStepEvent) => void)
+      : undefined)
 
   // 4. Eksekusi Agentic Writer Runtime
   const agentRunResult = await runAgentWriter({
     request,
     profile,
     userKeys,
-    onEventListener: normalizedOptions.onEventListener,
+    onEventListener: effectiveEventListener,
     abortSignal: normalizedOptions.abortSignal,
   })
 

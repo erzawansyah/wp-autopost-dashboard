@@ -21,7 +21,7 @@ import { extractArticleJsonFromText, ArticleOutput } from "./output-schema"
 import { preResolveTaxonomyAndAuthor } from "./pre-resolve"
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 import { getLanguageDisplayName } from "@/lib/constants/languages"
-import { createLangSmithTracer, setupLangSmithEnvironment } from "@/core/shared/langsmith"
+import { createLangSmithTracer, setupLangSmithEnvironment, flushLangSmithTracer } from "@/core/shared/langsmith"
 import "../tools" // Pastikan seluruh tool terdaftar ke registry
 
 export interface RunAgentOptions {
@@ -390,6 +390,8 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
       summary: finalErrorMsg,
     })
 
+    await flushLangSmithTracer(langsmithTracer)
+
     return {
       success: false,
       sources: Array.from(recorder.sources.values()),
@@ -444,6 +446,8 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     durationMs: 1,
     summary: `Artikel sukses dibuat: "${generatedArticle.title}" (${generatedArticle.wordCount} kata, ${stopReason})`,
   })
+
+  await flushLangSmithTracer(langsmithTracer)
 
   return {
     success: true,

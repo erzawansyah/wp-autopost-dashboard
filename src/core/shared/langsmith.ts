@@ -26,7 +26,7 @@ export function getLangSmithConfig(userKeys?: DecryptedUserKeys): LangSmithConfi
     userKeys?.langsmithProject ||
     process.env.LANGSMITH_PROJECT ||
     process.env.LANGCHAIN_PROJECT ||
-    "panitera"
+    "Panitera"
 
   const endpoint =
     process.env.LANGSMITH_ENDPOINT ||
@@ -58,8 +58,12 @@ export function setupLangSmithEnvironment(userKeys?: DecryptedUserKeys): LangSmi
     process.env.LANGSMITH_TRACING = "true"
     process.env.LANGCHAIN_TRACING_V2 = "true"
     process.env.LANGSMITH_API_KEY = config.apiKey
+    process.env.LANGCHAIN_API_KEY = config.apiKey
     process.env.LANGSMITH_PROJECT = config.projectName
+    process.env.LANGCHAIN_PROJECT = config.projectName
     process.env.LANGSMITH_ENDPOINT = config.endpoint
+    process.env.LANGCHAIN_ENDPOINT = config.endpoint
+    process.env.LANGCHAIN_CALLBACKS_BACKGROUND = "false"
   }
 
   return config
@@ -96,6 +100,21 @@ export function createLangSmithTracer(options?: CreateTracerOptions): LangChainT
   } catch (err) {
     console.warn("[LangSmith] Gagal menginisialisasi LangChainTracer:", err)
     return undefined
+  }
+}
+
+/**
+ * Memastikan semua batch trace yang tertunda terkirim tuntas ke LangSmith
+ */
+export async function flushLangSmithTracer(tracer?: LangChainTracer): Promise<void> {
+  if (!tracer) return
+  try {
+    const client = tracer.client as Client | undefined
+    if (client && typeof client.awaitPendingTraceBatches === "function") {
+      await client.awaitPendingTraceBatches()
+    }
+  } catch (err) {
+    console.warn("[LangSmith] Warning saat flush tracer batches:", err)
   }
 }
 
