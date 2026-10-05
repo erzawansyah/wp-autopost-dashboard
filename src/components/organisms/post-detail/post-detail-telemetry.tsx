@@ -52,6 +52,18 @@ interface PostDetailTelemetryProps {
 }
 
 /**
+ * Peta label ramah untuk masing-masing tool riset & WordPress
+ */
+const TOOL_LABELS: Record<string, string> = {
+  web_search: "Web Search (Penelusuran Internet)",
+  keyword_suggestions: "Keyword & LSI Suggestions",
+  web_reader: "Web Page Reader (Pembaca URL)",
+  image_search: "Pencarian Gambar Bebas Royalti",
+  set_featured_image: "Tetapkan Foto Sampul WordPress",
+  upload_media: "Unggah Media ke WordPress",
+}
+
+/**
  * Peta nama & deskripsi fungsi node / step
  */
 const NODE_INFO: Record<string, { label: string; desc: string }> = {
@@ -255,6 +267,24 @@ export function PostDetailTelemetry({
   const hasLogs = logs && logs.length > 0
   const isAllExpanded = hasLogs && logs.every((log) => expandedNodes[log.id])
 
+  // Hitung total tool calls & model calls dari log jika agentRun belum lengkap
+  const computedModelCalls = React.useMemo(() => {
+    if (typeof agentRun?.total_model_calls === "number" && agentRun.total_model_calls > 0) {
+      return agentRun.total_model_calls
+    }
+    const fromLogs = logs.filter((l) => l.step === "model_call").length
+    return fromLogs > 0 ? fromLogs : 1
+  }, [agentRun, logs])
+
+  const computedToolCalls = React.useMemo(() => {
+    if (typeof agentRun?.total_tool_calls === "number") {
+      return agentRun.total_tool_calls
+    }
+    return logs.filter(
+      (l) => l.step === "tool_call" && l.details?.status !== "blocked" && l.details?.status !== "deduped"
+    ).length
+  }, [agentRun, logs])
+
   return (
     <div className={cn("flex flex-col gap-4", className)}>
       {/* Kartu Metrik Ringkas Agen */}
@@ -279,7 +309,7 @@ export function PostDetailTelemetry({
             <span>Model Calls</span>
           </div>
           <span className="text-xs font-semibold font-mono text-foreground">
-            {agentRun?.total_model_calls ?? 1} pemanggilan
+            {computedModelCalls} pemanggilan
           </span>
         </div>
 
@@ -289,7 +319,7 @@ export function PostDetailTelemetry({
             <span>Tool Calls</span>
           </div>
           <span className="text-xs font-semibold font-mono text-foreground">
-            {agentRun?.total_tool_calls ?? 0} dieksekusi
+            {computedToolCalls} dieksekusi
           </span>
         </div>
 
@@ -344,21 +374,78 @@ export function PostDetailTelemetry({
           ) : (
             logs.map((log, index) => {
               const isExpanded = expandedNodes[log.id] ?? true
-              const isError = log.level === "error"
+              const isError = log.level === "error" || log.details?.status === "error"
               const duration = typeof log.details?.durationMs === "number" ? log.details.durationMs : null
-              const inputData = log.details?.input as Record<string, unknown> | undefined
-              const outputData = log.details?.output as Record<string, unknown> | undefined
-              const hasPayload = inputData || outputData
 
+              // 1. Ekstraksi nama tool, pesan asli, dan identitas node
+              let rawToolName = (log.details?.tool as string) || ""
               let stepLabel = log.step
               const bracketMatch = log.message.match(/^\[(.*?)\]\s*(.*)$/)
               if (bracketMatch) {
                 stepLabel = bracketMatch[1]
+                if (!rawToolName && bracketMatch[1] !== log.step) {
+                  rawToolName = bracketMatch[1]
+                }
               }
 
-              const info = NODE_INFO[log.step]
-              const title = info?.label || stepLabel
-              const desc = info?.desc || log.message
+              // 2. Tentukan Judul dan Deskripsi yang nyata & informatif
+              let title = ""
+              let desc = ""
+
+              if (log.step === "tool_call") {
+                const friendlyName = TOOL_LABELS[rawToolName] || rawToolName || "Tool Riset"
+                title = `Eksekusi Tool: ${friendlyName}`
+                desc = (log.details?.summary as string) || bracketMatch?.[2] || log.message
+              } else if (log.step === "model_call") {
+                title = "Model Reasoning (LLM)"
+                desc = (log.details?.summary as string) || bracketMatch?.[2] || log.message
+              } else if (log.step === "guard") {
+                title = "Guardrail & Loop Protection"
+                desc = (log.details?.summary as string) || bracketMatch?.[2] || log.message
+              } else if (log.step === "finalize") {
+                title = "Finalisasi Naskah (Direct Synthesis)"
+                desc = (log.details?.summary as string) || bracketMatch?.[2] || log.message
+              } else {
+                const info = NODE_INFO[log.step]
+                title = info?.label || stepLabel
+                desc = (log.details?.summary as string) || bracketMatch?.[2] || info?.desc || log.message
+              }
+
+              // 3. Susun data JSON Input & Output yang kaya konteks
+              let inputData: Record<string, unknown> | undefined = undefined
+              let outputData: Record<string, unknown> | undefined = undefined
+
+              if (log.details?.input && typeof log.details.input === "object") {
+                inputData = log.details.input as Record<string, unknown>
+              } else if (log.details?.argsPreview && typeof log.details.argsPreview === "object") {
+                inputData = log.details.argsPreview as Record<string, unknown>
+              }
+
+              if (log.details?.output && typeof log.details.output === "object") {
+                outputData = log.details.output as Record<string, unknown>
+              } else if (log.step === "tool_call") {
+                outputData = {
+                  tool: rawToolName || "tool",
+                  status: log.details?.status || "ok",
+                  ringkasan: (log.details?.summary as string) || bracketMatch?.[2] || log.message,
+                  ...(duration !== null ? { durasi_eksekusi: `${duration} ms` } : {}),
+                }
+              } else if (log.step === "model_call") {
+                outputData = {
+                  status: log.details?.status || "ok",
+                  ringkasan: (log.details?.summary as string) || bracketMatch?.[2] || log.message,
+                  ...(log.details?.tokens ? { tokens: log.details.tokens } : {}),
+                  ...(log.details?.requestedTools ? { tools_diminta: log.details.requestedTools } : {}),
+                  ...(duration !== null ? { durasi_inferensi: `${duration} ms` } : {}),
+                }
+              } else if (log.step === "guard") {
+                outputData = {
+                  status: log.details?.status || "ok",
+                  alasan: (log.details?.summary as string) || bracketMatch?.[2] || log.message,
+                }
+              }
+
+              const hasPayload = Boolean(inputData || outputData)
 
               const formattedTime = new Date(log.created_at).toLocaleTimeString("id-ID", {
                 hour: "2-digit",
@@ -397,7 +484,7 @@ export function PostDetailTelemetry({
                             {title}
                           </span>
                           <span className="font-mono text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                            {log.step}
+                            {rawToolName || log.step}
                           </span>
                         </div>
                         <span className="text-[11px] text-muted-foreground leading-snug line-clamp-1">
@@ -437,13 +524,13 @@ export function PostDetailTelemetry({
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                           {/* JSON Input */}
                           <JsonBlock
-                            title="Payload Masukan (JSON Input)"
+                            title={log.step === "tool_call" ? "Parameter Tool (Input)" : "Payload Masukan (JSON Input)"}
                             data={inputData || { info: "Tidak ada parameter input khusus" }}
                           />
 
                           {/* JSON Output */}
                           <JsonBlock
-                            title="Hasil Keluaran (JSON Output)"
+                            title={log.step === "tool_call" ? "Hasil Eksekusi Tool (Output)" : "Hasil Keluaran (JSON Output)"}
                             data={outputData || { info: "Node selesai tanpa output objek" }}
                           />
                         </div>

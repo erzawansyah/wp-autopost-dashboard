@@ -329,6 +329,9 @@ export async function processPostItem({
             status: event.status,
             argsPreview: event.argsPreview,
             durationMs: event.durationMs,
+            tokens: event.tokens,
+            requestedTools: event.requestedTools,
+            summary: event.summary,
           },
         })
     }
