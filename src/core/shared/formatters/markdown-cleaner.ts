@@ -5,7 +5,7 @@
 
 export function sanitizeDashes(text: string): string {
   // Lindungi atribusi sitasi kutipan (misal: > — Penulis) dengan mengubahnya ke format standar (> -- Penulis)
-  let result = text.replace(/(^|\n)>\s*[—–]\s*/g, "$1> -- ")
+  const result = text.replace(/(^|\n)>\s*[—–]\s*/g, "$1> -- ")
   // Ganti em-dash (—) dan en-dash (–) naratif dengan koma atau jeda kalimat sesuai kaidah anti-slop
   return result.replace(/[—–]/g, ", ")
 }

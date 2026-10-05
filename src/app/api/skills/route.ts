@@ -77,7 +77,8 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    let { name, slug, description, content } = body
+    const { slug, content } = body
+    let { name, description } = body
 
     if (!content || typeof content !== "string" || content.trim().length === 0) {
       return NextResponse.json(

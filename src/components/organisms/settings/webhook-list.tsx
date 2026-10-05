@@ -73,7 +73,16 @@ export function WebhookList() {
   }, [])
 
   React.useEffect(() => {
-    fetchWebhooks()
+    let ignore = false
+    async function load() {
+      if (!ignore) {
+        await fetchWebhooks()
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+    }
   }, [fetchWebhooks])
 
   const handleToggleEvent = (event: WebhookEvent) => {

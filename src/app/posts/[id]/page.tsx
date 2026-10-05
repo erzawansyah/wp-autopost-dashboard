@@ -100,7 +100,16 @@ export default function PostDetailPage() {
 
   // Fetch pertama kali
   React.useEffect(() => {
-    void fetchPostDetails(false)
+    let ignore = false
+    async function load() {
+      if (!ignore) {
+        await fetchPostDetails(false)
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+    }
   }, [fetchPostDetails])
 
   // Polling cerdas jika state masih dalam proses antrean/AI/sinkronisasi

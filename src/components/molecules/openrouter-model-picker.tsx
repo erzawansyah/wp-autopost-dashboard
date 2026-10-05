@@ -92,7 +92,16 @@ export function OpenrouterModelPicker({
   }, [apiKey])
 
   React.useEffect(() => {
-    loadModels(false)
+    let ignore = false
+    async function load() {
+      if (!ignore) {
+        await loadModels(false)
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+    }
   }, [loadModels])
 
   // Filter model berdasarkan pencarian dan provider

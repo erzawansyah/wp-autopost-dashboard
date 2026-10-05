@@ -80,7 +80,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
     const saved = getStoredEngineState()
     return saved?.language ?? "id"
   })
-  const [globalModel, setGlobalModel] = React.useState(DEFAULT_AI_MODEL)
+  const [globalModel, setGlobalModel] = React.useState(() => getGlobalAiModel())
   const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">(() => {
     const saved = getStoredEngineState()
     return saved?.actionStatus === "publish" ? "publish" : "draft"
@@ -89,10 +89,6 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
     const saved = getStoredEngineState()
     return saved?.tagList ?? "seo, riset-keyword, panduan-pemula"
   })
-
-  React.useEffect(() => {
-    setGlobalModel(getGlobalAiModel())
-  }, [])
 
   // Execution state
   const [isRunning, setIsRunning] = React.useState(false)
@@ -599,7 +595,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
                 <Zap className="size-8 stroke-[1.5] mb-2 opacity-50" />
                 <p className="text-xs font-medium">Belum ada eksekusi engine.</p>
                 <p className="text-[11px] text-muted-foreground">
-                  Klik tombol "Jalankan Pipeline" untuk menguji orkestrasi LangGraph secara menyeluruh.
+                  Klik tombol &quot;Jalankan Pipeline&quot; untuk menguji orkestrasi LangGraph secara menyeluruh.
                 </p>
               </div>
             )}

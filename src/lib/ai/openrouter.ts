@@ -1,3 +1,5 @@
+import fs from "fs"
+import path from "path"
 import { ChatOpenRouter, OpenRouterAuthError, OpenRouterRateLimitError } from "@langchain/openrouter"
 import { HumanMessage, SystemMessage } from "@langchain/core/messages"
 import { z } from "zod"
@@ -24,8 +26,6 @@ export function getSanitizedApiKey(customApiKey?: string): string {
   // Jika di server Node.js lokal, baca langsung berkas .env agar perubahan kunci langsung aktif tanpa perlu me-restart server
   if (typeof window === "undefined") {
     try {
-      const fs = require("fs")
-      const path = require("path")
       const envPath = path.resolve(process.cwd(), ".env")
       if (fs.existsSync(envPath)) {
         const content = fs.readFileSync(envPath, "utf8")

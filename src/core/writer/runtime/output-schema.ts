@@ -133,8 +133,8 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
   const excerptMatch = trimmed.match(/^EXCERPT:\s*(.+)$/im)
 
   if (titleMatch || excerptMatch) {
-    let title = titleMatch ? titleMatch[1].trim().replace(/^["']|["']$/g, "") : undefined
-    let excerpt = excerptMatch ? excerptMatch[1].trim().replace(/^["']|["']$/g, "") : undefined
+    const title = titleMatch ? titleMatch[1].trim().replace(/^["']|["']$/g, "") : undefined
+    const excerpt = excerptMatch ? excerptMatch[1].trim().replace(/^["']|["']$/g, "") : undefined
 
     let markdownBody = trimmed
     const dividerIndex = trimmed.indexOf("---")

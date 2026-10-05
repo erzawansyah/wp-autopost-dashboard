@@ -149,8 +149,15 @@ export default function CategoriesToolPage() {
   }, [])
 
   React.useEffect(() => {
-    if (selectedSiteId) {
-      loadCategories(selectedSiteId)
+    let ignore = false
+    async function load() {
+      if (selectedSiteId && !ignore) {
+        await loadCategories(selectedSiteId)
+      }
+    }
+    load()
+    return () => {
+      ignore = true
     }
   }, [selectedSiteId, loadCategories])
 

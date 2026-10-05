@@ -150,7 +150,16 @@ export default function ApiKeysSettingsPage() {
   }, [])
 
   React.useEffect(() => {
-    fetchSettings()
+    let ignore = false
+    async function load() {
+      if (!ignore) {
+        await fetchSettings()
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+    }
   }, [fetchSettings])
 
   // Test OpenRouter AI

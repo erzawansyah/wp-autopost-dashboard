@@ -195,23 +195,10 @@ export function PostDetailTelemetry({
     return initial
   })
 
-  // Sinkronisasi bila logs bertambah secara live
-  React.useEffect(() => {
-    setExpandedNodes((prev) => {
-      const next = { ...prev }
-      logs.forEach((log) => {
-        if (next[log.id] === undefined) {
-          next[log.id] = true
-        }
-      })
-      return next
-    })
-  }, [logs])
-
   const toggleNode = (logId: string) => {
     setExpandedNodes((prev) => ({
       ...prev,
-      [logId]: !prev[logId],
+      [logId]: !(prev[logId] ?? true),
     }))
   }
 
@@ -265,7 +252,7 @@ export function PostDetailTelemetry({
   }, [effectiveDurationMs, isCompleted])
 
   const hasLogs = logs && logs.length > 0
-  const isAllExpanded = hasLogs && logs.every((log) => expandedNodes[log.id])
+  const isAllExpanded = hasLogs && logs.every((log) => (expandedNodes[log.id] ?? true))
 
   // Hitung total tool calls & model calls dari log jika agentRun belum lengkap
   const computedModelCalls = React.useMemo(() => {

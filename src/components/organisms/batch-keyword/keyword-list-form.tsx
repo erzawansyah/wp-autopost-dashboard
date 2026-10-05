@@ -95,7 +95,8 @@ export function KeywordListForm({
   const defaultDates = React.useMemo(() => getDefaultDates(), [])
 
   // 1. Form States
-  const [selectedSiteId, setSelectedSiteId] = React.useState<string>("")
+  const [selectedSiteId, setSelectedSiteId] = React.useState<string>(() => (sites.length > 0 ? sites[0].id : ""))
+  const effectiveSiteId = selectedSiteId || (sites.length > 0 ? sites[0].id : "")
   const [batchName, setBatchName] = React.useState<string>("")
   const [language, setLanguage] = React.useState<string>("id")
   const [rawKeywordsText, setRawKeywordsText] = React.useState<string>("")
@@ -105,19 +106,22 @@ export function KeywordListForm({
   const [tagsInput, setTagsInput] = React.useState<string>("")
   const [customBrief, setCustomBrief] = React.useState<string>("")
   const [activeTab, setActiveTab] = React.useState<string>("essential")
-  const [aiModel, setAiModel] = React.useState<string>("")
+  const [aiModel, setAiModel] = React.useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("custom_openrouter_model") || ""
+    }
+    return ""
+  })
 
   React.useEffect(() => {
-    if (typeof window !== "undefined") {
-      const localModel = localStorage.getItem("custom_openrouter_model")
-      if (localModel) setAiModel(localModel)
-    }
-
     fetch("/api/settings/user")
       .then((res) => res.json())
       .then((data) => {
         if (data.ok && data.defaultAiModel) {
-          setAiModel(data.defaultAiModel)
+          const savedModel = typeof window !== "undefined" ? localStorage.getItem("custom_openrouter_model") : null
+          if (!savedModel) {
+            setAiModel(data.defaultAiModel)
+          }
         }
       })
       .catch(() => {})
@@ -165,13 +169,6 @@ export function KeywordListForm({
     batchName: string
   } | null>(null)
 
-  // Set default selected site jika baru 1 site yang ada
-  React.useEffect(() => {
-    if (!selectedSiteId && sites.length > 0) {
-      setSelectedSiteId(sites[0].id)
-    }
-  }, [sites, selectedSiteId])
-
   // 4. Parse & Analyze Keywords (1 Baris = 1 Kata Kunci)
   const { lines, cleanKeywords, duplicateCount } = React.useMemo(() => {
     const rawLines = rawKeywordsText.split(/\r?\n/)
@@ -217,7 +214,7 @@ export function KeywordListForm({
     e.preventDefault()
     setErrorMessage(null)
 
-    if (!selectedSiteId) {
+    if (!effectiveSiteId) {
       setErrorMessage("Silakan pilih website WordPress tujuan.")
       return
     }
@@ -242,7 +239,7 @@ export function KeywordListForm({
         .filter(Boolean)
 
       const payload = {
-        siteId: selectedSiteId,
+        siteId: effectiveSiteId,
         batchName: batchName.trim() || undefined,
         keywords: cleanKeywords,
         executionMode: strategy.executionMode, // "immediate" | "scheduled_drip"
@@ -386,7 +383,7 @@ export function KeywordListForm({
                     Website WordPress Target <span className="text-destructive">*</span>
                   </Label>
                   <Select
-                    value={selectedSiteId}
+                    value={effectiveSiteId}
                     onValueChange={setSelectedSiteId}
                     disabled={isLoadingSites || isSubmitting}
                   >
@@ -583,13 +580,13 @@ export function KeywordListForm({
                   Kategori WordPress (Untuk Seluruh Batch)
                 </Label>
                 <WPCategorySelect
-                  siteId={selectedSiteId}
+                  siteId={effectiveSiteId}
                   selectedCategoryIds={selectedCategoryIds}
                   onChange={(ids, names) => {
                     setSelectedCategoryIds(ids)
                     setSelectedCategoryNames(names)
                   }}
-                  disabled={isSubmitting || !selectedSiteId}
+                  disabled={isSubmitting || !effectiveSiteId}
                 />
                 <p className="text-[11px] text-muted-foreground">
                   Jika dikosongkan, AI akan otomatis menentukan kategori yang paling cocok dari
@@ -652,7 +649,7 @@ export function KeywordListForm({
                 isSubmitting ||
                 cleanKeywords.length === 0 ||
                 cleanKeywords.length > 50 ||
-                !selectedSiteId
+                !effectiveSiteId
               }
               size="default"
               className="gap-2 cursor-pointer font-semibold shadow-xs"

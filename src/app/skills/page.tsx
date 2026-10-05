@@ -90,7 +90,16 @@ export default function SkillsPage() {
   }, [])
 
   React.useEffect(() => {
-    fetchSkills()
+    let ignore = false
+    async function load() {
+      if (!ignore) {
+        await fetchSkills()
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+    }
   }, [fetchSkills])
 
   // Handle file select (SKILL.md)

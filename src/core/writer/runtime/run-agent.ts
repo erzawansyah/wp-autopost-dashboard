@@ -161,7 +161,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
   })
 
   // 5. Prompting
-  let siteUrl = request.site?.baseUrl || ""
+  const siteUrl = request.site?.baseUrl || ""
   let siteName = request.site?.siteName || ""
   if (!siteName && siteUrl) {
     try {

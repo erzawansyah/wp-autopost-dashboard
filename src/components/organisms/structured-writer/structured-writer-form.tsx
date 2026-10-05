@@ -136,7 +136,8 @@ export function StructuredWriterForm({
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
 
   // 2. Configuration States
-  const [selectedSiteId, setSelectedSiteId] = React.useState<string>("")
+  const [selectedSiteId, setSelectedSiteId] = React.useState<string>(() => (sites.length === 1 ? sites[0].id : ""))
+  const effectiveSiteId = selectedSiteId || (sites.length === 1 ? sites[0].id : "")
   const [engine, setEngine] = React.useState<string>("preset:quick-writer")
   const [language, setLanguage] = React.useState<string>("id")
   const [batchName, setBatchName] = React.useState<string>("")
@@ -243,13 +244,6 @@ export function StructuredWriterForm({
     reader.readAsText(file)
   }
 
-  // Auto-select site pertama jika hanya ada 1
-  React.useEffect(() => {
-    if (sites.length === 1 && !selectedSiteId) {
-      setSelectedSiteId(sites[0].id)
-    }
-  }, [sites, selectedSiteId])
-
   const advancedOptionsCount = React.useMemo(() => {
     let count = 0
     if (batchName.trim().length > 0) count++
@@ -276,7 +270,7 @@ export function StructuredWriterForm({
     e.preventDefault()
     setErrorMessage(null)
 
-    if (!selectedSiteId) {
+    if (!effectiveSiteId) {
       setErrorMessage("Silakan pilih website WordPress tujuan penerbitan.")
       return
     }
@@ -300,7 +294,7 @@ export function StructuredWriterForm({
         .filter((t) => t.length > 0)
 
       const payload = {
-        siteId: selectedSiteId,
+        siteId: effectiveSiteId,
         batchName: batchName.trim() || undefined,
         items: parseResult.items.map((it) => ({
           keyword: it.keyword,
@@ -598,7 +592,7 @@ export function StructuredWriterForm({
                   <span>Situs WordPress Target *</span>
                 </Label>
                 <Select
-                  value={selectedSiteId}
+                  value={effectiveSiteId}
                   onValueChange={setSelectedSiteId}
                   disabled={isLoadingSites || sites.length === 0}
                 >
@@ -761,13 +755,13 @@ export function StructuredWriterForm({
                 Kategori WordPress Default
               </Label>
               <WPCategorySelect
-                siteId={selectedSiteId}
+                siteId={effectiveSiteId}
                 selectedCategoryIds={selectedCategoryIds}
                 onChange={(ids, names) => {
                   setSelectedCategoryIds(ids)
                   setSelectedCategoryNames(names)
                 }}
-                disabled={!selectedSiteId || isSubmitting}
+                disabled={!effectiveSiteId || isSubmitting}
               />
             </div>
 
@@ -824,7 +818,7 @@ export function StructuredWriterForm({
 
             <Button
               type="submit"
-              disabled={isSubmitting || effectiveCount === 0 || !selectedSiteId}
+              disabled={isSubmitting || effectiveCount === 0 || !effectiveSiteId}
               className="w-full sm:w-auto text-xs font-medium gap-2 cursor-pointer shadow-2xs"
             >
               {isSubmitting ? (

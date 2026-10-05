@@ -43,6 +43,12 @@ function QueueItemsContent() {
   const [processingItemIds, setProcessingItemIds] = React.useState<string[]>([])
 
   const [selectedBatchFilter, setSelectedBatchFilter] = React.useState<string>(initialBatchId)
+  const [prevBatchParam, setPrevBatchParam] = React.useState<string | null>(initialBatchId)
+  const currentBatchParam = searchParams.get("batchId")
+  if (currentBatchParam && currentBatchParam !== prevBatchParam) {
+    setPrevBatchParam(currentBatchParam)
+    setSelectedBatchFilter(currentBatchParam)
+  }
 
   // 1. Fetch batches
   const fetchBatches = React.useCallback(async () => {
@@ -112,17 +118,17 @@ function QueueItemsContent() {
   }, [])
 
   React.useEffect(() => {
-    fetchBatches()
-    fetchQueue()
-  }, [fetchBatches, fetchQueue])
-
-  // Update filter jika param URL berubah
-  React.useEffect(() => {
-    const param = searchParams.get("batchId")
-    if (param) {
-      setSelectedBatchFilter(param)
+    let ignore = false
+    async function load() {
+      if (!ignore) {
+        await Promise.all([fetchBatches(), fetchQueue()])
+      }
     }
-  }, [searchParams])
+    load()
+    return () => {
+      ignore = true
+    }
+  }, [fetchBatches, fetchQueue])
 
   // Hapus Batch beserta seluruh antreannya
   const handleDeleteBatch = async (batchId: string) => {

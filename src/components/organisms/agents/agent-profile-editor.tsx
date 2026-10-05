@@ -131,18 +131,20 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
   const [copiedKey, setCopiedKey] = React.useState<string | null>(null)
 
   // Sync if initialData is provided/updated asynchronously (e.g. clone)
-  React.useEffect(() => {
-    if (initialData?.toolIds) {
+  const [prevInitialData, setPrevInitialData] = React.useState(initialData)
+  if (initialData && initialData !== prevInitialData) {
+    setPrevInitialData(initialData)
+    if (initialData.toolIds) {
       setSelectedToolIds(initialData.toolIds.filter((id) => !BUILTIN_TOOL_IDS.has(id)))
     }
-    if (initialData?.name) setName(initialData.name)
-    if (initialData?.description !== undefined) setDescription(initialData.description || "")
-    if (initialData?.mode) setMode(initialData.mode)
-    if (initialData?.temperature !== undefined) setTemperature(initialData.temperature)
-    if (initialData?.workflowPrompt) setWorkflowPrompt(initialData.workflowPrompt)
-    if (initialData?.skills) setSelectedSkillSlugs(initialData.skills)
-    if (initialData?.isDefault !== undefined) setIsDefault(Boolean(initialData.isDefault))
-  }, [initialData])
+    if (initialData.name) setName(initialData.name)
+    if (initialData.description !== undefined) setDescription(initialData.description || "")
+    if (initialData.mode) setMode(initialData.mode)
+    if (initialData.temperature !== undefined) setTemperature(initialData.temperature)
+    if (initialData.workflowPrompt) setWorkflowPrompt(initialData.workflowPrompt)
+    if (initialData.skills) setSelectedSkillSlugs(initialData.skills)
+    if (initialData.isDefault !== undefined) setIsDefault(Boolean(initialData.isDefault))
+  }
 
   React.useEffect(() => {
     async function loadToolsAndSkills() {

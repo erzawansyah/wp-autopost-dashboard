@@ -58,7 +58,16 @@ export function ProfileSettingsForm() {
   }, [setDeveloperMode])
 
   React.useEffect(() => {
-    fetchSettings()
+    let ignore = false
+    async function load() {
+      if (!ignore) {
+        await fetchSettings()
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+    }
   }, [fetchSettings])
 
   const handleSave = async (e: React.FormEvent) => {

@@ -146,8 +146,15 @@ export default function AuthorsToolPage() {
   }, [])
 
   React.useEffect(() => {
-    if (selectedSiteId) {
-      loadAuthors(selectedSiteId)
+    let ignore = false
+    async function load() {
+      if (selectedSiteId && !ignore) {
+        await loadAuthors(selectedSiteId)
+      }
+    }
+    load()
+    return () => {
+      ignore = true
     }
   }, [selectedSiteId, loadAuthors])
 

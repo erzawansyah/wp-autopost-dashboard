@@ -83,6 +83,7 @@ export function QuickWriterForm({
 
   // Form states
   const [siteId, setSiteId] = React.useState<string>(initialSiteId || (sites[0]?.id ?? ""))
+  const activeSiteId = siteId || (sites[0]?.id ?? "")
   const [engine, setEngine] = React.useState<string>("preset:quick-writer")
   const [language, setLanguage] = React.useState<string>("id")
   const [keyword, setKeyword] = React.useState<string>("")
@@ -91,29 +92,27 @@ export function QuickWriterForm({
   const [tags, setTags] = React.useState<string>("")
   const [customBrief, setCustomBrief] = React.useState<string>("")
   const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">("draft")
-  const [aiModel, setAiModel] = React.useState<string>(DEFAULT_AI_MODEL)
-  const [customApiKey, setCustomApiKey] = React.useState<string>("")
-
-  // Auto-select site jika list berubah
-  React.useEffect(() => {
-    if (sites.length > 0 && !siteId) {
-      setSiteId(sites[0].id)
+  const [aiModel, setAiModel] = React.useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("custom_openrouter_model") || DEFAULT_AI_MODEL
     }
-  }, [sites, siteId])
+    return DEFAULT_AI_MODEL
+  })
+  const [customApiKey, setCustomApiKey] = React.useState<string>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("custom_openrouter_api_key") || ""
+    }
+    return ""
+  })
 
-  // Muat kunci OpenRouter dan model dari localStorage dan server jika ada
+  // Muat kunci OpenRouter dan model dari server jika belum diatur di localStorage
   React.useEffect(() => {
-    if (typeof window === "undefined") return
-    const savedKey = localStorage.getItem("custom_openrouter_api_key") || ""
-    const savedModel = localStorage.getItem("custom_openrouter_model")
-    if (savedKey) setCustomApiKey(savedKey)
-    if (savedModel) setAiModel(savedModel)
-
     fetch("/api/settings/user")
       .then((res) => res.json())
       .then((data) => {
-        if (data.ok) {
-          if (data.defaultAiModel && !savedModel) {
+        if (data.ok && data.defaultAiModel) {
+          const savedModel = typeof window !== "undefined" ? localStorage.getItem("custom_openrouter_model") : null
+          if (!savedModel) {
             setAiModel(data.defaultAiModel)
           }
         }
@@ -131,8 +130,8 @@ export function QuickWriterForm({
   }, [selectedCategoryIds, tags, customBrief])
 
   const selectedSite = React.useMemo(() => {
-    return sites.find((s) => s.id === siteId) || null
-  }, [sites, siteId])
+    return sites.find((s) => s.id === activeSiteId) || null
+  }, [sites, activeSiteId])
 
   const handleSiteChange = (newSiteId: string) => {
     setSiteId(newSiteId)
@@ -155,10 +154,10 @@ export function QuickWriterForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!keyword.trim() || !siteId || isSubmitting) return
+    if (!keyword.trim() || !activeSiteId || isSubmitting) return
 
     onSubmit({
-      siteId,
+      siteId: activeSiteId,
       keyword: keyword.trim(),
       agentProfileRef: engine,
       engine,
@@ -255,7 +254,7 @@ export function QuickWriterForm({
                     </div>
                   ) : (
                     <Select
-                      value={siteId}
+                      value={activeSiteId}
                       onValueChange={handleSiteChange}
                       disabled={isSubmitting}
                     >
@@ -341,13 +340,13 @@ export function QuickWriterForm({
                   tooltip="Kategori diambil langsung secara dinamis dari WordPress REST API situs target. Jika dikosongkan, AI akan memilihkan kategori yang paling sesuai."
                 >
                   <WPCategorySelect
-                    siteId={siteId}
+                    siteId={activeSiteId}
                     selectedCategoryIds={selectedCategoryIds}
                     onChange={(ids, names) => {
                       setSelectedCategoryIds(ids)
                       setSelectedCategoryNames(names)
                     }}
-                    disabled={isSubmitting || !siteId}
+                    disabled={isSubmitting || !activeSiteId}
                   />
                 </FormField>
 
@@ -364,7 +363,7 @@ export function QuickWriterForm({
                       onChange={(e) => setTags(e.target.value)}
                       placeholder="seo, tutorial, panduan"
                       className="h-9 pl-8 text-xs bg-background"
-                      disabled={isSubmitting || !siteId}
+                      disabled={isSubmitting || !activeSiteId}
                     />
                   </div>
                 </FormField>
@@ -382,7 +381,7 @@ export function QuickWriterForm({
                   placeholder="Tulis sudut pandang atau arahan spesifik untuk artikel ini..."
                   rows={3}
                   className="text-xs resize-none bg-background"
-                  disabled={isSubmitting || !siteId}
+                  disabled={isSubmitting || !activeSiteId}
                 />
               </FormField>
             </TabsContent>
@@ -408,7 +407,7 @@ export function QuickWriterForm({
 
             <Button
               type="submit"
-              disabled={isSubmitting || !keyword.trim() || !siteId || sites.length === 0}
+              disabled={isSubmitting || !keyword.trim() || !activeSiteId || sites.length === 0}
               className="h-10 px-6 cursor-pointer gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-2xs"
             >
               {isSubmitting ? (

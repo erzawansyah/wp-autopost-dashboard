@@ -33,7 +33,16 @@ export default function BatchesPage() {
   }, [])
 
   React.useEffect(() => {
-    fetchBatches()
+    let ignore = false
+    async function load() {
+      if (!ignore) {
+        await fetchBatches()
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+    }
   }, [fetchBatches])
 
   const handleDeleteBatch = async (batchId: string) => {

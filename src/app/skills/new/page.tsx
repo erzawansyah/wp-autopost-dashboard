@@ -72,34 +72,23 @@ export default function NewSkillPage() {
   const router = useRouter()
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
-  const [name, setName] = React.useState("")
-  const [slug, setSlug] = React.useState("")
-  const [description, setDescription] = React.useState("")
+  const initialFm = React.useMemo(() => parseSkillFrontmatter(DEFAULT_SKILL_TEMPLATE), [])
+  const [name, setName] = React.useState(initialFm.name || "")
+  const [slug, setSlug] = React.useState(
+    initialFm.name
+      ? initialFm.name
+          .toLowerCase()
+          .replace(/[^a-z0-9_-]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "")
+      : ""
+  )
+  const [description, setDescription] = React.useState(initialFm.description || "")
   const [content, setContent] = React.useState(DEFAULT_SKILL_TEMPLATE)
   const [viewMode, setViewMode] = React.useState<"raw" | "preview">("raw")
 
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [formError, setFormError] = React.useState<string | null>(null)
-
-  // Otomatis deteksi frontmatter saat konten berubah
-  React.useEffect(() => {
-    const fm = parseSkillFrontmatter(content)
-    if (fm.name && !name) {
-      setName(fm.name)
-      if (!slug) {
-        setSlug(
-          fm.name
-            .toLowerCase()
-            .replace(/[^a-z0-9_-]/g, "-")
-            .replace(/-+/g, "-")
-            .replace(/^-|-$/g, "")
-        )
-      }
-    }
-    if (fm.description && !description) {
-      setDescription(fm.description)
-    }
-  }, [content, name, slug, description])
 
   const handleNameChange = (val: string) => {
     setName(val)

@@ -54,7 +54,6 @@ export default function AgentProfilesPage() {
 
   const fetchProfiles = React.useCallback(async () => {
     try {
-      setIsLoading(true)
       const res = await fetch("/api/agents")
       if (!res.ok) {
         if (res.status === 401) {
@@ -77,7 +76,16 @@ export default function AgentProfilesPage() {
   }, [router])
 
   React.useEffect(() => {
-    fetchProfiles()
+    let ignore = false
+    async function load() {
+      if (!ignore) {
+        await fetchProfiles()
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+    }
   }, [fetchProfiles])
 
   const handleDelete = async (id: string, name: string) => {
