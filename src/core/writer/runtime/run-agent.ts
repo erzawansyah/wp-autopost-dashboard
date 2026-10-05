@@ -171,6 +171,8 @@ export async function runAgentWriter(
     model: selectedModel,
     temperature: profile.temperature ?? 0.95,
     maxTokens: 16384,
+    // Matikan reasoning bawaan OpenRouter: model reasoning menghabiskan seluruh budget token tanpa konten.
+    modelKwargs: { reasoning: { enabled: false } },
     siteUrl: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
     siteName: process.env.OPENROUTER_APP_NAME || "Panitera",
   });

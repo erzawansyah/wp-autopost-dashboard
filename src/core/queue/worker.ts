@@ -294,23 +294,31 @@ export async function processPostItem({
     // Buat row di agent_runs untuk pelacakan performa & telemetri agen
     let agentRunId: string | null = null
     try {
-      const { data: runRow } = await supabase
+      const { data: runRow, error: runInsertErr } = await supabase
         .from("agent_runs")
         .insert({
           post_item_id: postId,
           user_id: post.user_id,
-          agent_profile_id: resolvedProfile.isPreset ? null : (resolvedProfile.id || null),
-          agent_profile_ref: resolvedProfile.ref,
-          mode: resolvedProfile.mode,
+          profile_ref: resolvedProfile.ref,
+          profile_snapshot: {
+            ref: resolvedProfile.ref,
+            name: resolvedProfile.name,
+            mode: resolvedProfile.mode,
+            model: aiModel || null,
+            temperature: resolvedProfile.temperature ?? null,
+            toolIds: resolvedProfile.toolIds ?? [],
+            skills: resolvedProfile.skills ?? [],
+          },
           status: "running",
-          total_model_calls: 0,
-          total_tool_calls: 0,
-          step_events: [],
+          model_calls: 0,
+          tool_calls: 0,
         })
         .select("id")
         .single()
 
-      if (runRow) {
+      if (runInsertErr) {
+        console.warn("[worker] Gagal membuat record agent_runs:", runInsertErr.message)
+      } else if (runRow) {
         agentRunId = runRow.id
       }
     } catch (runErr) {
@@ -321,7 +329,8 @@ export async function processPostItem({
     const collectedStepEvents: AgentStepEvent[] = []
     const handleStepEvent = (event: AgentStepEvent) => {
       collectedStepEvents.push(event)
-      void supabase
+      // Query builder Supabase bersifat lazy: wajib di-then agar request benar-benar terkirim.
+      supabase
         .from("execution_logs")
         .insert({
           post_item_id: postId,
@@ -340,7 +349,11 @@ export async function processPostItem({
             summary: event.summary,
           },
         })
+        .then(({ error }) => {
+          if (error) console.warn("[worker] Gagal menulis step event ke execution_logs:", error.message)
+        })
     }
+
 
     try {
       const writerResult = await run(
@@ -389,16 +402,21 @@ export async function processPostItem({
 
       // Update record agent_runs jika berhasil
       if (agentRunId) {
-        await supabase
+        const { error: runUpdErr } = await supabase
           .from("agent_runs")
           .update({
-            status: "success",
-            total_model_calls: writerResult.agentRun?.modelCalls || 1,
-            total_tool_calls: writerResult.agentRun?.toolCalls || 0,
+            status: "completed",
+            stop_reason: writerResult.agentRun?.stopReason || null,
+            model_calls: writerResult.agentRun?.modelCalls || 0,
+            tool_calls: writerResult.agentRun?.toolCalls || 0,
+            tokens_prompt: writerResult.agentRun?.tokensPrompt ?? null,
+            tokens_completion: writerResult.agentRun?.tokensCompletion ?? null,
             duration_ms: writerResult.agentRun?.durationMs || writerResult.execution?.durationMs || 0,
-            step_events: writerResult.execution?.stepEvents || collectedStepEvents,
+            word_count: writerResult.article?.wordCount ?? null,
+            finished_at: new Date().toISOString(),
           })
           .eq("id", agentRunId)
+        if (runUpdErr) console.warn("[worker] Gagal update agent_runs:", runUpdErr.message)
       }
     } catch (aiErr: unknown) {
       const errMsg = aiErr instanceof Error ? aiErr.message : "Kesalahan sistem AI"
@@ -409,10 +427,11 @@ export async function processPostItem({
           .update({
             status: "failed",
             error_message: errMsg,
-            step_events: collectedStepEvents,
+            finished_at: new Date().toISOString(),
           })
           .eq("id", agentRunId)
       }
+
 
       await supabase
         .from("post_items")

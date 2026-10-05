@@ -101,6 +101,7 @@ ATURAN STRICT:
       ],
       {
         callbacks: params.callbacks,
+        signal: AbortSignal.timeout(120_000),
         runName: `Panitera Finalize: ${keyword.slice(0, 40)}`,
         tags: ["finalize", "panitera"],
         metadata: {
