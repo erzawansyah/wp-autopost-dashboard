@@ -24,7 +24,9 @@ export interface UserSettingsResponse {
     brave: MaskedKeyInfo
     serpapi: MaskedKeyInfo
     pexafy: MaskedKeyInfo
+    langsmith: MaskedKeyInfo
   }
+  langsmithProject?: string | null
   searxngUrl: string | null
   searchPreferences: SearchPreferences
   notificationPrefs: NotificationPrefs
@@ -38,6 +40,8 @@ export interface DecryptedUserKeys {
   braveKey?: string
   serpapiKey?: string
   pexafyKey?: string
+  langsmithApiKey?: string
+  langsmithProject?: string
   searxngUrl?: string
   // Legacy optional properties for graceful compatibility
   pexelsKey?: string

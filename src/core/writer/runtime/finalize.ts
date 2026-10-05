@@ -15,6 +15,7 @@ export interface FinalizeCallParams {
   customInstructions?: string
   recorder: RunRecorder
   reason: string
+  callbacks?: any[]
 }
 
 /**
@@ -92,10 +93,21 @@ ATURAN STRICT:
     // Format Markdown-First Universal: Aman untuk semua model AI (termasuk model thinking/reasoning tanpa risiko error tool_choice)
     const directPrompt = `${finalizeUserPrompt}\n\nFORMAT OUTPUT:\nTITLE: [Judul artikel maksimal 60 karakter]\nEXCERPT: [Ringkasan meta deskripsi 130-160 karakter]\n---\n[Naskah artikel lengkap dalam format Markdown murni]`
 
-    const directRes = await llm.invoke([
-      { role: "system", content: systemPrompt },
-      { role: "user", content: directPrompt },
-    ])
+    const directRes = await llm.invoke(
+      [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: directPrompt },
+      ],
+      {
+        callbacks: params.callbacks,
+        runName: `Panitera Finalize: ${keyword.slice(0, 40)}`,
+        tags: ["finalize", "panitera"],
+        metadata: {
+          keyword,
+          reason: params.reason,
+        },
+      }
+    )
 
     const contentStr = typeof directRes.content === "string" ? directRes.content : JSON.stringify(directRes.content)
     const parsed = extractArticleJsonFromText(contentStr)

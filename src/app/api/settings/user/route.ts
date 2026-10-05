@@ -46,7 +46,17 @@ export async function GET() {
         brave: maskKey(data?.encrypted_brave_key),
         serpapi: maskKey(data?.encrypted_serpapi_key),
         pexafy: maskKey(data?.encrypted_pexafy_key),
+        langsmith: maskKey(
+          data?.notification_prefs?.langsmith_api_key ||
+            process.env.LANGSMITH_API_KEY ||
+            process.env.LANGCHAIN_API_KEY
+        ),
       },
+      langsmithProject:
+        data?.notification_prefs?.langsmith_project ||
+        process.env.LANGSMITH_PROJECT ||
+        process.env.LANGCHAIN_PROJECT ||
+        "panitera",
       searxngUrl: data?.searxng_url || null,
       searchPreferences: data?.search_preferences || { default_provider: "auto" },
       notificationPrefs: data?.notification_prefs || {},
@@ -80,6 +90,8 @@ export async function PUT(request: Request) {
       braveKey,
       serpapiKey,
       pexafyKey,
+      langsmithApiKey,
+      langsmithProject,
       searxngUrl,
       searchPreferences,
       notificationPrefs,
@@ -135,19 +147,32 @@ export async function PUT(request: Request) {
       updates.search_preferences = { default_provider: "auto" }
     }
 
-    if (
-      (notificationPrefs && typeof notificationPrefs === "object") ||
-      typeof developerMode === "boolean"
-    ) {
-      const mergedPrefs = {
-        ...(existing?.notification_prefs || {}),
-        ...(notificationPrefs && typeof notificationPrefs === "object" ? notificationPrefs : {}),
-        ...(typeof developerMode === "boolean" ? { developer_mode: developerMode } : {}),
+    // Tangani notification_prefs dan kredensial LangSmith (disimpan aman terenkripsi di jsonb)
+    const existingPrefs = (existing?.notification_prefs as Record<string, unknown>) || {}
+    let updatedLangsmithKey = existingPrefs.langsmith_api_key
+
+    if (typeof langsmithApiKey === "string") {
+      const trimmed = langsmithApiKey.trim()
+      if (trimmed === "") {
+        updatedLangsmithKey = null
+      } else if (!trimmed.includes("•") && !trimmed.includes("*")) {
+        updatedLangsmithKey = encryptCredential(trimmed)
       }
-      updates.notification_prefs = mergedPrefs
-    } else if (!existing) {
-      updates.notification_prefs = {}
     }
+
+    const updatedLangsmithProject =
+      typeof langsmithProject === "string" && langsmithProject.trim()
+        ? langsmithProject.trim()
+        : existingPrefs.langsmith_project || "panitera"
+
+    const mergedPrefs: Record<string, unknown> = {
+      ...existingPrefs,
+      ...(notificationPrefs && typeof notificationPrefs === "object" ? notificationPrefs : {}),
+      ...(typeof developerMode === "boolean" ? { developer_mode: developerMode } : {}),
+      langsmith_api_key: updatedLangsmithKey,
+      langsmith_project: updatedLangsmithProject,
+    }
+    updates.notification_prefs = mergedPrefs
 
     const { error: upsertError } = await supabase
       .from("user_settings")

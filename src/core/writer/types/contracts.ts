@@ -35,6 +35,7 @@ export const AutomationConfigSchema = z.object({
 /** Request utama ke writer.run() */
 export const WriterRequestSchema = z.object({
   requestId: z.string().uuid().optional(),
+  userId: z.string().optional(),
   agentProfileRef: z.string().optional(),
   engine: z.string().default("quick"), // Legacy fallback: 'quick' | 'standard' | 'agentic' | 'deepagent'
 

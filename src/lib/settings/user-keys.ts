@@ -42,6 +42,18 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       braveKey: safeDecrypt(data.encrypted_brave_key),
       serpapiKey: safeDecrypt(data.encrypted_serpapi_key),
       pexafyKey: safeDecrypt(data.encrypted_pexafy_key),
+      langsmithApiKey:
+        safeDecrypt(data.encrypted_langsmith_key) ||
+        safeDecrypt((data.notification_prefs as any)?.langsmith_api_key) ||
+        process.env.LANGSMITH_API_KEY ||
+        process.env.LANGCHAIN_API_KEY ||
+        undefined,
+      langsmithProject:
+        (data as any).langsmith_project ||
+        (data.notification_prefs as any)?.langsmith_project ||
+        process.env.LANGSMITH_PROJECT ||
+        process.env.LANGCHAIN_PROJECT ||
+        "panitera",
       searxngUrl: data.searxng_url ? String(data.searxng_url).trim() : undefined,
       searchPreferences: (data.search_preferences as DecryptedUserKeys["searchPreferences"]) || {
         default_provider: "auto",

@@ -21,6 +21,7 @@ import { extractArticleJsonFromText, ArticleOutput } from "./output-schema"
 import { preResolveTaxonomyAndAuthor } from "./pre-resolve"
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 import { getLanguageDisplayName } from "@/lib/constants/languages"
+import { createLangSmithTracer, setupLangSmithEnvironment } from "@/core/shared/langsmith"
 import "../tools" // Pastikan seluruh tool terdaftar ke registry
 
 export interface RunAgentOptions {
@@ -53,6 +54,9 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
   const keyword = request.content.keyword
   const language = request.content.language || "id"
   const targetWordCount = request.content.wordCountTarget || limits.minWordCount || 800
+
+  // Siapkan environment tracing LangSmith secara transparan
+  setupLangSmithEnvironment(userKeys)
 
   // 1. Kredensial WordPress
   const site = request.site
@@ -231,6 +235,20 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
   let stopReason = "completed"
   const threadId = `agent-run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`
 
+  // Inisialisasi LangSmith Tracer jika kredensial tersedia (BYOK atau environment variables)
+  const langsmithTracer = createLangSmithTracer({
+    userKeys,
+  })
+
+  if (langsmithTracer) {
+    recorder.recordEvent({
+      kind: "guard",
+      status: "ok",
+      durationMs: 1,
+      summary: `LangSmith Tracing aktif (Project: ${langsmithTracer.projectName})`,
+    })
+  }
+
   // 7. Eksekusi Agent Loop
   try {
     const agentResult = await agent.invoke(
@@ -244,6 +262,18 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
             ? Math.min(150, limits.maxModelCalls * 3 + 25)
             : Math.min(100, limits.maxModelCalls * 2 + 10),
         signal: timeoutController.signal,
+        runName: `Panitera [${profile.mode === "deep" ? "Deep Agent" : "Standard Agent"}]: ${keyword.slice(0, 45)}`,
+        tags: [profile.mode, "panitera", `lang:${language}`, siteName].filter(Boolean),
+        metadata: {
+          keyword,
+          siteUrl,
+          siteName,
+          model: selectedModel,
+          agentProfileRef: profile.ref,
+          mode: profile.mode,
+          userId: request.userId,
+        },
+        callbacks: langsmithTracer ? [langsmithTracer] : undefined,
       }
     )
 
@@ -341,6 +371,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
       customInstructions: request.customInstructions,
       recorder,
       reason: stopReason,
+      callbacks: langsmithTracer ? [langsmithTracer] : undefined,
     })
 
     if (finalizeResult && finalizeResult.markdownContent) {

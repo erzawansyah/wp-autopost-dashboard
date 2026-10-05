@@ -34,6 +34,7 @@ import {
   Globe,
   SlidersHorizontal,
   Info,
+  Activity,
 } from "lucide-react"
 
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
@@ -53,6 +54,8 @@ export default function ApiKeysSettingsPage() {
   const [braveKey, setBraveKey] = React.useState("")
   const [searxngUrl, setSearxngUrl] = React.useState("")
   const [pexafyKey, setPexafyKey] = React.useState("")
+  const [langsmithKey, setLangsmithKey] = React.useState("")
+  const [langsmithProject, setLangsmithProject] = React.useState("panitera")
   const [defaultSearchProvider, setDefaultSearchProvider] = React.useState("auto")
 
   // Visibility toggles
@@ -60,12 +63,14 @@ export default function ApiKeysSettingsPage() {
   const [showTavily, setShowTavily] = React.useState(false)
   const [showBrave, setShowBraveKey] = React.useState(false)
   const [showPexafy, setShowPexafy] = React.useState(false)
+  const [showLangsmith, setShowLangsmith] = React.useState(false)
 
   // Status badges
   const [openrouterConfigured, setOpenrouterConfigured] = React.useState(false)
   const [tavilyConfigured, setTavilyConfigured] = React.useState(false)
   const [braveConfigured, setBraveConfigured] = React.useState(false)
   const [pexafyConfigured, setPexafyConfigured] = React.useState(false)
+  const [langsmithConfigured, setLangsmithConfigured] = React.useState(false)
 
   // Testing states
   const [isTestingAi, setIsTestingAi] = React.useState(false)
@@ -109,6 +114,13 @@ export default function ApiKeysSettingsPage() {
         if (data.keys?.pexafy?.configured) {
           setPexafyKey("••••••••••••••••")
           setPexafyConfigured(true)
+        }
+        if (data.keys?.langsmith?.configured) {
+          setLangsmithKey("••••••••••••••••")
+          setLangsmithConfigured(true)
+        }
+        if (data.langsmithProject) {
+          setLangsmithProject(data.langsmithProject)
         }
         if (data.searxngUrl) {
           setSearxngUrl(data.searxngUrl)
@@ -304,6 +316,14 @@ export default function ApiKeysSettingsPage() {
       } else if (pexafyKey.trim() === "") {
         payload.pexafyKey = ""
       }
+
+      // Process langsmith
+      if (langsmithKey.trim() && !langsmithKey.includes("•")) {
+        payload.langsmithApiKey = langsmithKey.trim()
+      } else if (langsmithKey.trim() === "") {
+        payload.langsmithApiKey = ""
+      }
+      payload.langsmithProject = langsmithProject.trim() || "panitera"
 
       const res = await fetch("/api/settings/user", {
         method: "PUT",
@@ -745,6 +765,84 @@ export default function ApiKeysSettingsPage() {
                     Sistem memprioritaskan kunci API resmi (Pexafy) terlebih dahulu. Jika kunci API tidak diisi atau kuota habis, sistem otomatis melanjutkan ke pencarian metasearch dan katalog kurasi bebas royalti. Anda tetap dapat menghasilkan artikel dengan gambar berkualitas tinggi meskipun belum mengisi API Key.
                   </p>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* SECTION 4: Observability & LangSmith Tracing */}
+          <Card className="border-border/80 bg-card/90 shadow-2xs">
+            <CardHeader className="pb-3 border-b border-border/60">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                  <Activity className="size-4 text-primary" />
+                  4. Observabilitas &amp; Tracing Agen (LangSmith)
+                </CardTitle>
+                <div className="flex items-center gap-1.5">
+                  <Badge variant={langsmithConfigured ? "default" : "outline"} className="text-[10px]">
+                    {langsmithConfigured ? "LangSmith Aktif" : "Opsional (Tracing)"}
+                  </Badge>
+                  <Button asChild variant="ghost" size="sm" className="h-6 px-2 text-[10px] gap-1">
+                    <a href="https://smith.langchain.com" target="_blank" rel="noopener noreferrer">
+                      <span>Buka LangSmith</span>
+                      <ExternalLink className="size-2.5" />
+                    </a>
+                  </Button>
+                </div>
+              </div>
+              <CardDescription className="text-xs">
+                Pantau setiap langkah ReAct agent, pemanggilan tools, penalaran model (reasoning tokens), dan grafik eksekusi DeepAgents secara real-time di dasbor LangSmith.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-4">
+              <div className="space-y-1.5 rounded-lg border border-border/70 p-3.5 bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-foreground">LangSmith API Key</span>
+                    {langsmithConfigured && (
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                        Tersimpan di database / env
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground">Format: lsv2_pt_...</span>
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Masukkan API Key dari akun LangSmith Anda. Anda juga dapat menyetelnya via environment variable <code className="bg-muted px-1 rounded text-foreground font-mono">LANGSMITH_API_KEY</code>.
+                </p>
+                <div className="relative pt-1">
+                  <Input
+                    type={showLangsmith ? "text" : "password"}
+                    value={langsmithKey}
+                    onChange={(e) => setLangsmithKey(e.target.value)}
+                    placeholder="lsv2_pt_..."
+                    className="font-mono text-xs pr-9"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLangsmith(!showLangsmith)}
+                    className="absolute right-2.5 top-[13px] text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    {showLangsmith ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* LangSmith Project Name */}
+              <div className="space-y-1.5 rounded-lg border border-border/70 p-3.5 bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground">Nama Proyek LangSmith (Project Name)</span>
+                  <span className="text-[10px] text-muted-foreground">Default: panitera</span>
+                </div>
+                <Input
+                  type="text"
+                  value={langsmithProject}
+                  onChange={(e) => setLangsmithProject(e.target.value)}
+                  placeholder="panitera"
+                  className="font-mono text-xs"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  Semua run Standard Agent dan DeepAgents akan otomatis dikelompokkan ke dalam proyek ini di akun LangSmith Anda.
+                </p>
               </div>
             </CardContent>
           </Card>
