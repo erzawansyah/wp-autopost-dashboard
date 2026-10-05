@@ -342,7 +342,7 @@ export async function GET(request: Request) {
       .is("batch_id", null)
       .order("created_at", { ascending: false })
 
-    let allBatches = batches || []
+    let allBatches: unknown[] = batches || []
     const totalQuick = standaloneCount || 0
 
     if (totalQuick > 0) {
@@ -373,7 +373,7 @@ export async function GET(request: Request) {
         wp_sites: wpSite ? [wpSite] : [],
       }
 
-      allBatches = [quickWriterBatch, ...(batches || [])] as any
+      allBatches = [quickWriterBatch, ...(batches || [])]
     }
 
     return NextResponse.json({ batches: allBatches })

@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { tool } from "@langchain/core/tools"
-import { searchRoyaltyFreeImages } from "../../../shared/tools/image-search"
+import { searchRoyaltyFreeImages, ImageSearchProvider } from "../../../shared/tools/image-search"
 import { ToolDefinition, ToolRuntimeContext } from "../registry"
 
 export const imageSearchToolDef: ToolDefinition = {
@@ -70,7 +70,7 @@ export const imageSearchToolDef: ToolDefinition = {
             count: count || 3,
             orientation: "landscape",
             minWidth: minWidth || 1280,
-            provider: (provider as any) || "auto",
+            provider: (provider as ImageSearchProvider) || "auto",
             pexafyApiKey: ctx.userKeys.pexafyKey,
             searxngUrl: ctx.userKeys.searxngUrl || "http://searxng-internal:8080",
           })

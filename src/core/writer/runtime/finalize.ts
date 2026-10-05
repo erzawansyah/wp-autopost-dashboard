@@ -1,6 +1,7 @@
 import { BaseChatModel } from "@langchain/core/language_models/chat_models"
+import type { Callbacks } from "@langchain/core/callbacks/manager"
 import { getLanguageDisplayName } from "@/lib/constants/languages"
-import { ArticleOutput, ArticleOutputSchema, extractArticleJsonFromText } from "./output-schema"
+import { ArticleOutput, extractArticleJsonFromText } from "./output-schema"
 import { RunRecorder } from "./telemetry"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 
@@ -15,7 +16,7 @@ export interface FinalizeCallParams {
   customInstructions?: string
   recorder: RunRecorder
   reason: string
-  callbacks?: any[]
+  callbacks?: Callbacks
 }
 
 /**

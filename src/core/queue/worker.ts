@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { decryptCredential } from "@/lib/crypto"
 import { run, publishPostToWordPress } from "@/core/writer"
+import type { WpEnrichment } from "@/core/writer/types/contracts"
 import { processAndSyncArticleMedia } from "@/core/shared/media/auto-media-pipeline"
 import { resolveAgentProfile } from "@/core/writer/runtime/resolve-profile"
 import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
@@ -203,7 +204,6 @@ export async function processPostItem({
   const userKeys = await getUserDecryptedKeys(post.user_id)
   const apiKey = clientApiKey || (payloadMeta.apiKey as string) || userKeys.openrouterKey || undefined
 
-  const categoryNames: string[] = Array.isArray(post.categories) ? post.categories : []
   const tagList: string[] = Array.isArray(post.tags) ? post.tags : []
   const categoryIds: number[] = Array.isArray(payloadMeta.category_ids)
     ? (payloadMeta.category_ids as unknown[]).map(Number).filter((id) => !isNaN(id) && id > 0)
@@ -217,7 +217,7 @@ export async function processPostItem({
     slug?: string
   } | null = null
 
-  let resolvedEnrichment: any = null
+  let resolvedEnrichment: WpEnrichment | null = null
 
   // 3. JIKA RETRY SYNC: Gunakan konten yang sudah ada tanpa panggil LLM lagi
   if (isRetrySync) {
@@ -379,7 +379,7 @@ export async function processPostItem({
         }
       )
 
-      resolvedEnrichment = writerResult.enrichment
+      resolvedEnrichment = writerResult.enrichment || null
 
       if (!writerResult.success || !writerResult.article) {
         throw new Error(writerResult.error?.message || "Gagal menghasilkan naskah artikel")

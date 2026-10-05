@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { tool } from "@langchain/core/tools"
-import { webSearch } from "../../../shared/tools/web-search"
+import { webSearch, WebSearchProvider } from "../../../shared/tools/web-search"
 import { ToolDefinition, ToolRuntimeContext } from "../registry"
 
 export const webSearchToolDef: ToolDefinition = {
@@ -59,7 +59,7 @@ export const webSearchToolDef: ToolDefinition = {
 
         try {
           // Pilih provider dan key berdasarkan user keys
-          const pref = (provider as any) || ctx.userKeys.searchPreferences?.default_provider || "auto"
+          const pref = (provider as WebSearchProvider) || ctx.userKeys.searchPreferences?.default_provider || "auto"
           const lang = language || ctx.language || "id"
           const apiKey = ctx.userKeys.tavilyKey || ctx.userKeys.braveKey || ctx.userKeys.serpapiKey
 

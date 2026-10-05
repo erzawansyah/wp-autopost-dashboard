@@ -1,3 +1,5 @@
+import type { SupabaseClient } from "@supabase/supabase-js"
+
 /**
  * Konfigurasi Otorisasi & Akses Fitur Internal
  */
@@ -6,7 +8,7 @@
  * Memeriksa otorisasi laboratorium di sisi server berbasis preferensi Developer Mode
  */
 export async function hasLabAccess(
-  supabase: any,
+  supabase: SupabaseClient,
   user: { id: string; email?: string | null }
 ): Promise<boolean> {
   if (!user || !user.id) return false

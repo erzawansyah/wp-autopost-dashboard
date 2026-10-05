@@ -1,5 +1,6 @@
 import { ChatOpenRouter } from "@langchain/openrouter"
 import { HumanMessage } from "@langchain/core/messages"
+import { StructuredTool } from "@langchain/core/tools"
 import { getSanitizedApiKey } from "@/lib/ai/openrouter"
 import { DecryptedUserKeys } from "@/types/settings"
 import {
@@ -99,7 +100,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
         recorder,
       })
     })
-    .filter(Boolean) as any[]
+    .filter(Boolean) as StructuredTool[]
 
   // 3. Inisialisasi Kredensial AI & Validasi API Key
   const resolvedApiKey =
@@ -192,7 +193,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
   })
 
   // 5. Bangun Writer Agent
-  let agent: any
+  let agent: Awaited<ReturnType<typeof buildWriterAgent>> | null = null
   try {
     agent = await buildWriterAgent({
       mode: profile.mode,
@@ -285,8 +286,8 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
     clearTimeout(timer)
 
     // Periksa apakah model mengembalikan structured response langsung
-    if (agentResult.structuredResponse) {
-      rawOutput = agentResult.structuredResponse
+    if ("structuredResponse" in agentResult && agentResult.structuredResponse) {
+      rawOutput = agentResult.structuredResponse as ArticleOutput
     } else {
       // Ambil pesan terakhir dan ekstrak teks secara bersih (menghindari double JSON stringify)
       const messages = agentResult.messages || []
@@ -302,9 +303,9 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
                 typeof part === "object" &&
                 part !== null &&
                 "text" in part &&
-                typeof (part as any).text === "string"
+                typeof (part as { text?: unknown }).text === "string"
               ) {
-                return (part as any).text
+                return (part as { text: string }).text
               }
               return ""
             })

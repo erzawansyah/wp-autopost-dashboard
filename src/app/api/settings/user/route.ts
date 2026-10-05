@@ -59,8 +59,8 @@ export async function GET() {
         "panitera",
       searxngUrl: data?.searxng_url || null,
       defaultAiModel:
-        (data?.search_preferences as any)?.default_ai_model ||
-        (data?.notification_prefs as any)?.default_ai_model ||
+        ((data?.search_preferences as Record<string, unknown> | null)?.default_ai_model as string | undefined) ||
+        ((data?.notification_prefs as Record<string, unknown> | null)?.default_ai_model as string | undefined) ||
         null,
       searchPreferences: data?.search_preferences || { default_provider: "auto" },
       notificationPrefs: data?.notification_prefs || {},

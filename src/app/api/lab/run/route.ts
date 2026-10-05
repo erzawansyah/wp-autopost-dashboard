@@ -45,7 +45,13 @@ export async function POST(request: Request) {
     }
 
     // Ambil kredensial situs jika siteId disertakan
-    let site: any = null
+    interface LabSiteInfo {
+      id: string
+      base_url: string
+      wp_username: string
+      encrypted_app_password: string
+    }
+    let site: LabSiteInfo | null = null
     let plainPassword = ""
     if (siteId) {
       const { data: siteData } = await supabase

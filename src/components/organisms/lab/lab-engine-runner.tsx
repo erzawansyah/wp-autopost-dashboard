@@ -22,6 +22,50 @@ import { getGlobalAiModel, getModelDisplayName, getGlobalApiKey, DEFAULT_AI_MODE
 import { LanguageSelect } from "@/components/molecules/language-select"
 import { LabSiteOption } from "./lab-tools-runner"
 
+export interface LabEngineResultData {
+  success?: boolean
+  article?: {
+    title?: string
+    readingTimeMinutes?: number
+    contentHtml?: string
+    markdownContent?: string
+    gutenbergBlocks?: string
+    excerpt?: string
+  }
+  execution?: {
+    modelUsed?: string
+    totalModelCalls?: number
+    totalToolCalls?: number
+    tokensUsed?: number
+    nodesExecuted?: string[]
+    events?: Array<{
+      step?: string
+      type?: string
+      content?: string
+      timestamp?: string
+      durationMs?: number
+      details?: Record<string, unknown>
+    }>
+  }
+  enrichment?: {
+    featuredMedia?: number
+    featuredImage?: {
+      imageUrl?: string
+      originalUrl?: string
+      altText?: string
+      title?: string
+      explanation?: string
+    }
+    inContentImages?: Array<{
+      imageUrl?: string
+      originalUrl?: string
+      altText?: string
+      subheading?: string
+    }>
+  }
+  [key: string]: unknown
+}
+
 export interface LabEngineItem {
   id: string
   name: string
@@ -30,7 +74,7 @@ export interface LabEngineItem {
   supportsFeaturedImage?: boolean
   supportsInContentImages?: boolean
   supportsResearch?: boolean
-  defaultRequest: Record<string, any>
+  defaultRequest: Record<string, unknown>
 }
 
 interface LabEngineRunnerProps {
@@ -92,7 +136,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
 
   // Execution state
   const [isRunning, setIsRunning] = React.useState(false)
-  const [resultData, setResultData] = React.useState<any>(() => {
+  const [resultData, setResultData] = React.useState<LabEngineResultData | null>(() => {
     const saved = getStoredEngineState()
     return saved?.resultData ?? null
   })
@@ -514,7 +558,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
                           Media Tersemat dalam Subbab ({enrichment.inContentImages.length} gambar)
                         </span>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                          {enrichment.inContentImages.map((img: any, idx: number) => (
+                          {enrichment.inContentImages.map((img, idx: number) => (
                             <div key={idx} className="flex items-start gap-2.5 p-2 rounded-lg border border-border/70 bg-muted/20 text-xs">
                               <div className="w-16 h-12 rounded overflow-hidden border border-border bg-muted shrink-0">
                                 <img

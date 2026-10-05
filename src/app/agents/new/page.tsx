@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
-import { AgentProfileEditor } from "@/components/organisms/agents/agent-profile-editor"
+import { AgentProfileEditor, type AgentProfileInitialData } from "@/components/organisms/agents/agent-profile-editor"
 import { Badge } from "@/components/atoms/badge"
 import { Plus, Loader2 } from "lucide-react"
 
@@ -13,7 +13,7 @@ function NewAgentProfileContent() {
   const searchParams = useSearchParams()
   const cloneFrom = searchParams.get("cloneFrom")
 
-  const [initialData, setInitialData] = React.useState<any>(null)
+  const [initialData, setInitialData] = React.useState<AgentProfileInitialData | null>(null)
   const [loading, setLoading] = React.useState(Boolean(cloneFrom))
 
   React.useEffect(() => {
@@ -66,7 +66,7 @@ function NewAgentProfileContent() {
           <span className="text-xs">Menyiapkan konfigurasi awal profil...</span>
         </div>
       ) : (
-        <AgentProfileEditor initialData={initialData} isEditing={false} />
+        <AgentProfileEditor initialData={initialData || undefined} isEditing={false} />
       )}
     </>
   )

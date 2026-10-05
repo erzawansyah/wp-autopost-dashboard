@@ -23,7 +23,7 @@ export interface ToolInputField {
   label: string
   type: "text" | "number" | "select" | "textarea"
   description?: string
-  defaultValue?: any
+  defaultValue?: string | number | boolean
   placeholder?: string
   options?: { value: string; label: string }[]
 }

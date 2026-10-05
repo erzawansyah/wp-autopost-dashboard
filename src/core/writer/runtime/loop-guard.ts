@@ -79,13 +79,17 @@ export function createLoopGuardMiddleware(
 
       // 3. Eksekusi Tool Sebenarnya dengan Stopwatch & Error Boundary
       const start = Date.now()
-      let resultMsg: any
+      let resultMsg: Awaited<ReturnType<typeof handler>>
       let isError = false
       let rawContent = ""
 
       try {
         resultMsg = await handler(request)
-        rawContent = typeof resultMsg?.content === "string" ? resultMsg.content : JSON.stringify(resultMsg?.content || "")
+        const msgContent =
+          resultMsg && typeof resultMsg === "object" && "content" in resultMsg
+            ? (resultMsg as { content?: unknown }).content
+            : undefined
+        rawContent = typeof msgContent === "string" ? msgContent : JSON.stringify(msgContent || "")
         if (rawContent.startsWith("ERROR[") || rawContent.includes("ERROR:")) {
           isError = true
         }

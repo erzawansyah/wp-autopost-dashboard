@@ -1,20 +1,19 @@
 "use client"
 
 import * as React from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
-import { AgentProfileEditor } from "@/components/organisms/agents/agent-profile-editor"
+import { AgentProfileEditor, type AgentProfileInitialData } from "@/components/organisms/agents/agent-profile-editor"
 import { Badge } from "@/components/atoms/badge"
 import { Edit2, Loader2, AlertCircle } from "lucide-react"
 
 export default function EditAgentProfilePage() {
   const params = useParams()
-  const router = useRouter()
   const id = params?.id as string
 
-  const [profileData, setProfileData] = React.useState<any>(null)
+  const [profileData, setProfileData] = React.useState<AgentProfileInitialData | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -69,7 +68,7 @@ export default function EditAgentProfilePage() {
             <span className="text-xs">Memuat konfigurasi profil agen...</span>
           </div>
         ) : (
-          <AgentProfileEditor initialData={profileData} isEditing={true} />
+          <AgentProfileEditor initialData={profileData || undefined} isEditing={true} />
         )}
       </PageContainer>
     </DashboardLayout>

@@ -48,7 +48,7 @@ export async function resolveAgentProfile(
           toolIds: ensureMandatoryToolIds(Array.isArray(data.tool_ids) ? data.tool_ids : []),
           skills: Array.isArray(data.skills) ? data.skills : undefined,
           limits: clampLimits(data.limits, mode),
-          isDefault: Boolean(data.is_default ?? (data.limits as any)?.isDefault ?? false),
+          isDefault: Boolean(data.is_default ?? (data.limits as Record<string, unknown> | null)?.isDefault ?? false),
           basedOnPreset: data.based_on_preset || undefined,
           version: data.version || 1,
           userId: data.user_id,

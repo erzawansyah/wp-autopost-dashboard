@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { hasLabAccess } from "@/lib/constants/auth"
-import { BUILTIN_AGENT_PROFILES, BUILTIN_PRESETS } from "@/core/writer/profiles"
+import { BUILTIN_PRESETS } from "@/core/writer/profiles"
 import { ToolRegistry } from "@/core/writer/tools"
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 
@@ -125,7 +125,7 @@ export async function GET() {
         keyword: "panduan investasi saham untuk pemula",
         brief: "Fokus pada tips fundamental dan diversifikasi portofolio.",
         actionStatus: "draft",
-        model: (p as any).model || DEFAULT_AI_MODEL,
+        model: ("model" in p && typeof p.model === "string" && p.model) ? p.model : DEFAULT_AI_MODEL,
       },
     }))
 

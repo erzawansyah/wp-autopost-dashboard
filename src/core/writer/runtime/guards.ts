@@ -20,7 +20,9 @@ function createTelemetryMiddleware(recorder: RunRecorder) {
       const durationMs = Date.now() - start
 
       if (AIMessage.isInstance(response)) {
-        const usage = (response as any).usage_metadata
+        const usage = "usage_metadata" in response
+          ? (response as { usage_metadata?: { input_tokens?: number; output_tokens?: number } }).usage_metadata
+          : undefined
         const tokens = usage
           ? {
               prompt: usage.input_tokens || 0,
@@ -52,7 +54,7 @@ function createTelemetryMiddleware(recorder: RunRecorder) {
  * Membangun rangkaian lengkap Guard Middleware berlapis untuk agent
  */
 export function buildGuardMiddlewareStack(limits: AgentLimits, recorder: RunRecorder) {
-  const stack: any[] = []
+  const stack: (ReturnType<typeof createMiddleware> | ReturnType<typeof toolCallLimitMiddleware>)[] = []
 
   // 1. Lapisan terluar: Telemetri model call
   stack.push(createTelemetryMiddleware(recorder))

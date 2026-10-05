@@ -312,7 +312,7 @@ async function searchWithTavily(query: string, limit: number, apiKey: string): P
     const data = await res.json()
     if (!Array.isArray(data?.results)) return []
 
-    return data.results.map((r: any) => ({
+    return data.results.map((r: { title?: string; url: string; content?: string; snippet?: string }) => ({
       title: r.title || query,
       url: r.url,
       snippet: r.content || r.snippet || "",
@@ -348,7 +348,7 @@ async function searchWithBrave(query: string, limit: number, apiKey: string): Pr
     const results = data?.web?.results
     if (!Array.isArray(results)) return []
 
-    return results.slice(0, limit).map((r: any) => ({
+    return results.slice(0, limit).map((r: { title?: string; url: string; description?: string }) => ({
       title: r.title || query,
       url: r.url,
       snippet: cleanHtmlText(r.description || ""),
@@ -384,7 +384,7 @@ async function searchWithSearxngWeb(query: string, limit: number, searxngUrl: st
     const results = data?.results
     if (!Array.isArray(results)) return []
 
-    return results.slice(0, limit).map((r: any) => ({
+    return results.slice(0, limit).map((r: { title?: string; url: string; content?: string; engine?: string }) => ({
       title: r.title || query,
       url: r.url,
       snippet: cleanHtmlText(r.content || ""),
@@ -412,7 +412,7 @@ async function searchWithSerpApi(query: string, limit: number, apiKey: string, l
     const organic = data?.organic_results
     if (!Array.isArray(organic)) return []
 
-    return organic.slice(0, limit).map((r: any) => ({
+    return organic.slice(0, limit).map((r: { title?: string; link: string; snippet?: string }) => ({
       title: r.title || query,
       url: r.link,
       snippet: r.snippet || "",

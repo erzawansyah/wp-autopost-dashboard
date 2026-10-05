@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { BUILTIN_AGENT_PROFILES, BUILTIN_PRESETS } from "@/core/writer/profiles"
-import { AgentLimits, clampLimits, SYSTEM_LIMIT_BOUNDS, ensureMandatoryToolIds } from "@/core/writer/types/profile"
+import { BUILTIN_PRESETS } from "@/core/writer/profiles"
+import { AgentLimits, clampLimits, ensureMandatoryToolIds } from "@/core/writer/types/profile"
 
 export async function GET() {
   try {
@@ -42,7 +42,7 @@ export async function GET() {
       toolIds: Array.isArray(row.tool_ids) ? row.tool_ids : [],
       skills: Array.isArray(row.skills) ? row.skills : [],
       limits: row.limits as AgentLimits,
-      isDefault: Boolean(row.is_default ?? (row.limits as any)?.isDefault ?? false),
+      isDefault: Boolean(row.is_default ?? (row.limits as Record<string, unknown> | null)?.isDefault ?? false),
       isPreset: false,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -121,7 +121,7 @@ export async function POST(request: Request) {
 
       if (existingOthers && existingOthers.length > 0) {
         for (const item of existingOthers) {
-          const itemLimits = (item.limits && typeof item.limits === "object") ? item.limits as Record<string, any> : {}
+          const itemLimits = (item.limits && typeof item.limits === "object") ? item.limits as Record<string, unknown> : {}
           if (itemLimits.isDefault) {
             await supabase
               .from("agent_profiles")
@@ -176,7 +176,7 @@ export async function POST(request: Request) {
       toolIds: Array.isArray(newProfile.tool_ids) ? newProfile.tool_ids : [],
       skills: Array.isArray(newProfile.skills) ? newProfile.skills : [],
       limits: newProfile.limits as AgentLimits,
-      isDefault: Boolean((newProfile.limits as any)?.isDefault ?? newProfile.is_default ?? false),
+      isDefault: Boolean((newProfile.limits as Record<string, unknown> | null)?.isDefault ?? newProfile.is_default ?? false),
       isPreset: false,
       createdAt: newProfile.created_at,
       updatedAt: newProfile.updated_at,

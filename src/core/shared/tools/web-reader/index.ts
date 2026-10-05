@@ -159,8 +159,9 @@ function fetchHtmlViaNode(targetUrl: string, timeoutMs: number): Promise<{ ok: b
       req.on("error", (err) => {
         resolve({ ok: false, status: 500, text: "", error: err.message })
       })
-    } catch (err: any) {
-      resolve({ ok: false, status: 500, text: "", error: err.message })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err)
+      resolve({ ok: false, status: 500, text: "", error: message })
     }
   })
 }

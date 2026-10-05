@@ -36,6 +36,14 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       }
     }
 
+    const rawData = data as Record<string, unknown>
+    const notifPrefs = (data.notification_prefs && typeof data.notification_prefs === "object")
+      ? (data.notification_prefs as Record<string, unknown>)
+      : null
+    const searchPrefs = (data.search_preferences && typeof data.search_preferences === "object")
+      ? (data.search_preferences as Record<string, unknown>)
+      : null
+
     return {
       openrouterKey: safeDecrypt(data.encrypted_openrouter_key),
       tavilyKey: safeDecrypt(data.encrypted_tavily_key),
@@ -44,20 +52,20 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       pexafyKey: safeDecrypt(data.encrypted_pexafy_key),
       langsmithApiKey:
         safeDecrypt(data.encrypted_langsmith_key) ||
-        safeDecrypt((data.notification_prefs as any)?.langsmith_api_key) ||
+        safeDecrypt(typeof notifPrefs?.langsmith_api_key === "string" ? notifPrefs.langsmith_api_key : undefined) ||
         process.env.LANGSMITH_API_KEY ||
         process.env.LANGCHAIN_API_KEY ||
         undefined,
       langsmithProject:
-        (data as any).langsmith_project ||
-        (data.notification_prefs as any)?.langsmith_project ||
+        (typeof rawData.langsmith_project === "string" ? rawData.langsmith_project : undefined) ||
+        (typeof notifPrefs?.langsmith_project === "string" ? notifPrefs.langsmith_project : undefined) ||
         process.env.LANGSMITH_PROJECT ||
         process.env.LANGCHAIN_PROJECT ||
         "panitera",
       searxngUrl: data.searxng_url ? String(data.searxng_url).trim() : undefined,
       defaultAiModel:
-        (data.search_preferences as any)?.default_ai_model ||
-        (data.notification_prefs as any)?.default_ai_model ||
+        (typeof searchPrefs?.default_ai_model === "string" ? searchPrefs.default_ai_model : undefined) ||
+        (typeof notifPrefs?.default_ai_model === "string" ? notifPrefs.default_ai_model : undefined) ||
         process.env.OPENROUTER_DEFAULT_MODEL ||
         undefined,
       searchPreferences: (data.search_preferences as DecryptedUserKeys["searchPreferences"]) || {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { BUILTIN_AGENT_PROFILES, BUILTIN_PRESETS } from "@/core/writer/profiles"
+import { BUILTIN_PRESETS } from "@/core/writer/profiles"
 import { AgentLimits, clampLimits, ensureMandatoryToolIds } from "@/core/writer/types/profile"
 
 export async function GET(
@@ -54,7 +54,7 @@ export async function GET(
       toolIds: Array.isArray(row.tool_ids) ? row.tool_ids : [],
       skills: Array.isArray(row.skills) ? row.skills : [],
       limits: row.limits as AgentLimits,
-      isDefault: Boolean(row.is_default ?? (row.limits as any)?.isDefault ?? false),
+      isDefault: Boolean(row.is_default ?? (row.limits as Record<string, unknown> | null)?.isDefault ?? false),
       isPreset: false,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -162,7 +162,7 @@ export async function PUT(
 
       const targetMode = mode || (currentProf?.mode as "standard" | "deep") || "standard"
       const baseLimits = limits !== undefined ? clampLimits(targetMode, limits) : ((currentProf?.limits as AgentLimits) || clampLimits(targetMode))
-      const targetIsDefault = isDefault !== undefined ? Boolean(isDefault) : Boolean((currentProf?.limits as any)?.isDefault)
+      const targetIsDefault = isDefault !== undefined ? Boolean(isDefault) : Boolean((currentProf?.limits as Record<string, unknown> | null)?.isDefault)
       updatePayload.limits = {
         ...baseLimits,
         isDefault: targetIsDefault,
@@ -178,7 +178,7 @@ export async function PUT(
 
         if (others && others.length > 0) {
           for (const other of others) {
-            const oLimits = (other.limits && typeof other.limits === "object") ? other.limits as Record<string, any> : {}
+            const oLimits = (other.limits && typeof other.limits === "object") ? other.limits as Record<string, unknown> : {}
             if (oLimits.isDefault) {
               await supabase
                 .from("agent_profiles")
@@ -216,7 +216,7 @@ export async function PUT(
       toolIds: Array.isArray(updated.tool_ids) ? updated.tool_ids : [],
       skills: Array.isArray(updated.skills) ? updated.skills : [],
       limits: updated.limits as AgentLimits,
-      isDefault: Boolean((updated.limits as any)?.isDefault ?? updated.is_default ?? false),
+      isDefault: Boolean((updated.limits as Record<string, unknown> | null)?.isDefault ?? updated.is_default ?? false),
       isPreset: false,
       createdAt: updated.created_at,
       updatedAt: updated.updated_at,

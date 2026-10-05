@@ -31,18 +31,29 @@ export interface DatabaseExecutionLog {
   created_at: string
 }
 
-interface PostDetailTelemetryProps {
+export interface AgentRunStepEvent {
+  step?: string
+  type?: string
+  content?: string
+  timestamp?: string
+  durationMs?: number
+  details?: Record<string, unknown>
+}
+
+export interface AgentRunInfo {
+  id: string
+  status: string
+  mode: string
+  total_model_calls: number
+  total_tool_calls: number
+  duration_ms: number
+  step_events: AgentRunStepEvent[] | null
+  agent_profile_ref?: string
+}
+
+export interface PostDetailTelemetryProps {
   logs: DatabaseExecutionLog[]
-  agentRun?: {
-    id: string
-    status: string
-    mode: string
-    total_model_calls: number
-    total_tool_calls: number
-    duration_ms: number
-    step_events: any[]
-    agent_profile_ref?: string
-  } | null
+  agentRun?: AgentRunInfo | null
   engineUsed?: string
   modelUsed?: string
   state?: string

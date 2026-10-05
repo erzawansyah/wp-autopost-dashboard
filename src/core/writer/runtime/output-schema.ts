@@ -20,19 +20,20 @@ export type ArticleOutput = z.infer<typeof ArticleOutputSchema>
  * Normalisasi objek hasil ekstraksi agar key-key varian (content, body, article)
  * secara deterministik terpetakan ke markdownContent dan tidak pernah lolos sebagai string JSON mentah.
  */
-export function normalizeArticleOutput(parsed: any): Partial<ArticleOutput> | null {
+export function normalizeArticleOutput(parsed: unknown): Partial<ArticleOutput> | null {
   if (!parsed || typeof parsed !== "object") return null
+  const p = parsed as Record<string, unknown>
 
-  const title = parsed.title || parsed.headline || parsed.judul
-  const excerpt = parsed.excerpt || parsed.summary || parsed.meta_description || parsed.ringkasan
+  const title = p.title || p.headline || p.judul
+  const excerpt = p.excerpt || p.summary || p.meta_description || p.ringkasan
   let markdown =
-    parsed.markdownContent ??
-    parsed.markdown ??
-    parsed.content ??
-    parsed.body ??
-    parsed.article ??
-    parsed.naskah ??
-    parsed.text
+    p.markdownContent ??
+    p.markdown ??
+    p.content ??
+    p.body ??
+    p.article ??
+    p.naskah ??
+    p.text
 
   // Jika markdown berupa nested JSON string (double stringify)
   if (typeof markdown === "string") {
@@ -54,10 +55,10 @@ export function normalizeArticleOutput(parsed: any): Partial<ArticleOutput> | nu
       title: typeof title === "string" ? title.trim() : undefined,
       excerpt: typeof excerpt === "string" ? excerpt.trim() : undefined,
       markdownContent: markdown.trim(),
-      categoryIds: Array.isArray(parsed.categoryIds) ? parsed.categoryIds : undefined,
-      tagNames: Array.isArray(parsed.tagNames) ? parsed.tagNames : undefined,
-      authorId: typeof parsed.authorId === "number" ? parsed.authorId : undefined,
-      featuredMediaId: typeof parsed.featuredMediaId === "number" ? parsed.featuredMediaId : undefined,
+      categoryIds: Array.isArray(p.categoryIds) ? (p.categoryIds as number[]) : undefined,
+      tagNames: Array.isArray(p.tagNames) ? (p.tagNames as string[]) : undefined,
+      authorId: typeof p.authorId === "number" ? p.authorId : undefined,
+      featuredMediaId: typeof p.featuredMediaId === "number" ? p.featuredMediaId : undefined,
     }
   }
 

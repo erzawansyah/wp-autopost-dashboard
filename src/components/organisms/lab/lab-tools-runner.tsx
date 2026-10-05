@@ -38,12 +38,42 @@ export interface LabSiteOption {
   status: string
 }
 
+export interface LabToolOutputData {
+  query?: string
+  totalPhotos?: number
+  photos?: Array<{
+    url: string
+    alt?: string
+    source?: string
+    width?: number
+    height?: number
+    caption?: string
+  }>
+  totalResults?: number
+  results?: Array<{
+    title?: string
+    snippet?: string
+    url?: string
+  }>
+  title?: string
+  url?: string
+  wordCount?: number
+  content?: string
+  suggestions?: string[]
+  postId?: number | string
+  mediaId?: number | string
+  sourceUrl?: string
+  altText?: string
+  caption?: string
+  [key: string]: unknown
+}
+
 export interface LabToolInputField {
   name: string
   label: string
   type: "text" | "number" | "select" | "textarea"
   description?: string
-  defaultValue?: any
+  defaultValue?: unknown
   placeholder?: string
   options?: { value: string; label: string }[]
 }
@@ -53,7 +83,7 @@ export interface LabToolItem {
   name: string
   description: string
   requiresSite: boolean
-  defaultParams: Record<string, any>
+  defaultParams: Record<string, unknown>
   inputFields?: LabToolInputField[]
 }
 
@@ -92,14 +122,14 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
   })
 
   // Dynamic form state berbasis field tool yang aktif
-  const [formValues, setFormValues] = React.useState<Record<string, any>>(() => {
+  const [formValues, setFormValues] = React.useState<Record<string, unknown>>(() => {
     const saved = getStoredToolsState()
     return saved?.formValues || {}
   })
 
   // Execution state
   const [isRunning, setIsRunning] = React.useState(false)
-  const [responseOutput, setResponseOutput] = React.useState<any>(() => {
+  const [responseOutput, setResponseOutput] = React.useState<LabToolOutputData | null>(() => {
     const saved = getStoredToolsState()
     return saved?.responseOutput ?? null
   })
@@ -138,7 +168,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
       }
     }
 
-    const initial: Record<string, any> = { ...activeTool.defaultParams }
+    const initial: Record<string, unknown> = { ...activeTool.defaultParams }
     if (activeTool.inputFields) {
       for (const f of activeTool.inputFields) {
         if (f.defaultValue !== undefined && initial[f.name] === undefined) {
@@ -175,7 +205,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
     activeResultTab,
   ])
 
-  const handleFieldChange = (name: string, value: any) => {
+  const handleFieldChange = (name: string, value: unknown) => {
     setFormValues((prev) => ({
       ...prev,
       [name]: value,
@@ -316,7 +346,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
                         id={`field-${field.name}`}
                         rows={4}
                         placeholder={field.placeholder}
-                        value={formValues[field.name] ?? field.defaultValue ?? ""}
+                        value={String(formValues[field.name] ?? field.defaultValue ?? "")}
                         onChange={(e) => handleFieldChange(field.name, e.target.value)}
                         className="font-mono text-xs"
                       />
@@ -325,7 +355,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
                         id={`field-${field.name}`}
                         type={field.type === "number" ? "number" : "text"}
                         placeholder={field.placeholder}
-                        value={formValues[field.name] ?? field.defaultValue ?? ""}
+                        value={String(formValues[field.name] ?? field.defaultValue ?? "")}
                         onChange={(e) =>
                           handleFieldChange(
                             field.name,
@@ -445,7 +475,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
                         </Badge>
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {responseOutput.photos.map((photo: any, idx: number) => (
+                        {responseOutput.photos.map((photo, idx: number) => (
                           <div key={idx} className="rounded-lg border border-border/80 bg-muted/20 p-2.5 flex flex-col gap-2">
                             <img
                               src={photo.url}
@@ -491,7 +521,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
                         </Badge>
                       </div>
                       <div className="flex flex-col gap-2.5">
-                        {responseOutput.results.map((res: any, idx: number) => (
+                        {responseOutput.results.map((res, idx: number) => (
                           <div key={idx} className="rounded-lg border border-border/80 bg-muted/20 p-3 text-xs flex flex-col gap-1">
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-semibold text-foreground truncate">{res.title}</span>
@@ -522,20 +552,18 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
                     <div className="flex flex-col gap-3">
                       <div className="flex items-center justify-between text-xs border-b border-border/60 pb-2">
                         <span className="font-semibold text-foreground truncate max-w-sm">
-                          {typeof responseOutput === "string"
-                            ? "Hasil Pembacaan Konten Web"
-                            : responseOutput?.title || responseOutput?.url || "Konten Web Terbaca"}
+                          {responseOutput?.title || responseOutput?.url || "Konten Web Terbaca"}
                         </span>
                         <Badge variant="outline" className="font-mono text-[10px]">
-                          {typeof responseOutput === "string"
-                            ? `${responseOutput.split(/\s+/).filter(Boolean).length} kata`
-                            : `${responseOutput?.wordCount || 0} kata`}
+                          {responseOutput?.wordCount
+                            ? `${responseOutput.wordCount} kata`
+                            : responseOutput?.content
+                            ? `${responseOutput.content.split(/\s+/).filter(Boolean).length} kata`
+                            : "0 kata"}
                         </Badge>
                       </div>
                       <div className="rounded-lg border border-border/80 bg-muted/20 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap max-h-[480px] overflow-y-auto">
-                        {typeof responseOutput === "string"
-                          ? responseOutput
-                          : responseOutput?.content || JSON.stringify(responseOutput, null, 2)}
+                        {responseOutput?.content || JSON.stringify(responseOutput, null, 2)}
                       </div>
                     </div>
                   )}

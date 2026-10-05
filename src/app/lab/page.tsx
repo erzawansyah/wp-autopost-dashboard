@@ -6,13 +6,12 @@ import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tabs"
 import { Badge } from "@/components/atoms/badge"
-import { Loader2, FlaskConical, Wrench, Cpu, Zap, BookOpen } from "lucide-react"
+import { Loader2, FlaskConical, Wrench, Zap } from "lucide-react"
 
 import { useRouter } from "next/navigation"
 
-import { LabToolsRunner } from "@/components/organisms/lab/lab-tools-runner"
-import { LabEngineRunner } from "@/components/organisms/lab/lab-engine-runner"
-import { LabDocsViewer } from "@/components/organisms/lab/lab-docs-viewer"
+import { LabToolsRunner, type LabToolItem, type LabSiteOption } from "@/components/organisms/lab/lab-tools-runner"
+import { LabEngineRunner, type LabEngineItem } from "@/components/organisms/lab/lab-engine-runner"
 
 export default function LabPage() {
   const router = useRouter()
@@ -20,10 +19,10 @@ export default function LabPage() {
   const [isAuthorized, setIsAuthorized] = React.useState(false)
   const [loading, setLoading] = React.useState(true)
   const [registry, setRegistry] = React.useState<{
-    tools: any[]
-    nodes: any[]
-    engines: any[]
-    sites: any[]
+    tools: LabToolItem[]
+    nodes: unknown[]
+    engines: LabEngineItem[]
+    sites: LabSiteOption[]
   }>({
     tools: [],
     nodes: [],

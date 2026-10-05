@@ -7,7 +7,7 @@ import { DashboardLayout } from "@/components/templates/dashboard-layout"
 import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
 import { PostDetailStepper, PipelineStepState } from "@/components/organisms/post-detail/post-detail-stepper"
-import { PostDetailTelemetry, DatabaseExecutionLog } from "@/components/organisms/post-detail/post-detail-telemetry"
+import { PostDetailTelemetry, DatabaseExecutionLog, AgentRunInfo } from "@/components/organisms/post-detail/post-detail-telemetry"
 import { PostDetailContent } from "@/components/organisms/post-detail/post-detail-content"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tabs"
 import { Button } from "@/components/atoms/button"
@@ -60,7 +60,7 @@ export default function PostDetailPage() {
 
   const [post, setPost] = React.useState<PostDetailData | null>(null)
   const [logs, setLogs] = React.useState<DatabaseExecutionLog[]>([])
-  const [agentRun, setAgentRun] = React.useState<any>(null)
+  const [agentRun, setAgentRun] = React.useState<AgentRunInfo | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isRefreshing, setIsRefreshing] = React.useState(false)
   const [isRetrying, setIsRetrying] = React.useState(false)

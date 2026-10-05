@@ -48,8 +48,28 @@ export async function GET(request: Request) {
       )
     }
 
+    interface RawOpenRouterModel {
+      id: string
+      name?: string
+      description?: string
+      context_length?: number
+      pricing?: {
+        prompt?: string
+        completion?: string
+      }
+      top_provider?: {
+        max_completion_tokens?: number
+        is_moderated?: boolean
+      }
+      architecture?: {
+        modality?: string
+        tokenizer?: string
+        instruct_type?: string
+      }
+    }
+
     const data = await res.json()
-    const rawModels: any[] = Array.isArray(data?.data) ? data.data : []
+    const rawModels: RawOpenRouterModel[] = Array.isArray(data?.data) ? data.data : []
 
     // Petakan dan rapikan format model
     const models: OpenRouterModelItem[] = rawModels.map((m) => ({
@@ -59,8 +79,8 @@ export async function GET(request: Request) {
       context_length: m.context_length,
       pricing: m.pricing
         ? {
-            prompt: m.pricing.prompt,
-            completion: m.pricing.completion,
+            prompt: m.pricing.prompt ?? "0",
+            completion: m.pricing.completion ?? "0",
           }
         : undefined,
       top_provider: m.top_provider,

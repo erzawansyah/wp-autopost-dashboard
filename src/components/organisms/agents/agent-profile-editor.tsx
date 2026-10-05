@@ -57,24 +57,26 @@ export interface ToolItemWithStatus {
   blockedReason: string | null
 }
 
-interface AgentProfileEditorProps {
-  initialData?: {
-    id?: string
-    name: string
-    description?: string
-    mode: "standard" | "deep"
-    temperature: number
-    workflowPrompt: string
-    toolIds: string[]
-    skills?: string[]
-    limits?: {
-      maxModelCalls?: number
-      maxToolCalls?: number
-      timeoutSeconds?: number
-      minWordCount?: number
-    }
-    isDefault?: boolean
+export interface AgentProfileInitialData {
+  id?: string
+  name: string
+  description?: string
+  mode: "standard" | "deep"
+  temperature: number
+  workflowPrompt: string
+  toolIds: string[]
+  skills?: string[]
+  limits?: {
+    maxModelCalls?: number
+    maxToolCalls?: number
+    timeoutSeconds?: number
+    minWordCount?: number
   }
+  isDefault?: boolean
+}
+
+export interface AgentProfileEditorProps {
+  initialData?: AgentProfileInitialData
   isEditing?: boolean
 }
 
