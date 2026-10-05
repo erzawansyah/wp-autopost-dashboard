@@ -20,8 +20,10 @@ export async function GET(request: Request) {
       .from("post_items")
       .select(`
         id,
+        batch_id,
         target_keyword,
         title,
+        excerpt,
         state,
         wp_target_status,
         wp_post_id,
@@ -33,6 +35,12 @@ export async function GET(request: Request) {
         updated_at,
         categories,
         tags,
+        source_payload,
+        content_batches (
+          id,
+          name,
+          execution_mode
+        ),
         wp_sites (
           id,
           site_name,

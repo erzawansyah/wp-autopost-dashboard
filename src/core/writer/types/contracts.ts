@@ -143,6 +143,7 @@ export interface FeaturedImageMeta {
 /** Metadata enrichment WordPress */
 export interface WpEnrichment {
   categories: number[]
+  categoryNames?: string[]
   tags: number[]
   tagNames?: string[]
   author?: number

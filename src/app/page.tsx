@@ -25,8 +25,10 @@ import {
 
 interface DashboardPost {
   id: string
+  batch_id?: string | null
   title: string | null
   target_keyword: string
+  excerpt?: string | null
   state: QueueTableItem["status"]
   wp_target_status: string
   wp_post_id: number | null
@@ -35,8 +37,15 @@ interface DashboardPost {
   retry_count: number
   last_error: string | null
   created_at: string
-  categories: string[]
-  tags: string[]
+  updated_at: string
+  categories: string[] | null
+  tags: string[] | null
+  source_payload?: Record<string, unknown> | null
+  content_batches?: {
+    id: string
+    name: string
+    execution_mode: string
+  } | null
   wp_sites: {
     id: string
     site_name: string
@@ -185,21 +194,82 @@ function DashboardContent() {
     return () => window.clearInterval(interval)
   }, [posts, loadDataSilently])
 
-  // Transform posts data to QueueTableItem format
+  // Transform posts data to QueueTableItem format dengan normalisasi kategori & waktu cerdas
   const tableItems: QueueTableItem[] = React.useMemo(() => {
+    const extractPostCategories = (p: DashboardPost): string[] => {
+      // 1. Cek p.categories: jika array string non-numerik
+      if (Array.isArray(p.categories) && p.categories.length > 0) {
+        const validNames = p.categories
+          .map(String)
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0 && isNaN(Number(c)))
+        if (validNames.length > 0) {
+          return validNames
+        }
+      }
+
+      // 2. Cek source_payload?.category_names
+      const payload = p.source_payload
+      if (payload && Array.isArray(payload.category_names) && payload.category_names.length > 0) {
+        const names = (payload.category_names as unknown[])
+          .map(String)
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0 && isNaN(Number(c)))
+        if (names.length > 0) {
+          return names
+        }
+      }
+
+      // 3. Cek source_payload?.categoryList
+      if (payload && Array.isArray(payload.categoryList) && payload.categoryList.length > 0) {
+        const names = (payload.categoryList as unknown[])
+          .map(String)
+          .map((c) => c.trim())
+          .filter((c) => c.length > 0 && isNaN(Number(c)))
+        if (names.length > 0) {
+          return names
+        }
+      }
+
+      return []
+    }
+
     return posts.map((p) => {
       const site = p.wp_sites || { site_name: "WordPress", base_url: "-" }
+      const resolvedCategories = extractPostCategories(p)
+
+      const batchName =
+        p.content_batches?.name ||
+        (p.source_payload?.batch_name as string | undefined)
+
+      const batchId =
+        p.batch_id ||
+        (p.source_payload?.batch_id as string | undefined) ||
+        (!p.batch_id ? "quick-writer" : undefined)
+
+      const aiModel =
+        (p.source_payload?.aiModel as string | undefined) ||
+        (p.source_payload?.agentProfileRef as string | undefined)
+
       return {
         id: p.id,
         title: p.title || p.target_keyword,
         targetKeyword: p.target_keyword,
         siteName: site.site_name,
         siteDomain: site.base_url.replace(/^https?:\/\//, "").replace(/\/$/, ""),
-        category: p.categories && p.categories.length > 0 ? p.categories.join(", ") : "Umum",
+        categories: resolvedCategories,
+        category: resolvedCategories.length > 0 ? resolvedCategories.join(", ") : "Umum",
         status: p.state,
-        scheduledFor: p.scheduled_for || undefined,
+        wpTargetStatus: p.wp_target_status,
+        wpPostId: p.wp_post_id,
         wpPostUrl: p.wp_post_url || undefined,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+        scheduledFor: p.scheduled_for || undefined,
         lastError: p.last_error || undefined,
+        batchId,
+        batchName,
+        aiModel,
       }
     })
   }, [posts])

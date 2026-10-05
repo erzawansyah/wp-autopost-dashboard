@@ -485,6 +485,33 @@ export async function processPostItem({
       ? resolvedEnrichment.categories
       : categoryIds
 
+  // Prioritaskan nama kategori yang manusiawi (human-readable)
+  const payloadCategories =
+    Array.isArray((post.source_payload as Record<string, unknown>)?.category_names)
+      ? ((post.source_payload as Record<string, unknown>).category_names as string[])
+      : []
+
+  const existingPostCategoryNames =
+    Array.isArray(post.categories)
+      ? (post.categories as string[]).filter((c) => c && isNaN(Number(c)))
+      : []
+
+  const resolvedCategoryNames: string[] =
+    resolvedEnrichment?.categoryNames && resolvedEnrichment.categoryNames.length > 0
+      ? resolvedEnrichment.categoryNames
+      : existingPostCategoryNames.length > 0
+      ? existingPostCategoryNames
+      : payloadCategories.length > 0
+      ? payloadCategories
+      : []
+
+  const finalCategoriesToStore =
+    resolvedCategoryNames.length > 0
+      ? resolvedCategoryNames
+      : resolvedCategoryIds.length > 0
+      ? resolvedCategoryIds.map(String)
+      : []
+
   const resolvedTagIds: number[] =
     resolvedEnrichment?.tags && resolvedEnrichment.tags.length > 0
       ? resolvedEnrichment.tags
@@ -504,7 +531,7 @@ export async function processPostItem({
       content_html: finalContentHtml,
       excerpt: generated.excerpt,
       featured_image_url: finalFeaturedImageUrl,
-      categories: resolvedCategoryIds.map(String),
+      categories: finalCategoriesToStore,
       tags: resolvedTagIds.length > 0 ? resolvedTagIds.map(String) : resolvedTagNames,
       state: "syncing_to_wp",
       last_error: null,

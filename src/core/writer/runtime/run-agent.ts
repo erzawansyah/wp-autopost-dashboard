@@ -426,6 +426,7 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
 
   const enrichment: WpEnrichment = {
     categories: finalCategories,
+    categoryNames: preResolved.categoryNames,
     tags: finalTags,
     tagNames: preResolved.tagNames,
     author: preResolved.author?.id ?? request.publishing.authorId ?? rawOutput.authorId ?? undefined,

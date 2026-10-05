@@ -37,6 +37,14 @@ import {
   X,
   RotateCcw,
   Loader2,
+  CheckCircle2,
+  CalendarClock,
+  Clock,
+  FileText,
+  AlertCircle,
+  Layers,
+  Folder,
+  Sparkles,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -52,11 +60,16 @@ export interface QueueTableItem {
   targetKeyword: string
   siteName: string
   siteDomain: string
-  category: string
+  category?: string
+  categories?: string[]
   status: PostItemState
-  wordCount?: number
-  scheduledFor?: string
+  wpTargetStatus?: "publish" | "draft" | "future" | string
+  wpPostId?: number | null
   wpPostUrl?: string
+  createdAt?: string
+  updatedAt?: string
+  scheduledFor?: string
+  wordCount?: number
   aiModel?: string
   lastError?: string
   batchId?: string
@@ -175,7 +188,10 @@ export function QueueDataTable({
         (item.targetKeyword || "").toLowerCase().includes(q) ||
         (item.siteName || "").toLowerCase().includes(q) ||
         (item.siteDomain || "").toLowerCase().includes(q) ||
-        (item.category || "").toLowerCase().includes(q)
+        (item.batchName || "").toLowerCase().includes(q) ||
+        (item.category || "").toLowerCase().includes(q) ||
+        (Array.isArray(item.categories) &&
+          item.categories.some((cat) => cat.toLowerCase().includes(q)))
 
       const matchStatus = isStatusMatching(item.status, selectedStatus)
       const matchSite = selectedSite === "all" || item.siteDomain === selectedSite
@@ -392,7 +408,7 @@ export function QueueDataTable({
               <TableHead className="text-xs font-semibold">Judul &amp; Topik</TableHead>
               <TableHead className="text-xs font-semibold">Website Tujuan</TableHead>
               <TableHead className="text-xs font-semibold">Status</TableHead>
-              <TableHead className="text-xs font-semibold">Jadwal Tayang</TableHead>
+              <TableHead className="text-xs font-semibold">Waktu &amp; Publikasi</TableHead>
               <TableHead className="text-xs font-semibold">Kategori</TableHead>
               <TableHead className="text-xs font-semibold text-right">Aksi</TableHead>
             </TableRow>
@@ -453,6 +469,23 @@ export function QueueDataTable({
                               {item.batchId === "quick-writer" ? "⚡ Tulis Cepat" : item.batchName}
                             </Badge>
                           )}
+                          {item.wpTargetStatus &&
+                            !["published_on_wp", "saved_draft_on_wp", "scheduled_on_wp"].includes(
+                              item.status
+                            ) && (
+                              <Badge
+                                variant="outline"
+                                className={`text-[9px] h-4 px-1.5 font-normal tracking-tight ${
+                                  item.wpTargetStatus === "publish"
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                                    : item.wpTargetStatus === "draft"
+                                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                                    : "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20"
+                                }`}
+                              >
+                                Target: {item.wpTargetStatus === "publish" ? "Terbit" : item.wpTargetStatus === "draft" ? "Draf" : "Jadwal"}
+                              </Badge>
+                            )}
                           {item.wordCount && (
                             <span>{item.wordCount.toLocaleString()} kata</span>
                           )}
@@ -486,18 +519,159 @@ export function QueueDataTable({
                       <StatusBadge status={item.status} />
                     </TableCell>
 
-                    {/* Schedule Col */}
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
-                      {item.scheduledFor
-                        ? formatIndonesianDateTime(new Date(item.scheduledFor))
-                        : "—"}
+                    {/* Waktu & Jadwal Publikasi Col */}
+                    <TableCell className="text-xs whitespace-nowrap">
+                      {(() => {
+                        // 1. Kasus: Sudah Terbit di WordPress
+                        if (item.status === "published_on_wp") {
+                          const publishDate = item.updatedAt ? new Date(item.updatedAt) : null
+                          return (
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                <CheckCircle2 className="size-3 shrink-0" />
+                                <span>Terbit di Web</span>
+                              </span>
+                              <span className="text-[11px] text-muted-foreground font-mono">
+                                {publishDate ? formatIndonesianDateTime(publishDate) : "—"}
+                              </span>
+                            </div>
+                          )
+                        }
+
+                        // 2. Kasus: Terjadwal di WordPress (Future Status)
+                        if (item.status === "scheduled_on_wp") {
+                          const scheduleDate = item.scheduledFor
+                            ? new Date(item.scheduledFor)
+                            : item.updatedAt
+                            ? new Date(item.updatedAt)
+                            : null
+                          return (
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
+                                <CalendarClock className="size-3 shrink-0" />
+                                <span>Terjadwal di WP</span>
+                              </span>
+                              <span className="text-[11px] text-foreground font-medium font-mono">
+                                {scheduleDate ? formatIndonesianDateTime(scheduleDate) : "—"}
+                              </span>
+                            </div>
+                          )
+                        }
+
+                        // 3. Kasus: Draf Tersimpan di WordPress
+                        if (item.status === "saved_draft_on_wp") {
+                          const draftDate = item.updatedAt ? new Date(item.updatedAt) : null
+                          return (
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                <FileText className="size-3 shrink-0" />
+                                <span>Draf di WP</span>
+                              </span>
+                              <span className="text-[11px] text-muted-foreground font-mono">
+                                {draftDate ? formatIndonesianDateTime(draftDate) : "—"}
+                              </span>
+                            </div>
+                          )
+                        }
+
+                        // 4. Kasus: Gagal (Generation atau Sync)
+                        if (item.status === "failed_generation" || item.status === "failed_sync") {
+                          const failDate = item.updatedAt ? new Date(item.updatedAt) : null
+                          return (
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-destructive/10 text-destructive border border-destructive/20">
+                                <AlertCircle className="size-3 shrink-0" />
+                                <span>Gagal Diproses</span>
+                              </span>
+                              <span className="text-[11px] text-muted-foreground font-mono">
+                                {failDate ? formatIndonesianDateTime(failDate) : "—"}
+                              </span>
+                            </div>
+                          )
+                        }
+
+                        // 5. Kasus: Dalam Antrean / Sedang Diproses
+                        const isFutureSchedule =
+                          item.scheduledFor && new Date(item.scheduledFor).getTime() > Date.now()
+
+                        if (isFutureSchedule) {
+                          return (
+                            <div className="flex flex-col gap-1 items-start">
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                                <CalendarClock className="size-3 shrink-0" />
+                                <span>Rencana Tayang</span>
+                              </span>
+                              <span className="text-[11px] text-foreground font-medium font-mono">
+                                {formatIndonesianDateTime(new Date(item.scheduledFor!))}
+                              </span>
+                            </div>
+                          )
+                        }
+
+                        // Antrean Langsung (Immediate Queue)
+                        const queueDate = item.createdAt ? new Date(item.createdAt) : null
+                        return (
+                          <div className="flex flex-col gap-1 items-start">
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted/60 text-muted-foreground border border-border/60">
+                              <Layers className="size-3 shrink-0" />
+                              <span>Masuk Antrean</span>
+                            </span>
+                            <span className="text-[11px] text-muted-foreground font-mono">
+                              {queueDate ? formatIndonesianDateTime(queueDate) : "—"}
+                            </span>
+                          </div>
+                        )
+                      })()}
                     </TableCell>
 
                     {/* Category Col */}
                     <TableCell>
-                      <span className="text-xs text-muted-foreground bg-secondary/80 px-2 py-0.5 rounded-md font-medium">
-                        {item.category || "Umum"}
-                      </span>
+                      {(() => {
+                        const rawList =
+                          Array.isArray(item.categories) && item.categories.length > 0
+                            ? item.categories
+                            : item.category
+                            ? item.category.split(",").map((c) => c.trim()).filter(Boolean)
+                            : []
+
+                        const categories = rawList.filter(Boolean)
+
+                        if (categories.length === 0) {
+                          return (
+                            <Badge
+                              variant="outline"
+                              className="text-[11px] font-normal text-muted-foreground bg-muted/40 border-dashed"
+                            >
+                              Umum
+                            </Badge>
+                          )
+                        }
+
+                        const firstCat = categories[0]
+                        const remainingCount = categories.length - 1
+
+                        return (
+                          <div className="flex items-center gap-1 flex-wrap max-w-[200px]">
+                            <Badge
+                              variant="secondary"
+                              className="text-[11px] font-medium inline-flex items-center gap-1 bg-secondary/80 text-secondary-foreground border border-border/60 max-w-[150px] truncate"
+                              title={firstCat}
+                            >
+                              <Folder className="size-3 text-muted-foreground shrink-0" />
+                              <span className="truncate">{firstCat}</span>
+                            </Badge>
+                            {remainingCount > 0 && (
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] font-mono font-medium px-1.5 py-0 text-muted-foreground hover:text-foreground cursor-help"
+                                title={`Kategori lainnya: ${categories.slice(1).join(", ")}`}
+                              >
+                                +{remainingCount}
+                              </Badge>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </TableCell>
 
                     {/* Action Col */}
