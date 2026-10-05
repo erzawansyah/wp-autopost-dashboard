@@ -265,8 +265,8 @@ export async function runAgentWriter(options: RunAgentOptions): Promise<RunAgent
         configurable: { thread_id: threadId },
         recursionLimit:
           profile.mode === "deep"
-            ? Math.min(150, limits.maxModelCalls * 3 + 25)
-            : Math.min(100, limits.maxModelCalls * 2 + 10),
+            ? Math.max(150, Math.min(300, limits.maxModelCalls * 10 + 60))
+            : Math.max(80, Math.min(200, limits.maxModelCalls * 10 + 40)),
         signal: timeoutController.signal,
         runName: `Panitera [${profile.mode === "deep" ? "Deep Agent" : "Standard Agent"}]: ${keyword.slice(0, 45)}`,
         tags: [profile.mode, "panitera", `lang:${language}`, siteName].filter(Boolean),

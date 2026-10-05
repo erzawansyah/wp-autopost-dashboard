@@ -1,6 +1,5 @@
 import {
   createMiddleware,
-  toolCallLimitMiddleware,
   modelCallLimitMiddleware,
 } from "langchain"
 import { AIMessage } from "@langchain/core/messages"
@@ -51,43 +50,29 @@ function createTelemetryMiddleware(recorder: RunRecorder) {
 }
 
 /**
- * Membangun rangkaian lengkap Guard Middleware berlapis untuk agent
+ * Membangun rangkaian lengkap Guard Middleware berlapis untuk agent.
+ * Menggunakan pendekatan Unified Tool Guard pada wrapToolCall untuk menghindari
+ * pembuatan puluhan node redundan di StateGraph LangGraph yang memicu GraphRecursionError.
  */
 export function buildGuardMiddlewareStack(limits: AgentLimits, recorder: RunRecorder) {
-  const stack: (ReturnType<typeof createMiddleware> | ReturnType<typeof toolCallLimitMiddleware>)[] = []
+  const stack: (ReturnType<typeof createMiddleware> | ReturnType<typeof modelCallLimitMiddleware>)[] = []
 
-  // 1. Lapisan terluar: Telemetri model call
+  // 1. Lapisan terluar: Telemetri model call (wrapModelCall)
   stack.push(createTelemetryMiddleware(recorder))
 
-  // 2. Lapisan kedua: Loop Guard, dedupe, dan Circuit Breaker per-tool
-  stack.push(createLoopGuardMiddleware({ maxConsecutiveFailures: 2 }, recorder))
-
-  // 3. Batas total pemanggilan tools secara global (exitBehavior: continue agar model sempat menulis naskah)
-  if (limits.maxToolCalls > 0) {
-    stack.push(
-      toolCallLimitMiddleware({
-        runLimit: limits.maxToolCalls,
-        exitBehavior: "continue",
-      })
+  // 2. Lapisan kedua: Unified Tool Guard (Loop Guard, Deduplication, Circuit Breaker, dan Kuota Per-Tool / Global)
+  // Berjalan di dalam wrapToolCall pada ToolNode sehingga TIDAK menambah node StateGraph ekstra.
+  stack.push(
+    createLoopGuardMiddleware(
+      {
+        maxConsecutiveFailures: 2,
+        limits,
+      },
+      recorder
     )
-  }
+  )
 
-  // 4. Batas pemanggilan spesifik per-tool (misal web_reader: 4)
-  if (limits.perTool) {
-    for (const [toolName, limitVal] of Object.entries(limits.perTool)) {
-      if (limitVal > 0) {
-        stack.push(
-          toolCallLimitMiddleware({
-            toolName,
-            runLimit: limitVal,
-            exitBehavior: "continue",
-          })
-        )
-      }
-    }
-  }
-
-  // 5. Batas total pemanggilan model LLM (exitBehavior: end agar run berhenti dan masuk ke finalize call)
+  // 3. Batas total pemanggilan model LLM (exitBehavior: end agar run berhenti dan masuk ke finalize call)
   if (limits.maxModelCalls > 0) {
     stack.push(
       modelCallLimitMiddleware({

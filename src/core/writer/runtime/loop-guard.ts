@@ -2,26 +2,33 @@ import { createMiddleware } from "langchain"
 import { ToolMessage } from "@langchain/core/messages"
 import { RunRecorder } from "./telemetry"
 import { ToolRegistry } from "../tools/registry"
+import { AgentLimits } from "../types/profile"
 
 export interface LoopGuardOptions {
   /** Maksimal kegagalan berturut-turut sebelum tool dinonaktifkan untuk run ini (default: 2) */
   maxConsecutiveFailures?: number
+  /** Batas kuota eksekusi tool sistem (global dan per-tool) */
+  limits?: AgentLimits
 }
 
 /**
- * Middleware Loop Guard & Circuit Breaker:
- * 1. Mencegah panggilan duplikat identik (deduplication)
- * 2. Memutus rantai loop jika sebuah tool gagal berulang kali (circuit breaker)
- * 3. Mencegah agent loop tanpa henti saat tool pihak ketiga error/down
- * 4. Mencatat log setiap panggilan tool ke RunRecorder
+ * Middleware Loop Guard, Circuit Breaker & Quota Limiter (Unified Tool Guard):
+ * 1. Menegakkan kuota pemanggilan per-tool dan batas global tanpa menambah node graf ekstra
+ * 2. Mencegah panggilan duplikat identik (deduplication)
+ * 3. Memutus rantai loop jika sebuah tool gagal berulang kali (circuit breaker)
+ * 4. Mencegah agent loop tanpa henti saat tool pihak ketiga error/down
+ * 5. Mencatat log setiap panggilan tool ke RunRecorder
  */
 export function createLoopGuardMiddleware(
   options: LoopGuardOptions = {},
   recorder: RunRecorder
 ) {
   const maxFailures = options.maxConsecutiveFailures ?? 2
+  const limits = options.limits
   const callCache = new Map<string, string>()
   const failureCount = new Map<string, number>()
+  const toolCallCounts = new Map<string, number>()
+  let totalToolCalls = 0
   const disabledTools = new Set<string>()
 
   return createMiddleware({
@@ -33,7 +40,52 @@ export function createLoopGuardMiddleware(
       const toolDef = ToolRegistry.get(toolName)
       const argsObj = (toolCall.args || {}) as Record<string, unknown>
 
-      // 1. Circuit Breaker Check: Apakah tool sudah dinonaktifkan karena gagal berulang kali?
+      // 1. Quota Check (Global): Apakah kuota total panggilan tool sudah tercapai?
+      const maxToolCalls = limits?.maxToolCalls ?? 0
+      if (maxToolCalls > 0 && totalToolCalls >= maxToolCalls) {
+        const limitMsg = `PERINGATAN: Batas total panggilan tool sistem (${maxToolCalls} kali) telah tercapai. JANGAN memanggil tool lagi. Segera susun dan selesaikan naskah artikel utuh berdasarkan seluruh data yang telah Anda kumpulkan.`
+
+        recorder.recordEvent({
+          kind: "guard",
+          tool: toolName,
+          status: "blocked",
+          durationMs: 1,
+          argsPreview: argsObj as Record<string, string | number | boolean>,
+          summary: `Tool '${toolName}' diblokir: batas total tool calls (${maxToolCalls}) tercapai`,
+        })
+
+        return new ToolMessage({
+          content: limitMsg,
+          tool_call_id: toolId,
+          name: toolName,
+          status: "error",
+        })
+      }
+
+      // 2. Quota Check (Per-Tool): Apakah kuota panggilan untuk tool ini sudah tercapai?
+      const perToolLimit = limits?.perTool?.[toolName]
+      const currentToolCount = toolCallCounts.get(toolName) || 0
+      if (typeof perToolLimit === "number" && perToolLimit > 0 && currentToolCount >= perToolLimit) {
+        const limitMsg = `PERINGATAN: Batas pemanggilan tool '${toolName}' (${perToolLimit} kali) telah tercapai. JANGAN memanggil '${toolName}' lagi. Lanjutkan penulisan naskah artikel menggunakan data dan konteks yang sudah tersedia.`
+
+        recorder.recordEvent({
+          kind: "guard",
+          tool: toolName,
+          status: "blocked",
+          durationMs: 1,
+          argsPreview: argsObj as Record<string, string | number | boolean>,
+          summary: `Tool '${toolName}' diblokir: batas per-tool (${perToolLimit}) tercapai`,
+        })
+
+        return new ToolMessage({
+          content: limitMsg,
+          tool_call_id: toolId,
+          name: toolName,
+          status: "error",
+        })
+      }
+
+      // 3. Circuit Breaker Check: Apakah tool sudah dinonaktifkan karena gagal berulang kali?
       if (disabledTools.has(toolName)) {
         const disabledMsg = `PERINGATAN: Tool '${toolName}' telah dinonaktifkan sementara karena mengalami kegagalan berulang kali. JANGAN memanggil tool '${toolName}' lagi. Lanjutkan penulisan naskah artikel menggunakan data dan konteks yang sudah tersedia.`
 
@@ -53,7 +105,7 @@ export function createLoopGuardMiddleware(
         })
       }
 
-      // 2. Deduplication Check: Apakah argumen persis sama pernah dipanggil sebelumnya?
+      // 4. Deduplication Check: Apakah argumen persis sama pernah dipanggil sebelumnya?
       const normalizedArgs = JSON.stringify(argsObj, Object.keys(argsObj).sort())
       const cacheKey = `${toolName}:${normalizedArgs}`
 
@@ -77,7 +129,11 @@ export function createLoopGuardMiddleware(
         })
       }
 
-      // 3. Eksekusi Tool Sebenarnya dengan Stopwatch & Error Boundary
+      // Hitung panggilan tool yang valid
+      toolCallCounts.set(toolName, currentToolCount + 1)
+      totalToolCalls += 1
+
+      // 5. Eksekusi Tool Sebenarnya dengan Stopwatch & Error Boundary
       const start = Date.now()
       let resultMsg: Awaited<ReturnType<typeof handler>>
       let isError = false
