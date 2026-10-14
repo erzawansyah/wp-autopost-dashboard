@@ -1,7 +1,7 @@
 # Cetak Biru Arsitektur System Writer (Extensible Engine Framework, Gutenberg Blocks, Markdown-First, & Style Rules)
 
 > [!NOTE] Catatan Evolusi Arsitektur
-> Dokumen ini mencatat fondasi transisi awal System Writer. Sejak implementasi **ADR-047 (Agent Profile Runtime)**, struktur engine/node kaku telah dirombak menjadi arsitektur otonom **Agent Profile Runtime** (`src/core/writer/`) yang mendukung Standard LangChain Agent & Deep Agents dengan Universal Tools. Silakan rujuk [`ARCHITECTURE.md` §5](file:///d:/Antigravity/wp-autopost-dashboard/ARCHITECTURE.md) dan [`docs/03-manajemen-profil-agen.md`](file:///d:/Antigravity/wp-autopost-dashboard/docs/03-manajemen-profil-agen.md) untuk spesifikasi produksi aktif.
+> Dokumen ini mencatat fondasi transisi awal System Writer. Sejak implementasi **ADR-047 (Agent Profile Runtime)**, struktur engine/node kaku telah dirombak menjadi arsitektur otonom **Agent Profile Runtime** (`src/core/writer/`) yang mendukung Standard LangChain Agent & Deep Agents dengan Universal Tools. Silakan rujuk [`ARCHITECTURE.md` §5](../ARCHITECTURE.md) dan [`docs/03-manajemen-profil-agen.md`](../docs/03-manajemen-profil-agen.md) untuk spesifikasi produksi aktif.
 
 Dokumen ini memutakhirkan dan memperluas rencana arsitektur `System Writer` di `wp-autopost-dashboard`. Desain ini mengakomodasi kebutuhan **ekstensibilitas tak terbatas untuk penambahan engine baru**, **dukungan Gutenberg Block asli**, **alur kerja Markdown-First**, **direktori aturan gaya bahasa (*style rules*) modular**, dan **fitur in-content image injection per subheading**.
 
@@ -481,7 +481,7 @@ src/core/
 - [ ] Implementasikan `VisualStoryEngine` (Ekstraksi H2 -> Cari gambar bebas royalti -> Upload ke `/wp/v2/media` -> Sematkan blok gambar di tiap H2).
 
 ### Tahap 4: Verifikasi & Uji Coba Lapangan
-- [ ] Uji typecheck TypeScript (`npx.cmd tsc --noEmit`).
+- [ ] Uji typecheck TypeScript (`npx tsc --noEmit`).
 - [ ] Uji konversi Markdown ke Gutenberg blocks dengan berbagai variasi sintaks.
 - [ ] Uji pengiriman postingan langsung ke WordPress dan pastikan saat dibuka di WP Admin, artikel tampil sebagai blok Gutenberg asli (bukan Classic block).
 

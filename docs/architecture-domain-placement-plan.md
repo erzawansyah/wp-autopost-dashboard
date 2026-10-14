@@ -166,9 +166,9 @@ Jika Anda menyetujui desain **Model 1 (Domain Slice + Shared Core)** di atas, be
    - Buat placeholder folder `src/core/rewriter/` (dengan README panduan arsitektur)
    - Buat placeholder folder `src/core/link-auditor/` (dengan README panduan arsitektur)
 4. Perbarui impor di API route dan verifikasi:
-   - `npx.cmd tsc --noEmit` ➔ 0 error
-   - `npm.cmd run lint` ➔ 0 warning
-   - `npm.cmd run build` ➔ 22/22 rute terkompilasi
+   - `npx tsc --noEmit` ➔ 0 error
+   - `npm run lint` ➔ 0 warning
+   - `npm run build` ➔ 22/22 rute terkompilasi
 
 ---
 

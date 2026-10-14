@@ -30,8 +30,8 @@ out
 .workspaces/assets
 *.log
 
-# Antigravity & Agent workspace
+# Claude Code harness & local agent workspace (tidak dibutuhkan di image)
+.claude
+CLAUDE.md
+CLAUDE.local.md
 .agents
-.gemini
-.geminiignore
-.antigravityignore

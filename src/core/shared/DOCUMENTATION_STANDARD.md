@@ -51,7 +51,7 @@ type: "engine"                      # Pilihan: 'engine' | 'node' | 'tool'
 version: "1.0.0"                    # Semantic versioning
 status: "stable"                    # Pilihan: 'stable' | 'experimental' | 'deprecated'
 description: "Deskripsi singkat dan padat mengenai fungsi komponen ini."
-author: "Antigravity Engineering"
+author: "Panitera Engineering"
 tags: ["fast", "1-shot", "markdown", "gutenberg"]
 
 # Deklarasi Kapabilitas (Khusus Engine)

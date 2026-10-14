@@ -20,7 +20,11 @@ dist/
 *.pem
 *.key
 .workspaces/
+# Folder harness lama (Antigravity); dibiarkan ter-ignore selama masa transisi
 .agents/
+# Preferensi Claude Code pribadi (tidak dibagikan)
+.claude/settings.local.json
+CLAUDE.local.md
 tmp/
 scratch/
 .playwright-mcp/

@@ -30,18 +30,20 @@ Dokumen ini adalah cetak biru teknis (*technical blueprint*) resmi untuk platfor
 
 ```text
 wp-autopost-dashboard/
-├── .agents/                               # Konfigurasi ekosistem Antigravity AI
-│   ├── rules/                             # Aturan operasional & keamanan
+├── .claude/                               # Harness Claude Code (lihat CLAUDE.md)
+│   ├── rules/                             # Aturan operasional & keamanan (dimuat otomatis)
 │   │   ├── security.md                    # Standar RLS Supabase, AES-256-GCM & anti-SSRF
+│   │   ├── codebase-hygiene.md            # Zero dead code, TS strict, sandbox .workspaces/
 │   │   ├── atomic-design-and-styling.md   # Pedoman Atomic Design & larangan arbitrary hex
 │   │   ├── page-layout-standard.md        # Standar PageContainer & PageHeader seragam
+│   │   ├── prompt-management.md           # 3 pilar prompt & format berkas
 │   │   ├── skills-routing-matrix.md       # Matriks pemetaan tugas ke skill
-│   │   ├── windows-shell-execution.md     # Eksekusi .cmd pada shell Windows PowerShell
 │   │   └── writer-components-standard.md  # Standar Agent Profile Runtime & Gutenberg
-│   ├── skills/                            # Pustaka skill lokal & eksternal
-│   ├── worklogs/                          # Catatan progres detail per milestone/fase
-│   ├── hooks.json                         # Lifecycle safety hooks (normalizer & secret guard)
-│   └── mcp_config.json                    # Konfigurasi MCP server developer
+│   ├── skills/                            # Skill teknis proyek (Next, Supabase, LangChain, WP)
+│   ├── hooks/                             # Hook guard-secrets & session-start
+│   └── settings.json                      # Izin & registrasi hooks
+├── .workspaces/                           # Sandbox lokal (di-ignore Git): scripts, temp, assets, worklogs
+├── CLAUDE.md                              # Konteks utama proyek untuk Claude Code
 ├── docs/                                  # Dokumentasi sistem & panduan pengguna (/docs)
 │   ├── 01-memulai-panitera.md             # Panduan dasar dan konsep platform
 │   ├── 02-koneksi-wordpress.md            # Zero-plugin onboarding & Application Passwords

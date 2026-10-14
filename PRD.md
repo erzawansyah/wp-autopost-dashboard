@@ -3,12 +3,12 @@
 **Nama Produk**: Panitera (WP Autopost & Multi-Site Content Dashboard)  
 **Status Dokumen**: Disetujui (Baseline Spesifikasi Produksi Aktif)  
 **Target Rilis**: Produksi (Ready for Production)  
-**Pemilik Produk**: Pengguna & Antigravity AI Engineering  
+**Pemilik Produk**: Pengguna & Tim Engineering Panitera  
 **Referensi Silang**:
-- Arsitektur & Skema DB → [`ARCHITECTURE.md`](file:///d:/Antigravity/wp-autopost-dashboard/ARCHITECTURE.md)
-- Sistem Desain & Token UI → [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md)
-- Standar Keamanan Multi-Tenant → [`.agents/rules/security.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/security.md)
-- Panduan Pengguna Interaktif → [`docs/`](file:///d:/Antigravity/wp-autopost-dashboard/docs/)
+- Arsitektur & Skema DB → [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Sistem Desain & Token UI → [`DESIGN.md`](DESIGN.md)
+- Standar Keamanan Multi-Tenant → [`.claude/rules/security.md`](.claude/rules/security.md)
+- Panduan Pengguna Interaktif → [`docs/`](docs/)
 
 ---
 

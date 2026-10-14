@@ -39,7 +39,8 @@
 
 ```text
 wp-autopost-dashboard/
-├── .agents/                 # Aturan Antigravity, rules, skills, worklogs, hooks
+├── .claude/                 # Harness Claude Code: rules, skills, hooks, settings
+├── .workspaces/             # Sandbox lokal (di-ignore Git): scripts, temp, assets, worklogs
 ├── docs/                    # Berkas dokumentasi Markdown panduan pengguna (/docs)
 ├── searxng/                 # Konfigurasi engine metasearch SearXNG
 ├── src/
@@ -117,8 +118,8 @@ Setelah berjalan:
 ## Dokumentasi Teknis Terkait
 
 Untuk pemahaman mendalam mengenai arsitektur, siklus antrean, dan sistem desain:
-- 📐 **Arsitektur Sistem & Database**: [`ARCHITECTURE.md`](file:///d:/Antigravity/wp-autopost-dashboard/ARCHITECTURE.md)
-- 📋 **Spesifikasi Kebutuhan Produk**: [`PRD.md`](file:///d:/Antigravity/wp-autopost-dashboard/PRD.md)
-- 🎨 **Sistem Desain & Token Visual**: [`DESIGN.md`](file:///d:/Antigravity/wp-autopost-dashboard/DESIGN.md)
-- 🤖 **Pedoman & Standar Perilaku AI Agent**: [`AGENTS.md`](file:///d:/Antigravity/wp-autopost-dashboard/AGENTS.md)
-- 🔒 **Standar Keamanan & Proteksi Data**: [`.agents/rules/security.md`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/rules/security.md)
+- 📐 **Arsitektur Sistem & Database**: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- 📋 **Spesifikasi Kebutuhan Produk**: [`PRD.md`](PRD.md)
+- 🎨 **Sistem Desain & Token Visual**: [`DESIGN.md`](DESIGN.md)
+- 🤖 **Pedoman & Standar Perilaku AI Agent**: [`CLAUDE.md`](CLAUDE.md)
+- 🔒 **Standar Keamanan & Proteksi Data**: [`.claude/rules/security.md`](.claude/rules/security.md)

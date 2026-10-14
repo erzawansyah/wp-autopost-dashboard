@@ -1,13 +1,13 @@
 # MEMORY.md — Living Project Memory & State Index
 
-Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Agent. Berbeda dengan [`AGENTS.md`](file:///d:/Antigravity/wp-autopost-dashboard/AGENTS.md) yang bersifat statik/kebijakan, file ini mencatat status terkini proyek, riwayat keputusan arsitektur (*ADR*), dan catatan teknis penting (*gotchas*) agar tidak terulang di sesi berikutnya.
+Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Agent. Berbeda dengan [`CLAUDE.md`](CLAUDE.md) dan [`.claude/rules/`](.claude/rules/) yang bersifat statik/kebijakan, file ini mencatat status terkini proyek, riwayat keputusan arsitektur (*ADR*), dan catatan teknis penting (*gotchas*) agar tidak terulang di sesi berikutnya.
 
 ---
 
 ## 1. Status Proyek Saat Ini
 
 - **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker, Standard Writing Engine, Hybrid Scraper Tools, Dynamic OpenRouter Models, Featured Image WP, Modul 2 Batch Keyword Ingestion, Agentic Writer Engine, Multi-Language Selection, Integrasi user_settings & webhooks, Perombakan Arsitektur Total ke Agent Profile Runtime, Modul Artikel Terjadwal (/scheduled), Skill Registry (/skills), Sentralisasi Kunci API (/settings/keys), Revamp Gambar (SearxNG + Pexafy), dan Konsolidasi Sidebar WP Tools (/tools)**.
-- **Catatan Worklog**: [`00`-`24`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/) · [`25`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/25-scheduled-articles-skills-and-tools.md) · [`26`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/26-api-keys-hub-searxng-pexafy-wptools.md) *(terbaru)*
+- **Catatan Worklog**: `.workspaces/worklogs/` (lokal, di-ignore Git) — `00`–`28`, terbaru `28-rebranding-panitera-tools-config-and-docs.md`.
 - **Fase Aktif**: **Unified BYOK Hub (/settings/keys), SearxNG & Pexafy Pipeline, WP Tools Hub (/tools) LIVE**.
 - **Fase Berikutnya**: **Modul 3 Niche Auto-Genesis & Smart Content Recycling**.
 
@@ -83,7 +83,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 - **Strict No-Commit Secrets**: File `.env.local` atau dump kredensial situs WP nyata tidak boleh ter-track oleh Git.
 - **User Communication Preference**: Bahasa Indonesia yang jelas, profesional, ringkas, tanpa basa-basi berlebihan (*no fluff*), tidak membuat asumsi sepihak, dan kode yang rapi sesuai konvensi.
 - **Progress Tulis Cepat Masih Estimasi**: `/api/posts/quick` hanya membalas sekali di akhir proses, jadi tahap dijalankan timer internal (3.5s/9s/13s). Jangan mengklaim ini real-time; untuk itu perlu worker + Supabase Realtime (`execution_logs` sudah siap sebagai sumbernya).
-- **`npm.cmd run lint` Kadang > 2 menit**: jalankan dengan timeout 300000ms, jangan diasumsikan gagal bila kelamaan.
+- **`npm run lint` Kadang > 2 menit**: jalankan dengan timeout 300000ms, jangan diasumsikan gagal bila kelamaan.
 - **Author Persona vs Byline**: Data author WordPress hanya dipakai sebagai referensi persona/sudut pandang. Byline `Penulis: ...` dilarang di prompt dan disanitasi otomatis oleh `markdown-cleaner.ts`.
 
 ---
@@ -93,4 +93,4 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 Setiap Agent yang menyelesaikan pekerjaan atau mencatat kesepakatan baru **WAJIB**:
 1. Menjaga ukuran file `MEMORY.md` ini tetap ramping (di bawah 100 baris).
 2. Mendiskusikan dan menyepakati penentuan fase atau workflow berikutnya dengan Pengguna sebelum mencatatnya sebagai rencana tetap.
-3. Menuliskan catatan teknis detail ke dalam file worklog di [`.agents/worklogs/`](file:///d:/Antigravity/wp-autopost-dashboard/.agents/worklogs/).
+3. Menuliskan catatan teknis detail ke dalam file worklog di `.workspaces/worklogs/` (lokal).
