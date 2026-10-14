@@ -12,7 +12,7 @@
  * 6. Open Knowledge Base Wikipedia (Fallback Ensiklopedis Cepat & Bebas Biaya)
  */
 
-import { safeFetch } from "@/lib/net/safe-fetch"
+import { safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
 
 export interface WebSearchResult {
   title: string
@@ -369,7 +369,7 @@ async function searchWithBrave(query: string, limit: number, apiKey: string): Pr
  */
 async function searchWithSearxngWeb(query: string, limit: number, searxngUrl: string): Promise<WebSearchResult[]> {
   try {
-    const base = searxngUrl.replace(/\/+$/, "")
+    const base = toSearxngBaseUrl(searxngUrl)
     const url = `${base}/search?q=${encodeURIComponent(query)}&categories=general&format=json`
     const res = await safeFetch(
       url,
@@ -379,7 +379,7 @@ async function searchWithSearxngWeb(query: string, limit: number, searxngUrl: st
           "Accept": "application/json",
         },
       },
-      { timeoutMs: 10000, maxBytes: 5 * 1024 * 1024 }
+      { timeoutMs: 10000, maxBytes: 5 * 1024 * 1024, platformSearxng: true }
     )
 
     if (!res.ok) {

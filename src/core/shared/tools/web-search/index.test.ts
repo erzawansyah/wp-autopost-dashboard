@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const { safeFetchMock } = vi.hoisted(() => ({ safeFetchMock: vi.fn() }))
-vi.mock("@/lib/net/safe-fetch", () => ({ safeFetch: safeFetchMock }))
+vi.mock("@/lib/net/safe-fetch", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/net/safe-fetch")>()),
+  safeFetch: safeFetchMock,
+}))
 
 import { webSearch } from "./index"
 

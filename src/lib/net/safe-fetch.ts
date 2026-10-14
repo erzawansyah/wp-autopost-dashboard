@@ -12,7 +12,9 @@ import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } fr
  * 3. Redirect ditangani manual dan setiap hop divalidasi ulang (default maks 3 hop).
  * 4. Timeout dan batas ukuran body.
  *
- * Origin internal milik platform (SearXNG dari `SEARXNG_URL`) dianggap tepercaya.
+ * Satu-satunya pengecualian jaringan internal: endpoint `/search` dan `/autocompleter`
+ * pada SearXNG milik platform (`SEARXNG_URL`), dan hanya bila pemanggil meminta
+ * `{ platformSearxng: true }`. Path lain di origin itu (mis. `/image_proxy`) tetap diblokir.
  * Akses jaringan privat hanya bisa dibuka di luar production lewat
  * `ALLOW_PRIVATE_NETWORK_FETCH=true` (misalnya uji WordPress lokal).
  */
@@ -56,12 +58,16 @@ for (const [prefix, bits] of [
   BLOCKED_RANGES.addSubnet(prefix, bits, "ipv4")
 }
 for (const [prefix, bits] of [
-  ["::", 128], // unspecified
-  ["::1", 128], // loopback
+  ["::", 96], // unspecified, loopback & IPv4-compatible (deprecated)
+  ["::ffff:0:0:0", 96], // IPv4-translated
+  ["64:ff9b:1::", 48], // local-use NAT64
   ["100::", 64], // discard-only
+  ["2001::", 32], // Teredo (bisa membungkus IPv4 privat)
   ["2001:db8::", 32], // documentation
+  ["2002::", 16], // 6to4 (bisa membungkus IPv4 privat)
   ["fc00::", 7], // unique local
   ["fe80::", 10], // link-local
+  ["fec0::", 10], // site-local (deprecated)
   ["ff00::", 8], // multicast
 ] as const) {
   BLOCKED_RANGES.addSubnet(prefix, bits, "ipv6")
@@ -102,7 +108,7 @@ export function isPrivateNetworkAllowed(): boolean {
   return process.env.ALLOW_PRIVATE_NETWORK_FETCH === "true" && process.env.NODE_ENV !== "production"
 }
 
-/** Origin internal milik platform yang boleh diakses walau berada di jaringan privat. */
+/** Origin SearXNG milik platform (`SEARXNG_URL` + default Docker). Bukan daftar izin umum. */
 export function getTrustedInternalOrigins(): Set<string> {
   const origins = new Set<string>()
   for (const raw of [process.env.SEARXNG_URL, DEFAULT_SEARXNG_URL]) {
@@ -116,8 +122,35 @@ export function getTrustedInternalOrigins(): Set<string> {
   return origins
 }
 
-function isTrustedInternal(url: URL): boolean {
-  return getTrustedInternalOrigins().has(url.origin)
+const PLATFORM_SEARXNG_PATHS = new Set(["/search", "/autocompleter"])
+
+/** true hanya untuk endpoint pencarian SearXNG platform; path lain di origin yang sama tidak dipercaya. */
+export function isPlatformSearxngEndpoint(input: string | URL): boolean {
+  let url: URL
+  try {
+    url = new URL(input)
+  } catch {
+    return false
+  }
+  return (
+    getTrustedInternalOrigins().has(url.origin) &&
+    PLATFORM_SEARXNG_PATHS.has(url.pathname) &&
+    url.hash === "" &&
+    url.username === "" &&
+    url.password === ""
+  )
+}
+
+/**
+ * Normalisasi base URL SearXNG (kustom atau default) sebelum ditambah `/search`/`/autocompleter`.
+ * Menolak query string, fragment, dan kredensial agar path tujuan tidak bisa dibelokkan.
+ */
+export function toSearxngBaseUrl(raw: string): string {
+  const url = parseHttpUrl(raw.trim())
+  if (url.search || url.hash) {
+    throw new SsrfBlockedError("URL SearXNG tidak boleh memuat query string atau fragment.")
+  }
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`
 }
 
 function parseHttpUrl(input: string | URL): URL {
@@ -173,7 +206,7 @@ const guardedAgent = new Agent({ connect: { lookup: safeLookup } })
  */
 export async function assertSafeUrl(input: string | URL): Promise<URL> {
   const url = parseHttpUrl(input)
-  if (isTrustedInternal(url) || isPrivateNetworkAllowed()) return url
+  if (isPrivateNetworkAllowed()) return url
   assertLiteralHostAllowed(url)
   const host = url.hostname.replace(/^\[|\]$/g, "")
   if (!net.isIP(host)) {
@@ -197,7 +230,15 @@ export interface SafeFetchOptions {
   maxRedirects?: number
   /** Batas ukuran body respons (byte). Default 10 MB. */
   maxBytes?: number
+  /**
+   * Izinkan endpoint `/search` & `/autocompleter` SearXNG milik platform (jaringan internal Docker).
+   * Hanya untuk helper pencarian SearXNG; jangan dipakai untuk URL umum dari pengguna/LLM.
+   */
+  platformSearxng?: boolean
 }
+
+/** Header yang aman dibawa ke origin lain saat mengikuti redirect. */
+const CROSS_ORIGIN_SAFE_HEADERS = ["accept", "accept-language", "user-agent", "content-type"]
 
 function limitBody(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
   let received = 0
@@ -240,7 +281,7 @@ export async function safeFetch(
   const headers = new Headers(init.headers)
 
   for (let hop = 0; ; hop++) {
-    const trusted = isTrustedInternal(url) || isPrivateNetworkAllowed()
+    const trusted = (options.platformSearxng === true && isPlatformSearxngEndpoint(url)) || isPrivateNetworkAllowed()
     if (!trusted) assertLiteralHostAllowed(url)
 
     const response = await undiciFetch(url, {
@@ -259,8 +300,10 @@ export async function safeFetch(
       if (hop >= maxRedirects) throw new SsrfBlockedError(`Terlalu banyak redirect (maks ${maxRedirects}).`)
       const next = parseHttpUrl(new URL(location, url))
       if (next.origin !== url.origin) {
-        headers.delete("authorization")
-        headers.delete("cookie")
+        // Lintas origin: buang semua header kecuali allowlist (Authorization, Cookie, API key kustom, dll.)
+        for (const name of [...headers.keys()]) {
+          if (!CROSS_ORIGIN_SAFE_HEADERS.includes(name)) headers.delete(name)
+        }
       }
       if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {
         method = "GET"

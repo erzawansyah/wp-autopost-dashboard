@@ -4,7 +4,7 @@
  * dari SearXNG (jika aktif) dengan fallback multi-source ke Google & Bing Suggest.
  */
 
-import { safeFetch } from "@/lib/net/safe-fetch"
+import { safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
 
 export interface KeywordSuggestionsParams {
   query: string
@@ -28,11 +28,11 @@ const SEARXNG_MAX_BYTES = 2 * 1024 * 1024
 
 /**
  * 1. Ambil saran kata kunci dari SearXNG (jika instance tersedia).
- * URL instance bisa diisi pengguna → lewat `safeFetch` (origin SearXNG platform otomatis tepercaya).
+ * URL instance bisa diisi pengguna → lewat `safeFetch` (hanya endpoint SearXNG platform yang tepercaya).
  */
 async function fetchFromSearxng(query: string, searxngUrl: string): Promise<string[]> {
   try {
-    const base = searxngUrl.replace(/\/+$/, "")
+    const base = toSearxngBaseUrl(searxngUrl)
     
     // Coba endpoint autocompleter SearXNG terlebih dahulu
     try {
@@ -40,7 +40,7 @@ async function fetchFromSearxng(query: string, searxngUrl: string): Promise<stri
       const autoRes = await safeFetch(
         autoUrl,
         { headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" } },
-        { timeoutMs: 4000, maxBytes: SEARXNG_MAX_BYTES }
+        { timeoutMs: 4000, maxBytes: SEARXNG_MAX_BYTES, platformSearxng: true }
       )
       if (autoRes.ok) {
         const data = await autoRes.json()
@@ -61,7 +61,7 @@ async function fetchFromSearxng(query: string, searxngUrl: string): Promise<stri
     const searchRes = await safeFetch(
       searchUrl,
       { headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" } },
-      { timeoutMs: 5000, maxBytes: SEARXNG_MAX_BYTES }
+      { timeoutMs: 5000, maxBytes: SEARXNG_MAX_BYTES, platformSearxng: true }
     )
 
     if (searchRes.ok) {

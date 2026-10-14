@@ -98,6 +98,15 @@ function SitesContent() {
     if (authStatus === "missing_credentials") {
       return { type: "error" as const, text: "WordPress tidak mengirimkan kredensial otorisasi yang lengkap." }
     }
+    if (authStatus === "session_mismatch") {
+      return { type: "error" as const, text: "Otorisasi ini dimulai dari akun Panitera lain. Masuk dengan akun yang benar lalu hubungkan ulang website." }
+    }
+    if (authStatus === "session_required") {
+      return { type: "error" as const, text: "Sesi login Anda berakhir sebelum otorisasi selesai. Masuk kembali lalu hubungkan ulang website." }
+    }
+    if (authStatus === "save_failed" || authStatus === "server_config_error") {
+      return { type: "error" as const, text: "Kredensial valid, tetapi website gagal disimpan. Silakan coba lagi beberapa saat lagi." }
+    }
     return null
   }, [authStatus, siteParam, errorParam])
 

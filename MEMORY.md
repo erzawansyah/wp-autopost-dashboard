@@ -68,7 +68,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 20. **ADR-061 (Rombak v2 · Fase 0: Hotfix Keamanan Multi-Tenant)**:
     - **BYOK-only**: kunci tenant hanya dari `user_settings` terenkripsi; tidak ada lagi baca/tulis `.env.local` saat runtime. Kunci platform hanya jika `PLATFORM_KEY_ALLOWED=true` (`src/lib/ai/platform-keys.ts`). LangSmith memakai tracer per tenant, tanpa mutasi `process.env`. API key tidak pernah disimpan di localStorage.
-    - **Anti-SSRF terpusat**: semua fetch ke URL dari pengguna/LLM lewat `safeFetch` (`src/lib/net/safe-fetch.ts`: DNS pinning, blokir IP privat, validasi ulang redirect, batas ukuran). Dev lokal: `ALLOW_PRIVATE_NETWORK_FETCH=true`.
+    - **Anti-SSRF terpusat**: semua fetch ke URL dari pengguna/LLM lewat `safeFetch` (`src/lib/net/safe-fetch.ts`: DNS pinning, blokir IP privat, validasi ulang redirect, batas ukuran). SearXNG platform hanya dipercaya untuk `/search` & `/autocompleter` (opt-in), `image_proxy` dimatikan. Dev lokal: `ALLOW_PRIVATE_NETWORK_FETCH=true`.
     - **Antrean**: klaim selalu difilter `user_id` untuk sesi; `CRON_SECRET` wajib & hanya lewat header; `syncing_to_wp` macet → `failed_sync`; item ber-`wp_post_id` tidak dipublikasi ulang; situs wajib milik pemilik item.
     - **Konten**: serializer Gutenberg escape penuh, tanpa passthrough HTML mentah, `[` dinetralkan (anti-shortcode); preview di dashboard disanitasi DOMPurify. Webhook ditandatangani `HMAC(secret, "timestamp.body")` + `X-Panitera-Timestamp`.
 

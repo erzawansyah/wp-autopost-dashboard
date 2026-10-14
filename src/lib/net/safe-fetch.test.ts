@@ -1,7 +1,15 @@
 import http from "node:http"
 import type { AddressInfo } from "node:net"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
-import { assertSafeUrl, isBlockedIp, ResponseTooLargeError, safeFetch, SsrfBlockedError } from "@/lib/net/safe-fetch"
+import {
+  assertSafeUrl,
+  isBlockedIp,
+  isPlatformSearxngEndpoint,
+  ResponseTooLargeError,
+  safeFetch,
+  SsrfBlockedError,
+  toSearxngBaseUrl,
+} from "@/lib/net/safe-fetch"
 
 describe("isBlockedIp", () => {
   it.each([
@@ -9,6 +17,7 @@ describe("isBlockedIp", () => {
     "169.254.169.254", "100.64.0.1", "224.0.0.1", "255.255.255.255",
     "::1", "::", "fc00::1", "fd12:3456::1", "fe80::1", "ff02::1",
     "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:a9fe:a9fe", "64:ff9b::a9fe:a9fe",
+    "::7f00:1", "::127.0.0.1", "::ffff:0:7f00:1", "64:ff9b:1::1", "2002:7f00:1::1", "2001:0:4136:e378::1", "fec0::1",
     "bukan-ip",
   ])("memblokir %s", (ip) => {
     expect(isBlockedIp(ip)).toBe(true)
@@ -43,8 +52,42 @@ describe("assertSafeUrl", () => {
     await expect(assertSafeUrl("https://93.184.216.34/path")).resolves.toBeInstanceOf(URL)
   })
 
-  it("mempercayai origin SearXNG milik platform", async () => {
-    await expect(assertSafeUrl("http://searxng-internal:8080/search?q=a")).resolves.toBeInstanceOf(URL)
+  it("tidak mempercayai origin SearXNG platform untuk URL umum", async () => {
+    await expect(assertSafeUrl("http://searxng-internal:8080/image_proxy?url=x")).rejects.toBeInstanceOf(SsrfBlockedError)
+  })
+})
+
+describe("isPlatformSearxngEndpoint", () => {
+  it("hanya mempercayai /search dan /autocompleter di origin SearXNG platform", () => {
+    expect(isPlatformSearxngEndpoint("http://searxng-internal:8080/search?q=a&format=json")).toBe(true)
+    expect(isPlatformSearxngEndpoint("http://searxng-internal:8080/autocompleter?q=a")).toBe(true)
+  })
+
+  it.each([
+    "http://searxng-internal:8080/image_proxy?url=http%3A%2F%2F169.254.169.254&h=x",
+    "http://searxng-internal:8080/image_proxy?url=x#/search?q=a",
+    "http://searxng-internal:8080/search#frag",
+    "http://searxng-internal:9090/search?q=a",
+    "http://evil.example/search?q=a",
+  ])("menolak %s", (url) => {
+    expect(isPlatformSearxngEndpoint(url)).toBe(false)
+  })
+})
+
+describe("toSearxngBaseUrl", () => {
+  it("menormalkan base URL", () => {
+    expect(toSearxngBaseUrl("https://searx.example.com/")).toBe("https://searx.example.com")
+    expect(toSearxngBaseUrl("https://searx.example.com/sub/")).toBe("https://searx.example.com/sub")
+  })
+
+  it.each([
+    "http://searxng-internal:8080/image_proxy?url=x#",
+    "https://searx.example.com/?a=1",
+    "https://searx.example.com/#x",
+    "https://u:p@searx.example.com",
+    "file:///etc/passwd",
+  ])("menolak %s", (url) => {
+    expect(() => toSearxngBaseUrl(url)).toThrow(SsrfBlockedError)
   })
 })
 
@@ -65,6 +108,11 @@ describe("safeFetch", () => {
         res.writeHead(200, { "content-type": "text/plain" })
         res.write("x".repeat(1024))
         res.end("x".repeat(1024))
+      } else if (req.url === "/echo-headers") {
+        res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify(req.headers))
+      } else if (req.url?.startsWith("/to-other-origin")) {
+        const port = (server.address() as AddressInfo).port
+        res.writeHead(302, { location: `http://localhost:${port}/echo-headers` }).end()
       } else if (req.url === "/empty") {
         res.writeHead(204).end()
       } else {
@@ -100,6 +148,16 @@ describe("safeFetch", () => {
     it("mengikuti redirect dan memperbarui url", async () => {
       const res = await safeFetch(`${base}/to-ok`)
       expect(res.url).toBe(`${base}/ok`)
+    })
+
+    it("membuang header sensitif saat redirect lintas origin", async () => {
+      const res = await safeFetch(`${base}/to-other-origin`, {
+        headers: { Authorization: "Basic abc", "x-api-key": "rahasia", Accept: "application/json" },
+      })
+      const echoed = (await res.json()) as Record<string, string>
+      expect(echoed.authorization).toBeUndefined()
+      expect(echoed["x-api-key"]).toBeUndefined()
+      expect(echoed.accept).toBe("application/json")
     })
 
     it("menghentikan loop redirect", async () => {

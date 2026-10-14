@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { encryptCredential } from "@/lib/crypto"
-import { assertSafeUrl, getTrustedInternalOrigins } from "@/lib/net/safe-fetch"
+import { assertSafeUrl, getTrustedInternalOrigins, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
 import type { WebSearchProvider } from "@/core/shared/tools/web-search"
 import {
   MaskedKeyInfo,
@@ -126,15 +126,24 @@ function parseSearchPreferencesInput(
 
 /**
  * Validasi URL SearxNG kustom sebelum disimpan (Anti-SSRF). String kosong = hapus (kembali ke default).
- * Production wajib HTTPS, kecuali origin SearxNG internal milik platform.
+ * Production wajib HTTPS. Origin SearXNG bawaan platform disimpan kosong (= pakai default).
  */
 async function validateSearxngUrl(raw: unknown): Promise<{ ok: true; value: string | null } | { ok: false; error: string }> {
-  const trimmed = typeof raw === "string" ? raw.trim().replace(/\/+$/, "") : ""
+  const trimmed = typeof raw === "string" ? raw.trim() : ""
   if (!trimmed) return { ok: true, value: null }
+
+  let base: string
+  try {
+    base = toSearxngBaseUrl(trimmed)
+  } catch {
+    return { ok: false, error: "URL SearxNG tidak valid. Gunakan alamat dasar instance tanpa query string atau fragment." }
+  }
+  // Origin SearXNG bawaan platform = pakai default (disimpan kosong), bukan URL kustom yang dipercaya.
+  if (getTrustedInternalOrigins().has(new URL(base).origin)) return { ok: true, value: null }
 
   let safeUrl: URL
   try {
-    safeUrl = await assertSafeUrl(trimmed)
+    safeUrl = await assertSafeUrl(base)
   } catch {
     return {
       ok: false,
@@ -142,11 +151,10 @@ async function validateSearxngUrl(raw: unknown): Promise<{ ok: true; value: stri
     }
   }
 
-  const isPlatformOrigin = getTrustedInternalOrigins().has(safeUrl.origin)
-  if (process.env.NODE_ENV === "production" && safeUrl.protocol !== "https:" && !isPlatformOrigin) {
+  if (process.env.NODE_ENV === "production" && safeUrl.protocol !== "https:") {
     return { ok: false, error: "URL SearxNG wajib menggunakan HTTPS." }
   }
-  return { ok: true, value: trimmed }
+  return { ok: true, value: base }
 }
 
 export async function GET() {

@@ -19,7 +19,7 @@ Berlaku untuk seluruh kode. Panitera adalah SaaS multi-tenant yang menyimpan kre
 ## 3. Anti-SSRF untuk URL Input Pengguna
 - Setiap request keluar ke URL yang berasal dari pengguna **atau LLM** (situs WordPress, `web_reader`, `upload_media`, SearXNG kustom, webhook) wajib memakai `safeFetch()` dari `src/lib/net/safe-fetch.ts`; jangan memakai `fetch()` langsung. Request ke situs WordPress lewat `wpFetch` di `src/lib/wordpress/client.ts`.
 - URL yang disimpan (webhook, SearXNG kustom, situs) divalidasi dulu dengan `assertSafeUrl()`.
-- `safeFetch` memblokir loopback, RFC 1918, CGNAT, link-local & metadata cloud, multicast/reserved, IPv6 privat & IPv4-mapped, termasuk alamat hasil resolve DNS (DNS pinning) dan setiap hop redirect. Hanya origin SearXNG platform (`SEARXNG_URL`) yang dipercaya. Akses jaringan privat untuk dev: `ALLOW_PRIVATE_NETWORK_FETCH=true` (diabaikan di production).
+- `safeFetch` memblokir loopback, RFC 1918, CGNAT, link-local & metadata cloud, multicast/reserved, IPv6 privat & IPv4-mapped, termasuk alamat hasil resolve DNS (DNS pinning) dan setiap hop redirect. Satu-satunya pengecualian: endpoint `/search` & `/autocompleter` SearXNG platform (`SEARXNG_URL`), dan hanya jika pemanggil memberi opsi `{ platformSearxng: true }` (dipakai helper pencarian saja). Base URL SearXNG selalu dinormalisasi dengan `toSearxngBaseUrl()` (tanpa query/fragment). Akses jaringan privat untuk dev: `ALLOW_PRIVATE_NETWORK_FETCH=true` (diabaikan di production).
 - Jangan melonggarkan aturan ini; tambahkan test di `safe-fetch.test.ts` bila mengubahnya.
 
 ## 4. Perlindungan Hosting WordPress Pengguna

@@ -10,13 +10,15 @@ general:
   instance_name: "Panitera SearXNG Engine"
 
 server:
-  # secret_key diisi acak atau bisa di-override via env SEARXNG_SECRET di docker-compose
-  secret_key: "wp-autopost-dashboard-searxng-internal-key-change-if-public"
+  # Nilai sebenarnya WAJIB diberikan lewat env SEARXNG_SECRET (docker-compose menolak start tanpa nilai ini).
+  # "ultrasecretkey" adalah sentinel bawaan SearXNG yang membuat instance menolak berjalan tanpa override.
+  secret_key: "ultrasecretkey"
   bind_address: "0.0.0.0"
   port: 8080
   # Matikan limiter lokal untuk request dari aplikasi web-search dashboard internal
   limiter: false
-  image_proxy: true
+  # Dimatikan: endpoint /image_proxy bisa dipakai sebagai proxy SSRF ke jaringan internal.
+  image_proxy: false
 
 search:
   safe_search: 0

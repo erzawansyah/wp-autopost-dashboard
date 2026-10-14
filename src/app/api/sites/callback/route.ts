@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server"
 import { verifyAuthStateToken, encryptCredential } from "@/lib/crypto"
 import { testWordPressConnection } from "@/lib/wordpress/client"
-import { createClient as createSupabaseClient } from "@supabase/supabase-js"
+import { checkCallbackSession, resolveCallbackReturnBase } from "@/lib/wordpress/connect-callback"
+import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/admin"
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -27,8 +29,19 @@ export async function GET(request: Request) {
     )
   }
 
-  // Gunakan returnOrigin dari payload jika ada agar user kembali ke domain asalnya (misal localhost)
-  const returnBase = payload.returnOrigin || appOrigin
+  const isProduction = process.env.NODE_ENV === "production"
+  // returnOrigin hanya dipakai bila sama dengan origin aplikasi (atau loopback saat dev) → cegah open redirect
+  const returnBase = resolveCallbackReturnBase(appOrigin, payload.returnOrigin, isProduction)
+
+  // Token state wajib dipakai oleh pengguna yang memulai koneksi (cegah penyimpanan ke tenant lain)
+  const supabaseSession = await createClient()
+  const {
+    data: { user: sessionUser },
+  } = await supabaseSession.auth.getUser()
+  const sessionCheck = checkCallbackSession(sessionUser?.id ?? null, payload.userId, isProduction)
+  if (sessionCheck !== "ok") {
+    return NextResponse.redirect(`${returnBase}/sites?auth_status=${sessionCheck}`)
+  }
 
   if (!user_login || !password) {
     return NextResponse.redirect(
@@ -55,17 +68,14 @@ export async function GET(request: Request) {
   // 2. Enkripsi Application Password dengan AES-256-GCM
   const encryptedPassword = encryptCredential(password)
 
-  // 3. Simpan atau perbarui data situs di Supabase
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY
-
-  if (!supabaseUrl || !supabaseKey) {
-    return NextResponse.redirect(
-      `${returnBase}/sites?auth_status=server_config_error`
-    )
+  // 3. Simpan atau perbarui data situs di Supabase (Service Role; difilter eksplisit dengan user_id pemilik token)
+  let supabaseAdmin: ReturnType<typeof createAdminClient>
+  try {
+    supabaseAdmin = createAdminClient()
+  } catch (err) {
+    console.error("[sites/callback] Konfigurasi Supabase server tidak lengkap:", err)
+    return NextResponse.redirect(`${returnBase}/sites?auth_status=server_config_error`)
   }
-
-  const supabaseAdmin = createSupabaseClient(supabaseUrl, supabaseKey)
 
   // Periksa apakah website dengan URL yang sama sudah ada untuk pengguna ini
   const { data: existingSite } = await supabaseAdmin
@@ -77,8 +87,9 @@ export async function GET(request: Request) {
 
   const displayName = payload.siteName || testRes.user?.name || "Blog WordPress"
 
+  let saveError: { message: string } | null = null
   if (existingSite) {
-    await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("wp_sites")
       .update({
         site_name: displayName,
@@ -89,8 +100,10 @@ export async function GET(request: Request) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", existingSite.id)
+      .eq("user_id", payload.userId)
+    saveError = error
   } else {
-    await supabaseAdmin.from("wp_sites").insert({
+    const { error } = await supabaseAdmin.from("wp_sites").insert({
       user_id: payload.userId,
       site_name: displayName,
       base_url: payload.baseUrl,
@@ -99,6 +112,12 @@ export async function GET(request: Request) {
       status: "connected",
       last_checked_at: new Date().toISOString(),
     })
+    saveError = error
+  }
+
+  if (saveError) {
+    console.error("[sites/callback] Gagal menyimpan situs WordPress:", saveError.message)
+    return NextResponse.redirect(`${returnBase}/sites?auth_status=save_failed`)
   }
 
   const successParam = encodeURIComponent(displayName)

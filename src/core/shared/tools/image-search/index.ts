@@ -22,7 +22,7 @@
  */
 
 import { getPlatformKey, resolvePlatformFallbackKey } from "@/lib/ai/platform-keys"
-import { ResponseTooLargeError, safeFetch, SsrfBlockedError } from "@/lib/net/safe-fetch"
+import { ResponseTooLargeError, safeFetch, SsrfBlockedError, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
 
 export interface ImageSearchResult {
   url: string
@@ -503,13 +503,13 @@ async function searchWithSearxngImages(
   minWidth: number
 ): Promise<ImageSearchResult[]> {
   try {
-    const base = searxngUrl.replace(/\/+$/, "")
+    const base = toSearxngBaseUrl(searxngUrl)
     const url = `${base}/search?q=${encodeURIComponent(query)}&categories=images&format=json`
-    // URL SearXNG bisa diisi pengguna → wajib Anti-SSRF (origin SearXNG platform otomatis tepercaya)
+    // URL SearXNG bisa diisi pengguna → wajib Anti-SSRF (hanya endpoint /search SearXNG platform yang tepercaya)
     const res = await safeFetch(
       url,
       { headers: getRandomBrowserHeaders("page") },
-      { timeoutMs: THIRD_PARTY_TIMEOUT_MS }
+      { timeoutMs: THIRD_PARTY_TIMEOUT_MS, platformSearxng: true }
     )
 
     if (!res.ok) {

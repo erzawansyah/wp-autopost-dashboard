@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { assertSafeUrl, safeFetch } from "@/lib/net/safe-fetch"
+import { assertSafeUrl, getTrustedInternalOrigins, safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
 
 const PROVIDER_TIMEOUT_MS = 10_000
 
@@ -35,21 +35,25 @@ export async function POST(request: Request) {
           { status: 400 }
         )
       }
+      let base: string
       try {
-        new URL(urlToTest)
+        base = toSearxngBaseUrl(urlToTest)
       } catch {
         return NextResponse.json(
-          { ok: false, error: "Format URL SearxNG tidak valid." },
+          { ok: false, error: "Format URL SearxNG tidak valid (tanpa query string atau fragment)." },
           { status: 400 }
         )
       }
+      const isPlatformSearxng = getTrustedInternalOrigins().has(new URL(base).origin)
 
       // URL diisi pengguna → validasi Anti-SSRF lalu kirim lewat safeFetch (pesan penolakan generik)
       let res: Response
       try {
-        await assertSafeUrl(urlToTest)
+        // SearXNG bawaan platform hanya boleh diakses lewat endpoint /search (opsi platformSearxng);
+        // URL kustom wajib publik (assertSafeUrl + safeFetch).
+        if (!isPlatformSearxng) await assertSafeUrl(base)
         res = await safeFetch(
-          `${urlToTest}/search?q=test&format=json`,
+          `${base}/search?q=test&format=json`,
           {
             headers: {
               Accept: "application/json",
@@ -57,7 +61,7 @@ export async function POST(request: Request) {
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
             },
           },
-          { timeoutMs: 8000, maxBytes: 5 * 1024 * 1024 }
+          { timeoutMs: 8000, maxBytes: 5 * 1024 * 1024, platformSearxng: true }
         )
       } catch {
         return NextResponse.json(
