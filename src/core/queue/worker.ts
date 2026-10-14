@@ -9,14 +9,40 @@ import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import { AgentStepEvent } from "@/core/writer/runtime/telemetry"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatcher"
+import { fetchWordPressCategories } from "@/lib/wordpress/client"
+import {
+  sanitizeTermNames,
+  toPlainText,
+  WP_EXCERPT_MAX_LENGTH,
+  WP_TITLE_MAX_LENGTH,
+} from "@/lib/wordpress/plain-text"
+import {
+  STALE_CLAIM_THRESHOLD_MS,
+  STALE_RECOVERABLE_STATES,
+  decideStaleRecovery,
+  isStaleRecoverableState,
+} from "@/core/queue/stale-recovery"
 
 export interface ProcessPostItemOptions {
   postId: string
+  /**
+   * Pemilik item yang WAJIB dicocokkan. Isi selalu untuk pemanggil berkonteks sesi pengguna;
+   * hanya pemicu sistem (cron terotorisasi) yang boleh mengosongkannya.
+   */
   userId?: string
-  clientApiKey?: string
   isAlreadyClaimed?: boolean
   forceNow?: boolean
 }
+
+/** Kategori kegagalan agar pemanggil (route API) dapat memetakan status HTTP tanpa mem-parsing pesan. */
+export type ProcessPostItemErrorCode =
+  | "not_found"
+  | "not_retryable"
+  | "in_progress"
+  | "incomplete_content"
+  | "already_on_wp"
+  | "site_unavailable"
+  | "sync_failed"
 
 export interface ProcessPostItemResult {
   success: boolean
@@ -27,6 +53,7 @@ export interface ProcessPostItemResult {
   wpPostId?: number
   wpPostUrl?: string
   error?: string
+  errorCode?: ProcessPostItemErrorCode
 }
 
 /**
@@ -40,17 +67,169 @@ async function getSupabaseClient() {
   }
 }
 
+type QueueDbClient = Awaited<ReturnType<typeof getSupabaseClient>>
+
+/**
+ * Menandai item gagal dan mencatat alasannya ke execution_logs (Database-First State Machine).
+ */
+async function markPostItemFailed(
+  supabase: QueueDbClient,
+  item: { id: string; userId: string },
+  state: "failed_generation" | "failed_sync",
+  message: string,
+  step: string
+) {
+  const { error: updateErr } = await supabase
+    .from("post_items")
+    .update({
+      state,
+      last_error: message,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", item.id)
+    .eq("user_id", item.userId)
+
+  if (updateErr) {
+    console.error(`[worker] Gagal menandai item ${item.id} sebagai ${state}:`, updateErr.message)
+  }
+
+  await supabase.from("execution_logs").insert({
+    post_item_id: item.id,
+    user_id: item.userId,
+    step,
+    level: "error",
+    message: `[Queue Worker] ${message}`,
+  })
+}
+
+/** State yang naskahnya sudah tersimpan dan dikirim ulang tanpa generasi AI (Cost-Saver Retry). */
+const SYNC_RETRY_STATES = ["failed_sync", "ready_to_sync"] as const
+
+function isSyncRetryState(state: unknown): boolean {
+  return (SYNC_RETRY_STATES as readonly unknown[]).includes(state)
+}
+
+/**
+ * Kunci `source_payload` berisi ID WordPress hasil resolusi (kategori, tag, author, featured media).
+ * Disimpan atomik bersama naskah saat transisi ke `syncing_to_wp`, sehingga retry mengirim metadata
+ * yang identik tanpa memanggil AI maupun mengunggah ulang media.
+ */
+const WP_PUBLISH_META_KEY = "wp_publish_meta"
+
+interface WpPublishMeta {
+  categoryIds: number[]
+  tagIds: number[]
+  authorId?: number
+  featuredMediaId?: number
+}
+
+const NUMERIC_ID_RE = /^\d+$/
+
+function toPositiveInt(value: unknown): number | undefined {
+  const num = typeof value === "string" && NUMERIC_ID_RE.test(value.trim()) ? Number(value) : value
+  return typeof num === "number" && Number.isSafeInteger(num) && num > 0 ? num : undefined
+}
+
+function toPositiveIntList(value: unknown): number[] {
+  if (!Array.isArray(value)) return []
+  const ids = value.map(toPositiveInt).filter((id): id is number => id !== undefined)
+  return Array.from(new Set(ids))
+}
+
+function toStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((entry) => (typeof entry === "number" ? String(entry) : typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.length > 0)
+}
+
+function readWpPublishMeta(payload: Record<string, unknown>): WpPublishMeta | null {
+  const raw = payload[WP_PUBLISH_META_KEY]
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null
+  const meta = raw as Record<string, unknown>
+  return {
+    categoryIds: toPositiveIntList(meta.categoryIds),
+    tagIds: toPositiveIntList(meta.tagIds),
+    authorId: toPositiveInt(meta.authorId),
+    featuredMediaId: toPositiveInt(meta.featuredMediaId),
+  }
+}
+
+interface WpCredentials {
+  baseUrl: string
+  username: string
+  applicationPassword: string
+}
+
+/** Cocokkan nama kategori tersimpan ke ID kategori WordPress (tanpa membedakan huruf besar/kecil). */
+async function resolveCategoryIdsByName(credentials: WpCredentials, names: string[]): Promise<number[]> {
+  const wanted = new Set(names.map((name) => toPlainText(name).toLowerCase()).filter(Boolean))
+  if (wanted.size === 0) return []
+  const res = await fetchWordPressCategories(credentials)
+  if (!res.ok || !res.categories) return []
+  return res.categories.filter((cat) => wanted.has(toPlainText(cat.name).toLowerCase())).map((cat) => cat.id)
+}
+
+/**
+ * Metadata retry untuk baris lama yang belum memiliki `wp_publish_meta`:
+ * - kategori: `source_payload.category_ids` → ID numerik di kolom `categories` → nama kategori via REST;
+ * - tag: worker lama menyimpan ID tag sebagai string angka; selain itu diperlakukan sebagai nama tag.
+ * Author & featured media tidak pernah tersimpan pada baris lama sehingga tidak dapat dipulihkan.
+ */
+async function resolveLegacyRetryMeta(
+  credentials: WpCredentials,
+  requestedCategoryIds: number[],
+  storedCategories: string[],
+  storedTags: string[]
+): Promise<{ meta: WpPublishMeta; tagNames: string[] }> {
+  let categoryIds = requestedCategoryIds
+  if (categoryIds.length === 0) {
+    categoryIds = toPositiveIntList(storedCategories.filter((c) => NUMERIC_ID_RE.test(c)))
+  }
+  if (categoryIds.length === 0) {
+    categoryIds = await resolveCategoryIdsByName(
+      credentials,
+      storedCategories.filter((c) => !NUMERIC_ID_RE.test(c))
+    )
+  }
+
+  const tagsAreIds = storedTags.length > 0 && storedTags.every((tag) => NUMERIC_ID_RE.test(tag))
+  return {
+    meta: { categoryIds, tagIds: tagsAreIds ? toPositiveIntList(storedTags) : [] },
+    tagNames: tagsAreIds ? [] : sanitizeTermNames(storedTags),
+  }
+}
+
+interface RunPostItemOptions extends ProcessPostItemOptions {
+  /** Hanya Cost-Saver Retry: item tanpa naskah tersimpan ditolak dan AI tidak pernah dipanggil. */
+  syncOnly: boolean
+}
+
 /**
  * Worker utama untuk memproses 1 item antrean di latar belakang (Background Queue Worker)
  * Memindahkan status: queued_input -> generating_content -> syncing_to_wp -> published/saved_draft
  */
-export async function processPostItem({
+export function processPostItem(options: ProcessPostItemOptions): Promise<ProcessPostItemResult> {
+  return runPostItem({ ...options, syncOnly: false })
+}
+
+/**
+ * Cost-Saver Retry manual (tombol "Kirim Ulang" di dasbor) lewat jalur worker yang sama:
+ * atomic claim `failed_sync`/`ready_to_sync` → `syncing_to_wp`, guard `wp_post_id`, dan naskah
+ * Gutenberg tersimpan dikirim apa adanya (tanpa generasi AI, tanpa unggah ulang media).
+ * `userId` wajib: hanya pemilik item yang boleh memicu retry.
+ */
+export function retryPostItemSync(params: { postId: string; userId: string }): Promise<ProcessPostItemResult> {
+  return runPostItem({ postId: params.postId, userId: params.userId, syncOnly: true })
+}
+
+async function runPostItem({
   postId,
   userId,
-  clientApiKey,
   isAlreadyClaimed,
   forceNow,
-}: ProcessPostItemOptions): Promise<ProcessPostItemResult> {
+  syncOnly,
+}: RunPostItemOptions): Promise<ProcessPostItemResult> {
   const startTime = Date.now()
   const supabase = await getSupabaseClient()
 
@@ -75,8 +254,12 @@ export async function processPostItem({
       source_payload,
       scheduled_for,
       updated_at,
+      retry_count,
+      wp_post_id,
+      wp_post_url,
       wp_sites (
         id,
+        user_id,
         site_name,
         base_url,
         wp_username,
@@ -91,10 +274,13 @@ export async function processPostItem({
 
   const { data: post, error: fetchError } = await query.single()
 
-  if (fetchError || !post) {
+  // Ownership eksplisit (defense-in-depth di atas filter query): item milik pengguna lain
+  // diperlakukan sama dengan "tidak ditemukan" agar keberadaannya tidak bocor.
+  if (fetchError || !post || (userId && post.user_id !== userId)) {
     return {
       success: false,
       postId,
+      errorCode: "not_found",
       error: `Post item tidak ditemukan: ${fetchError?.message || "Data kosong"}`,
     }
   }
@@ -109,25 +295,81 @@ export async function processPostItem({
       success: true,
       postId,
       state: post.state,
+      wpPostId: toPositiveInt(post.wp_post_id),
+      wpPostUrl: post.wp_post_url || undefined,
     }
   }
 
-  // Idempotency: Jika konten sudah ada dan sebelumnya gagal sinkronisasi,
+  // Idempotency: Jika naskah sudah tersimpan dan sebelumnya gagal sinkronisasi,
   // lewati pembuatan ulang konten AI (AI bypass)
-  const isRetrySync =
-    post.state === "failed_sync" &&
-    Boolean(post.content_html && post.content_html.trim().length > 0 && post.title)
+  const hasStoredArticle = Boolean(post.content_html && post.content_html.trim().length > 0 && post.title)
+  const isRetrySync = isSyncRetryState(post.state) && hasStoredArticle
 
-  // Jika belum diklaim oleh pemanggil (misal dipanggil langsung via postId):
-  if (!isAlreadyClaimed && !isRetrySync) {
-    // Jika sedang diproses oleh worker lain (dan belum stale < 10 menit lalu)
+  if (syncOnly && !isRetrySync) {
+    if (post.state === "generating_content" || post.state === "syncing_to_wp") {
+      return {
+        success: false,
+        postId,
+        state: post.state,
+        errorCode: "in_progress",
+        error: `Artikel sedang diproses (status: ${post.state}). Tunggu hingga selesai sebelum mengirim ulang.`,
+      }
+    }
+    if (!isSyncRetryState(post.state)) {
+      return {
+        success: false,
+        postId,
+        state: post.state,
+        errorCode: "not_retryable",
+        error: "Artikel ini tidak berada dalam status yang dapat disinkronkan ulang.",
+      }
+    }
+    return {
+      success: false,
+      postId,
+      state: post.state,
+      errorCode: "incomplete_content",
+      error: "Konten artikel belum lengkap untuk dikirim ke WordPress.",
+    }
+  }
+
+  const claimLostError = "Item sudah diambil atau sedang dikerjakan oleh worker lain."
+
+  if (isAlreadyClaimed) {
+    // Klaim dari claimNextPendingQueueItems() selalu menghasilkan 'generating_content'.
+    // Jika state sudah berubah (mis. dipulihkan auto-healing), klaim dianggap hilang.
+    if (post.state !== "generating_content") {
+      return { success: false, postId, errorCode: "in_progress", error: claimLostError }
+    }
+  } else if (isRetrySync) {
+    // Atomic claim lock untuk Cost-Saver Retry: failed_sync/ready_to_sync -> syncing_to_wp.
+    // Pemicu ganda (mis. klik ganda) hanya akan memenangkan satu klaim sehingga naskah tidak terkirim dua kali.
+    const previousRetryCount = typeof post.retry_count === "number" ? post.retry_count : 0
+    const { data: locked, error: lockErr } = await supabase
+      .from("post_items")
+      .update({
+        state: "syncing_to_wp",
+        retry_count: previousRetryCount + 1,
+        last_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", postId)
+      .in("state", [...SYNC_RETRY_STATES])
+      .select("id")
+      .maybeSingle()
+
+    if (lockErr || !locked) {
+      return { success: false, postId, errorCode: "in_progress", error: claimLostError }
+    }
+  } else {
+    // Jika sedang diproses oleh worker lain (dan belum stale)
     if (post.state === "generating_content" || post.state === "syncing_to_wp") {
       const updatedAt = post.updated_at ? new Date(post.updated_at).getTime() : 0
-      const tenMinutesAgo = Date.now() - 10 * 60 * 1000
-      if (updatedAt > tenMinutesAgo) {
+      if (updatedAt > Date.now() - STALE_CLAIM_THRESHOLD_MS) {
         return {
           success: false,
           postId,
+          errorCode: "in_progress",
           error: `Item sedang diproses oleh worker lain (status: ${post.state}).`,
         }
       }
@@ -147,30 +389,41 @@ export async function processPostItem({
       .maybeSingle()
 
     if (lockErr || !locked) {
-      return {
-        success: false,
-        postId,
-        error: "Item sudah diambil atau sedang dikerjakan oleh worker lain.",
-      }
+      return { success: false, postId, errorCode: "in_progress", error: claimLostError }
     }
+  }
+
+  const ownedItem = { id: postId, userId: post.user_id as string }
+  // Naskah tersimpan (retry sync) tidak boleh "turun" ke failed_generation agar retry tidak memicu AI ulang.
+  const failureState = isRetrySync ? "failed_sync" : "failed_generation"
+
+  // Idempotency: item yang sudah memiliki wp_post_id tidak boleh membuat post baru di WordPress.
+  if (post.wp_post_id) {
+    const duplicateMsg =
+      `Artikel ini sudah tercatat di WordPress (WP ID #${post.wp_post_id}). ` +
+      "Pembuatan post baru dibatalkan untuk mencegah duplikasi; periksa artikel tersebut langsung di wp-admin."
+    await markPostItemFailed(supabase, ownedItem, "failed_sync", duplicateMsg, "duplicate_guard")
+    return { success: false, postId, errorCode: "already_on_wp", error: duplicateMsg }
   }
 
   const site = Array.isArray(post.wp_sites) ? post.wp_sites[0] : post.wp_sites
   if (!site) {
-    await supabase
-      .from("post_items")
-      .update({
-        state: "failed_generation",
-        last_error: "Data website WordPress tujuan tidak ditemukan di database.",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", postId)
+    const missingSiteMsg = "Data website WordPress tujuan tidak ditemukan di database."
+    await markPostItemFailed(supabase, ownedItem, failureState, missingSiteMsg, "site_check")
+    return { success: false, postId, errorCode: "site_unavailable", error: missingSiteMsg }
+  }
 
-    return {
-      success: false,
-      postId,
-      error: "Data website WordPress tujuan tidak ditemukan.",
-    }
+  // Defense-in-depth lintas tenant: situs WordPress wajib milik pemilik artikel yang sama.
+  // Kredensial situs milik tenant lain tidak boleh didekripsi maupun dipakai.
+  if (site.user_id !== post.user_id) {
+    console.error(
+      `[worker] Penolakan lintas tenant: post_item ${postId} merujuk wp_site ${site.id} milik pengguna lain.`
+    )
+    const foreignSiteMsg =
+      "Website WordPress tujuan tidak terdaftar atas akun pemilik artikel ini. Proses dihentikan demi keamanan; " +
+      "pilih ulang website tujuan dari daftar website Anda."
+    await markPostItemFailed(supabase, ownedItem, failureState, foreignSiteMsg, "site_check")
+    return { success: false, postId, errorCode: "site_unavailable", error: foreignSiteMsg }
   }
 
   // 2. Dekripsi Application Password WordPress di memori server
@@ -179,35 +432,22 @@ export async function processPostItem({
     plainPassword = decryptCredential(site.encrypted_app_password)
   } catch (decErr: unknown) {
     const decMsg = decErr instanceof Error ? decErr.message : "Gagal mendekripsi kredensial situs"
-    await supabase
-      .from("post_items")
-      .update({
-        state: "failed_sync",
-        last_error: decMsg,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", postId)
+    await markPostItemFailed(supabase, ownedItem, "failed_sync", decMsg, "site_credentials")
+    return { success: false, postId, errorCode: "site_unavailable", error: decMsg }
+  }
 
-    return {
-      success: false,
-      postId,
-      error: decMsg,
-    }
+  const credentials: WpCredentials = {
+    baseUrl: site.base_url,
+    username: site.wp_username,
+    applicationPassword: plainPassword,
   }
 
   const payloadMeta = (typeof post.source_payload === "object" && post.source_payload !== null
     ? post.source_payload
     : {}) as Record<string, unknown>
 
-  const style = (payloadMeta.style as string) || "default"
-  const language = (payloadMeta.language as string) || "id"
-  const userKeys = await getUserDecryptedKeys(post.user_id)
-  const apiKey = clientApiKey || (payloadMeta.apiKey as string) || userKeys.openrouterKey || undefined
-
-  const tagList: string[] = Array.isArray(post.tags) ? post.tags : []
-  const categoryIds: number[] = Array.isArray(payloadMeta.category_ids)
-    ? (payloadMeta.category_ids as unknown[]).map(Number).filter((id) => !isNaN(id) && id > 0)
-    : []
+  const requestedCategoryIds = toPositiveIntList(payloadMeta.category_ids)
+  const storedTags = toStringList(post.tags)
 
   let generated: {
     title: string
@@ -224,7 +464,6 @@ export async function processPostItem({
     generated = {
       title: post.title || post.target_keyword,
       contentHtml: post.content_html || "",
-      markdownContent: post.content_html || "",
       excerpt: post.excerpt || undefined,
     }
 
@@ -240,15 +479,11 @@ export async function processPostItem({
       },
     })
   } else {
-    // 4. Kunci status ke 'generating_content' (Database-First State Machine)
-    await supabase
-      .from("post_items")
-      .update({
-        state: "generating_content",
-        last_error: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", postId)
+    // 4. Status sudah terkunci di 'generating_content' oleh atomic claim di atas (Database-First State Machine).
+    const style = (payloadMeta.style as string) || "default"
+    const language = (payloadMeta.language as string) || "id"
+    // BYOK terenkripsi milik pemilik item; runtime memakai userKeys.openrouterKey (tidak pernah dari payload/browser).
+    const userKeys = await getUserDecryptedKeys(post.user_id)
 
     // Resolusi Agent Profile (Bisa Kustom DB atau Preset Bawaan)
     const profileRef =
@@ -326,9 +561,7 @@ export async function processPostItem({
     }
 
     // Stream step events ke database execution_logs secara transparan & ringkas
-    const collectedStepEvents: AgentStepEvent[] = []
     const handleStepEvent = (event: AgentStepEvent) => {
-      collectedStepEvents.push(event)
       // Query builder Supabase bersifat lazy: wajib di-then agar request benar-benar terkirim.
       supabase
         .from("execution_logs")
@@ -354,7 +587,6 @@ export async function processPostItem({
         })
     }
 
-
     try {
       const writerResult = await run(
         {
@@ -376,8 +608,8 @@ export async function processPostItem({
           },
           publishing: {
             mode: post.wp_target_status || "draft",
-            categoryIds,
-            tagNames: tagList,
+            categoryIds: requestedCategoryIds,
+            tagNames: sanitizeTermNames(storedTags),
           },
           model: aiModel,
           reasoningEffort:
@@ -385,10 +617,8 @@ export async function processPostItem({
             resolvedProfile.reasoningEffort ||
             userKeys.reasoningEffort ||
             "low",
-          apiKey,
           userId: post.user_id,
           customInstructions: post.custom_instructions_override || undefined,
-          onEventListener: handleStepEvent,
         },
         {
           userId: post.user_id,
@@ -483,96 +713,136 @@ export async function processPostItem({
     }
   }
 
-  // 5. Auto-Media Pipeline: Ekstraksi gambar, upload ke WP Media Library, dan replace URL di badan artikel
-  let finalMarkdown = generated.markdownContent || ""
+  // 5. Susun konten & metadata final.
+  // Judul/excerpt dikirim sebagai teks polos: WordPress tidak menyaring HTML field ini untuk akun
+  // ber-unfiltered_html (berlaku juga untuk naskah lama yang tersimpan sebelum sanitasi postprocess).
+  const wpTitle =
+    toPlainText(generated.title, WP_TITLE_MAX_LENGTH) || toPlainText(post.target_keyword, WP_TITLE_MAX_LENGTH)
+  const wpExcerpt = toPlainText(generated.excerpt, WP_EXCERPT_MAX_LENGTH) || undefined
+
   let finalContentHtml = generated.contentHtml
-  let finalFeaturedMediaId = resolvedEnrichment?.featuredMedia
-  let finalFeaturedImageUrl = resolvedEnrichment?.featuredImage?.imageUrl || post.featured_image_url || null
+  let finalFeaturedImageUrl: string | null = post.featured_image_url || null
+  let publishMeta: WpPublishMeta
+  let tagNames: string[]
 
-  try {
-    const mediaSyncRes = await processAndSyncArticleMedia({
-      baseUrl: site.base_url,
-      username: site.wp_username,
-      applicationPassword: plainPassword,
-      siteId: site.id,
-      userId: post.user_id,
-      postId: post.id,
-      markdownContent: finalMarkdown,
-      featuredImageUrl: finalFeaturedImageUrl,
-      articleTitle: generated.title,
-    })
+  if (isRetrySync) {
+    // Naskah tersimpan sudah final (blok Gutenberg + URL media WordPress): dikirim apa adanya.
+    // Tidak dilewatkan ke pipeline Markdown/media agar HTML tidak di-escape ulang dan gambar tidak diunggah ulang.
+    const storedMeta = readWpPublishMeta(payloadMeta)
+    if (storedMeta) {
+      publishMeta = storedMeta
+      tagNames = sanitizeTermNames(storedTags)
+    } else {
+      const legacy = await resolveLegacyRetryMeta(
+        credentials,
+        requestedCategoryIds,
+        toStringList(post.categories),
+        storedTags
+      )
+      publishMeta = legacy.meta
+      tagNames = legacy.tagNames
+    }
+  } else {
+    // Auto-Media Pipeline: unggah gambar ke WP Media Library & ganti URL di badan artikel (hanya naskah baru)
+    let finalFeaturedMediaId = resolvedEnrichment?.featuredMedia
+    finalFeaturedImageUrl = resolvedEnrichment?.featuredImage?.imageUrl || finalFeaturedImageUrl
 
-    finalMarkdown = mediaSyncRes.updatedMarkdown
-    finalContentHtml = mediaSyncRes.updatedContentHtml
-    if (mediaSyncRes.featuredMediaId) {
-      finalFeaturedMediaId = mediaSyncRes.featuredMediaId
+    if (generated.markdownContent) {
+      try {
+        const mediaSyncRes = await processAndSyncArticleMedia({
+          ...credentials,
+          siteId: site.id,
+          userId: post.user_id,
+          postId: post.id,
+          markdownContent: generated.markdownContent,
+          featuredImageUrl: finalFeaturedImageUrl,
+          articleTitle: wpTitle,
+        })
+
+        finalContentHtml = mediaSyncRes.updatedContentHtml
+        if (mediaSyncRes.featuredMediaId) {
+          finalFeaturedMediaId = mediaSyncRes.featuredMediaId
+        }
+        if (mediaSyncRes.featuredImageUrl) {
+          finalFeaturedImageUrl = mediaSyncRes.featuredImageUrl
+        }
+      } catch (mediaErr) {
+        console.warn("[worker] Gagal menjalankan auto-media-pipeline:", mediaErr)
+      }
     }
-    if (mediaSyncRes.featuredImageUrl) {
-      finalFeaturedImageUrl = mediaSyncRes.featuredImageUrl
+
+    const enrichmentCategoryIds = toPositiveIntList(resolvedEnrichment?.categories)
+    publishMeta = {
+      categoryIds: enrichmentCategoryIds.length > 0 ? enrichmentCategoryIds : requestedCategoryIds,
+      tagIds: toPositiveIntList(resolvedEnrichment?.tags),
+      authorId: toPositiveInt(resolvedEnrichment?.author),
+      featuredMediaId: toPositiveInt(finalFeaturedMediaId),
     }
-  } catch (mediaErr) {
-    console.warn("[worker] Gagal menjalankan auto-media-pipeline:", mediaErr)
+    tagNames = sanitizeTermNames(
+      resolvedEnrichment?.tagNames && resolvedEnrichment.tagNames.length > 0
+        ? resolvedEnrichment.tagNames
+        : storedTags
+    )
   }
 
-  // Update naskah artikel ke database & ubah status ke 'syncing_to_wp'
-  const resolvedCategoryIds: number[] =
-    resolvedEnrichment?.categories && resolvedEnrichment.categories.length > 0
-      ? resolvedEnrichment.categories
-      : categoryIds
+  // Simpan naskah & pindah ke 'syncing_to_wp' secara bersyarat: hanya jika klaim worker ini masih sah
+  // (state belum diubah auto-healing/worker lain) dan item belum memiliki wp_post_id.
+  // Jika gagal, JANGAN kirim ke WordPress agar tidak terjadi posting ganda.
+  const nowIso = new Date().toISOString()
+  let syncTransition: Record<string, unknown>
+  if (isRetrySync) {
+    // Retry: naskah & metadata tersimpan tidak diubah; cukup verifikasi ulang klaim.
+    syncTransition = { state: "syncing_to_wp", last_error: null, updated_at: nowIso }
+  } else {
+    // Prioritaskan nama kategori yang manusiawi (human-readable) untuk tampilan dasbor
+    const storedCategoryNames = toStringList(post.categories).filter((c) => !NUMERIC_ID_RE.test(c))
+    const enrichmentCategoryNames = toStringList(resolvedEnrichment?.categoryNames)
+    const payloadCategoryNames = toStringList(payloadMeta.category_names)
+    const categoryNames =
+      enrichmentCategoryNames.length > 0
+        ? enrichmentCategoryNames
+        : storedCategoryNames.length > 0
+        ? storedCategoryNames
+        : payloadCategoryNames
 
-  // Prioritaskan nama kategori yang manusiawi (human-readable)
-  const payloadCategories =
-    Array.isArray((post.source_payload as Record<string, unknown>)?.category_names)
-      ? ((post.source_payload as Record<string, unknown>).category_names as string[])
-      : []
-
-  const existingPostCategoryNames =
-    Array.isArray(post.categories)
-      ? (post.categories as string[]).filter((c) => c && isNaN(Number(c)))
-      : []
-
-  const resolvedCategoryNames: string[] =
-    resolvedEnrichment?.categoryNames && resolvedEnrichment.categoryNames.length > 0
-      ? resolvedEnrichment.categoryNames
-      : existingPostCategoryNames.length > 0
-      ? existingPostCategoryNames
-      : payloadCategories.length > 0
-      ? payloadCategories
-      : []
-
-  const finalCategoriesToStore =
-    resolvedCategoryNames.length > 0
-      ? resolvedCategoryNames
-      : resolvedCategoryIds.length > 0
-      ? resolvedCategoryIds.map(String)
-      : []
-
-  const resolvedTagIds: number[] =
-    resolvedEnrichment?.tags && resolvedEnrichment.tags.length > 0
-      ? resolvedEnrichment.tags
-      : []
-
-  const resolvedTagNames: string[] =
-    resolvedEnrichment?.tagNames && resolvedEnrichment.tagNames.length > 0
-      ? resolvedEnrichment.tagNames
-      : tagList
-
-  const resolvedAuthorId: number | undefined = resolvedEnrichment?.author
-
-  await supabase
-    .from("post_items")
-    .update({
-      title: generated.title,
+    syncTransition = {
+      title: wpTitle,
       content_html: finalContentHtml,
-      excerpt: generated.excerpt,
+      excerpt: wpExcerpt ?? null,
       featured_image_url: finalFeaturedImageUrl,
-      categories: finalCategoriesToStore,
-      tags: resolvedTagIds.length > 0 ? resolvedTagIds.map(String) : resolvedTagNames,
+      categories: categoryNames.length > 0 ? categoryNames : publishMeta.categoryIds.map(String),
+      // Kolom tags selalu berisi NAMA tag (dibaca manusia); ID tag WordPress disimpan di wp_publish_meta.
+      tags: tagNames,
+      source_payload: { ...payloadMeta, [WP_PUBLISH_META_KEY]: publishMeta },
       state: "syncing_to_wp",
       last_error: null,
-      updated_at: new Date().toISOString(),
-    })
+      updated_at: nowIso,
+    }
+  }
+
+  const { data: syncLocked, error: syncLockErr } = await supabase
+    .from("post_items")
+    .update(syncTransition)
     .eq("id", postId)
+    .eq("state", isRetrySync ? "syncing_to_wp" : "generating_content")
+    .is("wp_post_id", null)
+    .select("id")
+    .maybeSingle()
+
+  if (syncLockErr || !syncLocked) {
+    const lostClaimMsg =
+      "Pengiriman ke WordPress dibatalkan: klaim item sudah tidak berlaku (dipulihkan otomatis, diproses worker lain, " +
+      "atau artikel sudah tercatat di WordPress). Langkah ini mencegah posting ganda."
+    console.warn(`[worker] ${lostClaimMsg} (post_item ${postId}${syncLockErr ? `, db: ${syncLockErr.message}` : ""})`)
+    await supabase.from("execution_logs").insert({
+      post_item_id: postId,
+      user_id: post.user_id,
+      step: "prepare_sync",
+      level: "warn",
+      message: `[Queue Worker] ${lostClaimMsg}`,
+    })
+    return { success: false, postId, errorCode: "in_progress", error: lostClaimMsg }
+  }
 
   await supabase.from("execution_logs").insert({
     post_item_id: postId,
@@ -582,14 +852,16 @@ export async function processPostItem({
     message: `[Persiapan Sinkronisasi] Naskah siap disinkronkan ke WordPress (${post.wp_target_status || "draft"})`,
     details: {
       input: {
-        title: generated.title,
-        excerpt: generated.excerpt,
+        title: wpTitle,
+        excerpt: wpExcerpt,
         actionStatus: post.wp_target_status || "draft",
       },
       output: {
-        categoryIds: resolvedCategoryIds,
-        tagNames: resolvedTagNames,
-        featuredMediaId: finalFeaturedMediaId,
+        categoryIds: publishMeta.categoryIds,
+        tagIds: publishMeta.tagIds,
+        tagNames,
+        authorId: publishMeta.authorId,
+        featuredMediaId: publishMeta.featuredMediaId,
       },
       durationMs: 10,
     },
@@ -605,22 +877,20 @@ export async function processPostItem({
 
   const wpPublishStart = Date.now()
   const wpResult = await publishPostToWordPress({
-    baseUrl: site.base_url,
-    username: site.wp_username,
-    applicationPassword: plainPassword,
+    ...credentials,
     article: {
-      title: generated.title,
+      title: wpTitle,
       contentHtml: finalContentHtml,
-      excerpt: generated.excerpt,
+      excerpt: wpExcerpt,
       slug: generated.slug,
     },
     metadata: {
       status: targetWpStatus,
-      categoryIds: resolvedCategoryIds.length > 0 ? resolvedCategoryIds : undefined,
-      tagIds: resolvedTagIds.length > 0 ? resolvedTagIds : undefined,
-      tagNames: resolvedTagNames,
-      authorId: resolvedAuthorId,
-      featuredMediaId: finalFeaturedMediaId,
+      categoryIds: publishMeta.categoryIds.length > 0 ? publishMeta.categoryIds : undefined,
+      tagIds: publishMeta.tagIds.length > 0 ? publishMeta.tagIds : undefined,
+      tagNames,
+      authorId: publishMeta.authorId,
+      featuredMediaId: publishMeta.featuredMediaId,
       date: !forceNow && post.scheduled_for ? new Date(post.scheduled_for).toISOString() : undefined,
     },
   })
@@ -635,11 +905,13 @@ export async function processPostItem({
       baseUrl: site.base_url,
       username: site.wp_username,
       actionStatus: post.wp_target_status || "draft",
-      categoryIds: resolvedCategoryIds,
-      tagIds: resolvedTagIds,
-      tagNames: tagList,
-      authorId: resolvedAuthorId,
-      title: generated.title,
+      categoryIds: publishMeta.categoryIds,
+      tagIds: publishMeta.tagIds,
+      tagNames,
+      authorId: publishMeta.authorId,
+      featuredMediaId: publishMeta.featuredMediaId,
+      title: wpTitle,
+      retrySync: isRetrySync,
     },
     output: wpResult.ok
       ? { wpPostId: wpResult.wpPostId, wpPostUrl: wpResult.wpPostUrl, status: post.wp_target_status || "draft" }
@@ -684,6 +956,8 @@ export async function processPostItem({
     return {
       success: false,
       postId,
+      state: "failed_sync",
+      errorCode: "sync_failed",
       error: wpResult.error,
     }
   }
@@ -730,7 +1004,7 @@ export async function processPostItem({
       postId,
       batchId: post.batch_id,
       keyword: post.target_keyword,
-      title: generated.title,
+      title: wpTitle,
       state: finalState,
       wpPostId: wpResult.wpPostId,
       wpPostUrl: wpResult.wpPostUrl,
@@ -779,7 +1053,7 @@ export async function processPostItem({
     success: true,
     postId,
     keyword: post.target_keyword,
-    title: generated.title,
+    title: wpTitle,
     state: finalState,
     wpPostId: wpResult.wpPostId,
     wpPostUrl: wpResult.wpPostUrl,
@@ -792,26 +1066,101 @@ export interface ClaimedQueueItem {
   keyword: string
 }
 
-/**
- * Mengklaim item antrean terlama secara atomik (ATOMIC CLAIM LOCK)
- * Mengembalikan daftar item yang berhasil dikunci statusnya ke 'generating_content'
- */
-export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueueItem[]> {
-  const supabase = await getSupabaseClient()
+export interface ClaimQueueOptions {
+  /**
+   * Batasi auto-healing & klaim hanya ke item milik pengguna ini.
+   * WAJIB diisi untuk pemanggil berkonteks sesi pengguna; hanya cron terotorisasi yang boleh mengosongkannya.
+   */
+  userId?: string
+}
 
-  // 0. Auto-healing: Reset item yang tersangkut di 'generating_content' atau 'syncing_to_wp' > 10 menit
-  // (misal akibat worker sebelumnya terputus atau timeout di serverless)
-  try {
-    const staleThreshold = new Date(Date.now() - 10 * 60 * 1000).toISOString()
-    await supabase
+/** Batas item stale yang dipulihkan per siklus agar satu pemicu tidak memproses tabel tanpa batas. */
+const STALE_RECOVERY_BATCH_SIZE = 50
+
+/**
+ * Auto-healing item yang tersangkut di 'generating_content' / 'syncing_to_wp' melebihi ambang stale
+ * (mis. worker terputus atau timeout serverless). Keputusan state ada di stale-recovery.ts:
+ * - syncing_to_wp -> failed_sync (naskah sudah ada, tidak digenerasi ulang)
+ * - generating_content -> queued_input (retry_count + 1) atau failed_generation setelah batas percobaan
+ * Setiap update bersyarat (state, updated_at, retry_count lama) agar aman dari healer paralel.
+ */
+async function recoverStaleQueueItems(supabase: QueueDbClient, userId?: string) {
+  const staleThreshold = new Date(Date.now() - STALE_CLAIM_THRESHOLD_MS).toISOString()
+
+  let staleQuery = supabase
+    .from("post_items")
+    .select("id, user_id, state, retry_count")
+    .in("state", [...STALE_RECOVERABLE_STATES])
+    .lt("updated_at", staleThreshold)
+    .order("updated_at", { ascending: true })
+    .limit(STALE_RECOVERY_BATCH_SIZE)
+
+  if (userId) {
+    staleQuery = staleQuery.eq("user_id", userId)
+  }
+
+  const { data: staleItems, error: staleErr } = await staleQuery
+  if (staleErr) {
+    console.warn("[claimNextPendingQueueItems] Gagal membaca item stale:", staleErr.message)
+    return
+  }
+
+  for (const item of staleItems ?? []) {
+    if (!isStaleRecoverableState(item.state)) continue
+
+    const previousRetryCount: number | null = typeof item.retry_count === "number" ? item.retry_count : null
+    const decision = decideStaleRecovery({ state: item.state, retryCount: previousRetryCount })
+
+    let healQuery = supabase
       .from("post_items")
       .update({
-        state: "queued_input",
+        state: decision.state,
+        retry_count: decision.retryCount,
+        last_error: decision.lastError,
         updated_at: new Date().toISOString(),
-        last_error: "Dipulihkan otomatis ke antrean: eksekusi sebelumnya terputus atau timeout.",
       })
-      .in("state", ["generating_content", "syncing_to_wp"])
+      .eq("id", item.id)
+      .eq("state", item.state)
       .lt("updated_at", staleThreshold)
+
+    healQuery =
+      previousRetryCount === null
+        ? healQuery.is("retry_count", null)
+        : healQuery.eq("retry_count", previousRetryCount)
+
+    const { data: healed, error: healErr } = await healQuery.select("id").maybeSingle()
+    if (healErr) {
+      console.warn(`[claimNextPendingQueueItems] Gagal memulihkan item stale ${item.id}:`, healErr.message)
+      continue
+    }
+    if (!healed) continue
+
+    await supabase.from("execution_logs").insert({
+      post_item_id: item.id,
+      user_id: item.user_id,
+      step: "stale_recovery",
+      level: decision.state === "queued_input" ? "warn" : "error",
+      message: `[Auto-Healing] ${decision.lastError}`,
+      details: { previousState: item.state, nextState: decision.state, retryCount: decision.retryCount },
+    })
+  }
+}
+
+/**
+ * Mengklaim item antrean terlama secara atomik (ATOMIC CLAIM LOCK)
+ * Mengembalikan daftar item yang berhasil dikunci statusnya ke 'generating_content'.
+ * Tanpa `options.userId` fungsi ini bekerja lintas tenant — hanya untuk pemicu cron terotorisasi.
+ */
+export async function claimNextPendingQueueItems(
+  limit = 1,
+  options: ClaimQueueOptions = {}
+): Promise<ClaimedQueueItem[]> {
+  const { userId } = options
+  const supabase = await getSupabaseClient()
+
+  // 0. Auto-healing item stale (dibatasi ke pengguna bila dipicu dari sesi)
+  try {
+    await recoverStaleQueueItems(supabase, userId)
   } catch (healErr) {
     console.warn("[claimNextPendingQueueItems] Gagal auto-healing item stale:", healErr)
   }
@@ -821,7 +1170,7 @@ export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueu
   const nowIso = now.toISOString()
 
   // Ambil kandidat antrean beserta status execution_mode batch
-  const { data: candidates, error } = await supabase
+  let candidateQuery = supabase
     .from("post_items")
     .select(`
       id,
@@ -834,6 +1183,12 @@ export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueu
       content_batches ( execution_mode )
     `)
     .eq("state", "queued_input")
+
+  if (userId) {
+    candidateQuery = candidateQuery.eq("user_id", userId)
+  }
+
+  const { data: candidates, error } = await candidateQuery
     .order("created_at", { ascending: true })
     .limit(limit * 5)
 
@@ -879,8 +1234,9 @@ export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueu
     if (claimedItems.length >= limit) break
 
     // 2. ATOMIC CLAIM LOCK:
-    // Update state menjadi 'generating_content' HANYA jika saat ini masih berstatus 'queued_input'.
-    const { data: claimed, error: claimErr } = await supabase
+    // Update state menjadi 'generating_content' HANYA jika saat ini masih berstatus 'queued_input'
+    // (dan, untuk klaim berkonteks sesi, hanya jika item milik pengguna tersebut).
+    let claimQuery = supabase
       .from("post_items")
       .update({
         state: "generating_content",
@@ -889,6 +1245,12 @@ export async function claimNextPendingQueueItems(limit = 1): Promise<ClaimedQueu
       })
       .eq("id", item.id)
       .eq("state", "queued_input")
+
+    if (userId) {
+      claimQuery = claimQuery.eq("user_id", userId)
+    }
+
+    const { data: claimed, error: claimErr } = await claimQuery
       .select("id, user_id, target_keyword")
       .maybeSingle()
 
@@ -926,16 +1288,20 @@ export async function processClaimedItems(items: ClaimedQueueItem[]): Promise<Pr
       const errMsg = err instanceof Error ? err.message : String(err)
       console.error(`[processClaimedItems] Error fatal saat memproses item ${item.id} ("${item.keyword}"):`, err)
 
-      // Fail-safe: pastikan item tidak ditinggalkan dalam status 'generating_content'
+      // Fail-safe: jangan tinggalkan item di state transien. Item yang naskahnya sudah tersimpan
+      // ('syncing_to_wp') jatuh ke 'failed_sync' agar retry tidak memicu generasi AI ulang.
       try {
+        const failedAt = new Date().toISOString()
         await supabase
           .from("post_items")
-          .update({
-            state: "failed_generation",
-            last_error: `Worker crash: ${errMsg}`,
-            updated_at: new Date().toISOString(),
-          })
+          .update({ state: "failed_generation", last_error: `Worker crash: ${errMsg}`, updated_at: failedAt })
           .eq("id", item.id)
+          .eq("state", "generating_content")
+        await supabase
+          .from("post_items")
+          .update({ state: "failed_sync", last_error: `Worker crash: ${errMsg}`, updated_at: failedAt })
+          .eq("id", item.id)
+          .eq("state", "syncing_to_wp")
       } catch (dbErr) {
         console.error(`[processClaimedItems] Gagal mengupdate fail-safe status ke DB:`, dbErr)
       }
@@ -950,15 +1316,4 @@ export async function processClaimedItems(items: ClaimedQueueItem[]): Promise<Pr
   })
 
   return await Promise.all(promises)
-}
-
-/**
- * Mengambil dan mengeksekusi item antrean terlama yang masih berstatus 'queued_input' (Mode Synchronous)
- */
-export async function processNextPendingQueueItem(limit = 1): Promise<ProcessPostItemResult[]> {
-  const claimed = await claimNextPendingQueueItems(limit)
-  if (claimed.length === 0) {
-    return []
-  }
-  return await processClaimedItems(claimed)
 }

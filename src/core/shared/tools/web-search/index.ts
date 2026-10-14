@@ -2,14 +2,17 @@
  * Universal Tool: Web Search (Hybrid Search Engine)
  * Melakukan penelusuran web untuk menemukan sumber referensi, fakta, dan data terkini.
  *
- * Pipeline Pencarian:
- * 1. Tavily Search API (jika TAVILY_API_KEY tersedia)
- * 2. SerpAPI (jika SERP_API_KEY tersedia)
- * 3. Bing Web Scraper (Live Web Scraper dengan rotasi User-Agent & auto-decode direct URL)
- * 4. Open Knowledge Base Wikipedia (Fallback Ensiklopedis Cepat & Bebas Biaya)
+ * Pipeline Pencarian mode "auto" (API key selalu BYOK per pengguna via `params.keys`,
+ * tidak pernah diambil dari environment server):
+ * 1. Tavily Search API (jika pengguna punya kunci Tavily)
+ * 2. Brave Search API (jika pengguna punya kunci Brave)
+ * 3. SerpAPI (jika pengguna punya kunci SerpAPI)
+ * 4. SearXNG (instance milik pengguna, atau SearXNG internal platform)
+ * 5. Bing Web Scraper (Live Web Scraper dengan rotasi User-Agent & auto-decode direct URL)
+ * 6. Open Knowledge Base Wikipedia (Fallback Ensiklopedis Cepat & Bebas Biaya)
  */
 
-import fs from "fs"
+import { safeFetch } from "@/lib/net/safe-fetch"
 
 export interface WebSearchResult {
   title: string
@@ -27,13 +30,36 @@ export type WebSearchProvider =
   | "serpapi"
   | "open_knowledge"
 
+/** API key BYOK milik pengguna per provider; setiap kunci hanya dikirim ke provider-nya sendiri. */
+export interface WebSearchKeys {
+  tavilyKey?: string
+  braveKey?: string
+  serpapiKey?: string
+}
+
 export interface WebSearchParams {
   query: string
   limit?: number
   language?: string
   provider?: WebSearchProvider
-  apiKey?: string
+  keys?: WebSearchKeys
+  /** Instance SearXNG milik pengguna. Default: SearXNG internal platform. */
   searxngUrl?: string
+}
+
+/** SearXNG internal milik platform (docker-compose), bukan kredensial tenant. */
+function getPlatformSearxngUrl(): string {
+  return process.env.SEARXNG_URL || "http://searxng-internal:8080"
+}
+
+/**
+ * Normalisasi kode bahasa yang dipakai sebagai subdomain Wikipedia.
+ * Nilai berasal dari LLM/pengguna, jadi hanya huruf (opsional satu tanda hubung) yang diterima
+ * agar tidak bisa membelokkan host request.
+ */
+function normalizeLanguage(language: string | undefined): string {
+  const lang = (language || "").trim().toLowerCase()
+  return /^[a-z]{2,12}(?:-[a-z]{2,12})?$/.test(lang) ? lang : "id"
 }
 
 interface BrowserProfile {
@@ -162,29 +188,6 @@ function extractValidationKeywords(query: string): string[] {
     .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
     .filter(w => w.length >= 3 && !stopWords.has(w))
-}
-
-/**
- * Helper untuk membaca API Key dari process.env atau secara dinamis dari file .env / .env.local
- * Mencegah issue di lingkungan dev di mana dev server belum direstart setelah penambahan API Key.
- */
-function getApiKey(key: string): string | undefined {
-  if (process.env[key]) return process.env[key]
-
-  for (const envFile of [".env.local", ".env"]) {
-    try {
-      if (fs.existsSync(/*turbopackIgnore: true*/ envFile)) {
-        const content = fs.readFileSync(/*turbopackIgnore: true*/ envFile, "utf-8")
-        const match = content.match(new RegExp(`^\\s*${key}\\s*=\\s*["']?([^"'\\r\\n]+)["']?`, "m"))
-        if (match && match[1]) {
-          return match[1].trim()
-        }
-      }
-    } catch {
-      // Abaikan galat pembacaan file
-    }
-  }
-  return undefined
 }
 
 /**
@@ -362,18 +365,22 @@ async function searchWithBrave(query: string, limit: number, apiKey: string): Pr
 
 /**
  * 4. Pencarian via SearxNG Metasearch API
+ * URL bisa berasal dari pengguna, jadi request wajib lewat `safeFetch` (Anti-SSRF).
  */
 async function searchWithSearxngWeb(query: string, limit: number, searxngUrl: string): Promise<WebSearchResult[]> {
   try {
     const base = searxngUrl.replace(/\/+$/, "")
     const url = `${base}/search?q=${encodeURIComponent(query)}&categories=general&format=json`
-    const res = await fetch(url, {
-      headers: {
-        "Accept": "application/json",
-        ...getRandomBrowserHeaders(),
+    const res = await safeFetch(
+      url,
+      {
+        headers: {
+          ...getRandomBrowserHeaders(),
+          "Accept": "application/json",
+        },
       },
-      signal: AbortSignal.timeout(10000),
-    })
+      { timeoutMs: 10000, maxBytes: 5 * 1024 * 1024 }
+    )
 
     if (!res.ok) {
       console.warn(`[web-search] SearxNG Web API error HTTP ${res.status}`)
@@ -403,7 +410,7 @@ async function searchWithSerpApi(query: string, limit: number, apiKey: string, l
   try {
     const gl = language === "en" ? "us" : "id"
     const hl = language === "en" ? "en" : "id"
-    const url = `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&gl=${gl}&hl=${hl}&num=${limit}&api_key=${apiKey}`
+    const url = `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&gl=${gl}&hl=${hl}&num=${limit}&api_key=${encodeURIComponent(apiKey)}`
 
     const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
     if (!res.ok) return []
@@ -429,18 +436,18 @@ async function searchWithSerpApi(query: string, limit: number, apiKey: string, l
  */
 async function searchWithOpenKnowledge(query: string, limit: number, language: string): Promise<WebSearchResult[]> {
   try {
-    const langSubdomain = language ? language.toLowerCase() : "id"
+    // Subdomain berasal dari input LLM/pengguna: dinormalisasi agar host tetap *.wikipedia.org
+    const langSubdomain = normalizeLanguage(language)
     const cleaned = extractSearchKeywords(query)
     const customUserAgent = "WPAutopostDashboard/1.0 (https://github.com/erzawansyah/wp-autopost-dashboard)"
+    const fetchWikipedia = (url: string) =>
+      safeFetch(url, { headers: { "User-Agent": customUserAgent } }, { timeoutMs: 8000 })
 
     // 1. CirrusSearch: Pencarian teks lengkap Wikipedia (menemukan fakta, definisi, dan jawaban atas pertanyaan faktual)
     const searchUrl = `https://${langSubdomain}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=${limit}&utf8=&format=json`
 
     let hits: Array<{ title: string; snippet?: string }> = []
-    const searchRes = await fetch(searchUrl, {
-      headers: { "User-Agent": customUserAgent },
-      signal: AbortSignal.timeout(8000),
-    })
+    const searchRes = await fetchWikipedia(searchUrl)
 
     if (searchRes.ok) {
       const searchData = await searchRes.json()
@@ -452,10 +459,7 @@ async function searchWithOpenKnowledge(query: string, limit: number, language: s
     // 2. Jika kueri tanya lengkap tidak ada hasil, coba dengan kueri yang sudah dinormalisasi
     if (hits.length === 0 && cleaned !== query) {
       const cleanSearchUrl = `https://${langSubdomain}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(cleaned)}&srlimit=${limit}&utf8=&format=json`
-      const cleanRes = await fetch(cleanSearchUrl, {
-        headers: { "User-Agent": customUserAgent },
-        signal: AbortSignal.timeout(8000),
-      })
+      const cleanRes = await fetchWikipedia(cleanSearchUrl)
       if (cleanRes.ok) {
         const cleanData = await cleanRes.json()
         if (Array.isArray(cleanData?.query?.search) && cleanData.query.search.length > 0) {
@@ -467,10 +471,7 @@ async function searchWithOpenKnowledge(query: string, limit: number, language: s
     // 3. Fallback ke OpenSearch untuk judul langsung
     if (hits.length === 0) {
       const openSearchUrl = `https://${langSubdomain}.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(cleaned)}&limit=${limit}&namespace=0&format=json`
-      const openRes = await fetch(openSearchUrl, {
-        headers: { "User-Agent": customUserAgent },
-        signal: AbortSignal.timeout(8000),
-      })
+      const openRes = await fetchWikipedia(openSearchUrl)
       if (openRes.ok) {
         const openData = await openRes.json()
         const titles: string[] = openData[1] || []
@@ -484,10 +485,7 @@ async function searchWithOpenKnowledge(query: string, limit: number, language: s
     const titlesParam = hits.map((h) => encodeURIComponent(h.title)).join("|")
     const extractUrl = `https://${langSubdomain}.wikipedia.org/w/api.php?action=query&prop=extracts&exintro=1&explaintext=1&titles=${titlesParam}&format=json`
 
-    const extractRes = await fetch(extractUrl, {
-      headers: { "User-Agent": customUserAgent },
-      signal: AbortSignal.timeout(8000),
-    })
+    const extractRes = await fetchWikipedia(extractUrl)
 
     const extractsMap: Record<string, string> = {}
     if (extractRes.ok) {
@@ -529,16 +527,16 @@ export async function webSearch(params: WebSearchParams): Promise<WebSearchResul
   const query = params.query.trim()
   const limit = params.limit ?? 3
   const language = params.language || "id"
-  const defaultEnvProvider = getApiKey("DEFAULT_SEARCH_PROVIDER") as WebSearchProvider | undefined
-  const provider = params.provider || defaultEnvProvider || "auto"
+  const provider = params.provider || "auto"
 
   if (!query) return []
 
-  // 1. Ambil API Keys dari parameter (BYOK per-request) atau environment server
-  const tavilyKey = (provider === "tavily" && params.apiKey) ? params.apiKey : getApiKey("TAVILY_API_KEY")
-  const braveKey = (provider === "brave" && params.apiKey) ? params.apiKey : getApiKey("BRAVE_API_KEY")
-  const serpKey = (provider === "serpapi" && params.apiKey) ? params.apiKey : getApiKey("SERP_API_KEY")
-  const searxngUrl = params.searxngUrl || getApiKey("SEARXNG_URL") || "http://searxng-internal:8080"
+  // 1. API key hanya dari parameter (BYOK milik pengguna), masing-masing untuk provider-nya sendiri.
+  //    Kunci milik operator/server tidak pernah dipakai sebagai cadangan.
+  const tavilyKey = params.keys?.tavilyKey?.trim() || undefined
+  const braveKey = params.keys?.braveKey?.trim() || undefined
+  const serpKey = params.keys?.serpapiKey?.trim() || undefined
+  const searxngUrl = params.searxngUrl?.trim() || getPlatformSearxngUrl()
 
   if (provider === "bing_scraper") {
     const results = await searchBingWebScraper(query, limit, language)

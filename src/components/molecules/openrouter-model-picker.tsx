@@ -27,7 +27,8 @@ import {
 interface OpenrouterModelPickerProps {
   value: string
   onChange: (value: string) => void
-  apiKey?: string
+  /** Kunci yang baru diketik & belum disimpan; tanpa ini server memakai kunci BYOK tersimpan. */
+  unsavedKey?: string
   className?: string
 }
 
@@ -45,7 +46,7 @@ const PROVIDER_FILTERS = [
 export function OpenrouterModelPicker({
   value,
   onChange,
-  apiKey,
+  unsavedKey,
   className,
 }: OpenrouterModelPickerProps) {
   const [open, setOpen] = React.useState(false)
@@ -76,7 +77,7 @@ export function OpenrouterModelPicker({
         }
       }
 
-      const fetched = await fetchDynamicAiModels(apiKey)
+      const fetched = await fetchDynamicAiModels({ unsavedKey })
       if (fetched && fetched.length > 0) {
         setModels(fetched)
         if (typeof window !== "undefined") {
@@ -91,7 +92,7 @@ export function OpenrouterModelPicker({
       setIsLoading(false)
       setHasFetched(true)
     }
-  }, [apiKey])
+  }, [unsavedKey])
 
   React.useEffect(() => {
     let ignore = false

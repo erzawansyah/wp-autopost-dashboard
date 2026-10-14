@@ -11,6 +11,7 @@ import { validateAndSanitizeInput } from "./runtime/validate-input"
 import { resolveAgentProfile } from "./runtime/resolve-profile"
 import { runAgentWriter } from "./runtime/run-agent"
 import { AgentStepEvent } from "./runtime/telemetry"
+import { redactRecord, redactSecrets } from "./runtime/redact"
 
 export interface WriterRunOptions {
   userId?: string
@@ -49,9 +50,11 @@ export async function run(
     label: "Validasi Schema & Sanitasi",
     status: (validation.isValid ? "success" : "error") as "success" | "error",
     durationMs: validatorDuration,
-    input: rawObj,
+    // Payload mentah & hasil sanitasi memuat kredensial terdekripsi (site.applicationPassword, apiKey):
+    // wajib diredaksi sebelum masuk nodeLogs yang dapat dikembalikan ke browser / disimpan.
+    input: redactRecord(rawObj),
     output: validation.isValid
-      ? { sanitized: validation.sanitizedRequest }
+      ? { sanitized: redactSecrets(validation.sanitizedRequest) }
       : { error: validation.error },
     message: validation.isValid ? "Payload valid dan tersanitasi" : `Validasi gagal: ${validation.error?.message}`,
     timestamp: new Date().toISOString(),
@@ -102,19 +105,13 @@ export async function run(
       notificationPrefs: {},
     })
 
-  const effectiveEventListener =
-    normalizedOptions.onEventListener ||
-    (typeof rawObj.onEventListener === "function"
-      ? (rawObj.onEventListener as (event: AgentStepEvent) => void)
-      : undefined)
-
-  // 4. Eksekusi Agentic Writer Runtime
+  // 4. Eksekusi Agentic Writer Runtime (listener telemetri hanya lewat opsi, bukan payload request)
   const agentRunResult = await runAgentWriter({
     request,
     profile,
     userKeys,
     userId: effectiveUserId,
-    onEventListener: effectiveEventListener,
+    onEventListener: normalizedOptions.onEventListener,
     abortSignal: normalizedOptions.abortSignal,
   })
 
@@ -223,4 +220,3 @@ export * from "../shared/tools/image-search"
 export * from "../shared/tools/upload-media"
 export * from "../shared/formatters/gutenberg"
 export * from "../shared/formatters/markdown-cleaner"
-export * from "@/lib/ai/openrouter"

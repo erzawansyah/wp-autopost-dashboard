@@ -1,4 +1,5 @@
 import { ArticleSource, FeaturedImageMeta, InContentImage } from "../types/contracts"
+import { redactSecretsInText } from "./redact"
 
 export type StepEventKind = "model_call" | "tool_call" | "guard" | "finalize" | "summary"
 
@@ -60,7 +61,8 @@ export class RunRecorder {
   }
 
   public recordEvent(event: Omit<AgentStepEvent, "index" | "timestamp">): AgentStepEvent {
-    const sanitizedSummary = (event.summary || "").slice(0, 240).trim()
+    // Redaksi dilakukan sebelum pemotongan agar token rahasia tidak lolos sebagian.
+    const sanitizedSummary = redactSecretsInText(event.summary || "").slice(0, 240).trim()
     const sanitizedArgs: Record<string, string | number | boolean> = {}
 
     if (event.argsPreview && typeof event.argsPreview === "object") {
@@ -70,7 +72,8 @@ export class RunRecorder {
         // Skip potential sensitive keys
         if (/password|key|token|auth|secret/i.test(k)) continue
         if (typeof v === "string") {
-          sanitizedArgs[k] = v.length > 120 ? v.slice(0, 117) + "..." : v
+          const safe = redactSecretsInText(v)
+          sanitizedArgs[k] = safe.length > 120 ? safe.slice(0, 117) + "..." : safe
         } else if (typeof v === "number" || typeof v === "boolean") {
           sanitizedArgs[k] = v
         }

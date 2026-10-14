@@ -60,7 +60,6 @@ export interface QuickWriterSubmitPayload {
   customBrief: string
   actionStatus: "draft" | "publish"
   aiModel?: string
-  apiKey?: string
 }
 
 interface QuickWriterFormProps {
@@ -98,15 +97,16 @@ export function QuickWriterForm({
     }
     return DEFAULT_AI_MODEL
   })
-  const [customApiKey, setCustomApiKey] = React.useState<string>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("custom_openrouter_api_key") || ""
-    }
-    return ""
-  })
-
-  // Muat kunci OpenRouter dan model dari server (Single Source of Truth)
+  // Muat model dari server (Single Source of Truth). Kunci OpenRouter tidak pernah
+  // dibaca di browser: server me-resolve kunci BYOK terenkripsi milik pengguna.
   React.useEffect(() => {
+    // Migrasi sekali jalan: hapus kunci plaintext lama yang dulu disimpan di browser.
+    try {
+      localStorage.removeItem("custom_openrouter_api_key")
+    } catch {
+      // localStorage tidak tersedia (mode privat / diblokir)
+    }
+
     fetch("/api/settings/user")
       .then((res) => res.json())
       .then((data) => {
@@ -168,7 +168,6 @@ export function QuickWriterForm({
       customBrief: customBrief.trim(),
       actionStatus,
       aiModel: undefined,
-      apiKey: customApiKey.trim() || undefined,
     })
   }
 

@@ -12,7 +12,6 @@ import {
   ListChecks,
   Bot,
   Settings,
-  WandSparkles,
   ChevronRight,
   FlaskConical,
   Wrench,
@@ -26,6 +25,9 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip"
 import { useDeveloperMode } from "@/lib/hooks/use-developer-mode"
+
+/** Versi aplikasi dari package.json, di-inline saat build via `env` di next.config.ts. */
+const APP_VERSION_LABEL = `v${process.env.NEXT_PUBLIC_APP_VERSION}`
 
 interface NavItem {
   title: string
@@ -184,7 +186,6 @@ let cachedSidebarCollapsed: boolean | null = null
 
 export function SidebarNav() {
   const pathname = usePathname()
-  const [userEmail, setUserEmail] = React.useState<string | null>(null)
   const [isCollapsed, setIsCollapsed] = React.useState<boolean>(() => {
     if (cachedSidebarCollapsed !== null) {
       return cachedSidebarCollapsed
@@ -217,17 +218,6 @@ export function SidebarNav() {
   }
 
   const { developerMode } = useDeveloperMode()
-
-  React.useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.user?.email) {
-          setUserEmail(data.user.email)
-        }
-      })
-      .catch(() => {})
-  }, [])
 
   const filteredBottomNavItems = React.useMemo(() => {
     return bottomNavItems.filter((item) => {
@@ -371,7 +361,7 @@ export function SidebarNav() {
                   <span className="size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
                 </div>
               </TooltipTrigger>
-              <TooltipContent side="right">Semua sistem normal (v0.1.2)</TooltipContent>
+              <TooltipContent side="right">Semua sistem normal ({APP_VERSION_LABEL})</TooltipContent>
             </Tooltip>
 
             <Tooltip>
@@ -410,7 +400,7 @@ export function SidebarNav() {
                   Semua sistem normal
                 </span>
               </div>
-              <span className="text-[10px] font-mono text-muted-foreground">v0.1.2</span>
+              <span className="text-[10px] font-mono text-muted-foreground">{APP_VERSION_LABEL}</span>
             </div>
             <Link
               href="/docs"

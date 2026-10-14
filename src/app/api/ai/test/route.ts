@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { getSanitizedApiKey } from "@/core/writer"
+import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
+import { MISSING_OPENROUTER_KEY_MESSAGE, sanitizeApiKey } from "@/lib/ai/platform-keys"
 
 export async function POST(request: Request) {
   try {
@@ -11,17 +12,23 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
     }
 
-    const body = await request.json().catch(() => ({}))
-    const apiKey = getSanitizedApiKey(body.apiKey)
+    const body: unknown = await request.json().catch(() => null)
+    const bodyKey =
+      body && typeof body === "object" && "apiKey" in body && typeof body.apiKey === "string"
+        ? body.apiKey
+        : undefined
+
+    // Uji kunci yang baru diketik; jika kosong/tersamar, uji kunci BYOK yang tersimpan.
+    // Kunci platform sengaja tidak pernah diuji di sini agar label, limit, dan pemakaian
+    // akun operator tidak terekspos ke pengguna.
+    const apiKey =
+      sanitizeApiKey(bodyKey) ?? sanitizeApiKey((await getUserDecryptedKeys(user.id)).openrouterKey)
 
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "Kunci API OpenRouter belum diisi atau kosong." },
-        { status: 400 }
-      )
+      return NextResponse.json({ ok: false, error: MISSING_OPENROUTER_KEY_MESSAGE }, { status: 400 })
     }
 
     // Uji kredensial via OpenRouter auth endpoint
@@ -29,9 +36,11 @@ export async function POST(request: Request) {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
     })
 
-    const data = await res.json()
+    const data = await res.json().catch(() => null)
 
     if (!res.ok) {
       if (res.status === 401) {
@@ -62,6 +71,6 @@ export async function POST(request: Request) {
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Kesalahan jaringan"
-    return NextResponse.json({ error: `Gagal menguji OpenRouter: ${message}` }, { status: 500 })
+    return NextResponse.json({ ok: false, error: `Gagal menguji OpenRouter: ${message}` }, { status: 500 })
   }
 }

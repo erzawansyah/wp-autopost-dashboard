@@ -1,9 +1,21 @@
 import { NextResponse } from "next/server"
+import { createClient } from "@/lib/supabase/server"
 import { testWordPressConnection, normalizeAndValidateWpUrl } from "@/lib/wordpress/client"
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    // Wajib sesi pengguna: tanpa ini endpoint menjadi open relay uji kredensial & SSRF
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
+    }
+
+    const body = await request.json().catch(() => ({}))
     const { base_url, wp_username, app_password } = body
 
     if (!base_url || !wp_username || !app_password) {
@@ -11,6 +23,10 @@ export async function POST(request: Request) {
         { error: "URL, Username, dan Application Password wajib diisi." },
         { status: 400 }
       )
+    }
+
+    if (typeof base_url !== "string" || typeof wp_username !== "string" || typeof app_password !== "string") {
+      return NextResponse.json({ error: "Format input tidak valid." }, { status: 400 })
     }
 
     const { valid, normalizedUrl, error: urlError } = normalizeAndValidateWpUrl(base_url)

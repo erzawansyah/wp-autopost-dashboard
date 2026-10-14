@@ -18,7 +18,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tab
 import { JsonCodeViewer } from "@/components/molecules/json-code-viewer"
 import { Play, Loader2, CheckCircle2, AlertCircle, Zap, Eye, Code, FileText, Layers, ExternalLink, Bot, Image as ImageIcon } from "lucide-react"
 import Link from "next/link"
-import { getGlobalAiModel, getModelDisplayName, getGlobalApiKey, DEFAULT_AI_MODEL } from "@/lib/ai/settings"
+import { getGlobalAiModel, getModelDisplayName } from "@/lib/ai/settings"
+import { useSanitizedHtml } from "@/lib/sanitize-html"
 import { LanguageSelect } from "@/components/molecules/language-select"
 import { LabSiteOption } from "./lab-tools-runner"
 
@@ -204,7 +205,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
     setDurationMs(null)
 
     try {
-      const savedKey = getGlobalApiKey()
+      // Kunci OpenRouter di-resolve server dari pengaturan BYOK terenkripsi milik pengguna.
       const currentModel = getGlobalAiModel()
 
       const res = await fetch("/api/lab/run", {
@@ -215,7 +216,6 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
           targetId: selectedEngineId,
           siteId: selectedSiteId || undefined,
           model: currentModel,
-          apiKey: savedKey,
           params: {
             keyword,
             brief,
@@ -245,6 +245,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
   const article = resultData?.article
   const execution = resultData?.execution
   const enrichment = resultData?.enrichment
+  const safeContentHtml = useSanitizedHtml(article?.contentHtml)
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
@@ -543,13 +544,17 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
                       </div>
                     </div>
 
-                    {/* Body HTML Artikel */}
-                    <div
-                      className="prose dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed max-h-[500px] overflow-y-auto pr-1"
-                      dangerouslySetInnerHTML={{
-                        __html: article?.contentHtml || "<p>Konten belum tersedia.</p>",
-                      }}
-                    />
+                    {/* Body HTML Artikel (disanitasi; placeholder selama SSR/hidrasi) */}
+                    {safeContentHtml ? (
+                      <div
+                        className="prose dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed max-h-[500px] overflow-y-auto pr-1"
+                        dangerouslySetInnerHTML={{ __html: safeContentHtml }}
+                      />
+                    ) : (
+                      <div className="prose dark:prose-invert max-w-none text-xs sm:text-sm leading-relaxed">
+                        <p>Konten belum tersedia.</p>
+                      </div>
+                    )}
 
                     {/* Lampiran Media In-Content (Jika ada) */}
                     {enrichment?.inContentImages && enrichment.inContentImages.length > 0 && (

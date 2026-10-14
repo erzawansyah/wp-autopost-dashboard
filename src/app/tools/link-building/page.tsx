@@ -33,6 +33,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/atoms/select"
+import { sanitizeHtml, useCanSanitizeHtml } from "@/lib/sanitize-html"
 
 interface SiteItem {
   id: string
@@ -74,6 +75,16 @@ export default function LinkBuildingToolPage() {
   const [appliedPostIds, setAppliedPostIds] = React.useState<Set<number>>(new Set())
   const [applyMessage, setApplyMessage] = React.useState<{ postId: number; text: string; isError?: boolean } | null>(null)
   const [copiedIndex, setCopiedIndex] = React.useState<number | null>(null)
+
+  // Kalimat rekomendasi berisi HTML dari LLM: sanitasi profil inline, hanya di browser.
+  const canSanitizeHtml = useCanSanitizeHtml()
+  const safeSentencesWithLink = React.useMemo(
+    () =>
+      canSanitizeHtml
+        ? recommendations.map((rec) => sanitizeHtml(rec.sentenceWithLink, "inline"))
+        : null,
+    [canSanitizeHtml, recommendations]
+  )
 
   // Load sites
   React.useEffect(() => {
@@ -483,7 +494,7 @@ export default function LinkBuildingToolPage() {
                                 </span>
                                 <div
                                   className="text-xs p-2.5 rounded bg-primary/5 border border-primary/20 text-foreground leading-relaxed [&_a]:text-primary [&_a]:underline [&_a]:font-semibold"
-                                  dangerouslySetInnerHTML={{ __html: rec.sentenceWithLink }}
+                                  dangerouslySetInnerHTML={{ __html: safeSentencesWithLink?.[idx] ?? "" }}
                                 />
                               </div>
                             </div>

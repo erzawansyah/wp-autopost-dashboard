@@ -11,13 +11,16 @@ Berlaku untuk seluruh kode. Panitera adalah SaaS multi-tenant yang menyimpan kre
 ## 2. Enkripsi Kredensial (AES-256-GCM)
 - WordPress Application Password dan seluruh API key BYOK (OpenRouter, Tavily, Brave, SerpAPI, Pexafy, dll.) **wajib** dienkripsi dengan `encryptCredential()` dari `src/lib/crypto.ts` sebelum disimpan ke database.
 - Dekripsi (`decryptCredential()`) hanya di server. Nilai terdekripsi tidak boleh dikirim ke browser, ditulis ke log, `execution_logs`, telemetri, atau pesan error.
-- Respons API ke client hanya boleh memuat versi tersamar (mis. `sk-or-…a1b2`) atau flag `hasKey: true`.
+- Respons API ke client hanya boleh memuat versi tersamar (mis. `sk-or-…a1b2`) atau flag `hasKey: true`. Nilai terenkripsi juga tidak boleh dikembalikan.
+- BYOK-only: kunci tenant tidak pernah jatuh ke kunci platform (`process.env`), kecuali operator men-set `PLATFORM_KEY_ALLOWED=true` (`src/lib/ai/platform-keys.ts`). Jangan pernah menulis ke `process.env` atau berkas `.env*` saat runtime, dan jangan menyimpan kunci di localStorage.
+- Log, telemetri, dan respons Lab wajib melewati `redactSecrets()` (`src/core/writer/runtime/redact.ts`).
 - Kunci master diambil dari `ENCRYPTION_MASTER_KEY` (32 byte / 64 karakter hex). Jangan pernah menulis fallback kunci di kode.
 
 ## 3. Anti-SSRF untuk URL Input Pengguna
-- Setiap request keluar ke URL yang diinput pengguna (situs WordPress, `web_reader`, webhook) wajib melewati validasi `normalizeAndValidateWpUrl()` (`src/lib/wordpress/client.ts`) atau validator setara.
-- Standar yang dituju: tolak `localhost`, loopback (`127.0.0.0/8`, `::1`), RFC 1918 (`10/8`, `172.16/12`, `192.168/16`), link-local & metadata cloud (`169.254.0.0/16`, `metadata.google.internal`), `0.0.0.0`, serta IPv6 privat (`fc00::/7`, `fe80::/10`). Produksi wajib HTTPS.
-- Saat menyentuh validator ini, perkuat ke arah standar di atas; jangan pernah melonggarkannya.
+- Setiap request keluar ke URL yang berasal dari pengguna **atau LLM** (situs WordPress, `web_reader`, `upload_media`, SearXNG kustom, webhook) wajib memakai `safeFetch()` dari `src/lib/net/safe-fetch.ts`; jangan memakai `fetch()` langsung. Request ke situs WordPress lewat `wpFetch` di `src/lib/wordpress/client.ts`.
+- URL yang disimpan (webhook, SearXNG kustom, situs) divalidasi dulu dengan `assertSafeUrl()`.
+- `safeFetch` memblokir loopback, RFC 1918, CGNAT, link-local & metadata cloud, multicast/reserved, IPv6 privat & IPv4-mapped, termasuk alamat hasil resolve DNS (DNS pinning) dan setiap hop redirect. Hanya origin SearXNG platform (`SEARXNG_URL`) yang dipercaya. Akses jaringan privat untuk dev: `ALLOW_PRIVATE_NETWORK_FETCH=true` (diabaikan di production).
+- Jangan melonggarkan aturan ini; tambahkan test di `safe-fetch.test.ts` bila mengubahnya.
 
 ## 4. Perlindungan Hosting WordPress Pengguna
 - Request ke satu domain WP dibatasi concurrency per situs (default maks 2 paralel, kolom `sites.max_concurrency`).

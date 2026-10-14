@@ -332,7 +332,9 @@ function DashboardContent() {
     try {
       const targetPost = posts.find((p) => p.id === id)
       let res: Response
-      if (targetPost?.state === "queued_input") {
+      // queued_input & failed_generation: jalankan worker (generasi ulang).
+      // failed_sync / ready_to_sync: kirim ulang naskah tersimpan tanpa generasi AI.
+      if (targetPost?.state === "queued_input" || targetPost?.state === "failed_generation") {
         res = await fetch("/api/queue/process", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

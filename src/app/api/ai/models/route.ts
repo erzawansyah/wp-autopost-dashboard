@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server"
-import { getSanitizedApiKey } from "@/core/writer"
+import { createClient } from "@/lib/supabase/server"
+import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
+import { sanitizeApiKey } from "@/lib/ai/platform-keys"
+import { UNSAVED_OPENROUTER_KEY_HEADER } from "@/lib/ai/settings"
 
 export interface OpenRouterModelItem {
   id: string
@@ -26,28 +29,44 @@ export interface OpenRouterModelItem {
 
 export async function GET(request: Request) {
   try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
+    }
+
     const { searchParams } = new URL(request.url)
-    const clientKey = searchParams.get("apiKey")
     const toolsOnly = searchParams.get("toolsOnly") !== "false" // default: true (hanya tampilkan model yang mendukung tool calling)
-    const sanitizedKey = getSanitizedApiKey(clientKey || process.env.OPENROUTER_API_KEY)
+
+    // Kunci yang belum disimpan (uji sebelum simpan) hanya diterima lewat header agar tidak tercatat
+    // di log URL; selain itu pakai kunci BYOK milik pengguna. Kunci platform tidak dipakai di sini:
+    // katalog model OpenRouter bersifat publik sehingga tetap bisa dimuat tanpa kunci.
+    const apiKey =
+      sanitizeApiKey(request.headers.get(UNSAVED_OPENROUTER_KEY_HEADER)) ??
+      sanitizeApiKey((await getUserDecryptedKeys(user.id)).openrouterKey)
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     }
 
-    if (sanitizedKey) {
-      headers["Authorization"] = `Bearer ${sanitizedKey}`
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`
     }
 
     // Ambil daftar model dari OpenRouter API
     const res = await fetch("https://openrouter.ai/api/v1/models", {
       headers,
+      signal: AbortSignal.timeout(15000),
       next: { revalidate: 3600 }, // Cache 1 jam di server Next.js
     })
 
     if (!res.ok) {
       return NextResponse.json(
-        { error: `Gagal mengambil model dari OpenRouter (Status ${res.status})` },
+        { ok: false, error: `Gagal mengambil model dari OpenRouter (Status ${res.status})` },
         { status: res.status }
       )
     }
@@ -120,6 +139,6 @@ export async function GET(request: Request) {
     })
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Kesalahan server saat memuat model"
-    return NextResponse.json({ error: message }, { status: 500 })
+    return NextResponse.json({ ok: false, error: message }, { status: 500 })
   }
 }

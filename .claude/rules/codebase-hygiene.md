@@ -16,6 +16,7 @@
 ## 4. Verifikasi Sebelum Menyatakan Selesai
 ```bash
 npx tsc --noEmit       # wajib bersih
+npm test               # Vitest; tambahkan test untuk setiap bug yang diperbaiki
 npm run lint           # bisa > 2 menit, beri timeout longgar
 ```
 Jika `.workspaces/scripts/audit-codebase.ts` tersedia di mesin lokal, jalankan juga `npx tsx .workspaces/scripts/audit-codebase.ts` (orphan file, prompt hardcode, istilah legacy).

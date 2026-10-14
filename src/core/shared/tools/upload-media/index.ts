@@ -1,4 +1,10 @@
-import { normalizeAndValidateWpUrl, makeAuthHeader } from "@/lib/wordpress/client"
+import {
+  describeWpNetworkError,
+  makeAuthHeader,
+  normalizeAndValidateWpUrl,
+  wpFetch,
+} from "@/lib/wordpress/client"
+import { ResponseTooLargeError, safeFetch } from "@/lib/net/safe-fetch"
 import { findExistingUploadedMedia, recordUploadedMedia } from "@/core/shared/media/media-repository"
 
 export interface UploadMediaParams {
@@ -37,17 +43,37 @@ function sanitizeFilename(name: string): string {
   return clean || "artikel-media"
 }
 
-function getMimeAndExt(contentType: string | null, url: string): { mime: string; ext: string } {
-  if (contentType?.includes("png") || url.endsWith(".png")) {
-    return { mime: "image/png", ext: "png" }
+/** Batas ukuran gambar sumber yang boleh diunduh lalu diunggah ke Media Library. */
+const MAX_IMAGE_BYTES = 15 * 1024 * 1024
+
+function startsWithBytes(bytes: Uint8Array, signature: number[], offset = 0): boolean {
+  if (bytes.length < offset + signature.length) return false
+  return signature.every((value, index) => bytes[offset + index] === value)
+}
+
+function asciiAt(bytes: Uint8Array, offset: number, length: number): string {
+  return String.fromCharCode(...bytes.subarray(offset, offset + length))
+}
+
+/**
+ * Deteksi format gambar dari magic bytes (bukan dari header/URL yang bisa dipalsukan).
+ * Hanya format raster yang didukung WordPress Media Library; SVG/HTML/dokumen ditolak.
+ */
+export function detectImageType(bytes: Uint8Array): { mime: string; ext: string } | null {
+  if (startsWithBytes(bytes, [0xff, 0xd8, 0xff])) return { mime: "image/jpeg", ext: "jpg" }
+  if (startsWithBytes(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return { mime: "image/png", ext: "png" }
+  if (asciiAt(bytes, 0, 6) === "GIF87a" || asciiAt(bytes, 0, 6) === "GIF89a") return { mime: "image/gif", ext: "gif" }
+  if (asciiAt(bytes, 0, 4) === "RIFF" && asciiAt(bytes, 8, 4) === "WEBP") return { mime: "image/webp", ext: "webp" }
+  if (asciiAt(bytes, 4, 4) === "ftyp" && ["avif", "avis"].includes(asciiAt(bytes, 8, 4))) {
+    return { mime: "image/avif", ext: "avif" }
   }
-  if (contentType?.includes("webp") || url.endsWith(".webp")) {
-    return { mime: "image/webp", ext: "webp" }
-  }
-  if (contentType?.includes("gif") || url.endsWith(".gif")) {
-    return { mime: "image/gif", ext: "gif" }
-  }
-  return { mime: "image/jpeg", ext: "jpg" }
+  return null
+}
+
+/** Content-Type sumber yang masih mungkin berisi gambar (sebagian CDN/S3 memakai octet-stream). */
+function isImageLikeContentType(contentType: string): boolean {
+  const value = contentType.toLowerCase()
+  return !value || value.startsWith("image/") || value.includes("octet-stream")
 }
 
 /**
@@ -59,7 +85,7 @@ export async function uploadMediaToWordPress(
   params: UploadMediaParams
 ): Promise<UploadMediaResult> {
   const imageUrl = params.imageUrl?.trim()
-  if (!imageUrl || !imageUrl.startsWith("http")) {
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
     return {
       ok: false,
       mediaId: 0,
@@ -114,21 +140,21 @@ export async function uploadMediaToWordPress(
   const timeoutMs = params.timeoutMs ?? 25000
 
   try {
-    // 1. Unduh buffer gambar dari URL asal
-    const downloadController = new AbortController()
-    const downloadTimer = setTimeout(() => downloadController.abort(), timeoutMs)
-
-    const imageRes = await fetch(imageUrl, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-        Accept: "image/*,*/*",
+    // 1. Unduh buffer gambar dari URL asal (URL pilihan LLM → wajib Anti-SSRF + batas ukuran)
+    const imageRes = await safeFetch(
+      imageUrl,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+          Accept: "image/*,*/*",
+        },
       },
-      signal: downloadController.signal,
-    })
-    clearTimeout(downloadTimer)
+      { timeoutMs, maxBytes: MAX_IMAGE_BYTES }
+    )
 
     if (!imageRes.ok) {
+      await imageRes.body?.cancel()
       return {
         ok: false,
         mediaId: 0,
@@ -137,11 +163,20 @@ export async function uploadMediaToWordPress(
       }
     }
 
-    const contentType = imageRes.headers.get("content-type")
-    const { mime, ext } = getMimeAndExt(contentType, imageUrl)
-    const imageBuffer = await imageRes.arrayBuffer()
+    const contentType = imageRes.headers.get("content-type") || ""
+    if (!isImageLikeContentType(contentType)) {
+      await imageRes.body?.cancel()
+      return {
+        ok: false,
+        mediaId: 0,
+        sourceUrl: imageUrl,
+        error: `URL tidak mengarah ke berkas gambar (Content-Type: ${contentType.split(";")[0]}).`,
+      }
+    }
 
-    if (!imageBuffer || imageBuffer.byteLength === 0) {
+    const imageBytes = new Uint8Array(await imageRes.arrayBuffer())
+
+    if (imageBytes.byteLength === 0) {
       return {
         ok: false,
         mediaId: 0,
@@ -150,27 +185,47 @@ export async function uploadMediaToWordPress(
       }
     }
 
+    const imageType = detectImageType(imageBytes)
+    if (!imageType) {
+      return {
+        ok: false,
+        mediaId: 0,
+        sourceUrl: imageUrl,
+        error: "Berkas dari URL bukan gambar yang didukung (JPEG, PNG, GIF, WebP, AVIF).",
+      }
+    }
+    const { mime, ext } = imageType
+
     const rawFilename = params.filename || params.altText || params.title || "foto-artikel"
     const safeBaseName = sanitizeFilename(rawFilename)
     const finalFilename = `${safeBaseName}-${Date.now().toString().slice(-4)}.${ext}`
 
     // 2. Upload biner gambar ke endpoint WordPress REST API /wp-json/wp/v2/media
-    const uploadController = new AbortController()
-    const uploadTimer = setTimeout(() => uploadController.abort(), timeoutMs)
-
-    const uploadRes = await fetch(`${normalizedUrl}/wp-json/wp/v2/media`, {
-      method: "POST",
-      headers: {
-        Authorization: makeAuthHeader(params.username, params.applicationPassword),
-        "Content-Disposition": `attachment; filename="${finalFilename}"`,
-        "Content-Type": mime,
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
-        Accept: "application/json",
-      },
-      body: Buffer.from(imageBuffer),
-      signal: uploadController.signal,
-    })
-    clearTimeout(uploadTimer)
+    let uploadRes: Response
+    try {
+      uploadRes = await wpFetch(
+        `${normalizedUrl}/wp-json/wp/v2/media`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: makeAuthHeader(params.username, params.applicationPassword),
+            "Content-Disposition": `attachment; filename="${finalFilename}"`,
+            "Content-Type": mime,
+            "User-Agent": "WP-Autopost-Dashboard/1.0",
+            Accept: "application/json",
+          },
+          body: imageBytes,
+        },
+        { timeoutMs }
+      )
+    } catch (uploadErr: unknown) {
+      return {
+        ok: false,
+        mediaId: 0,
+        sourceUrl: imageUrl,
+        error: describeWpNetworkError(uploadErr, "Gagal menghubungi WordPress saat mengunggah media."),
+      }
+    }
 
     if (!uploadRes.ok) {
       const errBody = await uploadRes.json().catch(() => null)
@@ -190,7 +245,7 @@ export async function uploadMediaToWordPress(
     // 3. Update metadata alt_text, caption, dan title jika ada
     if (params.altText || params.caption || params.title) {
       try {
-        await fetch(`${normalizedUrl}/wp-json/wp/v2/media/${mediaId}`, {
+        const metaRes = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/media/${mediaId}`, {
           method: "POST",
           headers: {
             Authorization: makeAuthHeader(params.username, params.applicationPassword),
@@ -203,6 +258,7 @@ export async function uploadMediaToWordPress(
             title: params.title || undefined,
           }),
         })
+        await metaRes.body?.cancel()
       } catch {
         // Abaikan kegagalan update metadata sekunder jika file utama sudah terunggah
       }
@@ -236,7 +292,12 @@ export async function uploadMediaToWordPress(
       isSimulated: false,
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Kesalahan tidak terduga saat mengunggah media"
+    const msg =
+      err instanceof ResponseTooLargeError
+        ? `Ukuran gambar melebihi batas ${MAX_IMAGE_BYTES / (1024 * 1024)} MB.`
+        : err instanceof Error
+          ? err.message
+          : "Kesalahan tidak terduga saat mengunggah media"
     return {
       ok: false,
       mediaId: 0,

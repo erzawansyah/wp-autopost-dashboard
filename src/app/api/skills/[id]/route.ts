@@ -1,30 +1,5 @@
 import { NextResponse } from "next/server"
-import path from "path"
-import fs from "fs"
 import { createClient } from "@/lib/supabase/server"
-
-function ensureSkillOnDisk(slug: string, content: string) {
-  try {
-    const targetDir = path.join(process.cwd(), ".workspaces", "skills", slug)
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true })
-    }
-    fs.writeFileSync(path.join(targetDir, "SKILL.md"), content, "utf-8")
-  } catch (err) {
-    console.warn(`[ensureSkillOnDisk] Gagal menulis skill ${slug} ke disk:`, err)
-  }
-}
-
-function removeSkillFromDisk(slug: string) {
-  try {
-    const targetDir = path.join(process.cwd(), ".workspaces", "skills", slug)
-    if (fs.existsSync(targetDir)) {
-      fs.rmSync(targetDir, { recursive: true, force: true })
-    }
-  } catch (err) {
-    console.warn(`[removeSkillFromDisk] Gagal menghapus folder skill ${slug}:`, err)
-  }
-}
 
 export async function GET(
   _request: Request,
@@ -78,7 +53,7 @@ export async function PUT(
     // Pastikan bukan skill sistem
     const { data: existing, error: checkError } = await supabase
       .from("agent_skills")
-      .select("id, is_system, slug")
+      .select("id, is_system")
       .eq("id", id)
       .eq("user_id", user.id)
       .single()
@@ -120,10 +95,6 @@ export async function PUT(
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
 
-    if (content) {
-      ensureSkillOnDisk(existing.slug, content.trim())
-    }
-
     return NextResponse.json({ skill: updated })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Terjadi kesalahan internal"
@@ -150,7 +121,7 @@ export async function DELETE(
     // Ambil info skill
     const { data: existing, error: checkError } = await supabase
       .from("agent_skills")
-      .select("id, is_system, slug")
+      .select("id, is_system")
       .eq("id", id)
       .eq("user_id", user.id)
       .single()
@@ -178,8 +149,6 @@ export async function DELETE(
     if (deleteError) {
       return NextResponse.json({ error: deleteError.message }, { status: 500 })
     }
-
-    removeSkillFromDisk(existing.slug)
 
     return NextResponse.json({ success: true, id })
   } catch (err: unknown) {

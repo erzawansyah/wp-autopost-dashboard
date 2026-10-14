@@ -33,11 +33,15 @@ export async function POST(_request: Request, context: RouteContext) {
       return NextResponse.json({ ok: false, error: "Webhook tidak ditemukan." }, { status: 404 })
     }
 
-    let secret = ""
+    let secret: string
     try {
       secret = decryptCredential(webhook.encrypted_secret)
     } catch {
-      secret = "test_secret"
+      console.error(`[webhook] Secret webhook ${webhook.id} tidak dapat didekripsi; uji dibatalkan.`)
+      return NextResponse.json(
+        { ok: false, error: "Secret webhook tidak dapat dibaca. Hapus lalu daftarkan ulang webhook ini." },
+        { status: 500 }
+      )
     }
 
     const result = await testWebhookEndpoint(webhook.url, secret)

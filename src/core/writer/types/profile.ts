@@ -1,8 +1,11 @@
 import { z } from "zod"
-import { DecryptedUserKeys } from "@/types/settings"
 import settingsConfig from "@/core/shared/settings.json"
 
-export type AgentMode = "standard" | "deep"
+export const AgentModeSchema = z.enum(["standard", "deep"], {
+  error: "Mode agen harus 'standard' atau 'deep'.",
+})
+
+export type AgentMode = z.infer<typeof AgentModeSchema>
 
 export interface AgentLimits {
   /** Maksimal pemanggilan model LLM per satu run */
@@ -58,6 +61,45 @@ export const DEFAULT_DEEP_LIMITS: AgentLimits = {
   minWordCount: settingsConfig.deepLimits.minWordCount,
   perTool: { ...settingsConfig.deepLimits.perTool },
 }
+
+/** Tool yang punya kuota bawaan di settings.json; hanya kunci ini yang boleh di-override lewat `limits.perTool`. */
+const PER_TOOL_QUOTA_IDS: readonly string[] = Array.from(
+  new Set([...Object.keys(DEFAULT_STANDARD_LIMITS.perTool), ...Object.keys(DEFAULT_DEEP_LIMITS.perTool)])
+)
+
+/** `null` (mis. input angka kosong → NaN → JSON `null`) diperlakukan sama dengan tidak diisi → nilai default mode. */
+const limitValueSchema = z
+  .number({ error: "Setiap nilai batas eksekusi (limits) harus berupa angka." })
+  .nullish()
+  .transform((value) => value ?? undefined)
+
+/**
+ * Skema input `limits` dari body API (dan dari kolom JSONB tersimpan).
+ * Hanya memvalidasi bentuk & tipe; penegakan rentang tetap wajib lewat `clampLimits()`.
+ * Kunci tak dikenal (mis. `isDefault` yang ikut tersimpan di JSONB) dibuang.
+ */
+export const AgentLimitsInputSchema = z.object(
+  {
+    maxModelCalls: limitValueSchema,
+    maxToolCalls: limitValueSchema,
+    timeoutSeconds: limitValueSchema,
+    minWordCount: limitValueSchema,
+    perTool: z
+      .record(
+        z.string().refine((toolId) => PER_TOOL_QUOTA_IDS.includes(toolId)),
+        z.number({ error: "Kuota per-tool harus berupa angka." }),
+        {
+          error: (issue) =>
+            issue.code === "invalid_key"
+              ? `Kuota per-tool hanya berlaku untuk tool: ${PER_TOOL_QUOTA_IDS.join(", ")}.`
+              : "Kuota per-tool (perTool) harus berupa objek.",
+        }
+      )
+      .nullish()
+      .transform((value) => value ?? undefined),
+  },
+  { error: "Batas eksekusi (limits) harus berupa objek." }
+)
 
 /**
  * Normalisasi dan penegakan batas sistem (Hard Ceiling Clamp)
@@ -121,25 +163,3 @@ export interface AgentProfile {
   createdAt?: string
   updatedAt?: string
 }
-
-export const AgentProfileSchema = z.object({
-  id: z.string().uuid().optional(),
-  name: z.string().min(2).max(100),
-  description: z.string().max(500).optional(),
-  mode: z.enum(["standard", "deep"]).default("standard"),
-  model: z.string().optional(),
-  temperature: z.number().min(0).max(2).default(0.95),
-  workflowPrompt: z.string().min(10).max(12000),
-  toolIds: z.array(z.string()).default([]),
-  skills: z.array(z.string()).default([]),
-  limits: z.object({
-    maxModelCalls: z.number().int().optional(),
-    maxToolCalls: z.number().int().optional(),
-    timeoutSeconds: z.number().int().optional(),
-    minWordCount: z.number().int().optional(),
-    perTool: z.record(z.string(), z.number().int()).optional(),
-  }).optional(),
-  basedOnPreset: z.string().optional(),
-})
-
-export type CreateAgentProfileDTO = z.infer<typeof AgentProfileSchema>

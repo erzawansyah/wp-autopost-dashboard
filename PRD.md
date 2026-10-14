@@ -209,7 +209,7 @@
   - Web Search Keys: Tavily API, Brave Search API, SerpAPI, atau URL SearXNG mandiri.
   - Pexafy API Key: Kunci kurasi foto beresolusi tinggi bebas royalti.
   - Seluruh kredensial tersimpan dalam bentuk terenkripsi (**AES-256-GCM**) dan tidak pernah dikembalikan ke antarmuka browser.
-- **Preferensi Pencarian (`/settings/search`)**: Pemilihan provider pencarian default (Auto, SearXNG, Tavily, Brave, SerpAPI, Bing Scraper).
+- **Preferensi Pencarian**: Pemilihan provider pencarian default kini bagian dari Kunci API (`/settings/keys`) dan disimpan per tenant di `user_settings`.
 - **Outbound Webhooks (`/settings/webhooks`)**: Pendaftaran endpoint webhook pihak ketiga (Make, n8n, Zapier) dengan tanda tangan HMAC SHA-256 dan pemilihan event langganan (`post.published`, `post.scheduled`, `post.failed`, `batch.completed`).
 
 ---
@@ -274,8 +274,7 @@ Seluruh pemrosesan artikel diatur oleh **Database-First State Machine** di tabel
 ├── /lab                     → Laboratorium Pengujian Agen (Sandbox)
 ├── /settings                → Pusat Pengaturan Platform
 │   ├── /settings/keys       → Unified BYOK Hub (OpenRouter, Search, Pexafy)
-│   ├── /settings/search     → Preferensi Mesin Pencarian Web
-│   ├── /settings/ai         → Pengaturan Global Model AI
+│   ├── /settings/ai         → Pemilihan Model AI Default (tanpa kunci API)
 │   ├── /settings/webhooks   → Manajemen Outbound Webhooks
 │   └── /settings/profile    → Profil Pengguna & Kata Sandi
 └── /docs                    → Dokumentasi Pengguna Interaktif (In-App Reader)

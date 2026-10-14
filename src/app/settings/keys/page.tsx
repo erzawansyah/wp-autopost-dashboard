@@ -148,15 +148,21 @@ export default function ApiKeysSettingsPage() {
       if (typeof window !== "undefined") {
         const localModel = localStorage.getItem("custom_openrouter_model")
         if (localModel && !data.defaultAiModel) setSelectedModel(localModel)
-        const localAiKey = localStorage.getItem("custom_openrouter_api_key")
-        if (localAiKey && !data.keys?.openrouter?.configured) {
-          setOpenrouterKey(localAiKey)
-        }
       }
     } catch (err) {
       console.error("Gagal memuat pengaturan kunci API:", err)
     } finally {
       setIsLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => {
+    // Migrasi sekali jalan: hapus kunci OpenRouter plaintext lama dari browser.
+    // Kunci kini hanya disimpan terenkripsi di server via /api/settings/user.
+    try {
+      localStorage.removeItem("custom_openrouter_api_key")
+    } catch {
+      // localStorage tidak tersedia (mode privat / diblokir)
     }
   }, [])
 
@@ -173,39 +179,46 @@ export default function ApiKeysSettingsPage() {
     }
   }, [fetchSettings])
 
-  // Test OpenRouter AI
+  // Test OpenRouter AI (via server: kunci yang baru diketik, atau kunci tersimpan jika tersamar)
   const handleTestAi = async () => {
-    const keyToTest = openrouterKey.includes("•") ? "" : openrouterKey.trim()
+    const unsavedKey = openrouterKey.includes("•") ? "" : openrouterKey.trim()
     setIsTestingAi(true)
     setAiTestResult(null)
     const startTime = Date.now()
 
     try {
-      const res = await fetch("https://openrouter.ai/api/v1/auth/key", {
-        headers: {
-          Authorization: `Bearer ${keyToTest || localStorage.getItem("custom_openrouter_api_key") || ""}`,
-        },
+      const res = await fetch("/api/ai/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(unsavedKey ? { apiKey: unsavedKey } : {}),
       })
       const latencyMs = Date.now() - startTime
-      const data = await res.json().catch(() => ({}))
+      const data = await res.json().catch(() => null)
 
-      if (res.ok && data?.data) {
+      if (res.ok && data?.ok) {
+        const remaining =
+          typeof data.limit === "number" && typeof data.usage === "number"
+            ? data.limit - data.usage
+            : null
         setAiTestResult({
           ok: true,
-          message: `Koneksi OpenRouter terverifikasi! Kuota tersisa: $${(data.data.limit ? data.data.limit - data.data.usage : 0).toFixed(2)}`,
+          message:
+            remaining !== null
+              ? `Koneksi OpenRouter terverifikasi! Kuota tersisa: $${remaining.toFixed(2)}`
+              : "Koneksi OpenRouter terverifikasi!",
           latencyMs,
         })
       } else {
         setAiTestResult({
           ok: false,
-          message: data?.error?.message || "Kunci API OpenRouter tidak valid atau ditolak.",
+          message: data?.error || "Kunci API OpenRouter tidak valid atau ditolak.",
           latencyMs,
         })
       }
     } catch {
       setAiTestResult({
         ok: false,
-        message: "Gagal menghubungi server OpenRouter.",
+        message: "Gagal menghubungi server untuk menguji kunci OpenRouter.",
       })
     } finally {
       setIsTestingAi(false)
@@ -316,10 +329,8 @@ export default function ApiKeysSettingsPage() {
       // Process openrouter
       if (openrouterKey.trim() && !openrouterKey.includes("•")) {
         payload.openrouterKey = openrouterKey.trim()
-        localStorage.setItem("custom_openrouter_api_key", openrouterKey.trim())
       } else if (openrouterKey.trim() === "") {
         payload.openrouterKey = ""
-        localStorage.removeItem("custom_openrouter_api_key")
       }
       localStorage.setItem("custom_openrouter_model", selectedModel)
 
@@ -433,7 +444,7 @@ export default function ApiKeysSettingsPage() {
                 </CardTitle>
                 <div className="flex items-center gap-1.5">
                   <Badge variant={openrouterConfigured ? "default" : "outline"} className="text-[10px]">
-                    {openrouterConfigured ? "Kunci Tersimpan" : "Default Server / Belum Diatur"}
+                    {openrouterConfigured ? "Kunci Tersimpan" : "Belum Diatur"}
                   </Badge>
                   <Button asChild variant="ghost" size="sm" className="h-6 px-2 text-[10px] gap-1">
                     <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">
@@ -515,7 +526,7 @@ export default function ApiKeysSettingsPage() {
                 <OpenrouterModelPicker
                   value={selectedModel}
                   onChange={setSelectedModel}
-                  apiKey={openrouterKey.includes("•") ? undefined : openrouterKey}
+                  unsavedKey={openrouterKey.includes("•") ? undefined : openrouterKey}
                   className="w-full"
                 />
               </div>
@@ -878,7 +889,7 @@ export default function ApiKeysSettingsPage() {
                   <span className="text-[10px] text-muted-foreground">Format: lsv2_pt_...</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Masukkan API Key dari akun LangSmith Anda. Anda juga dapat menyetelnya via environment variable <code className="bg-muted px-1 rounded text-foreground font-mono">LANGSMITH_API_KEY</code>.
+                  Masukkan API Key dari akun LangSmith Anda. Trace hanya dikirim ke proyek LangSmith milik akun Anda sendiri.
                 </p>
                 <div className="relative pt-1">
                   <Input

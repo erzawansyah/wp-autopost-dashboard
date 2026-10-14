@@ -3,12 +3,115 @@
  * Menjaga integritas bahasa dan aturan anti-slop (nol dash, sanitasi karakter aneh)
  */
 
+/**
+ * Token placeholder kode memakai karakter Private Use Area. Karakter ini dibuang dari input
+ * sebelum dipakai sehingga token tidak bisa dipalsukan oleh naskah.
+ */
+const CODE_TOKEN_CHARS_RE = /[\uE000\uE001]/g
+const CODE_TOKEN_RE = /\uE000(\d+)\uE001/g
+const FENCE_LINE_RE = /^\s*```/
+
+interface ProtectedCode {
+  text: string
+  segments: string[]
+}
+
+/**
+ * Ganti fenced code block dan kode inline dengan token placeholder agar sanitasi prosa
+ * (dash, byline, sitasi, spasi ganda, unescape `\n`) tidak merusak isi kode.
+ * Fence yang tidak ditutup dilindungi sampai akhir naskah (sama seperti serializer Gutenberg).
+ */
+function protectCode(text: string): ProtectedCode {
+  const segments: string[] = []
+  const stash = (code: string): string => `\uE000${segments.push(code) - 1}\uE001`
+  const output: string[] = []
+  let fence: string[] | null = null
+
+  for (const line of text.split("\n")) {
+    if (fence) {
+      fence.push(line)
+      if (FENCE_LINE_RE.test(line)) {
+        output.push(stash(fence.join("\n")))
+        fence = null
+      }
+      continue
+    }
+    if (FENCE_LINE_RE.test(line)) {
+      fence = [line]
+      continue
+    }
+    output.push(line.replace(/`[^`\n]+`/g, (code) => stash(code)))
+  }
+  if (fence) output.push(stash(fence.join("\n")))
+
+  return { text: output.join("\n"), segments }
+}
+
+function restoreCode(text: string, segments: string[]): string {
+  return text.replace(CODE_TOKEN_RE, (_token, index: string) => segments[Number(index)] ?? "")
+}
+
+/**
+ * Pulihkan literal "\n" (teks ter-escape) menjadi newline asli.
+ * - Naskah tanpa newline asli sama sekali (blob JSON ter-escape penuh): pulihkan seluruhnya,
+ *   karena batas blok kode belum bisa dibaca sebelum struktur barisnya pulih.
+ * - Naskah multi-baris: pulihkan hanya di luar fenced code & kode inline agar `printf("\n")` tetap utuh.
+ */
+export function unescapeLiteralNewlines(text: string): string {
+  if (!text.includes("\\n")) return text
+  const decode = (value: string): string => value.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
+  if (!text.includes("\n")) return decode(text)
+
+  const { text: prose, segments } = protectCode(text.replace(CODE_TOKEN_CHARS_RE, ""))
+  return restoreCode(decode(prose), segments)
+}
+
+/**
+ * Buka pembungkus ```markdown / ```md / ``` yang membungkus seluruh jawaban model
+ * (juga dalam bentuk ter-escape `\n`). Fence tanpa label hanya dianggap pembungkus bila
+ * naskah juga diakhiri fence penutup, sehingga artikel yang diawali blok kode tidak rusak.
+ */
+function stripMarkdownWrapperFence(text: string): string {
+  const opener = text.match(/^```(markdown|md)?[ \t]*(?=\n|\\n|$)/i)
+  if (!opener) return text
+
+  const closer = /(?:\n|\\n)[ \t]*```[ \t]*$/
+  const hasCloser = closer.test(text)
+  if (!opener[1] && !hasCloser) return text
+
+  const inner = text.slice(opener[0].length)
+  return (hasCloser ? inner.replace(closer, "") : inner).replace(/^(?:\n|\\n)/, "")
+}
+
+/** Awal sisi kanan rentang angka (mis. "2024", "Rp35.000", "$5"). */
+const NUMBER_RANGE_END_RE = /^(?:Rp\.?\s?|\$|€)?\d/
+
 export function sanitizeDashes(text: string): string {
   // Lindungi atribusi sitasi kutipan (misal: > — Penulis) dengan mengubahnya ke format standar (> -- Penulis)
   const result = text.replace(/(^|\n)>\s*[—–]\s*/g, "$1> -- ")
-  // Ganti em-dash (—) dan en-dash (–) naratif dengan koma atau jeda kalimat sesuai kaidah anti-slop
-  return result.replace(/[—–]/g, ", ")
+  // Ganti em-dash (—) dan en-dash (–) naratif dengan koma sesuai kaidah anti-slop,
+  // kecuali dash di antara angka (rentang: "2020–2024", "09.00 – 17.00") yang dinormalkan ke en-dash.
+  return result.replace(/[ \t]*[—–][ \t]*/g, (dash: string, offset: number, full: string) => {
+    const before = full.charAt(offset - 1)
+    const after = full.slice(offset + dash.length, offset + dash.length + 8)
+    return /\d/.test(before) && NUMBER_RANGE_END_RE.test(after) ? "–" : ", "
+  })
 }
+
+/**
+ * Byline berlabel di baris tersendiri: "Penulis: Dimas", "**Ditulis oleh:** Budi", "Author: John".
+ * Titik dua wajib, sehingga kalimat seperti "Oleh karena itu, ..." atau "Penulisan artikel ..." aman.
+ * Item list ("- Penulis: Pramoedya") sengaja tidak disentuh karena lazim berupa data (mis. ulasan buku).
+ */
+const LABELED_BYLINE_RE =
+  /^[ \t]*(?:>[ \t]*)?(?:[*_]{1,2})?(?:Penulis(?:\s+Artikel)?|Ditulis\s+oleh|Oleh(?:\s+Penulis)?|Author|Written\s+by|By)(?:[*_]{1,2})?[ \t]*[:：](?:[*_]{1,2})?[ \t]*\S.*$/gim
+
+/**
+ * Byline nama saja: "Oleh Budi Santoso", "*By John Smith*" — maksimal 4 kata berhuruf kapital
+ * tanpa tanda baca kalimat, lalu akhir baris.
+ */
+const NAME_ONLY_BYLINE_RE =
+  /^[ \t]*(?:>[ \t]*)?(?:[*_]{1,2})?(?:[Oo]leh|[Bb]y|[Dd]itulis\s+[Oo]leh|[Ww]ritten\s+[Bb]y)[ \t]+\p{Lu}[\p{L}.'’-]*(?:[ \t]+\p{Lu}[\p{L}.'’-]*){0,3}(?:[*_]{1,2})?[ \t]*$/gmu
 
 /**
  * Membersihkan byline atau atribusi penulis yang mungkin secara tidak sengaja dihasilkan model AI.
@@ -17,11 +120,8 @@ export function sanitizeDashes(text: string): string {
 export function sanitizeAuthorBylines(text: string): string {
   let result = text
 
-  // 1. Bersihkan baris atribusi langsung di baris tersendiri (misal: "Penulis: Dimas Raditya...", "**Ditulis oleh:** ...", "Author: ...")
-  result = result.replace(
-    /^(?:>|\*|-)?\s*(?:[*_]{1,2})?(?:Penulis(?:\s+Artikel)?|Ditulis\s+oleh|Oleh(?:\s+Penulis)?|Author|Written\s+by):?(?:[*_]{1,2})?\s*:?\s*.+$/gim,
-    ""
-  )
+  // 1. Bersihkan baris byline di baris tersendiri (berlabel titik dua, atau "Oleh <Nama>" saja)
+  result = result.replace(LABELED_BYLINE_RE, "").replace(NAME_ONLY_BYLINE_RE, "")
 
   // 2. Bersihkan blok "Tentang Penulis" / "Profil Penulis" / "About the Author" di bagian akhir naskah jika ada
   result = result.replace(
@@ -61,8 +161,9 @@ export function sanitizeCitationsAndReferences(text: string): string {
   // 3. Hapus penanda nomor sitasi inline seperti "[1]", "[2][3]", "[^5]" yang bukan link markdown [text](url)
   result = result.replace(/\[\^?\d+\](?!\()/g, "")
 
-  // 4. Bersihkan spasi ganda yang tertinggal setelah nomor sitasi dihapus
-  result = result.replace(/ {2,}/g, " ")
+  // 4. Bersihkan spasi ganda yang tertinggal setelah nomor sitasi dihapus.
+  //    Hanya spasi setelah karakter non-spasi: indentasi awal baris (list bertingkat) tidak disentuh.
+  result = result.replace(/(?<=\S) {2,}/g, " ")
 
   return result
 }
@@ -139,8 +240,12 @@ export function sanitizeDuplicateTitleAndH1(text: string, expectedTitle?: string
     const isH1 = /^#\s+(.+)$/.test(firstLine)
     // Atau jika ada label eksplisit: "**Judul:** ..." atau "Judul: ..." atau "Title: ..."
     const isTitleLabel = /^(?:\*\*|__)?(?:Judul(?:\s+Artikel)?|Title):?(?:\*\*|__)?\s*.+$/i.test(firstLine)
+    // Atau baris pertama hanya mengulang judul post (mis. "**Judul Post**" / "## Judul Post")
+    const normalizeTitle = (value: string): string =>
+      value.replace(/^#{1,6}\s+/, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim().toLowerCase()
+    const isDuplicateTitle = Boolean(expectedTitle && normalizeTitle(firstLine) === normalizeTitle(expectedTitle))
 
-    if (isH1 || isTitleLabel) {
+    if (isH1 || isTitleLabel || isDuplicateTitle) {
       lines.splice(firstNonEmptyIdx, 1)
     }
   }
@@ -209,22 +314,18 @@ export function sanitizeMetaAnnouncements(text: string): string {
 }
 
 export function cleanMarkdown(rawMarkdown: string, expectedTitle?: string): string {
-  let cleaned = (rawMarkdown || "").trim()
-
-  // 0. Normalisasi newline dan unescape literal \n jika teks ter-escape (krusial mencegah seluruh artikel 1 baris)
-  cleaned = cleaned.replace(/\r\n/g, "\n")
-  if (cleaned.includes("\\n")) {
-    cleaned = cleaned.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
-  }
+  // 0. Normalisasi newline; buang karakter token placeholder agar tidak bisa dipalsukan naskah
+  let cleaned = (rawMarkdown || "").replace(CODE_TOKEN_CHARS_RE, "").trim().replace(/\r\n/g, "\n")
 
   // Hilangkan pembungkus markdown code block jika model mengembalikan ```markdown ... ```
-  if (cleaned.startsWith("```markdown")) {
-    cleaned = cleaned.replace(/^```markdown\s*/, "").replace(/\s*```$/, "")
-  } else if (cleaned.startsWith("```md")) {
-    cleaned = cleaned.replace(/^```md\s*/, "").replace(/\s*```$/, "")
-  } else if (cleaned.startsWith("```")) {
-    cleaned = cleaned.replace(/^```\s*/, "").replace(/\s*```$/, "")
-  }
+  cleaned = stripMarkdownWrapperFence(cleaned)
+
+  // Unescape literal \n jika teks ter-escape (krusial mencegah seluruh artikel 1 baris), tanpa merusak kode
+  cleaned = unescapeLiteralNewlines(cleaned).trim()
+
+  // Lindungi fenced code & kode inline dari seluruh sanitasi prosa di bawah
+  const code = protectCode(cleaned)
+  cleaned = code.text
 
   // Bersihkan basa-basi percakapan pembuka & penutup
   cleaned = sanitizeConversationalPreamblesAndOutros(cleaned)
@@ -259,7 +360,7 @@ export function cleanMarkdown(rawMarkdown: string, expectedTitle?: string): stri
   // Normalisasi spasi baris berlebih (maksimal 2 newline berturut-turut)
   cleaned = cleaned.replace(/\n{3,}/g, "\n\n")
 
-  return cleaned.trim()
+  return restoreCode(cleaned, code.segments).trim()
 }
 
 /**

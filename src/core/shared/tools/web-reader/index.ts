@@ -1,16 +1,13 @@
 /**
  * Universal Tool: Web Reader (URL Content Extractor)
  * Membaca dan mengekstrak isi teks bersih dari sebuah halaman web / URL.
- * Dilengkapi proteksi SSRF, pembersihan tag skrip/iklan/navigasi, dan pembatasan panjang konten.
+ * Dilengkapi proteksi SSRF (`safeFetch`), pembersihan tag skrip/iklan/navigasi, dan pembatasan panjang konten.
  */
 
-import dns from "node:dns"
+import { ResponseTooLargeError, safeFetch, SsrfBlockedError } from "@/lib/net/safe-fetch"
 
-try {
-  dns.setDefaultResultOrder("ipv4first")
-} catch {
-  // Ignore if unsupported
-}
+/** Batas ukuran HTML mentah yang diunduh (byte). */
+const MAX_HTML_BYTES = 3 * 1024 * 1024
 
 export interface WebReaderResult {
   ok: boolean
@@ -25,35 +22,6 @@ export interface WebReaderParams {
   url: string
   maxLength?: number
   timeoutMs?: number
-}
-
-/**
- * Validasi keamanan SSRF untuk memastikan URL tidak mengarah ke IP privat atau metadata cloud
- */
-function isSafeUrl(targetUrl: string): boolean {
-  try {
-    const parsed = new URL(targetUrl)
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return false
-    }
-
-    const host = parsed.hostname.toLowerCase()
-    if (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "::1" ||
-      host.startsWith("192.168.") ||
-      host.startsWith("10.") ||
-      host.startsWith("169.254.") ||
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)
-    ) {
-      return false
-    }
-
-    return true
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -112,60 +80,6 @@ function extractCleanText(html: string, maxLength: number): { title?: string; te
   return { title, text: combined }
 }
 
-import https from "node:https"
-import http from "node:http"
-
-function fetchHtmlViaNode(targetUrl: string, timeoutMs: number): Promise<{ ok: boolean; status: number; text: string; error?: string }> {
-  return new Promise((resolve) => {
-    try {
-      const parsed = new URL(targetUrl)
-      const client = parsed.protocol === "https:" ? https : http
-
-      const req = client.get(
-        targetUrl,
-        {
-          family: 4,
-          timeout: timeoutMs,
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-            Accept: "text/html,application/xhtml+xml,text/plain",
-          },
-        },
-        (res) => {
-          // Handle redirect
-          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-            const redirectUrl = new URL(res.headers.location, targetUrl).toString()
-            return fetchHtmlViaNode(redirectUrl, timeoutMs).then(resolve)
-          }
-
-          let data = ""
-          res.setEncoding("utf-8")
-          res.on("data", (chunk) => { data += chunk })
-          res.on("end", () => {
-            resolve({
-              ok: (res.statusCode || 200) >= 200 && (res.statusCode || 200) < 300,
-              status: res.statusCode || 200,
-              text: data,
-            })
-          })
-        }
-      )
-
-      req.on("timeout", () => {
-        req.destroy()
-        resolve({ ok: false, status: 408, text: "", error: "Batas waktu request tercapai (timeout)." })
-      })
-
-      req.on("error", (err) => {
-        resolve({ ok: false, status: 500, text: "", error: err.message })
-      })
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      resolve({ ok: false, status: 500, text: "", error: message })
-    }
-  })
-}
-
 /**
  * Universal Tool: Web Reader
  * Mengambil dan membaca konten teks dari URL tujuan
@@ -179,41 +93,25 @@ export async function readWebContent(params: WebReaderParams): Promise<WebReader
     return { ok: false, url: "", error: "URL tidak boleh kosong." }
   }
 
-  if (!isSafeUrl(url)) {
-    return { ok: false, url, error: "Akses ke URL ini ditolak demi keamanan (SSRF protection)." }
-  }
-
   try {
-    let res = await fetchHtmlViaNode(url, timeoutMs)
-
-    // Jika terjadi timeout di Node https, coba dengan native fetch sebagai jaring pengaman
-    if (!res.ok && (res.status === 408 || res.error?.includes("timeout"))) {
-      try {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), timeoutMs)
-        const nativeRes = await fetch(url, {
-          headers: {
-            "User-Agent":
-              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-            Accept: "text/html,application/xhtml+xml,text/plain",
-          },
-          signal: controller.signal,
-        })
-        clearTimeout(timer)
-        if (nativeRes.ok) {
-          const text = await nativeRes.text()
-          res = { ok: true, status: nativeRes.status, text }
-        }
-      } catch {
-        // Biarkan pesan error sebelumnya jika native fetch juga gagal
-      }
-    }
+    const res = await safeFetch(
+      url,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+          Accept: "text/html,application/xhtml+xml,text/plain",
+        },
+      },
+      { timeoutMs, maxBytes: MAX_HTML_BYTES }
+    )
 
     if (!res.ok) {
-      return { ok: false, url, error: res.error || `Server tujuan merespons HTTP ${res.status}.` }
+      await res.body?.cancel()
+      return { ok: false, url, error: `Server tujuan merespons HTTP ${res.status}.` }
     }
 
-    const html = res.text
+    const html = await res.text()
     const { title, text } = extractCleanText(html, maxLength)
     const wordCount = text.trim().split(/\s+/).filter(Boolean).length
 
@@ -225,6 +123,15 @@ export async function readWebContent(params: WebReaderParams): Promise<WebReader
       wordCount,
     }
   } catch (err: unknown) {
+    if (err instanceof SsrfBlockedError) {
+      return { ok: false, url, error: `Akses ke URL ini ditolak demi keamanan (SSRF protection): ${err.message}` }
+    }
+    if (err instanceof ResponseTooLargeError) {
+      return { ok: false, url, error: `Halaman terlalu besar untuk dibaca (maksimal ${MAX_HTML_BYTES / (1024 * 1024)} MB).` }
+    }
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      return { ok: false, url, error: "Batas waktu request tercapai (timeout)." }
+    }
     const msg = err instanceof Error ? err.message : "Gagal membaca konten web"
     return { ok: false, url, error: msg }
   }

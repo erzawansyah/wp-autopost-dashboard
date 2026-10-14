@@ -51,7 +51,7 @@ export async function findExistingUploadedMedia(params: {
       imageId: Number(data.image_id),
       metadata: (data.metadata as UploadedMediaRecord["metadata"]) || {},
     }
-  } catch (err) {
+  } catch {
     // Graceful fallback jika tabel belum dibuat di Supabase pengguna
     return null
   }
@@ -92,7 +92,7 @@ export async function recordUploadedMedia(record: {
     }
 
     return true
-  } catch (err) {
+  } catch {
     return false
   }
 }

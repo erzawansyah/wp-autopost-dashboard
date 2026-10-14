@@ -4,9 +4,11 @@ import {
   resolveOrCreateWordPressTags,
   normalizeAndValidateWpUrl,
   makeAuthHeader,
+  wpFetch,
   WPUserItem,
   WPCategoryItem,
 } from "@/lib/wordpress/client"
+import { sanitizeTermNames, toPlainText } from "@/lib/wordpress/plain-text"
 import { callOpenRouterJson } from "@/lib/ai/completion"
 import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { RunRecorder } from "./telemetry"
@@ -56,7 +58,6 @@ export async function preResolveTaxonomyAndAuthor(
     wpCredentials,
     requestedAuthorId,
     requestedCategoryIds = [],
-    requestedTagNames = [],
     keyword = "",
     language = "id",
     brief = "",
@@ -64,6 +65,8 @@ export async function preResolveTaxonomyAndAuthor(
     model,
     recorder,
   } = options
+  // Nama tag selalu teks polos berbatas panjang (input pengguna maupun keluaran LLM)
+  const requestedTagNames = sanitizeTermNames(options.requestedTagNames)
 
   const result: PreResolvedContext = {
     categoryIds: [...requestedCategoryIds],
@@ -76,8 +79,8 @@ export async function preResolveTaxonomyAndAuthor(
   if (!wpCredentials?.baseUrl || !wpCredentials?.username || !wpCredentials?.applicationPassword) {
     if (requestedTagNames.length > 0) {
       result.tagNames = [...requestedTagNames]
-    } else if (keyword.trim().length > 0) {
-      result.tagNames = [keyword.trim()]
+    } else {
+      result.tagNames = sanitizeTermNames([keyword])
     }
     return result
   }
@@ -107,20 +110,24 @@ export async function preResolveTaxonomyAndAuthor(
 
     // Ambil cuplikan tag yang sudah terdaftar di WordPress
     try {
-      const wpTagsRes = await fetch(`${normalizedUrl}/wp-json/wp/v2/tags?per_page=40`, {
-        headers: {
-          Authorization: makeAuthHeader(wpCredentials.username, wpCredentials.applicationPassword),
-          Accept: "application/json",
-          "User-Agent": "WP-Autopost-Dashboard/1.0",
+      const wpTagsRes = await wpFetch(
+        `${normalizedUrl}/wp-json/wp/v2/tags?per_page=40`,
+        {
+          headers: {
+            Authorization: makeAuthHeader(wpCredentials.username, wpCredentials.applicationPassword),
+            Accept: "application/json",
+            "User-Agent": "WP-Autopost-Dashboard/1.0",
+          },
         },
-        signal: AbortSignal.timeout(10000),
-      })
+        { timeoutMs: 10_000 }
+      )
       if (wpTagsRes.ok) {
         const rawTags = await wpTagsRes.json()
         if (Array.isArray(rawTags)) {
           existingTags = rawTags.map((t) => ({
             id: Number(t.id),
-            name: String(t.name || ""),
+            // WordPress mengembalikan nama term ter-escape (mis. "&amp;"): decode ke teks polos
+            name: toPlainText(String(t.name || "")),
             slug: String(t.slug || ""),
           }))
         }
@@ -252,11 +259,9 @@ export async function preResolveTaxonomyAndAuthor(
           }
 
           // C. Resolusi Tag dari LLM
-          if (Array.isArray(llmResult.tagNames) && llmResult.tagNames.length > 0) {
-            result.tagNames = llmResult.tagNames
-              .map((t) => String(t).trim())
-              .filter((t) => t.length > 0)
-              .slice(0, 5)
+          const llmTagNames = sanitizeTermNames(llmResult.tagNames, 5)
+          if (llmTagNames.length > 0) {
+            result.tagNames = llmTagNames
           }
 
           llmSuccess = Boolean(result.author || result.categoryIds.length > 0)
@@ -416,7 +421,7 @@ export async function preResolveTaxonomyAndAuthor(
       }
     }
 
-    result.tagNames = tagsToResolve
+    result.tagNames = sanitizeTermNames(tagsToResolve)
   }
 
   // 6. Daftarkan / Selesaikan Tag di WordPress

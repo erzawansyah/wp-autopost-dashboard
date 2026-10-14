@@ -1,7 +1,7 @@
 import { ChatOpenRouter } from "@langchain/openrouter";
 import { HumanMessage } from "@langchain/core/messages";
 import { StructuredTool } from "@langchain/core/tools";
-import { getSanitizedApiKey } from "@/lib/ai/openrouter";
+import { MISSING_OPENROUTER_KEY_MESSAGE, resolveOpenRouterKey } from "@/lib/ai/platform-keys";
 import { DecryptedUserKeys } from "@/types/settings";
 import {
   WriterRequest,
@@ -22,14 +22,14 @@ import { buildSystemPrompt, buildUserPrompt } from "./prompt-builder";
 import { buildWriterAgent } from "./build-agent";
 import { executeSingleFinalizeCall } from "./finalize";
 import { postprocessArticle } from "./postprocess";
+import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
 import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
 import { preResolveTaxonomyAndAuthor } from "./pre-resolve";
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings";
 import { getLanguageDisplayName } from "@/lib/constants/languages";
 import { getOpenRouterReasoningConfig, ReasoningEffort } from "@/lib/ai/reasoning";
 import {
-  createLangSmithTracer,
-  setupLangSmithEnvironment,
+  createTenantLangSmithTracer,
   flushLangSmithTracer,
 } from "@/core/shared/langsmith";
 import "../tools"; // Pastikan seluruh tool terdaftar ke registry
@@ -68,9 +68,6 @@ export async function runAgentWriter(
   const language = request.content.language || "id";
   const targetWordCount =
     request.content.wordCountTarget || limits.minWordCount || 800;
-
-  // Siapkan environment tracing LangSmith secara transparan
-  setupLangSmithEnvironment(userKeys);
 
   // 1. Kredensial WordPress
   const site = request.site;
@@ -120,12 +117,10 @@ export async function runAgentWriter(
     .filter(Boolean) as StructuredTool[];
 
   // 3. Inisialisasi Kredensial AI & Validasi API Key
-  const resolvedApiKey =
-    request.apiKey || userKeys.openrouterKey || getSanitizedApiKey();
+  const resolvedApiKey = resolveOpenRouterKey(request.apiKey || userKeys.openrouterKey);
 
   if (!resolvedApiKey) {
-    const errorMsg =
-      "API Key OpenRouter belum dikonfigurasi. Karena platform Panitera menggunakan sistem BYOK (Bring Your Own Key), silakan tambahkan API Key Anda di menu Pengaturan ➔ Kunci API (/settings/keys).";
+    const errorMsg = MISSING_OPENROUTER_KEY_MESSAGE;
     recorder.recordEvent({
       kind: "guard",
       status: "error",
@@ -282,10 +277,10 @@ export async function runAgentWriter(
   let stopReason = "completed";
   const threadId = `agent-run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-  // Inisialisasi LangSmith Tracer jika kredensial tersedia (BYOK atau environment variables)
-  const langsmithTracer = createLangSmithTracer({
-    userKeys,
-  });
+  // Tracer LangSmith khusus run ini, hanya bila tenant memiliki API key LangSmith sendiri (BYOK).
+  // Dioper eksplisit lewat `callbacks` — tidak pernah lewat process.env — agar trace antar-tenant terisolasi.
+  const langsmithTracer = createTenantLangSmithTracer(userKeys);
+  const tracingCallbacks = langsmithTracer ? [langsmithTracer] : undefined;
 
   if (langsmithTracer) {
     recorder.recordEvent({
@@ -296,234 +291,232 @@ export async function runAgentWriter(
     });
   }
 
-  // 7. Eksekusi Agent Loop
   try {
-    const agentResult = await agent.invoke(
-      {
-        messages: [new HumanMessage(userPromptText)],
-      },
-      {
-        configurable: { thread_id: threadId },
-        recursionLimit:
-          profile.mode === "deep"
-            ? Math.max(150, Math.min(300, limits.maxModelCalls * 10 + 60))
-            : Math.max(80, Math.min(200, limits.maxModelCalls * 10 + 40)),
-        signal: timeoutController.signal,
-        runName: `Panitera [${profile.mode === "deep" ? "Deep Agent" : "Standard Agent"}]: ${keyword.slice(0, 45)}`,
-        tags: [profile.mode, "panitera", `lang:${language}`, siteName].filter(
-          Boolean,
-        ),
-        metadata: {
-          keyword,
-          siteUrl,
-          siteName,
-          model: selectedModel,
-          agentProfileRef: profile.ref,
-          mode: profile.mode,
-          userId: request.userId,
+    // 7. Eksekusi Agent Loop
+    try {
+      const agentResult = await agent.invoke(
+        {
+          messages: [new HumanMessage(userPromptText)],
         },
-        callbacks: langsmithTracer ? [langsmithTracer] : undefined,
-      },
-    );
+        {
+          configurable: { thread_id: threadId },
+          recursionLimit:
+            profile.mode === "deep"
+              ? Math.max(150, Math.min(300, limits.maxModelCalls * 10 + 60))
+              : Math.max(80, Math.min(200, limits.maxModelCalls * 10 + 40)),
+          signal: timeoutController.signal,
+          runName: `Panitera [${profile.mode === "deep" ? "Deep Agent" : "Standard Agent"}]: ${keyword.slice(0, 45)}`,
+          tags: [profile.mode, "panitera", `lang:${language}`, siteName].filter(
+            Boolean,
+          ),
+          metadata: {
+            keyword,
+            siteUrl,
+            siteName,
+            model: selectedModel,
+            agentProfileRef: profile.ref,
+            mode: profile.mode,
+            userId: request.userId,
+          },
+          callbacks: tracingCallbacks,
+        },
+      );
 
-    clearTimeout(timer);
+      clearTimeout(timer);
 
-    // Periksa apakah model mengembalikan structured response langsung
-    if ("structuredResponse" in agentResult && agentResult.structuredResponse) {
-      rawOutput = agentResult.structuredResponse as ArticleOutput;
-    } else {
-      // Ambil pesan terakhir dan ekstrak teks secara bersih (menghindari double JSON stringify)
-      const messages = agentResult.messages || [];
-      const lastMsg = messages[messages.length - 1];
+      // Periksa apakah model mengembalikan structured response langsung
+      if ("structuredResponse" in agentResult && agentResult.structuredResponse) {
+        rawOutput = agentResult.structuredResponse as ArticleOutput;
+      } else {
+        // Ambil pesan terakhir dan ekstrak teks secara bersih (menghindari double JSON stringify)
+        const messages = agentResult.messages || [];
+        const lastMsg = messages[messages.length - 1];
 
-      const extractRawMessageText = (content: unknown): string => {
-        if (typeof content === "string") return content;
-        if (Array.isArray(content)) {
-          return content
-            .map((part) => {
-              if (typeof part === "string") return part;
-              if (
-                typeof part === "object" &&
-                part !== null &&
-                "text" in part &&
-                typeof (part as { text?: unknown }).text === "string"
-              ) {
-                return (part as { text: string }).text;
-              }
-              return "";
-            })
-            .filter(Boolean)
-            .join("\n\n");
-        }
-        return "";
-      };
-
-      const rawText = extractRawMessageText(lastMsg?.content);
-
-      rawOutput = extractArticleJsonFromText(rawText);
-      if (!rawOutput?.markdownContent && rawText.length > 200) {
-        const unescaped = rawText.includes("\\n")
-          ? rawText.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
-          : rawText;
-        rawOutput = {
-          title: request.content.title || `Panduan Lengkap ${keyword}`,
-          excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
-          markdownContent: unescaped,
+        const extractRawMessageText = (content: unknown): string => {
+          if (typeof content === "string") return content;
+          if (Array.isArray(content)) {
+            return content
+              .map((part) => {
+                if (typeof part === "string") return part;
+                if (
+                  typeof part === "object" &&
+                  part !== null &&
+                  "text" in part &&
+                  typeof (part as { text?: unknown }).text === "string"
+                ) {
+                  return (part as { text: string }).text;
+                }
+                return "";
+              })
+              .filter(Boolean)
+              .join("\n\n");
+          }
+          return "";
         };
+
+        const rawText = extractRawMessageText(lastMsg?.content);
+
+        rawOutput = extractArticleJsonFromText(rawText);
+        if (!rawOutput?.markdownContent && rawText.length > 200) {
+          rawOutput = {
+            title: request.content.title || `Panduan Lengkap ${keyword}`,
+            excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
+            // Pulihkan literal "\n" tanpa menyentuh isi blok kode
+            markdownContent: unescapeLiteralNewlines(rawText),
+          };
+        }
+      }
+    } catch (invokeErr: unknown) {
+      clearTimeout(timer);
+      const errText =
+        invokeErr instanceof Error ? invokeErr.message : String(invokeErr);
+      const isTimeout =
+        timeoutController.signal.aborted ||
+        errText.includes("abort") ||
+        errText.includes("timeout");
+      const isLimit =
+        errText.includes("ModelCallLimitMiddlewareError") ||
+        errText.includes("ToolCallLimitExceededError") ||
+        errText.includes("recursionLimit");
+
+      stopReason = isTimeout
+        ? "timeout_exceeded"
+        : isLimit
+          ? "limit_reached"
+          : "agent_loop_interrupted";
+
+      recorder.recordEvent({
+        kind: "guard",
+        status: "blocked",
+        durationMs: 1,
+        summary: `Eksekusi agent terhenti (${stopReason}): ${errText.slice(0, 120)}`,
+      });
+    }
+
+    // 8. Evaluasi Kelengkapan Naskah & Trigger Single Finalize Call jika diperlukan
+    const rawWords = rawOutput?.markdownContent
+      ? rawOutput.markdownContent.split(/\s+/).filter(Boolean).length
+      : 0;
+
+    const needsFinalize =
+      !rawOutput?.markdownContent ||
+      rawWords < Math.max(250, Math.round(limits.minWordCount * 0.6));
+
+    if (needsFinalize) {
+      console.log(
+        `[runAgentWriter] Naskah belum lengkap (${rawWords} kata, stopReason: ${stopReason}). Menjalankan Single Finalize Call...`,
+      );
+
+      const finalizeResult = await executeSingleFinalizeCall({
+        llm,
+        systemPrompt,
+        keyword,
+        language,
+        targetWordCount,
+        brief: request.content.brief,
+        author: preResolved.author
+          ? { name: preResolved.author.name, bio: preResolved.author.bio }
+          : undefined,
+        customInstructions: request.customInstructions,
+        recorder,
+        reason: stopReason,
+        callbacks: tracingCallbacks,
+      });
+
+      if (finalizeResult && finalizeResult.markdownContent) {
+        rawOutput = finalizeResult;
+        stopReason =
+          stopReason === "completed"
+            ? "finalized_after_short_draft"
+            : `finalized_after_${stopReason}`;
       }
     }
-  } catch (invokeErr: unknown) {
-    clearTimeout(timer);
-    const errText =
-      invokeErr instanceof Error ? invokeErr.message : String(invokeErr);
-    const isTimeout =
-      timeoutController.signal.aborted ||
-      errText.includes("abort") ||
-      errText.includes("timeout");
-    const isLimit =
-      errText.includes("ModelCallLimitMiddlewareError") ||
-      errText.includes("ToolCallLimitExceededError") ||
-      errText.includes("recursionLimit");
 
-    stopReason = isTimeout
-      ? "timeout_exceeded"
-      : isLimit
-        ? "limit_reached"
-        : "agent_loop_interrupted";
+    // 9. Hasil Akhir
+    if (!rawOutput?.markdownContent || rawOutput.markdownContent.length < 200) {
+      const finalErrorMsg = `Agent gagal menghasilkan naskah artikel yang memenuhi kriteria (${stopReason}).`;
+      recorder.recordEvent({
+        kind: "summary",
+        status: "error",
+        durationMs: 1,
+        summary: finalErrorMsg,
+      });
 
-    recorder.recordEvent({
-      kind: "guard",
-      status: "blocked",
-      durationMs: 1,
-      summary: `Eksekusi agent terhenti (${stopReason}): ${errText.slice(0, 120)}`,
-    });
-  }
-
-  // 8. Evaluasi Kelengkapan Naskah & Trigger Single Finalize Call jika diperlukan
-  const rawWords = rawOutput?.markdownContent
-    ? rawOutput.markdownContent.split(/\s+/).filter(Boolean).length
-    : 0;
-
-  const needsFinalize =
-    !rawOutput?.markdownContent ||
-    rawWords < Math.max(250, Math.round(limits.minWordCount * 0.6));
-
-  if (needsFinalize) {
-    console.log(
-      `[runAgentWriter] Naskah belum lengkap (${rawWords} kata, stopReason: ${stopReason}). Menjalankan Single Finalize Call...`,
-    );
-
-    const finalizeResult = await executeSingleFinalizeCall({
-      llm,
-      systemPrompt,
-      keyword,
-      language,
-      targetWordCount,
-      brief: request.content.brief,
-      author: preResolved.author
-        ? { name: preResolved.author.name, bio: preResolved.author.bio }
-        : undefined,
-      customInstructions: request.customInstructions,
-      recorder,
-      reason: stopReason,
-      callbacks: langsmithTracer ? [langsmithTracer] : undefined,
-    });
-
-    if (finalizeResult && finalizeResult.markdownContent) {
-      rawOutput = finalizeResult;
-      stopReason =
-        stopReason === "completed"
-          ? "finalized_after_short_draft"
-          : `finalized_after_${stopReason}`;
+      return {
+        success: false,
+        sources: Array.from(recorder.sources.values()),
+        enrichment: { categories: [], tags: [] },
+        recorder,
+        stopReason: `failed_${stopReason}`,
+        error: {
+          code: "GENERATION_FAILED",
+          message: finalErrorMsg,
+          retryable: true,
+        },
+      };
     }
-  }
 
-  // 9. Hasil Akhir
-  if (!rawOutput?.markdownContent || rawOutput.markdownContent.length < 200) {
-    const finalErrorMsg = `Agent gagal menghasilkan naskah artikel yang memenuhi kriteria (${stopReason}).`;
+    // 10. Postprocessing ke Native WordPress Gutenberg Blocks (Global & Tersembunyi dari User)
+    const generatedArticle = postprocessArticle({
+      rawTitle:
+        rawOutput.title || request.content.title || `Panduan Lengkap ${keyword}`,
+      rawExcerpt: rawOutput.excerpt || `Ulasan lengkap mengenai ${keyword}.`,
+      rawMarkdown: rawOutput.markdownContent,
+    });
+
+    // Gabungkan taksonomi dari hasil pre-resolution, temuan agent, dan request manual
+    const finalCategories =
+      rawOutput.categoryIds && rawOutput.categoryIds.length > 0
+        ? rawOutput.categoryIds
+        : preResolved.categoryIds.length > 0
+          ? preResolved.categoryIds
+          : request.publishing.categoryIds || [];
+
+    const finalTags: number[] =
+      preResolved.tagIds.length > 0 ? preResolved.tagIds : [];
+
+    const enrichment: WpEnrichment = {
+      categories: finalCategories,
+      categoryNames: preResolved.categoryNames,
+      tags: finalTags,
+      tagNames: preResolved.tagNames,
+      author:
+        preResolved.author?.id ??
+        request.publishing.authorId ??
+        rawOutput.authorId ??
+        undefined,
+      authorDetail: preResolved.author
+        ? {
+            id: preResolved.author.id,
+            name: preResolved.author.name,
+            bio: preResolved.author.bio,
+          }
+        : undefined,
+      featuredMedia:
+        request.publishing.featuredImageId ??
+        rawOutput.featuredMediaId ??
+        recorder.featuredMediaId ??
+        undefined,
+      featuredImage: recorder.featuredImage,
+      inContentImages: recorder.inContentImages,
+    };
+
     recorder.recordEvent({
       kind: "summary",
-      status: "error",
+      status: "ok",
       durationMs: 1,
-      summary: finalErrorMsg,
+      summary: `Artikel sukses dibuat: "${generatedArticle.title}" (${generatedArticle.wordCount} kata, ${stopReason})`,
     });
 
-    await flushLangSmithTracer(langsmithTracer);
-
     return {
-      success: false,
+      success: true,
+      article: generatedArticle,
       sources: Array.from(recorder.sources.values()),
-      enrichment: { categories: [], tags: [] },
+      enrichment,
       recorder,
-      stopReason: `failed_${stopReason}`,
-      error: {
-        code: "GENERATION_FAILED",
-        message: finalErrorMsg,
-        retryable: true,
-      },
+      stopReason,
     };
+  } finally {
+    await flushLangSmithTracer(langsmithTracer);
   }
-
-  // 10. Postprocessing ke Native WordPress Gutenberg Blocks (Global & Tersembunyi dari User)
-  const generatedArticle = postprocessArticle({
-    rawTitle:
-      rawOutput.title || request.content.title || `Panduan Lengkap ${keyword}`,
-    rawExcerpt: rawOutput.excerpt || `Ulasan lengkap mengenai ${keyword}.`,
-    rawMarkdown: rawOutput.markdownContent,
-  });
-
-  // Gabungkan taksonomi dari hasil pre-resolution, temuan agent, dan request manual
-  const finalCategories =
-    rawOutput.categoryIds && rawOutput.categoryIds.length > 0
-      ? rawOutput.categoryIds
-      : preResolved.categoryIds.length > 0
-        ? preResolved.categoryIds
-        : request.publishing.categoryIds || [];
-
-  const finalTags: number[] =
-    preResolved.tagIds.length > 0 ? preResolved.tagIds : [];
-
-  const enrichment: WpEnrichment = {
-    categories: finalCategories,
-    categoryNames: preResolved.categoryNames,
-    tags: finalTags,
-    tagNames: preResolved.tagNames,
-    author:
-      preResolved.author?.id ??
-      request.publishing.authorId ??
-      rawOutput.authorId ??
-      undefined,
-    authorDetail: preResolved.author
-      ? {
-          id: preResolved.author.id,
-          name: preResolved.author.name,
-          bio: preResolved.author.bio,
-        }
-      : undefined,
-    featuredMedia:
-      request.publishing.featuredImageId ??
-      rawOutput.featuredMediaId ??
-      recorder.featuredMediaId ??
-      undefined,
-    featuredImage: recorder.featuredImage,
-    inContentImages: recorder.inContentImages,
-  };
-
-  recorder.recordEvent({
-    kind: "summary",
-    status: "ok",
-    durationMs: 1,
-    summary: `Artikel sukses dibuat: "${generatedArticle.title}" (${generatedArticle.wordCount} kata, ${stopReason})`,
-  });
-
-  await flushLangSmithTracer(langsmithTracer);
-
-  return {
-    success: true,
-    article: generatedArticle,
-    sources: Array.from(recorder.sources.values()),
-    enrichment,
-    recorder,
-    stopReason,
-  };
 }

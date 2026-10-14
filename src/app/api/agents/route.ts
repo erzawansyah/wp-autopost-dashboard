@@ -1,7 +1,23 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { BUILTIN_PRESETS } from "@/core/writer/profiles"
-import { AgentLimits, clampLimits, ensureMandatoryToolIds } from "@/core/writer/types/profile"
+import {
+  AgentLimits,
+  AgentLimitsInputSchema,
+  AgentModeSchema,
+  clampLimits,
+  ensureMandatoryToolIds,
+} from "@/core/writer/types/profile"
+
+/** Validasi bertipe untuk field yang menentukan batas eksekusi; nilai akhir tetap di-clamp. */
+const CreateAgentExecutionSchema = z.object(
+  {
+    mode: AgentModeSchema.default("standard"),
+    limits: AgentLimitsInputSchema.nullish(),
+  },
+  { error: "Body permintaan harus berupa objek JSON." }
+)
 
 export async function GET() {
   try {
@@ -86,16 +102,22 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
+    const execution = CreateAgentExecutionSchema.safeParse(body)
+    if (!execution.success) {
+      return NextResponse.json(
+        { error: execution.error.issues[0]?.message ?? "Konfigurasi mode/batas eksekusi tidak valid." },
+        { status: 400 }
+      )
+    }
+    const { mode, limits } = execution.data
     const {
       name,
       description = "",
-      mode = "standard",
       modelName,
       temperature = 0.95,
       workflowPrompt,
       toolIds = [],
       skills = [],
-      limits,
       isDefault = false,
     } = body
 
@@ -113,14 +135,7 @@ export async function POST(request: Request) {
       )
     }
 
-    if (mode !== "standard" && mode !== "deep") {
-      return NextResponse.json(
-        { error: "Mode agen harus 'standard' atau 'deep'." },
-        { status: 400 }
-      )
-    }
-
-    const safeLimits = clampLimits(mode, limits)
+    const safeLimits = clampLimits(limits ?? undefined, mode)
 
     // Jika diset sebagai default, reset isDefault profil lain milik user
     if (isDefault) {

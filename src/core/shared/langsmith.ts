@@ -1,120 +1,100 @@
 import { Client } from "langsmith"
 import { LangChainTracer } from "@langchain/core/tracers/tracer_langchain"
-import { traceable } from "langsmith/traceable"
 import { DecryptedUserKeys } from "@/types/settings"
 
-export { traceable }
+/**
+ * Tracing LangSmith per-tenant (BYOK) yang terisolasi.
+ *
+ * Aturan keamanan multi-tenant:
+ * - Modul ini TIDAK PERNAH menulis ke `process.env`. Kunci LangSmith milik satu tenant
+ *   hanya hidup di instance `Client` milik run tersebut dan dioper lewat `callbacks`.
+ * - Tracer hanya dibuat bila tenant menyimpan API key LangSmith miliknya sendiri.
+ *   Tidak ada fallback ke `LANGSMITH_API_KEY` / `LANGCHAIN_API_KEY` sistem: tracing global
+ *   operator (via env) tetap menjadi urusan konfigurasi LangChain bawaan, bukan kode ini.
+ */
 
-export interface LangSmithConfig {
-  enabled: boolean
-  apiKey?: string
-  projectName: string
-  endpoint: string
-}
+const DEFAULT_PROJECT_NAME = "panitera"
+const LANGSMITH_API_URL = "https://api.smith.langchain.com"
+const FLUSH_TIMEOUT_MS = 5_000
 
 /**
- * Mengekstrak konfigurasi LangSmith dari database user (BYOK) atau environment variables sistem.
+ * Kill switch operator: `LANGSMITH_TRACING=false` / `LANGCHAIN_TRACING_V2=false`
+ * mematikan seluruh tracing (termasuk BYOK tenant). Hanya dibaca, tidak pernah ditulis.
  */
-export function getLangSmithConfig(userKeys?: DecryptedUserKeys): LangSmithConfig {
-  const apiKey =
-    userKeys?.langsmithApiKey ||
-    process.env.LANGSMITH_API_KEY ||
-    process.env.LANGCHAIN_API_KEY ||
-    undefined
-
-  const projectName =
-    userKeys?.langsmithProject ||
-    process.env.LANGSMITH_PROJECT ||
-    process.env.LANGCHAIN_PROJECT ||
-    "Panitera"
-
-  const endpoint =
-    process.env.LANGSMITH_ENDPOINT ||
-    process.env.LANGCHAIN_ENDPOINT ||
-    "https://api.smith.langchain.com"
-
-  // Tracing aktif jika API key tersedia atau jika variabel tracing di-set eksplisit
-  const isTracingExplicitlyDisabled =
+function isTracingDisabledByOperator(): boolean {
+  return (
     process.env.LANGSMITH_TRACING === "false" ||
     process.env.LANGCHAIN_TRACING_V2 === "false"
-
-  const enabled = Boolean(apiKey && apiKey.trim().length > 0 && !isTracingExplicitlyDisabled)
-
-  return {
-    enabled,
-    apiKey: apiKey?.trim(),
-    projectName: projectName.trim(),
-    endpoint: endpoint.trim(),
-  }
+  )
 }
 
 /**
- * Mengatur environment variable proses untuk LangSmith Tracing secara dinamis per permintaan (BYOK support)
+ * Membuat `LangChainTracer` khusus satu run untuk tenant yang memiliki API key LangSmith sendiri.
+ * Mengembalikan `undefined` bila tenant tidak mengonfigurasi LangSmith atau tracing dimatikan operator.
  */
-export function setupLangSmithEnvironment(userKeys?: DecryptedUserKeys): LangSmithConfig {
-  const config = getLangSmithConfig(userKeys)
+export function createTenantLangSmithTracer(
+  userKeys?: Pick<DecryptedUserKeys, "langsmithApiKey" | "langsmithProject">,
+): LangChainTracer | undefined {
+  const apiKey = userKeys?.langsmithApiKey?.trim()
+  if (!apiKey || isTracingDisabledByOperator()) return undefined
 
-  if (config.enabled && config.apiKey) {
-    process.env.LANGSMITH_TRACING = "true"
-    process.env.LANGCHAIN_TRACING_V2 = "true"
-    process.env.LANGSMITH_API_KEY = config.apiKey
-    process.env.LANGCHAIN_API_KEY = config.apiKey
-    process.env.LANGSMITH_PROJECT = config.projectName
-    process.env.LANGCHAIN_PROJECT = config.projectName
-    process.env.LANGSMITH_ENDPOINT = config.endpoint
-    process.env.LANGCHAIN_ENDPOINT = config.endpoint
-    process.env.LANGCHAIN_CALLBACKS_BACKGROUND = "false"
-  }
-
-  return config
-}
-
-export interface CreateTracerOptions {
-  userKeys?: DecryptedUserKeys
-  projectName?: string
-}
-
-/**
- * Membuat instance LangChainTracer jika kredensial LangSmith tersedia.
- * Mengembalikan undefined jika LangSmith belum dikonfigurasi.
- */
-export function createLangSmithTracer(options?: CreateTracerOptions): LangChainTracer | undefined {
-  const config = getLangSmithConfig(options?.userKeys)
-
-  if (!config.enabled || !config.apiKey) {
-    return undefined
-  }
+  const projectName = userKeys?.langsmithProject?.trim() || DEFAULT_PROJECT_NAME
 
   try {
-    const client = new Client({
-      apiKey: config.apiKey,
-      apiUrl: config.endpoint,
-    })
-
-    const targetProject = options?.projectName || config.projectName
-
+    const client = new Client({ apiKey, apiUrl: LANGSMITH_API_URL })
     return new LangChainTracer({
-      projectName: targetProject,
       client,
+      projectName,
+      // Handler di-await inline (setara LANGCHAIN_CALLBACKS_BACKGROUND=false) khusus tracer ini,
+      // sehingga flush di akhir run cukup memanggil awaitPendingTraceBatches() milik client sendiri.
+      _awaitHandler: true,
     })
   } catch (err) {
-    console.warn("[LangSmith] Gagal menginisialisasi LangChainTracer:", err)
+    console.warn(
+      "[LangSmith] Gagal menginisialisasi tracer tenant:",
+      err instanceof Error ? err.message : "unknown error",
+    )
     return undefined
   }
 }
 
+function hasAwaitPendingTraceBatches(
+  client: unknown,
+): client is Pick<Client, "awaitPendingTraceBatches"> {
+  return (
+    typeof client === "object" &&
+    client !== null &&
+    typeof (client as { awaitPendingTraceBatches?: unknown }).awaitPendingTraceBatches === "function"
+  )
+}
+
 /**
- * Memastikan semua batch trace yang tertunda terkirim tuntas ke LangSmith
+ * Mengirim tuntas batch trace yang tertunda milik tracer tenant.
+ * Dibatasi timeout agar LangSmith yang lambat/down tidak menahan worker; error hanya dicatat sebagai warning.
  */
 export async function flushLangSmithTracer(tracer?: LangChainTracer): Promise<void> {
   if (!tracer) return
+
+  const client: unknown = tracer.client
+  if (!hasAwaitPendingTraceBatches(client)) return
+
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    const client = tracer.client as Client | undefined
-    if (client && typeof client.awaitPendingTraceBatches === "function") {
-      await client.awaitPendingTraceBatches()
-    }
+    await Promise.race([
+      client.awaitPendingTraceBatches(),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(() => {
+          console.warn(`[LangSmith] Flush trace melewati ${FLUSH_TIMEOUT_MS}ms, dilanjutkan tanpa menunggu.`)
+          resolve()
+        }, FLUSH_TIMEOUT_MS)
+      }),
+    ])
   } catch (err) {
-    console.warn("[LangSmith] Warning saat flush tracer batches:", err)
+    console.warn(
+      "[LangSmith] Warning saat flush trace batches:",
+      err instanceof Error ? err.message : "unknown error",
+    )
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
-

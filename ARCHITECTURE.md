@@ -282,7 +282,7 @@ erDiagram
         text excerpt
         text featured_image_url
         jsonb categories "Array string id kategori"
-        jsonb tags "Array string nama atau id tag"
+        jsonb tags "Array nama tag (plain text). Baris lama bisa berisi ID numerik"
         text state "queued_input | generating_content | ready_to_sync | syncing_to_wp | published_on_wp | scheduled_on_wp | saved_draft_on_wp | failed_generation | failed_sync"
         text wp_target_status "draft | publish | future"
         int wp_post_id
@@ -290,7 +290,7 @@ erDiagram
         text last_error
         int retry_count "Default: 0"
         timestamp scheduled_for
-        jsonb source_payload "Custom instructions, agentProfileRef, style, options"
+        jsonb source_payload "Custom instructions, agentProfileRef, style, options, wp_publish_meta (categoryIds, tagIds, authorId, featuredMediaId untuk retry)"
         timestamp created_at
         timestamp updated_at
     }
@@ -359,7 +359,7 @@ stateDiagram-v2
 | 6 | `scheduled_on_wp` | Sukses dijadwalkan di WordPress (`status: 'future'`). Tanggal dan jam tayang terkunci di WP. | Selesai. |
 | 7 | `saved_draft_on_wp` | Sukses disimpan sebagai konsep di wp-admin WordPress (`status: 'draft'`). | Selesai. |
 | 8 | `failed_generation` | Gagal saat pemanggilan AI (kehabisan kuota, batas loop tercapai, timeout). | Memulai ulang siklus dari riset & drafting. |
-| 9 | `failed_sync` | Gagal saat mengirim ke WordPress (kredensial salah, koneksi putus, hosting down). | **Cost-Saver Retry**: Mengirim ulang naskah yang ada langsung ke WP tanpa memanggil AI. |
+| 9 | `failed_sync` | Gagal saat mengirim ke WordPress (kredensial salah, koneksi putus, hosting down), atau item macet di `syncing_to_wp` > 10 menit. | **Cost-Saver Retry**: HTML Gutenberg tersimpan dikirim apa adanya bersama `wp_publish_meta` (tanpa AI, tanpa unggah ulang gambar). Item yang sudah punya `wp_post_id` tidak dipublikasi ulang. |
 
 ### Prinsip Keandalan Worker:
 1. **Atomic Claim Lock**:
@@ -367,9 +367,11 @@ stateDiagram-v2
    ```sql
    UPDATE post_items 
    SET state = 'generating_content', updated_at = NOW() 
-   WHERE id = :id AND state IN ('queued_input', 'failed_generation', 'failed_sync');
+   WHERE id = :id AND state IN ('queued_input', 'failed_generation', 'failed_sync')  -- failed_sync hanya jika belum ada naskah tersimpan
+     AND user_id = :userId;  -- wajib untuk permintaan sesi; hanya cron yang tanpa filter user
    ```
-   Mencegah dua proses worker paralel mengeksekusi item antrean yang sama.
+   Retry sinkronisasi memakai klaim terpisah `state IN ('failed_sync', 'ready_to_sync') → 'syncing_to_wp'` (fungsi `retryPostItemSync`), sehingga klik ganda hanya menghasilkan satu publikasi. Mencegah dua proses worker paralel mengeksekusi item antrean yang sama.
+   Auto-healing: `generating_content` macet → `queued_input` dengan `retry_count + 1` (maks 3, lalu `failed_generation`); `syncing_to_wp` macet → `failed_sync` (tidak pernah generasi ulang).
 2. **Cost-Saver Retry (Nol Pemborosan Token AI)**:
    Jika item berada di status `failed_sync` dan `post_items.content_html` sudah terisi di database, worker mendeteksi kondisi `isRetrySync`. Sistem langsung melompati tahap AI dan mengirim ulang konten yang ada ke WordPress REST API.
 3. **Pengelompokan Antrean Virtual (Quick Writer Batch)**:
@@ -421,7 +423,8 @@ flowchart TD
   - `image_search`: Pencarian gambar bebas royalti via SearXNG Images atau Pexafy API.
   - `upload_media`: Unggah otomatis berkas gambar eksternal ke pustaka WordPress Media Library.
   - `keyword_suggestions`: Penemuan entitas kata kunci LSI dan pencarian terkait.
-  - `list_wp_categories`, `list_wp_tags`, `list_wp_authors`: Inspeksi taksonomi WordPress target.
+  - `set_featured_image`: Mencari dan menetapkan gambar sampul landscape.
+  - Taksonomi & author WordPress tidak lagi menjadi tool agen; semuanya dikunci oleh Pre-Flight Resolver (`pre-resolve.ts`).
 - **Anti-Infinite Loop Guards (`loop-guard.ts` & `guards.ts`)**:
   - *Consecutive Duplicate Tool Call Guard*: Mendeteksi dan memblokir pemanggilan alat dengan parameter persis sama secara berulang.
   - *Circuit Breaker*: Menghentikan eksekusi jika terjadi 2 kali kegagalan pemanggilan alat berturut-turut.
@@ -503,8 +506,9 @@ Platform dilengkapi sistem webhook keluar (*outbound webhooks*) untuk mengirimka
   - `batch.failed`: Seluruh batch mengalami kegagalan fatal.
   - `test.ping`: Event uji coba konektivitas webhook.
 - **Keamanan Webhook**:
-  - Setiap payload webhook ditandatangani menggunakan **HMAC SHA-256** pada header `X-Panitera-Signature`.
-  - Secret webhook dienkripsi menggunakan AES-256-GCM di database.
+  - Setiap pengiriman membawa header `X-Panitera-Timestamp` (unix detik) dan `X-Panitera-Signature: sha256=<hex>`, dengan tanda tangan **HMAC SHA-256** atas string `"<timestamp>.<rawBody>"`. Penerima wajib membandingkan secara constant-time dan menolak timestamp yang selisihnya lebih dari 5 menit (anti-replay).
+  - Secret webhook dienkripsi menggunakan AES-256-GCM di database; jika secret tidak bisa didekripsi, pengiriman dibatalkan (tidak ada secret cadangan).
+  - URL webhook divalidasi Anti-SSRF saat disimpan (`assertSafeUrl`) dan dikirim lewat `safeFetch` tanpa mengikuti redirect.
 
 ---
 
@@ -529,9 +533,8 @@ Berikut adalah daftar endpoint internal Next.js App Router (`src/app/api/`) yang
 | `/api/posts/quick` | POST | Eksekusi pembuatan 1 artikel instan (Tulis Cepat) |
 | `/api/posts/[id]` | GET, DELETE, PATCH | Mengambil detail artikel, log audit, atau memicu retry sync |
 | `/api/queue` | GET | Mengambil item antrean berdasarkan status dan filter |
-| `/api/queue/process` | POST | Memicu eksekusi antrean worker |
+| `/api/queue/process` | GET, POST | Memicu eksekusi antrean worker. Cron: `Authorization: Bearer <CRON_SECRET>` (atau `x-cron-secret`), tanpa batasan tenant. Sesi pengguna: hanya POST dan hanya item milik pengguna itu. GET khusus cron. |
 | `/api/settings/user` | GET, POST | Mengambil status masking dan menyimpan kunci API BYOK |
-| `/api/settings/search` | GET, POST | Preferensi provider pencarian web |
 | `/api/settings/search/test`| POST | Pengujian koneksi ke mesin pencarian (SearXNG/Tavily/Brave) |
 | `/api/sites` | GET, POST | Mengambil daftar situs WordPress & mendaftarkan situs baru |
 | `/api/sites/[id]` | GET, PUT, DELETE | Mengambil detail situs, update setelan, atau menghapus situs |

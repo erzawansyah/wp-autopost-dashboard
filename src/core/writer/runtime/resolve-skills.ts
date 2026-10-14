@@ -1,12 +1,9 @@
-import path from "path"
-import fs from "fs"
 import { createAdminClient } from "@/lib/supabase/admin"
 
 export interface ResolvedSkill {
   slug: string
   name: string
   content: string
-  source: "database" | "disk"
 }
 
 export interface ResolveSkillsOptions {
@@ -14,10 +11,17 @@ export interface ResolveSkillsOptions {
   userId?: string
 }
 
+const DEFAULT_SKILL_SLUGS = ["anti-ai-editor"]
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /**
- * Resolusi modul skill secara dinamis untuk DeepAgent runtime.
- * Mengambil konten SKILL.md dari database Supabase (tabel agent_skills)
- * dengan fallback hybrid ke berkas disk (.agents/skills/ & .workspaces/skills/).
+ * Resolusi modul skill untuk DeepAgent runtime — sumber tunggal: tabel Supabase `agent_skills`.
+ *
+ * - Hanya skill sistem (`is_system = true`) dan skill milik `userId` yang dapat dimuat.
+ *   Query memakai Service Role (bypass RLS), sehingga filter pemilik ditegakkan eksplisit di query
+ *   dan diperiksa ulang per baris.
+ * - Bila skill sistem dan skill milik pengguna memakai slug yang sama, milik pengguna diutamakan.
+ * - Slug yang tidak ditemukan dilewati dengan peringatan; tidak ada fallback ke berkas disk.
  */
 export async function resolveSkillsForAgent(
   options: ResolveSkillsOptions = {}
@@ -26,81 +30,58 @@ export async function resolveSkillsForAgent(
   const targetSlugs =
     Array.isArray(requestedSlugs) && requestedSlugs.length > 0
       ? Array.from(new Set(requestedSlugs.filter(Boolean)))
-      : ["anti-ai-editor"]
+      : DEFAULT_SKILL_SLUGS
+
+  // userId diinterpolasi ke filter PostgREST `.or()`, jadi wajib berbentuk UUID.
+  const ownerId = userId && UUID_PATTERN.test(userId) ? userId : undefined
+  if (userId && !ownerId) {
+    console.warn("[resolveSkillsForAgent] userId tidak valid; hanya skill sistem yang dimuat.")
+  }
 
   const resolvedMap = new Map<string, ResolvedSkill>()
 
-  // 1. Ambil dari database Supabase (tabel agent_skills)
   try {
     const supabase = createAdminClient()
-    let query = supabase
+    const baseQuery = supabase
       .from("agent_skills")
       .select("slug, name, content, is_system, user_id")
       .in("slug", targetSlugs)
 
-    if (userId) {
-      query = query.or(`is_system.eq.true,user_id.eq.${userId}`)
-    } else {
-      query = query.eq("is_system", true)
-    }
+    const { data, error } = ownerId
+      ? await baseQuery.or(`is_system.eq.true,user_id.eq.${ownerId}`)
+      : await baseQuery.eq("is_system", true)
 
-    const { data, error } = await query
-
-    if (!error && Array.isArray(data)) {
-      for (const item of data) {
-        if (item.slug && item.content) {
-          resolvedMap.set(item.slug, {
-            slug: item.slug,
-            name: item.name || item.slug,
-            content: item.content,
-            source: "database",
-          })
-        }
-      }
-    } else if (error) {
+    if (error) {
       console.warn("[resolveSkillsForAgent] Error saat query agent_skills:", error.message)
+    } else if (Array.isArray(data)) {
+      // Skill sistem diproses lebih dulu agar skill milik pengguna dengan slug sama menimpanya.
+      const rows = [...data].sort((a, b) => Number(b.is_system === true) - Number(a.is_system === true))
+      for (const row of rows) {
+        const isSystem = row.is_system === true
+        const isOwned = ownerId !== undefined && row.user_id === ownerId
+        if (!isSystem && !isOwned) continue
+        if (typeof row.slug !== "string" || typeof row.content !== "string" || !row.content) continue
+
+        resolvedMap.set(row.slug, {
+          slug: row.slug,
+          name: typeof row.name === "string" && row.name ? row.name : row.slug,
+          content: row.content,
+        })
+      }
     }
   } catch (dbErr) {
     console.warn("[resolveSkillsForAgent] Supabase client tidak tersedia / offline:", dbErr)
   }
 
-  // 2. Hybrid Fallback: Jika ada slug yang belum ada di database, cari di disk lokal
-  for (const slug of targetSlugs) {
-    if (resolvedMap.has(slug)) continue
-
-    // A. Cek di .agents/skills/<slug>/SKILL.md
-    const systemPath = path.resolve(process.cwd(), ".agents", "skills", slug, "SKILL.md")
-    if (fs.existsSync(systemPath)) {
-      try {
-        const content = fs.readFileSync(systemPath, "utf-8")
-        resolvedMap.set(slug, {
-          slug,
-          name: slug,
-          content,
-          source: "disk",
-        })
-        continue
-      } catch {
-        // Lanjutkan pencarian berikutnya
-      }
-    }
-
-    // B. Cek di .workspaces/skills/<slug>/SKILL.md
-    const workspacePath = path.resolve(process.cwd(), ".workspaces", "skills", slug, "SKILL.md")
-    if (fs.existsSync(workspacePath)) {
-      try {
-        const content = fs.readFileSync(workspacePath, "utf-8")
-        resolvedMap.set(slug, {
-          slug,
-          name: slug,
-          content,
-          source: "disk",
-        })
-      } catch {
-        // Lanjutkan
-      }
-    }
+  const missingSlugs = targetSlugs.filter((slug) => !resolvedMap.has(slug))
+  if (missingSlugs.length > 0) {
+    console.warn(
+      `[resolveSkillsForAgent] Skill tidak ditemukan di database dan dilewati: ${missingSlugs.join(", ")}`
+    )
   }
 
-  return Array.from(resolvedMap.values())
+  return targetSlugs.flatMap((slug) => {
+    const skill = resolvedMap.get(slug)
+    return skill ? [skill] : []
+  })
 }

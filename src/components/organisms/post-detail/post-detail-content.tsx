@@ -4,7 +4,9 @@ import * as React from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
 import { Badge } from "@/components/atoms/badge"
+import { Skeleton } from "@/components/atoms/skeleton"
 import { cn } from "@/lib/utils"
+import { useSanitizedHtml } from "@/lib/sanitize-html"
 import {
   FileText,
   Copy,
@@ -45,6 +47,8 @@ export function PostDetailContent({
   const [viewMode, setViewMode] = React.useState<"preview" | "gutenberg" | "instructions">("preview")
   const [copiedContent, setCopiedContent] = React.useState(false)
   const [copiedGutenberg, setCopiedGutenberg] = React.useState(false)
+  // HTML hasil LLM wajib disanitasi; null selama SSR/hidrasi (tampilkan placeholder).
+  const safeContentHtml = useSanitizedHtml(contentHtml)
 
   // Estimasi jumlah kata dan durasi baca
   const wordCount = React.useMemo(() => {
@@ -232,10 +236,18 @@ export function PostDetailContent({
               </p>
             </div>
           ) : viewMode === "preview" ? (
-            <div
-              className="prose prose-neutral dark:prose-invert max-w-none text-foreground text-sm leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: contentHtml }}
-            />
+            safeContentHtml === null ? (
+              <div className="flex flex-col gap-2.5" aria-busy="true" aria-label="Menyiapkan pratinjau naskah">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+              </div>
+            ) : (
+              <div
+                className="prose prose-neutral dark:prose-invert max-w-none text-foreground text-sm leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: safeContentHtml }}
+              />
+            )
           ) : viewMode === "gutenberg" ? (
             <pre className="max-h-[600px] overflow-auto rounded-lg bg-muted/60 p-4 font-mono text-[11px] leading-relaxed text-foreground border border-border select-all whitespace-pre-wrap">
               {contentHtml}

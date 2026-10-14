@@ -85,12 +85,15 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
 
-# Kunci Master Enkripsi AES-256-GCM (Wajib string acak 32 bytes hex / 64 karakter)
-ENCRYPTION_MASTER_KEY=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+# Kunci Master Enkripsi AES-256-GCM (wajib, 32 byte hex / 64 karakter)
+# Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+ENCRYPTION_MASTER_KEY=
 
-# Kunci Cron & Worker Trigger
-CRON_SECRET=your-random-cron-secret-token
+# Token cron worker (wajib). Dikirim lewat header Authorization: Bearer <token>, bukan query string.
+CRON_SECRET=
 ```
+
+Daftar lengkap variabel ada di `.env.example`. Panitera bersifat BYOK: kunci OpenRouter, mesin pencari, Pexafy, dan LangSmith diisi tiap pengguna di `/settings/keys`, bukan di file environment.
 
 ### 4. Menjalankan Server Pengembangan Lokal
 ```bash

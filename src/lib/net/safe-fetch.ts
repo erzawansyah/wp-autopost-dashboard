@@ -94,7 +94,11 @@ export function isBlockedIp(address: string): boolean {
   return true // bukan IP valid → anggap tidak aman
 }
 
-function isPrivateNetworkAllowed(): boolean {
+/**
+ * Kebijakan tunggal akses jaringan privat: hanya di luar production dan bila
+ * `ALLOW_PRIVATE_NETWORK_FETCH=true` (mis. uji WordPress lokal). Dipakai juga oleh validator URL WordPress.
+ */
+export function isPrivateNetworkAllowed(): boolean {
   return process.env.ALLOW_PRIVATE_NETWORK_FETCH === "true" && process.env.NODE_ENV !== "production"
 }
 

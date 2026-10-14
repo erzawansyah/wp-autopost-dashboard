@@ -1,7 +1,23 @@
 import { NextResponse } from "next/server"
+import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { BUILTIN_PRESETS } from "@/core/writer/profiles"
-import { AgentLimits, clampLimits, ensureMandatoryToolIds } from "@/core/writer/types/profile"
+import {
+  AgentLimits,
+  AgentLimitsInputSchema,
+  AgentModeSchema,
+  clampLimits,
+  ensureMandatoryToolIds,
+} from "@/core/writer/types/profile"
+
+/** Validasi bertipe untuk field yang menentukan batas eksekusi (update parsial); nilai akhir tetap di-clamp. */
+const UpdateAgentExecutionSchema = z.object(
+  {
+    mode: AgentModeSchema.optional(),
+    limits: AgentLimitsInputSchema.nullish(),
+  },
+  { error: "Body permintaan harus berupa objek JSON." }
+)
 
 export async function GET(
   request: Request,
@@ -94,16 +110,22 @@ export async function PUT(
     }
 
     const body = await request.json()
+    const execution = UpdateAgentExecutionSchema.safeParse(body)
+    if (!execution.success) {
+      return NextResponse.json(
+        { error: execution.error.issues[0]?.message ?? "Konfigurasi mode/batas eksekusi tidak valid." },
+        { status: 400 }
+      )
+    }
+    const { mode, limits } = execution.data
     const {
       name,
       description,
-      mode,
       modelName,
       temperature,
       workflowPrompt,
       toolIds,
       skills,
-      limits,
       isDefault,
     } = body
 
@@ -123,9 +145,6 @@ export async function PUT(
     }
 
     if (mode !== undefined) {
-      if (mode !== "standard" && mode !== "deep") {
-        return NextResponse.json({ error: "Mode agen harus 'standard' atau 'deep'." }, { status: 400 })
-      }
       updatePayload.mode = mode
     }
 
@@ -160,8 +179,12 @@ export async function PUT(
         .eq("user_id", user.id)
         .maybeSingle()
 
-      const targetMode = mode || (currentProf?.mode as "standard" | "deep") || "standard"
-      const baseLimits = limits !== undefined ? clampLimits(targetMode, limits) : ((currentProf?.limits as AgentLimits) || clampLimits(targetMode))
+      const storedMode = AgentModeSchema.safeParse(currentProf?.mode)
+      const targetMode = mode ?? (storedMode.success ? storedMode.data : "standard")
+      // `limits` tidak dikirim → pertahankan batas tersimpan (jika valid); `null` → kembali ke default mode.
+      const storedLimits = AgentLimitsInputSchema.safeParse(currentProf?.limits)
+      const limitsSource = limits !== undefined ? limits : storedLimits.success ? storedLimits.data : undefined
+      const baseLimits = clampLimits(limitsSource ?? undefined, targetMode)
       const targetIsDefault = isDefault !== undefined ? Boolean(isDefault) : Boolean((currentProf?.limits as Record<string, unknown> | null)?.isDefault)
       updatePayload.limits = {
         ...baseLimits,

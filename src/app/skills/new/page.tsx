@@ -332,7 +332,7 @@ export default function NewSkillPage() {
               <div className="flex items-center justify-between text-[11px] text-muted-foreground bg-muted/20 p-2.5 rounded-lg border border-border/70">
                 <span className="flex items-center gap-1.5">
                   <HelpCircle className="size-3.5 text-primary" />
-                  <span>File ini disimpan di database Supabase dan disinkronkan ke folder <code className="font-mono text-foreground font-semibold">.workspaces/skills/{slug || "slug"}/SKILL.md</code>.</span>
+                  <span>Skill disimpan di database Supabase dan hanya dapat dipakai oleh Agent Profile milik akun Anda.</span>
                 </span>
                 <Button
                   type="button"

@@ -4,7 +4,21 @@
  */
 
 import crypto from "crypto"
+import net from "node:net"
+import {
+  isBlockedIp,
+  isPrivateNetworkAllowed,
+  safeFetch,
+  SsrfBlockedError,
+  type SafeFetchOptions,
+} from "@/lib/net/safe-fetch"
 import { generateAutoWpAppName } from "./app-name"
+import {
+  sanitizeTermName,
+  sanitizeTermNames,
+  toPlainText,
+  WP_TERM_DESCRIPTION_MAX_LENGTH,
+} from "./plain-text"
 
 export { generateAutoWpAppName }
 
@@ -39,7 +53,10 @@ export interface WPCreatePostResult {
 }
 
 /**
- * Validasi dan normalisasi URL WordPress dengan proteksi SSRF dasar
+ * Validasi format dan normalisasi URL WordPress (sinkron, Anti-SSRF lapis pertama).
+ * Menolak IP literal privat/loopback/link-local/metadata dan host internal. Host berupa
+ * nama domain diverifikasi ulang saat koneksi oleh `safeFetch` (DNS di-pin).
+ * Pengecualian jaringan privat mengikuti kebijakan tunggal `isPrivateNetworkAllowed()` di safe-fetch.
  */
 export function normalizeAndValidateWpUrl(rawUrl: string): { valid: boolean; normalizedUrl?: string; error?: string } {
   try {
@@ -58,19 +75,15 @@ export function normalizeAndValidateWpUrl(rawUrl: string): { valid: boolean; nor
       return { valid: false, error: "Website WordPress produksi wajib menggunakan HTTPS." }
     }
 
-    const hostname = parsed.hostname.toLowerCase()
+    if (parsed.username || parsed.password) {
+      return { valid: false, error: "URL website tidak boleh memuat username atau password." }
+    }
 
-    // Proteksi SSRF untuk environment non-development
-    if (process.env.NODE_ENV === "production") {
-      if (
-        hostname === "localhost" ||
-        hostname === "127.0.0.1" ||
-        hostname === "::1" ||
-        hostname.startsWith("192.168.") ||
-        hostname.startsWith("10.") ||
-        hostname.startsWith("169.254.") ||
-        /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
-      ) {
+    if (!isPrivateNetworkAllowed()) {
+      const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, "")
+      const isInternalName =
+        hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".internal")
+      if (isInternalName || (net.isIP(hostname) !== 0 && isBlockedIp(hostname))) {
         return { valid: false, error: "Akses ke IP privat/lokal dilarang demi keamanan sistem." }
       }
     }
@@ -82,6 +95,38 @@ export function normalizeAndValidateWpUrl(rawUrl: string): { valid: boolean; nor
     const errorMsg = err instanceof Error ? err.message : "Format URL tidak valid."
     return { valid: false, error: errorMsg }
   }
+}
+
+const WP_USER_AGENT = "WP-Autopost-Dashboard/1.0"
+const WP_DEFAULT_TIMEOUT_MS = 15_000
+
+/**
+ * Fetch ke REST API WordPress milik pengguna lewat `safeFetch` (Anti-SSRF, DNS di-pin, timeout).
+ * Request baca (GET/HEAD) boleh mengikuti maksimal 2 redirect (header Authorization dibuang
+ * otomatis bila pindah origin); request tulis tidak mengikuti redirect agar POST tidak
+ * berubah menjadi GET atau terkirim ke tujuan lain.
+ */
+export function wpFetch(url: string, init: RequestInit = {}, options: SafeFetchOptions = {}): Promise<Response> {
+  const method = (init.method ?? "GET").toUpperCase()
+  const isRead = method === "GET" || method === "HEAD"
+  return safeFetch(url, init, {
+    timeoutMs: WP_DEFAULT_TIMEOUT_MS,
+    maxRedirects: isRead ? 2 : 0,
+    ...options,
+  })
+}
+
+/** true jika error berasal dari timeout/abort request. */
+function isTimeoutError(err: unknown): boolean {
+  return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")
+}
+
+/** Pesan error jaringan WordPress yang aman ditampilkan (tanpa detail jaringan internal). */
+export function describeWpNetworkError(err: unknown, fallback: string): string {
+  if (err instanceof SsrfBlockedError) {
+    return "Request ke WordPress diblokir proteksi keamanan (alamat privat/lokal atau redirect). Gunakan alamat publik final situs, mis. https://www.domain.com."
+  }
+  return err instanceof Error ? err.message : fallback
 }
 
 /**
@@ -110,20 +155,18 @@ export async function testWordPressConnection(params: {
   const endpoint = `${normalizedUrl}/wp-json/wp/v2/users/me`
 
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 12000) // 12s timeout
-
-    const res = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        Authorization: makeAuthHeader(params.username, params.applicationPassword),
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
-        Accept: "application/json",
+    const res = await wpFetch(
+      endpoint,
+      {
+        method: "GET",
+        headers: {
+          Authorization: makeAuthHeader(params.username, params.applicationPassword),
+          "User-Agent": WP_USER_AGENT,
+          Accept: "application/json",
+        },
       },
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
+      { timeoutMs: 12_000 }
+    )
 
     if (res.status === 401 || res.status === 403) {
       return {
@@ -156,10 +199,10 @@ export async function testWordPressConnection(params: {
       },
     }
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
+    if (isTimeoutError(err)) {
       return { ok: false, error: "Koneksi ke website WordPress timeout (melebihi 12 detik)." }
     }
-    const message = err instanceof Error ? err.message : "Tidak dapat terhubung ke website WordPress."
+    const message = describeWpNetworkError(err, "Tidak dapat terhubung ke website WordPress.")
     return { ok: false, error: `Kesalahan jaringan: ${message}` }
   }
 }
@@ -181,9 +224,6 @@ export async function createWordPressPost(params: {
   const endpoint = `${normalizedUrl}/wp-json/wp/v2/posts`
 
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 20000) // 20s timeout
-
     const payload: Record<string, unknown> = {
       title: params.post.title,
       content: params.post.content,
@@ -209,19 +249,20 @@ export async function createWordPressPost(params: {
       payload.date = params.post.date
     }
 
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        Authorization: makeAuthHeader(params.username, params.applicationPassword),
-        "Content-Type": "application/json",
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
-        Accept: "application/json",
+    const res = await wpFetch(
+      endpoint,
+      {
+        method: "POST",
+        headers: {
+          Authorization: makeAuthHeader(params.username, params.applicationPassword),
+          "Content-Type": "application/json",
+          "User-Agent": WP_USER_AGENT,
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
+      { timeoutMs: 20_000 }
+    )
 
     const data = await res.json()
 
@@ -237,10 +278,10 @@ export async function createWordPressPost(params: {
       status: data.status,
     }
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
+    if (isTimeoutError(err)) {
       return { ok: false, error: "Pengiriman artikel ke WordPress timeout (melebihi 20 detik)." }
     }
-    const message = err instanceof Error ? err.message : "Gagal menghubungi WordPress REST API."
+    const message = describeWpNetworkError(err, "Gagal menghubungi WordPress REST API.")
     return { ok: false, error: `Kesalahan jaringan: ${message}` }
   }
 }
@@ -260,19 +301,17 @@ export async function preflightWordPressSite(rawUrl: string): Promise<{
   }
 
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000)
-
-    const res = await fetch(`${normalizedUrl}/wp-json/`, {
-      method: "GET",
-      headers: {
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
-        Accept: "application/json",
+    const res = await wpFetch(
+      `${normalizedUrl}/wp-json/`,
+      {
+        method: "GET",
+        headers: {
+          "User-Agent": WP_USER_AGENT,
+          Accept: "application/json",
+        },
       },
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
+      { timeoutMs: 10_000 }
+    )
 
     if (!res.ok) {
       return {
@@ -291,10 +330,10 @@ export async function preflightWordPressSite(rawUrl: string): Promise<{
       siteName: typeof siteName === "string" ? siteName : undefined,
     }
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
+    if (isTimeoutError(err)) {
       return { ok: false, normalizedUrl, error: "Koneksi ke website timeout (melebihi 10 detik)." }
     }
-    const message = err instanceof Error ? err.message : "Tidak dapat terhubung ke website."
+    const message = describeWpNetworkError(err, "Tidak dapat terhubung ke website.")
     return { ok: false, normalizedUrl, error: `Gagal mengakses REST API: ${message}` }
   }
 }
@@ -354,20 +393,18 @@ export async function fetchWordPressCategories(params: {
   const endpoint = `${normalizedUrl}/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug,count,parent`
 
   try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 12000)
-
-    const res = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        Authorization: makeAuthHeader(params.username, params.applicationPassword),
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
-        Accept: "application/json",
+    const res = await wpFetch(
+      endpoint,
+      {
+        method: "GET",
+        headers: {
+          Authorization: makeAuthHeader(params.username, params.applicationPassword),
+          "User-Agent": WP_USER_AGENT,
+          Accept: "application/json",
+        },
       },
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
+      { timeoutMs: 12_000 }
+    )
 
     if (!res.ok) {
       return { ok: false, error: `Gagal mengambil kategori WordPress (HTTP ${res.status}).` }
@@ -388,13 +425,15 @@ export async function fetchWordPressCategories(params: {
 
     return { ok: true, categories }
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Gangguan jaringan"
+    const message = describeWpNetworkError(err, "Gangguan jaringan")
     return { ok: false, error: `Gagal memuat kategori: ${message}` }
   }
 }
 
 /**
- * Validasi dan buat tag baru secara otomatis di WordPress jika belum ada
+ * Validasi dan buat tag baru secara otomatis di WordPress jika belum ada.
+ * Nama tag (sering berasal dari LLM) selalu diubah menjadi teks polos berbatas panjang & dideduplikasi
+ * sebelum dicari/dibuat; nama dari WordPress (ter-escape, mis. `&amp;`) di-decode saat dicocokkan.
  */
 export async function resolveOrCreateWordPressTags(params: {
   baseUrl: string
@@ -402,25 +441,23 @@ export async function resolveOrCreateWordPressTags(params: {
   applicationPassword: string
   tagNames: string[]
 }): Promise<number[]> {
+  const cleanNames = sanitizeTermNames(params.tagNames)
   const { valid, normalizedUrl } = normalizeAndValidateWpUrl(params.baseUrl)
-  if (!valid || !normalizedUrl || params.tagNames.length === 0) {
+  if (!valid || !normalizedUrl || cleanNames.length === 0) {
     return []
   }
 
   const tagIds: number[] = []
 
-  for (const rawName of params.tagNames) {
-    const cleanName = rawName.trim()
-    if (!cleanName) continue
-
+  for (const cleanName of cleanNames) {
     try {
       // 1. Cek apakah tag sudah ada via search
-      const searchRes = await fetch(
+      const searchRes = await wpFetch(
         `${normalizedUrl}/wp-json/wp/v2/tags?search=${encodeURIComponent(cleanName)}&per_page=10`,
         {
           headers: {
             Authorization: makeAuthHeader(params.username, params.applicationPassword),
-            "User-Agent": "WP-Autopost-Dashboard/1.0",
+            "User-Agent": WP_USER_AGENT,
             Accept: "application/json",
           },
         }
@@ -430,7 +467,7 @@ export async function resolveOrCreateWordPressTags(params: {
         const foundList = await searchRes.json()
         if (Array.isArray(foundList)) {
           const exactMatch = foundList.find(
-            (t) => String(t.name).toLowerCase() === cleanName.toLowerCase()
+            (t) => toPlainText(String(t?.name ?? "")).toLowerCase() === cleanName.toLowerCase()
           )
           if (exactMatch && exactMatch.id) {
             tagIds.push(Number(exactMatch.id))
@@ -440,12 +477,12 @@ export async function resolveOrCreateWordPressTags(params: {
       }
 
       // 2. Jika belum ada, buat tag baru via POST /wp-json/wp/v2/tags
-      const createRes = await fetch(`${normalizedUrl}/wp-json/wp/v2/tags`, {
+      const createRes = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/tags`, {
         method: "POST",
         headers: {
           Authorization: makeAuthHeader(params.username, params.applicationPassword),
           "Content-Type": "application/json",
-          "User-Agent": "WP-Autopost-Dashboard/1.0",
+          "User-Agent": WP_USER_AGENT,
           Accept: "application/json",
         },
         body: JSON.stringify({ name: cleanName }),
@@ -490,20 +527,25 @@ export async function createWordPressCategory(params: WPCreateCategoryParams): P
     return { ok: false, error: error || "Alamat website WordPress tidak valid." }
   }
 
+  // Nama & deskripsi kategori (sering berasal dari saran LLM) dikirim sebagai teks polos berbatas panjang.
+  const name = sanitizeTermName(params.name)
+  if (!name) {
+    return { ok: false, error: "Nama kategori tidak valid setelah dibersihkan dari HTML." }
+  }
+  const description = toPlainText(params.description, WP_TERM_DESCRIPTION_MAX_LENGTH)
+
   try {
-    const payload: Record<string, unknown> = {
-      name: params.name.trim(),
-    }
+    const payload: Record<string, unknown> = { name }
     if (params.slug?.trim()) payload.slug = params.slug.trim()
     if (params.parent && params.parent > 0) payload.parent = params.parent
-    if (params.description?.trim()) payload.description = params.description.trim()
+    if (description) payload.description = description
 
-    const res = await fetch(`${normalizedUrl}/wp-json/wp/v2/categories`, {
+    const res = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/categories`, {
       method: "POST",
       headers: {
         Authorization: makeAuthHeader(params.username, params.applicationPassword),
         "Content-Type": "application/json",
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
+        "User-Agent": WP_USER_AGENT,
         Accept: "application/json",
       },
       body: JSON.stringify(payload),
@@ -525,8 +567,7 @@ export async function createWordPressCategory(params: WPCreateCategoryParams): P
       },
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Gangguan koneksi ke WordPress"
-    return { ok: false, error: msg }
+    return { ok: false, error: describeWpNetworkError(err, "Gangguan koneksi ke WordPress") }
   }
 }
 
@@ -549,10 +590,10 @@ export async function fetchWordPressUsers(params: {
   }
 
   try {
-    const res = await fetch(`${normalizedUrl}/wp-json/wp/v2/users?per_page=100&_fields=id,name,slug,description,avatar_urls`, {
+    const res = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/users?per_page=100&_fields=id,name,slug,description,avatar_urls`, {
       headers: {
         Authorization: makeAuthHeader(params.username, params.applicationPassword),
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
+        "User-Agent": WP_USER_AGENT,
         Accept: "application/json",
       },
     })
@@ -576,8 +617,7 @@ export async function fetchWordPressUsers(params: {
 
     return { ok: true, users }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Gangguan koneksi ke WordPress"
-    return { ok: false, error: msg }
+    return { ok: false, error: describeWpNetworkError(err, "Gangguan koneksi ke WordPress") }
   }
 }
 
@@ -618,12 +658,12 @@ export async function createWordPressUser(params: WPCreateUserParams): Promise<{
       payload.description = params.description.trim()
     }
 
-    const res = await fetch(`${normalizedUrl}/wp-json/wp/v2/users`, {
+    const res = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/users`, {
       method: "POST",
       headers: {
         Authorization: makeAuthHeader(params.username, params.applicationPassword),
         "Content-Type": "application/json",
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
+        "User-Agent": WP_USER_AGENT,
         Accept: "application/json",
       },
       body: JSON.stringify(payload),
@@ -644,8 +684,7 @@ export async function createWordPressUser(params: WPCreateUserParams): Promise<{
       },
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Gangguan koneksi ke WordPress"
-    return { ok: false, error: msg }
+    return { ok: false, error: describeWpNetworkError(err, "Gangguan koneksi ke WordPress") }
   }
 }
 
@@ -677,13 +716,12 @@ export async function searchWordPressPosts(params: {
     const count = params.perPage || 10
     const endpoint = `${normalizedUrl}/wp-json/wp/v2/posts?search=${encodeURIComponent(params.query)}&status=publish&per_page=${count}&_fields=id,title,link,slug,date,content`
 
-    const res = await fetch(endpoint, {
+    const res = await wpFetch(endpoint, {
       headers: {
         Authorization: makeAuthHeader(params.username, params.applicationPassword),
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
+        "User-Agent": WP_USER_AGENT,
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(15000),
     })
 
     if (!res.ok) {
@@ -706,8 +744,63 @@ export async function searchWordPressPosts(params: {
 
     return { ok: true, posts }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Gangguan koneksi ke WordPress"
-    return { ok: false, error: msg }
+    return { ok: false, error: describeWpNetworkError(err, "Gangguan koneksi ke WordPress") }
+  }
+}
+
+/** true bila nilai adalah ID post WordPress yang sah (bilangan bulat positif aman). */
+export function isValidWpPostId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+}
+
+const INVALID_WP_POST_ID_ERROR = "ID artikel WordPress tidak valid."
+
+/**
+ * Mengambil konten mentah satu post (`content.raw`, markup blok Gutenberg utuh) via `context=edit`.
+ * Wajib dipakai untuk alur baca-ubah-tulis: `content.rendered` sudah melewati filter tema/plugin dan
+ * kehilangan komentar blok `<!-- wp:... -->`, sehingga menuliskannya kembali merusak artikel.
+ */
+export async function fetchWordPressPostRawContent(params: {
+  baseUrl: string
+  username: string
+  applicationPassword: string
+  postId: number
+}): Promise<{ ok: boolean; status?: number; rawContent?: string; error?: string }> {
+  if (!isValidWpPostId(params.postId)) {
+    return { ok: false, status: 400, error: INVALID_WP_POST_ID_ERROR }
+  }
+  const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
+  if (!valid || !normalizedUrl) {
+    return { ok: false, status: 400, error: error || "Alamat website WordPress tidak valid." }
+  }
+
+  try {
+    const res = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/posts/${params.postId}?context=edit&_fields=id,content`, {
+      headers: {
+        Authorization: makeAuthHeader(params.username, params.applicationPassword),
+        "User-Agent": WP_USER_AGENT,
+        Accept: "application/json",
+      },
+    })
+
+    if (res.status === 401 || res.status === 403) {
+      return { ok: false, status: res.status, error: "Akun WordPress yang terhubung tidak memiliki izin mengedit artikel ini." }
+    }
+    if (res.status === 404) {
+      return { ok: false, status: 404, error: "Artikel tidak ditemukan di WordPress." }
+    }
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: `Gagal mengambil artikel dari WordPress (HTTP ${res.status}).` }
+    }
+
+    const data = await res.json()
+    const raw: unknown = data?.content?.raw
+    if (typeof raw !== "string") {
+      return { ok: false, status: 502, error: "WordPress tidak mengembalikan konten mentah artikel (context=edit)." }
+    }
+    return { ok: true, rawContent: raw }
+  } catch (err: unknown) {
+    return { ok: false, status: 502, error: describeWpNetworkError(err, "Gangguan koneksi ke WordPress") }
   }
 }
 
@@ -721,6 +814,9 @@ export async function updateWordPressPostContent(params: {
   postId: number
   content: string
 }): Promise<{ ok: boolean; error?: string }> {
+  if (!isValidWpPostId(params.postId)) {
+    return { ok: false, error: INVALID_WP_POST_ID_ERROR }
+  }
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
     return { ok: false, error: error || "Alamat website WordPress tidak valid." }
@@ -728,16 +824,15 @@ export async function updateWordPressPostContent(params: {
 
   try {
     const endpoint = `${normalizedUrl}/wp-json/wp/v2/posts/${params.postId}`
-    const res = await fetch(endpoint, {
+    const res = await wpFetch(endpoint, {
       method: "POST",
       headers: {
         Authorization: makeAuthHeader(params.username, params.applicationPassword),
         "Content-Type": "application/json",
-        "User-Agent": "WP-Autopost-Dashboard/1.0",
+        "User-Agent": WP_USER_AGENT,
         Accept: "application/json",
       },
       body: JSON.stringify({ content: params.content }),
-      signal: AbortSignal.timeout(15000),
     })
 
     if (!res.ok) {
@@ -747,8 +842,7 @@ export async function updateWordPressPostContent(params: {
 
     return { ok: true }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Gangguan koneksi ke WordPress"
-    return { ok: false, error: msg }
+    return { ok: false, error: describeWpNetworkError(err, "Gangguan koneksi ke WordPress") }
   }
 }
 

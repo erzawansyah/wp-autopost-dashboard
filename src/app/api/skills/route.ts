@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server"
-import path from "path"
-import fs from "fs"
 import { createClient } from "@/lib/supabase/server"
 
 function parseSkillFrontmatter(content: string): { name?: string; description?: string } {
@@ -21,18 +19,6 @@ function parseSkillFrontmatter(content: string): { name?: string; description?: 
     if (key === "description") result.description = val
   }
   return result
-}
-
-function ensureSkillOnDisk(slug: string, content: string) {
-  try {
-    const targetDir = path.join(process.cwd(), ".workspaces", "skills", slug)
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true })
-    }
-    fs.writeFileSync(path.join(targetDir, "SKILL.md"), content, "utf-8")
-  } catch (err) {
-    console.warn(`[ensureSkillOnDisk] Gagal menulis skill ${slug} ke disk:`, err)
-  }
 }
 
 export async function GET() {
@@ -127,9 +113,6 @@ export async function POST(request: Request) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
-
-    // Tulis ke disk agar siap digunakan oleh Deep Agent
-    ensureSkillOnDisk(cleanSlug, content.trim())
 
     return NextResponse.json({ skill }, { status: 201 })
   } catch (err: unknown) {

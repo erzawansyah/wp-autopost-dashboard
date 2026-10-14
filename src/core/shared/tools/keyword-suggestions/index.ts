@@ -4,6 +4,8 @@
  * dari SearXNG (jika aktif) dengan fallback multi-source ke Google & Bing Suggest.
  */
 
+import { safeFetch } from "@/lib/net/safe-fetch"
+
 export interface KeywordSuggestionsParams {
   query: string
   language?: string
@@ -21,8 +23,12 @@ export interface KeywordSuggestionsResult {
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
+/** Batas ukuran respons JSON SearXNG (byte). */
+const SEARXNG_MAX_BYTES = 2 * 1024 * 1024
+
 /**
- * 1. Ambil saran kata kunci dari SearXNG (jika instance tersedia)
+ * 1. Ambil saran kata kunci dari SearXNG (jika instance tersedia).
+ * URL instance bisa diisi pengguna → lewat `safeFetch` (origin SearXNG platform otomatis tepercaya).
  */
 async function fetchFromSearxng(query: string, searxngUrl: string): Promise<string[]> {
   try {
@@ -31,10 +37,11 @@ async function fetchFromSearxng(query: string, searxngUrl: string): Promise<stri
     // Coba endpoint autocompleter SearXNG terlebih dahulu
     try {
       const autoUrl = `${base}/autocompleter?q=${encodeURIComponent(query)}`
-      const autoRes = await fetch(autoUrl, {
-        headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" },
-        signal: AbortSignal.timeout(4000),
-      })
+      const autoRes = await safeFetch(
+        autoUrl,
+        { headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" } },
+        { timeoutMs: 4000, maxBytes: SEARXNG_MAX_BYTES }
+      )
       if (autoRes.ok) {
         const data = await autoRes.json()
         if (Array.isArray(data)) {
@@ -51,10 +58,11 @@ async function fetchFromSearxng(query: string, searxngUrl: string): Promise<stri
 
     // Fallback ke endpoint search format=json
     const searchUrl = `${base}/search?q=${encodeURIComponent(query)}&format=json&categories=general`
-    const searchRes = await fetch(searchUrl, {
-      headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" },
-      signal: AbortSignal.timeout(5000),
-    })
+    const searchRes = await safeFetch(
+      searchUrl,
+      { headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" } },
+      { timeoutMs: 5000, maxBytes: SEARXNG_MAX_BYTES }
+    )
 
     if (searchRes.ok) {
       const data = await searchRes.json()

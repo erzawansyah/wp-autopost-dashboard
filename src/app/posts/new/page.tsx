@@ -92,7 +92,6 @@ export default function NewPostPage() {
           customBrief: payload.customBrief || undefined,
           actionStatus: payload.actionStatus,
           aiModel: payload.aiModel,
-          apiKey: payload.apiKey || undefined,
         }),
       })
 

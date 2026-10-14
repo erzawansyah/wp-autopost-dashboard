@@ -42,7 +42,7 @@ export async function buildWriterAgent(params: BuildAgentParams) {
   const checkpointer = new MemorySaver()
 
   if (mode === "deep") {
-    // 1. Resolusi skill secara dinamis dari database Supabase agent_skills (dengan hybrid fallback disk)
+    // 1. Resolusi skill secara dinamis dari database Supabase agent_skills (skill sistem + milik pengguna)
     const resolvedSkills = await resolveSkillsForAgent({
       requestedSlugs: skills,
       userId,

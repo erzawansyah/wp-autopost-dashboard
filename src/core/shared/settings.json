@@ -10,9 +10,7 @@
       "web_reader": 4,
       "image_search": 4,
       "upload_media": 4,
-      "list_wp_categories": 2,
-      "list_wp_tags": 2,
-      "list_wp_authors": 2,
+      "set_featured_image": 2,
       "keyword_suggestions": 4
     }
   },
@@ -26,9 +24,7 @@
       "web_reader": 6,
       "image_search": 5,
       "upload_media": 5,
-      "list_wp_categories": 2,
-      "list_wp_tags": 2,
-      "list_wp_authors": 2,
+      "set_featured_image": 3,
       "keyword_suggestions": 6
     }
   },

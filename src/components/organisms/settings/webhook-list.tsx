@@ -541,7 +541,12 @@ export function WebhookList() {
                 Header Verifikasi:
               </div>
               <p className="mt-1 font-mono text-[11px] leading-relaxed opacity-90">
-                X-Hub-Signature-256: sha256=HMAC_HEX_DIGEST
+                X-Panitera-Timestamp: &lt;unix detik&gt;
+                <br />
+                X-Panitera-Signature: sha256=HMAC_SHA256(secret, &quot;timestamp.rawBody&quot;)
+              </p>
+              <p className="mt-1.5 leading-relaxed">
+                Bandingkan tanda tangan secara constant-time dan tolak timestamp yang selisihnya lebih dari 5 menit.
               </p>
             </div>
 

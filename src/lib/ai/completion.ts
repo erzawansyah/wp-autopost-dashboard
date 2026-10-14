@@ -1,5 +1,6 @@
 import { DEFAULT_AI_MODEL } from "./settings"
 import { getOpenRouterReasoningConfig, ReasoningEffort } from "./reasoning"
+import { requireOpenRouterKey } from "./platform-keys"
 
 export interface CallAiJsonParams {
   apiKey?: string
@@ -16,10 +17,8 @@ export interface CallAiJsonParams {
  * Mendukung Native JSON Schema (Constrained Decoding) serta graceful fallback ke json_object
  */
 export async function callOpenRouterJson<T = unknown>(params: CallAiJsonParams): Promise<T> {
-  const apiKey = (params.apiKey || process.env.OPENROUTER_API_KEY || "").trim()
-  if (!apiKey) {
-    throw new Error("OpenRouter API Key belum dikonfigurasikan di sistem atau pengaturan pengguna.")
-  }
+  // BYOK: kunci pengguna; kunci platform hanya bila PLATFORM_KEY_ALLOWED=true.
+  const apiKey = requireOpenRouterKey(params.apiKey)
 
   const model = params.model || process.env.DEFAULT_AI_MODEL || DEFAULT_AI_MODEL
 
@@ -108,7 +107,7 @@ export async function callOpenRouterJson<T = unknown>(params: CallAiJsonParams):
 
   try {
     return JSON.parse(cleaned) as T
-  } catch (err) {
+  } catch {
     console.error("[callOpenRouterJson] Gagal mem-parse respons AI ke JSON. Raw:", rawContent)
     throw new Error("Format respons AI tidak valid sebagai JSON.")
   }

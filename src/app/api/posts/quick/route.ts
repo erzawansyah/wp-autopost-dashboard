@@ -28,7 +28,6 @@ export async function POST(request: Request) {
       actionStatus = "draft",
       aiModel,
       reasoningEffort,
-      apiKey,
       agentProfileRef,
       engine = "quick",
       style = "default",
@@ -124,13 +123,14 @@ export async function POST(request: Request) {
       message: `[Queue] Artikel masuk antrean latar belakang (Agent: ${effectiveProfileRef}, Model: ${aiModel || "bawaan"}) untuk website ${site.site_name}`,
     })
 
-    // 4. Jalankan Background Queue Worker via after() tanpa menahan response HTTP
+    // 4. Jalankan Background Queue Worker via after() tanpa menahan response HTTP.
+    //    Kunci OpenRouter tidak diterima dari browser: worker me-resolve kunci BYOK
+    //    terenkripsi milik pengguna dari user_settings (getUserDecryptedKeys).
     after(async () => {
       try {
         await processPostItem({
           postId,
           userId: user.id,
-          clientApiKey: apiKey,
         })
       } catch (workerErr) {
         console.error(`[Background Worker Error] Gagal memproses item #${postId}:`, workerErr)

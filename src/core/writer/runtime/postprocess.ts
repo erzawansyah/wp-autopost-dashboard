@@ -7,6 +7,12 @@ import {
   extractSubheadings,
   sanitizeDashes,
 } from "../../shared/formatters/markdown-cleaner"
+import {
+  toPlainText,
+  truncatePlainText,
+  WP_EXCERPT_MAX_LENGTH,
+  WP_TITLE_MAX_LENGTH,
+} from "@/lib/wordpress/plain-text"
 
 import { normalizeArticleOutput } from "./output-schema"
 
@@ -16,10 +22,22 @@ export interface PostprocessInput {
   rawMarkdown: string
 }
 
+/**
+ * Judul/excerpt LLM → teks polos satu baris. WordPress tidak menyaring HTML pada field ini untuk akun
+ * ber-`unfiltered_html` dan tema mencetaknya mentah, sehingga HTML/entitas wajib dibuang di sini.
+ */
+function cleanPlainField(raw: string, labelPattern: RegExp, maxLength: number): string {
+  const cleaned = sanitizeDashes(toPlainText(raw))
+    .replace(labelPattern, "")
+    .replace(/^["']|["']$/g, "")
+    .trim()
+  return truncatePlainText(cleaned, maxLength)
+}
+
 export function postprocessArticle(input: PostprocessInput): GeneratedArticle {
   let md = (input.rawMarkdown || "").trim()
 
-  // Safety net 1: Jika rawMarkdown ternyata string JSON mentah yang belum ter-unwrap
+  // Safety net: Jika rawMarkdown ternyata string JSON mentah yang belum ter-unwrap
   if (md.startsWith("{") && md.endsWith("}")) {
     try {
       const parsed = JSON.parse(md)
@@ -42,19 +60,18 @@ export function postprocessArticle(input: PostprocessInput): GeneratedArticle {
     } catch {}
   }
 
-  // Safety net 2: Normalisasi literal \n jika teks ter-escape (mencegah seluruh teks menyatu 1 baris)
-  if (md.includes("\\n") && (!md.includes("\n") || md.split("\n").length <= 2)) {
-    md = md.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n")
-  }
-
-  const cleanedTitle = sanitizeDashes((input.rawTitle || "").trim())
-    .replace(/^(?:judul\s*artikel|judul|title)\s*:\s*/i, "")
-    .replace(/^["']|["']$/g, "")
-    .trim()
-  const cleanedExcerpt = sanitizeDashes((input.rawExcerpt || "").trim())
-    .replace(/^(?:ringkasan\s*artikel|ringkasan|excerpt)\s*:\s*/i, "")
-    .replace(/^["']|["']$/g, "")
-    .trim()
+  const cleanedTitle = cleanPlainField(
+    input.rawTitle || "",
+    /^(?:judul\s*artikel|judul|title)\s*:\s*/i,
+    WP_TITLE_MAX_LENGTH
+  )
+  const cleanedExcerpt = cleanPlainField(
+    input.rawExcerpt || "",
+    /^(?:ringkasan\s*artikel|ringkasan|excerpt)\s*:\s*/i,
+    WP_EXCERPT_MAX_LENGTH
+  )
+  // Literal "\n" (teks ter-escape) dipulihkan di cleanMarkdown lewat unescapeLiteralNewlines,
+  // yang tidak menyentuh isi fenced code & kode inline.
   const cleanedMarkdown = cleanMarkdown(md, cleanedTitle)
 
   // Serialisasi Markdown deterministik ke komentar blok WordPress Gutenberg resmi (<!-- wp:... -->)

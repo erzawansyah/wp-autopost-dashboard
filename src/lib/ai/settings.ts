@@ -1,6 +1,7 @@
 /**
- * Konfigurasi Global AI Model & API Key (Client & Server Fallback)
+ * Konfigurasi Global AI Model (Client & Server Fallback)
  * Mengatur Single Source of Truth untuk model default aplikasi.
+ * API key tidak pernah disimpan di browser; kunci BYOK hanya tersimpan terenkripsi di server.
  */
 
 export const DEFAULT_AI_MODEL = "meta-llama/llama-3.3-70b-instruct"
@@ -54,23 +55,23 @@ export function getModelDisplayName(modelId: string, customModels?: OpenRouterMo
   return modelId
 }
 
-/**
- * Mengambil custom OpenRouter API Key dari localStorage jika disimpan oleh user
- */
-export function getGlobalApiKey(): string | undefined {
-  if (typeof window !== "undefined") {
-    return localStorage.getItem("custom_openrouter_api_key") || undefined
-  }
-  return undefined
-}
+/** Header untuk mengirim API key yang belum disimpan (uji sebelum simpan). Jangan lewat query string. */
+export const UNSAVED_OPENROUTER_KEY_HEADER = "x-openrouter-key"
 
 /**
- * Fetch daftar model dinamis dari endpoint /api/ai/models
+ * Fetch daftar model dinamis dari endpoint /api/ai/models.
+ * Server memakai API key OpenRouter milik pengguna yang tersimpan; `unsavedKey` opsional
+ * (mis. kunci yang baru diketik dan belum disimpan) dikirim lewat header, bukan query string.
  */
-export async function fetchDynamicAiModels(apiKey?: string): Promise<OpenRouterModelInfo[]> {
+export async function fetchDynamicAiModels(options?: { unsavedKey?: string }): Promise<OpenRouterModelInfo[]> {
   try {
-    const url = apiKey ? `/api/ai/models?apiKey=${encodeURIComponent(apiKey)}` : `/api/ai/models`
-    const res = await fetch(url)
+    const headers: Record<string, string> = {}
+    const unsavedKey = options?.unsavedKey?.trim()
+    // Lewati nilai tersamar (•/*) atau non-ASCII: bukan kunci asli dan tidak valid sebagai header.
+    if (unsavedKey && /^[\x21-\x7E]+$/.test(unsavedKey) && !unsavedKey.includes("*")) {
+      headers[UNSAVED_OPENROUTER_KEY_HEADER] = unsavedKey
+    }
+    const res = await fetch("/api/ai/models", { headers, cache: "no-store" })
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`)
     }

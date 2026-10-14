@@ -15,7 +15,7 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 - **Next.js 16 (App Router) + TypeScript `strict: true`.** Versi ini punya perubahan besar dari data latih; baca panduan di `node_modules/next/dist/docs/` sebelum menulis kode Next.js (lihat blok di akhir file).
 - **Supabase (PostgreSQL + Auth SSR)** — multi-tenant, RLS wajib di semua tabel.
 - **WordPress REST API (`/wp-json/wp/v2/...`) + Application Passwords.** *Zero-Friction Onboarding*: dilarang merancang fitur inti yang mewajibkan pengguna memasang plugin custom atau mengedit PHP di WordPress mereka.
-- **LangChain / LangGraph (BYOK-first)** — `@langchain/core`, `@langchain/langgraph`, `@langchain/openai`, `@langchain/openrouter`, `deepagents`; Agent Profile Runtime di `src/core/writer/`.
+- **LangChain / LangGraph (BYOK-first)** — `langchain`, `@langchain/core`, `@langchain/langgraph`, `@langchain/openrouter`, `deepagents`, `langsmith` (tracer per tenant); Agent Profile Runtime di `src/core/writer/`.
 - **Search & media** — SearXNG self-hosted (`docker-compose.yml`, `http://searxng-internal:8080`), Pexafy API, BYOK Tavily/Brave/SerpAPI.
 - **UI** — Tailwind CSS v4 + Radix/shadcn, Atomic Design, token di `DESIGN.md` & `src/app/globals.css`.
 
@@ -25,7 +25,7 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 
 **B. Idempotency & Cost-Saver Retry.** `failed_sync` di-retry langsung ke `syncing_to_wp` memakai naskah tersimpan — tidak pernah memicu `generating_content` ulang. Cek `wp_post_id` agar retry tidak menggandakan posting.
 
-**C. Keamanan.** Kredensial WP & API key dienkripsi AES-256-GCM, didekripsi hanya di server; throttling per situs (default maks 2 request paralel); validasi Anti-SSRF untuk setiap URL input pengguna. Rinci: [`.claude/rules/security.md`](.claude/rules/security.md).
+**C. Keamanan.** Kredensial WP & API key dienkripsi AES-256-GCM, didekripsi hanya di server; BYOK-only (tanpa fallback kunci platform kecuali `PLATFORM_KEY_ALLOWED=true`); throttling per situs (default maks 2 request paralel); setiap fetch ke URL dari pengguna/LLM lewat `safeFetch`. Rinci: [`.claude/rules/security.md`](.claude/rules/security.md).
 
 ## 4. Cara Kerja di Repo Ini
 
@@ -39,6 +39,7 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 8. **Zero dead code**, istilah konsisten **Agent Profile**, dan verifikasi sebelum menyatakan selesai:
    ```bash
    npx tsc --noEmit
+   npm test        # Vitest, berkas src/**/*.test.ts
    npm run lint
    ```
 9. **Sandbox lokal `.workspaces/`** (di-ignore Git) untuk skrip, scratch, fixture, dan worklog — jangan menaruh berkas ad-hoc di root.

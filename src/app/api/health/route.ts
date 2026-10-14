@@ -4,7 +4,7 @@ export async function GET() {
   return NextResponse.json(
     {
       status: "ok",
-      version: "v0.1.2",
+      version: `v${process.env.NEXT_PUBLIC_APP_VERSION}`,
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     },

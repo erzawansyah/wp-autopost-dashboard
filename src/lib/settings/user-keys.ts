@@ -50,18 +50,14 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       braveKey: safeDecrypt(data.encrypted_brave_key),
       serpapiKey: safeDecrypt(data.encrypted_serpapi_key),
       pexafyKey: safeDecrypt(data.encrypted_pexafy_key),
+      // Hanya kunci LangSmith milik tenant ini. Sengaja TIDAK ada fallback ke env sistem
+      // (LANGSMITH_API_KEY/LANGCHAIN_API_KEY) agar trace satu tenant tidak tercampur ke akun lain.
       langsmithApiKey:
         safeDecrypt(data.encrypted_langsmith_key) ||
-        safeDecrypt(typeof notifPrefs?.langsmith_api_key === "string" ? notifPrefs.langsmith_api_key : undefined) ||
-        process.env.LANGSMITH_API_KEY ||
-        process.env.LANGCHAIN_API_KEY ||
-        undefined,
+        safeDecrypt(typeof notifPrefs?.langsmith_api_key === "string" ? notifPrefs.langsmith_api_key : undefined),
       langsmithProject:
         (typeof rawData.langsmith_project === "string" ? rawData.langsmith_project : undefined) ||
-        (typeof notifPrefs?.langsmith_project === "string" ? notifPrefs.langsmith_project : undefined) ||
-        process.env.LANGSMITH_PROJECT ||
-        process.env.LANGCHAIN_PROJECT ||
-        "panitera",
+        (typeof notifPrefs?.langsmith_project === "string" ? notifPrefs.langsmith_project : undefined),
       searxngUrl: data.searxng_url ? String(data.searxng_url).trim() : undefined,
       defaultAiModel:
         (typeof searchPrefs?.default_ai_model === "string" ? searchPrefs.default_ai_model : undefined) ||

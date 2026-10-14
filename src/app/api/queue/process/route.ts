@@ -1,50 +1,43 @@
-import crypto from "crypto"
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { verifyCronRequest } from "@/core/queue/cron-auth"
 import {
   processPostItem,
   claimNextPendingQueueItems,
   processClaimedItems,
+  type ProcessPostItemResult,
 } from "@/core/queue/worker"
 
 export const maxDuration = 60
 
+const MAX_BATCH_LIMIT = 10
+const DEFAULT_BATCH_LIMIT = 5
+
 /**
- * Perbandingan token konstan (timing-safe) untuk proteksi webhook/cron
+ * - `cron`: pemicu sistem berotorisasi CRON_SECRET (boleh memproses antrean lintas tenant).
+ * - `session`: pengguna dasbor; HANYA boleh memproses item miliknya sendiri.
  */
-function safeCompare(provided: string | null | undefined, expected: string | undefined): boolean {
-  if (!provided || !expected) return false
-  const bufProvided = Buffer.from(provided)
-  const bufExpected = Buffer.from(expected)
-  if (bufProvided.length !== bufExpected.length) return false
-  return crypto.timingSafeEqual(bufProvided, bufExpected)
+type QueueAuth = { kind: "cron" } | { kind: "session"; userId: string } | { kind: "unauthorized" }
+
+type AuthorizedQueueAuth = Exclude<QueueAuth, { kind: "unauthorized" }>
+
+interface QueueRunParams {
+  postId?: string
+  forceNow: boolean
+  limit: number
+  processAll: boolean
 }
 
+let missingCronSecretLogged = false
+
 /**
- * Verifikasi apakah request berasal dari cron/VPS berotorisasi atau user session
+ * Verifikasi apakah request berasal dari cron/VPS berotorisasi atau sesi pengguna.
+ * Cron hanya diterima lewat header (Authorization: Bearer / x-cron-secret) dan CRON_SECRET wajib disetel.
  */
-async function verifyAuthorization(request: Request) {
-  const cronSecret = process.env.CRON_SECRET
+async function authorizeRequest(request: Request): Promise<QueueAuth> {
+  const cronAuth = verifyCronRequest(request.headers, process.env.CRON_SECRET)
+  if (cronAuth.ok) return { kind: "cron" }
 
-  // 1. Cek Cron Secret jika dikonfigurasi di server
-  if (cronSecret) {
-    const authHeader = request.headers.get("authorization")
-    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null
-    const xCronSecret = request.headers.get("x-cron-secret")
-
-    const url = new URL(request.url)
-    const querySecret = url.searchParams.get("secret")
-
-    if (
-      safeCompare(bearerToken, cronSecret) ||
-      safeCompare(xCronSecret, cronSecret) ||
-      safeCompare(querySecret, cronSecret)
-    ) {
-      return { isAuthorized: true, user: null, isCron: true }
-    }
-  }
-
-  // 2. Cek user session Supabase (untuk trigger langsung dari UI/dashboard)
   try {
     const supabase = await createClient()
     const {
@@ -53,13 +46,33 @@ async function verifyAuthorization(request: Request) {
     } = await supabase.auth.getUser()
 
     if (!error && user) {
-      return { isAuthorized: true, user, isCron: false }
+      return { kind: "session", userId: user.id }
     }
   } catch {
-    // Abaikan jika tidak ada cookies
+    // Abaikan jika tidak ada cookies sesi
   }
 
-  return { isAuthorized: false, user: null, isCron: false }
+  // Log diagnostik untuk operator (tanpa pernah mencetak nilai token/secret)
+  if (cronAuth.reason === "secret_not_configured") {
+    if (!missingCronSecretLogged) {
+      missingCronSecretLogged = true
+      console.error(
+        "[queue/process] CRON_SECRET belum dikonfigurasi: semua pemicu cron DITOLAK (401). " +
+          "Setel CRON_SECRET (string acak panjang) di environment server dan pemicu cron."
+      )
+    }
+  } else if (cronAuth.reason === "invalid_token") {
+    console.warn("[queue/process] Pemicu cron ditolak: token tidak cocok dengan CRON_SECRET.")
+  }
+
+  if (new URL(request.url).searchParams.has("secret")) {
+    console.warn(
+      "[queue/process] Parameter ?secret= tidak lagi didukung. " +
+        "Kirim token lewat header 'Authorization: Bearer <CRON_SECRET>' atau 'x-cron-secret'."
+    )
+  }
+
+  return { kind: "unauthorized" }
 }
 
 function getFormattedTimestamp(): string {
@@ -78,93 +91,84 @@ function prefersPlainText(request: Request, isCron: boolean): boolean {
   return false
 }
 
-export async function POST(request: Request) {
-  const auth = await verifyAuthorization(request)
-  const isPlain = prefersPlainText(request, auth.isCron)
+function plainText(body: string, status: number): Response {
+  return new Response(body, {
+    status,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
+  })
+}
 
-  if (!auth.isAuthorized) {
-    if (isPlain) {
-      const now = getFormattedTimestamp()
-      return new Response(`[${now}] ERROR - Gagal memicu antrean: Token tidak valid / Unauthorized\n`, {
-        status: 401,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      })
-    }
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+function unauthorizedResponse(isPlain: boolean): Response {
+  if (isPlain) {
+    return plainText(`[${getFormattedTimestamp()}] ERROR - Gagal memicu antrean: Token tidak valid / Unauthorized\n`, 401)
   }
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+}
+
+function parseLimit(raw: unknown): number {
+  const parsed = Math.floor(Number(raw))
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_BATCH_LIMIT
+  return Math.min(parsed, MAX_BATCH_LIMIT)
+}
+
+function formatBatchLines(results: ProcessPostItemResult[]): string {
+  const now = getFormattedTimestamp()
+  const lines: string[] = []
+  for (const r of results.filter((item) => item.success)) {
+    lines.push(`[${now}] SUCCESS - Berhasil memproses: "${r.title || r.keyword}" (WP ID: #${r.wpPostId})`)
+  }
+  for (const r of results.filter((item) => !item.success)) {
+    lines.push(`[${now}] ERROR - Gagal memproses "${r.keyword}": ${r.error || "Terjadi kesalahan"}`)
+  }
+  return lines.join("\n") + "\n"
+}
+
+/**
+ * Logika bersama GET (khusus cron) & POST.
+ * Sesi pengguna selalu dibatasi ke item miliknya (single postId maupun process_all).
+ */
+async function runQueue(auth: AuthorizedQueueAuth, params: QueueRunParams, isPlain: boolean): Promise<Response> {
+  const scopedUserId = auth.kind === "session" ? auth.userId : undefined
 
   try {
-    let body: Record<string, unknown> = {}
-    try {
-      body = await request.json()
-    } catch {
-      // Body kosong diperbolehkan
-    }
-
-    const url = new URL(request.url)
-    const postId =
-      (typeof body.postId === "string" && body.postId.trim() ? body.postId.trim() : undefined) ||
-      (typeof body.id === "string" && body.id.trim() ? body.id.trim() : undefined) ||
-      url.searchParams.get("postId") ||
-      url.searchParams.get("id") ||
-      undefined
-
-    const forceNow = Boolean(body.forceNow || url.searchParams.get("forceNow") === "true")
-    const parsedLimit = Number(body.limit || url.searchParams.get("limit"))
-    const limit = Math.min(isNaN(parsedLimit) || parsedLimit <= 0 ? 5 : parsedLimit, 10)
-
-    // Proses satu item spesifik berdasarkan postId
-    if (postId) {
+    // Proses satu item spesifik berdasarkan postId (sesi: wajib milik pengguna tersebut)
+    if (params.postId) {
       const result = await processPostItem({
-        postId,
-        userId: auth.user?.id,
-        forceNow,
+        postId: params.postId,
+        userId: scopedUserId,
+        forceNow: params.forceNow,
       })
       if (isPlain) {
         const now = getFormattedTimestamp()
         if (result.success) {
-          return new Response(
+          return plainText(
             `[${now}] SUCCESS - Berhasil memproses: "${result.title || result.keyword}" (WP ID: #${result.wpPostId})\n`,
-            { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } }
+            200
           )
         }
-        return new Response(
-          `[${now}] ERROR - Gagal memproses: ${result.error || "Terjadi kesalahan"}\n`,
-          { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } }
-        )
+        return plainText(`[${now}] ERROR - Gagal memproses: ${result.error || "Terjadi kesalahan"}\n`, 500)
       }
       return NextResponse.json({ ok: result.success, result })
     }
 
-    // PENGAMAN KRITIS: Jika dipanggil oleh sesi pengguna (bukan cron) dan tanpa postId,
-    // TOLAK eksekusi massal kecuali jika secara eksplisit meminta 'process_all' atau ?all=true.
-    // Ini mencegah ketidaksengajaan terprosesnya seluruh antrean ketika user mengklik tombol item tunggal.
-    const isExplicitBatchRequest =
-      body.action === "process_all" ||
-      body.processAll === true ||
-      url.searchParams.get("all") === "true"
-
-    if (!auth.isCron && !isExplicitBatchRequest) {
+    // PENGAMAN: sesi pengguna tanpa postId wajib meminta eksekusi massal secara eksplisit,
+    // dan eksekusi massal sesi hanya menyentuh antrean milik pengguna itu sendiri.
+    if (auth.kind === "session" && !params.processAll) {
       return NextResponse.json(
         {
           error:
-            "Parameter postId diperlukan untuk memproses artikel. Gunakan action: 'process_all' jika ingin memproses seluruh antrean.",
+            "Parameter postId diperlukan untuk memproses artikel. Gunakan action: 'process_all' jika ingin memproses seluruh antrean Anda.",
         },
         { status: 400 }
       )
     }
 
-    // 1. ATOMIC CLAIM: Kunci item terlama dari database seketika
-    const claimed = await claimNextPendingQueueItems(limit)
+    // 1. ATOMIC CLAIM: kunci item terlama (cron: lintas tenant; sesi: hanya milik pengguna)
+    const claimed = await claimNextPendingQueueItems(params.limit, { userId: scopedUserId })
 
-    // JIKA KOSONG: Kembalikan respons kosong (0 byte) agar crontab VPS tidak menyimpan log apapun
+    // JIKA KOSONG: respons kosong (0 byte) agar crontab VPS tidak menyimpan log apa pun
     if (claimed.length === 0) {
-      if (isPlain) {
-        return new Response("", {
-          status: 200,
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        })
-      }
+      if (isPlain) return plainText("", 200)
       return NextResponse.json({
         ok: true,
         processedCount: 0,
@@ -173,171 +177,87 @@ export async function POST(request: Request) {
       })
     }
 
-    // 2. SYNCHRONOUS PROCESSING: Proses semua artikel yang sudah diklaim, tunggu hingga selesai.
-    // Quick Engine: ~15-25 detik/artikel. 2 artikel ≈ 30-50 detik (aman dalam Vercel maxDuration 60 detik).
-    // Menggantikan after() yang butuh experimental.after di next.config dan tidak konsisten di dev vs prod.
+    // 2. SYNCHRONOUS PROCESSING: proses semua item yang sudah diklaim dan tunggu hingga selesai
+    // (aman dalam maxDuration 60 detik untuk batas klaim kecil).
     const results = await processClaimedItems(claimed)
 
-    const successItems = results.filter((r) => r.success)
-    const failItems = results.filter((r) => !r.success)
-    const now = getFormattedTimestamp()
-
-    if (isPlain) {
-      const lines: string[] = []
-      for (const r of successItems) {
-        lines.push(
-          `[${now}] SUCCESS - Berhasil memproses: "${r.title || r.keyword}" (WP ID: #${r.wpPostId})`
-        )
-      }
-      for (const r of failItems) {
-        lines.push(
-          `[${now}] ERROR - Gagal memproses "${r.keyword}": ${r.error || "Terjadi kesalahan"}`
-        )
-      }
-      return new Response(lines.join("\n") + "\n", {
-        status: 200,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      })
-    }
+    if (isPlain) return plainText(formatBatchLines(results), 200)
 
     return NextResponse.json({
       ok: true,
-      processedCount: successItems.length,
-      failedCount: failItems.length,
+      processedCount: results.filter((r) => r.success).length,
+      failedCount: results.filter((r) => !r.success).length,
       results,
     })
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Terjadi kesalahan internal worker"
     if (isPlain) {
-      const now = getFormattedTimestamp()
-      return new Response(`[${now}] ERROR - Gagal memproses antrean: ${msg}\n`, {
-        status: 500,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      })
+      return plainText(`[${getFormattedTimestamp()}] ERROR - Gagal memproses antrean: ${msg}\n`, 500)
     }
     return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
 
-export async function GET(request: Request) {
-  const auth = await verifyAuthorization(request)
-  const isPlain = prefersPlainText(request, auth.isCron)
+function readTrimmedString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
 
-  if (!auth.isAuthorized) {
-    if (isPlain) {
-      const now = getFormattedTimestamp()
-      return new Response(`[${now}] ERROR - Gagal memicu antrean: Token tidak valid / Unauthorized\n`, {
-        status: 401,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      })
-    }
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-  }
+export async function POST(request: Request) {
+  const auth = await authorizeRequest(request)
+  const isPlain = prefersPlainText(request, auth.kind === "cron")
 
+  if (auth.kind === "unauthorized") return unauthorizedResponse(isPlain)
+
+  let body: Record<string, unknown> = {}
   try {
-    const { searchParams } = new URL(request.url)
-    const postId = searchParams.get("postId") || searchParams.get("id") || undefined
-    const forceNow = searchParams.get("forceNow") === "true"
-    const parsedLimit = Number(searchParams.get("limit"))
-    const limit = Math.min(isNaN(parsedLimit) || parsedLimit <= 0 ? 5 : parsedLimit, 10)
-
-    // Proses satu item spesifik berdasarkan postId
-    if (postId) {
-      const result = await processPostItem({
-        postId,
-        userId: auth.user?.id,
-        forceNow,
-      })
-      if (isPlain) {
-        const now = getFormattedTimestamp()
-        if (result.success) {
-          return new Response(
-            `[${now}] SUCCESS - Berhasil memproses: "${result.title || result.keyword}" (WP ID: #${result.wpPostId})\n`,
-            { status: 200, headers: { "Content-Type": "text/plain; charset=utf-8" } }
-          )
-        }
-        return new Response(
-          `[${now}] ERROR - Gagal memproses: ${result.error || "Terjadi kesalahan"}\n`,
-          { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8" } }
-        )
-      }
-      return NextResponse.json({ ok: result.success, result })
+    const parsed: unknown = await request.json()
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      body = parsed as Record<string, unknown>
     }
-
-    // PENGAMAN KRITIS: Jika dipanggil oleh sesi pengguna (bukan cron) dan tanpa postId,
-    // TOLAK eksekusi massal kecuali jika secara eksplisit meminta ?all=true atau action=process_all.
-    const isExplicitBatchRequest =
-      searchParams.get("all") === "true" ||
-      searchParams.get("action") === "process_all"
-
-    if (!auth.isCron && !isExplicitBatchRequest) {
-      return NextResponse.json(
-        {
-          error:
-            "Parameter postId diperlukan untuk memproses artikel. Gunakan ?all=true jika ingin memproses seluruh antrean.",
-        },
-        { status: 400 }
-      )
-    }
-
-    // 1. ATOMIC CLAIM
-    const claimed = await claimNextPendingQueueItems(limit)
-
-    if (claimed.length === 0) {
-      if (isPlain) {
-        return new Response("", {
-          status: 200,
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        })
-      }
-      return NextResponse.json({
-        ok: true,
-        processedCount: 0,
-        results: [],
-        message: "Tidak ada antrean tertunda saat ini yang siap diproses (sesuai jadwal waktu).",
-      })
-    }
-
-    // 2. SYNCHRONOUS PROCESSING
-    const results = await processClaimedItems(claimed)
-
-    const successItems = results.filter((r) => r.success)
-    const failItems = results.filter((r) => !r.success)
-    const now = getFormattedTimestamp()
-
-    if (isPlain) {
-      const lines: string[] = []
-      for (const r of successItems) {
-        lines.push(
-          `[${now}] SUCCESS - Berhasil memproses: "${r.title || r.keyword}" (WP ID: #${r.wpPostId})`
-        )
-      }
-      for (const r of failItems) {
-        lines.push(
-          `[${now}] ERROR - Gagal memproses "${r.keyword}": ${r.error || "Terjadi kesalahan"}`
-        )
-      }
-      return new Response(lines.join("\n") + "\n", {
-        status: 200,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      })
-    }
-
-    return NextResponse.json({
-      ok: true,
-      processedCount: successItems.length,
-      failedCount: failItems.length,
-      results,
-    })
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Terjadi kesalahan internal worker"
-    if (isPlain) {
-      const now = getFormattedTimestamp()
-      return new Response(`[${now}] ERROR - Gagal memproses antrean: ${msg}\n`, {
-        status: 500,
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-      })
-    }
-    return NextResponse.json({ error: msg }, { status: 500 })
+  } catch {
+    // Body kosong diperbolehkan
   }
+
+  const url = new URL(request.url)
+  const params: QueueRunParams = {
+    postId:
+      readTrimmedString(body.postId) ||
+      readTrimmedString(body.id) ||
+      readTrimmedString(url.searchParams.get("postId")) ||
+      readTrimmedString(url.searchParams.get("id")),
+    forceNow: Boolean(body.forceNow || url.searchParams.get("forceNow") === "true"),
+    limit: parseLimit(body.limit ?? url.searchParams.get("limit")),
+    processAll:
+      body.action === "process_all" || body.processAll === true || url.searchParams.get("all") === "true",
+  }
+
+  return runQueue(auth, params, isPlain)
+}
+
+/**
+ * GET hanya untuk pemicu cron terotorisasi (mis. scheduler yang hanya mendukung GET).
+ * Sesi pengguna wajib memakai POST agar GET tidak pernah memicu efek samping (mencegah CSRF via tautan).
+ */
+export async function GET(request: Request) {
+  const auth = await authorizeRequest(request)
+  const isPlain = prefersPlainText(request, auth.kind === "cron")
+
+  if (auth.kind === "unauthorized") return unauthorizedResponse(isPlain)
+
+  if (auth.kind === "session") {
+    return NextResponse.json(
+      { error: "Metode GET hanya untuk pemicu cron terotorisasi. Gunakan POST dari dasbor." },
+      { status: 405, headers: { Allow: "POST" } }
+    )
+  }
+
+  const { searchParams } = new URL(request.url)
+  const params: QueueRunParams = {
+    postId: readTrimmedString(searchParams.get("postId")) || readTrimmedString(searchParams.get("id")),
+    forceNow: searchParams.get("forceNow") === "true",
+    limit: parseLimit(searchParams.get("limit")),
+    processAll: true,
+  }
+
+  return runQueue(auth, params, isPlain)
 }

@@ -58,18 +58,21 @@ export const webSearchToolDef: ToolDefinition = {
         if (!cleanQuery) return "ERROR[invalid_input]: Kata kunci pencarian kosong."
 
         try {
-          // Pilih provider dan key berdasarkan user keys
+          // Provider dari LLM atau preferensi pengguna; setiap kunci BYOK dikirim terpisah per provider
           const pref = (provider as WebSearchProvider) || ctx.userKeys.searchPreferences?.default_provider || "auto"
           const lang = language || ctx.language || "id"
-          const apiKey = ctx.userKeys.tavilyKey || ctx.userKeys.braveKey || ctx.userKeys.serpapiKey
 
           const results = await webSearch({
             query: cleanQuery,
             limit: limit || 4,
             language: lang,
             provider: pref,
-            apiKey,
-            searxngUrl: ctx.userKeys.searxngUrl || "http://searxng-internal:8080",
+            keys: {
+              tavilyKey: ctx.userKeys.tavilyKey,
+              braveKey: ctx.userKeys.braveKey,
+              serpapiKey: ctx.userKeys.serpapiKey,
+            },
+            searxngUrl: ctx.userKeys.searxngUrl,
           })
 
           for (const r of results) {

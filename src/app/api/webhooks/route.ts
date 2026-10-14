@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import crypto from "crypto"
 import { createClient } from "@/lib/supabase/server"
 import { encryptCredential } from "@/lib/crypto"
+import { parseWebhookEvents, validateWebhookUrl } from "@/lib/webhooks/validation"
 import { WebhookItem } from "@/types/webhook"
 
 export const dynamic = "force-dynamic"
@@ -57,16 +58,15 @@ export async function POST(request: Request) {
       )
     }
 
-    if (!url || typeof url !== "string" || !url.startsWith("http")) {
-      return NextResponse.json(
-        { ok: false, error: "URL webhook tidak valid (harus dimulai dengan https:// atau http://)." },
-        { status: 400 }
-      )
+    const urlCheck = await validateWebhookUrl(url)
+    if (!urlCheck.ok) {
+      return NextResponse.json({ ok: false, error: urlCheck.error }, { status: 400 })
     }
 
-    if (!Array.isArray(events) || events.length === 0) {
+    const validEvents = parseWebhookEvents(events)
+    if (!validEvents) {
       return NextResponse.json(
-        { ok: false, error: "Pilih minimal 1 event untuk webhook ini." },
+        { ok: false, error: "Pilih minimal 1 event yang valid untuk webhook ini." },
         { status: 400 }
       )
     }
@@ -81,9 +81,9 @@ export async function POST(request: Request) {
     const insertPayload = {
       user_id: user.id,
       name: name.trim(),
-      url: url.trim(),
+      url: urlCheck.url,
       encrypted_secret: encryptedSecret,
-      events,
+      events: validEvents,
       is_active: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { assertSafeUrl, safeFetch } from "@/lib/net/safe-fetch"
+
+const PROVIDER_TIMEOUT_MS = 10_000
 
 export async function POST(request: Request) {
   const startTime = Date.now()
@@ -41,20 +44,38 @@ export async function POST(request: Request) {
         )
       }
 
-      const res = await fetch(`${urlToTest}/search?q=test&format=json`, {
-        headers: {
-          Accept: "application/json",
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-        },
-        signal: AbortSignal.timeout(8000),
-      })
+      // URL diisi pengguna → validasi Anti-SSRF lalu kirim lewat safeFetch (pesan penolakan generik)
+      let res: Response
+      try {
+        await assertSafeUrl(urlToTest)
+        res = await safeFetch(
+          `${urlToTest}/search?q=test&format=json`,
+          {
+            headers: {
+              Accept: "application/json",
+              "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+            },
+          },
+          { timeoutMs: 8000, maxBytes: 5 * 1024 * 1024 }
+        )
+      } catch {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "Tidak dapat menghubungi instance SearxNG. Pastikan URL publik, valid, dapat diakses, dan alamat lokal/privat tidak dipakai.",
+            latencyMs: Date.now() - startTime,
+          },
+          { status: 400 }
+        )
+      }
       const latencyMs = Date.now() - startTime
 
       if (!res.ok) {
+        await res.body?.cancel()
         return NextResponse.json(
           { ok: false, error: `Instance SearxNG merespons kode HTTP ${res.status}. Pastikan format=json diaktifkan di settings.yml SearxNG Anda.`, latencyMs },
-          { status: res.status }
+          { status: 502 }
         )
       }
 
@@ -87,7 +108,7 @@ export async function POST(request: Request) {
           "x-api-key": cleanKey,
           Accept: "application/json",
         },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       })
 
       const latencyMs = Date.now() - startTime
@@ -118,6 +139,7 @@ export async function POST(request: Request) {
           search_depth: "basic",
           max_results: 1,
         }),
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       })
 
       const latencyMs = Date.now() - startTime
@@ -144,6 +166,7 @@ export async function POST(request: Request) {
           Accept: "application/json",
           "X-Subscription-Token": cleanKey,
         },
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       })
 
       const latencyMs = Date.now() - startTime

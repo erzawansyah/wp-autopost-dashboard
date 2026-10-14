@@ -8,8 +8,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 - **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker, Standard Writing Engine, Hybrid Scraper Tools, Dynamic OpenRouter Models, Featured Image WP, Modul 2 Batch Keyword Ingestion, Agentic Writer Engine, Multi-Language Selection, Integrasi user_settings & webhooks, Perombakan Arsitektur Total ke Agent Profile Runtime, Modul Artikel Terjadwal (/scheduled), Skill Registry (/skills), Sentralisasi Kunci API (/settings/keys), Revamp Gambar (SearxNG + Pexafy), dan Konsolidasi Sidebar WP Tools (/tools)**.
 - **Catatan Worklog**: `.workspaces/worklogs/` (lokal, di-ignore Git) — `00`–`28`, terbaru `28-rebranding-panitera-tools-config-and-docs.md`.
-- **Fase Aktif**: **Unified BYOK Hub (/settings/keys), SearxNG & Pexafy Pipeline, WP Tools Hub (/tools) LIVE**.
-- **Fase Berikutnya**: **Modul 3 Niche Auto-Genesis & Smart Content Recycling**.
+- **Fase Aktif**: **Rombak v2 (branch `v2`)** — Fase 0 hotfix keamanan selesai; berikutnya Fase 1 fondasi (migrasi Supabase, CI, test). Roadmap: laporan audit 14 Okt 2026.
+- **Fase Produk Berikutnya (setelah v2)**: **Modul 3 Niche Auto-Genesis & Smart Content Recycling**.
 
 ---
 
@@ -40,20 +40,13 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - **Pre-Resolution Engine (`pre-resolve.ts`)**: Sebelum agent mulai menulis, sistem di latar belakang memverifikasi author, kategori, dan tag dari target WordPress. Menyuntikkan persona author (nama & bio) ke user prompt, serta mengunci `author.id` yang sah agar publikasi WP REST API tidak pernah ditolak (`Invalid author ID`).
     - **Hidden Global Formatting & Repair Engine**: Mekanisme pembersihan & perbaikan format sepenuhnya tersembunyi dari user (user fokus murni ke pembuatan prompt agen). Menghilangkan preamble/outro percakapan AI, menghapus duplikasi judul H1 di awal body, menurunkan H1 di dalam body menjadi H2, membersihkan frasa klise/slop, dan mengonversi otomatis ke Native WordPress Gutenberg Blocks (`<!-- wp:... -->`).
     - **Endpoint `/api/sites/[id]/authors`**: Menyediakan REST route GET & POST untuk verifikasi dan pendaftaran author WordPress secara langsung.
-12. **ADR-053 (Pengelompokan Artikel Tulis Cepat ke Grup Antrean & Eliminasi Batch Kosong)**:
-    - **Tulis Cepat Terdaftar di Antrean**: Menghilangkan filter `onlyBatches=true` di `/queue/items`. Artikel standalone dari Tulis Cepat (`batch_id: null`) sekarang dikelompokkan otomatis ke dalam batch virtual `"Tulis Cepat (Quick Writer)"` (`id: "quick-writer"`).
-    - **Eliminasi Batch Kosong**: Di halaman Antrean (`/queue/items`), sistem hanya menampilkan kartu batch yang memiliki minimal 1 artikel (`items.length > 0`). Batch kosong tanpa artikel tidak lagi memunculkan kartu nama kosong.
-    - **Filter Batch Tidak Kosong**: Dropdown filter batch hanya menampilkan opsi batch yang memiliki artikel, termasuk opsi `"⚡ Tulis Cepat (Quick Writer)"`, sehingga ketika diklik tidak pernah menghasilkan tampilan kosong.
+12. **ADR-053 (Grup Antrean Tulis Cepat)**: Artikel Tulis Cepat (`batch_id: null`) dikelompokkan ke batch virtual `quick-writer`; batch kosong disembunyikan dari daftar & filter.
 13. **ADR-054 (LLM Pre-Flight Taxonomy & Author Resolver, Prefix `system-*` Prompts, `set_featured_image` Tool, & Deduplikasi Media)**:
     - **Eksternalisasi Prompt & Konvensi Prefix `system-*`**: Seluruh prompt disimpan di `src/core/shared/prompts/` tanpa ada prompt hardcode di TypeScript. Semua prompt non-user wajib memakai prefix `system-*` (`system-guardrail.md`, `system-finalize.md`, `system-resolve-taxonomy-author.md`, `system-tool-*.md`).
     - **LLM-Based Pre-Flight Resolver (`pre-resolve.ts`)**: Resolusi taksonomi (kategori, tag) dan penulis menggunakan LLM dengan template `system-resolve-taxonomy-author.md`. Menganalisis data author, kategori, dan tag dari WP target sebelum agen menulis, dengan fallback heuristik cerdas jika tanpa API key atau saat error jaringan.
     - **Tool `set_featured_image`**: Tool bagi agent/pipeline untuk mencari gambar sampul landscape web relevan dan menyetel `recorder.featuredImage` secara otomatis.
     - **Tabel Deduplikasi Media (`uploaded_media`)**: Skema tabel Supabase mencatat `site_id`, `source_url`, `image_id`, dan metadata. Pipeline `uploadMediaToWordPress` memeriksa tabel ini agar gambar yang sama tidak diunggah ulang ke WordPress Media Library.
-14. **ADR-055 (Standardisasi Format Prompt: Prefix `wp-tools-`, Metadata YAML, & Tag `[SYSTEM_PROMPT]` / `[USER_PROMPT]`)**:
-    - **Prefix `wp-tools-` untuk WP Tools**: Seluruh prompt terkait WP Tools (`categories-suggest`, `authors-suggest`, `link-extract`, `link-recommend`) menggunakan prefix `wp-tools-` (`src/core/shared/prompts/wp-tools-*.md`), bukan `system-`.
-    - **Metadata YAML Frontmatter**: Setiap berkas prompt wajib memiliki blok YAML di bagian atas berisi `used-by`, `description`, dan `variables`.
-    - **Tagging Format Prompt**: Konten prompt dibungkus secara terstruktur menggunakan tag `[SYSTEM_PROMPT]...[/SYSTEM_PROMPT]` dan `[USER_PROMPT]...[/USER_PROMPT]`.
-    - **Prompt Loader Berbasis Tag (`loader.ts`)**: Loader mengekstrak metadata YAML, mendeteksi tag pembungkus, dan mendukung pemanggilan dwiarah `loadPrompt`, `loadSectionedPrompt`, serta `loadParsedPrompt`.
+14. **ADR-055 (Format Prompt)**: Prefix `wp-tools-*`, YAML frontmatter (`description`, `used_by`, `variables`), tag `[SYSTEM_PROMPT]`/`[USER_PROMPT]`, loader berbasis tag (`loadPrompt`, `loadSectionedPrompt`, `loadParsedPrompt`).
 15. **ADR-056 (Injeksi Konteks Website & Persona ke Workflow Prompt Agen + Fleksibel Output Schema)**:
     - **Injeksi Variabel Dinamis ke Workflow Prompt Agen (`preset-*.md`)**: `buildSystemPrompt` di `prompt-builder.ts` kini menerima `SystemPromptVariables` (`siteName`, `siteUrl`, `authorName`, `authorBio`, `categoryName`, `language`). Agen AI kini menyadari nama website, brand, dan persona spesifik tempat artikel akan diterbitkan.
     - **Tag `[OUTPUT_FORMAT]` dengan Inferensi JSON Schema**: Mendukung notasi tanda tanya `?` pada nama key untuk mendeklarasikan field opsional/nullable secara ringkas dan manusiawi. Loader secara otomatis mengonversinya menjadi format JSON Schema standar (`strict: true`) yang dikirim ke `callOpenRouterJson` dengan fallback otomatis ke `json_object` jika model LLM tertentu belum mendukung `json_schema`.
@@ -73,8 +66,13 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - Menambahkan aturan mutlak di prompt `system-resolve-taxonomy-author.md` dan filter `isTechnicalAdminUser` di `pre-resolve.ts`.
     - Sistem dan LLM dilarang memilih akun admin teknis (`admin`, `administrator`, `*_admin`, dll.) jika masih ada akun persona manusia lain di WordPress, meskipun bidang keahliannya lintas topik. Akun admin hanya dijadikan pilihan darurat jika situs benar-benar hanya memiliki 1 akun tunggal.
 
----
+20. **ADR-061 (Rombak v2 · Fase 0: Hotfix Keamanan Multi-Tenant)**:
+    - **BYOK-only**: kunci tenant hanya dari `user_settings` terenkripsi; tidak ada lagi baca/tulis `.env.local` saat runtime. Kunci platform hanya jika `PLATFORM_KEY_ALLOWED=true` (`src/lib/ai/platform-keys.ts`). LangSmith memakai tracer per tenant, tanpa mutasi `process.env`. API key tidak pernah disimpan di localStorage.
+    - **Anti-SSRF terpusat**: semua fetch ke URL dari pengguna/LLM lewat `safeFetch` (`src/lib/net/safe-fetch.ts`: DNS pinning, blokir IP privat, validasi ulang redirect, batas ukuran). Dev lokal: `ALLOW_PRIVATE_NETWORK_FETCH=true`.
+    - **Antrean**: klaim selalu difilter `user_id` untuk sesi; `CRON_SECRET` wajib & hanya lewat header; `syncing_to_wp` macet → `failed_sync`; item ber-`wp_post_id` tidak dipublikasi ulang; situs wajib milik pemilik item.
+    - **Konten**: serializer Gutenberg escape penuh, tanpa passthrough HTML mentah, `[` dinetralkan (anti-shortcode); preview di dashboard disanitasi DOMPurify. Webhook ditandatangani `HMAC(secret, "timestamp.body")` + `X-Panitera-Timestamp`.
 
+---
 
 ## 3. Technical Gotchas & Pelajaran Lapangan
 
@@ -84,6 +82,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 - **User Communication Preference**: Bahasa Indonesia yang jelas, profesional, ringkas, tanpa basa-basi berlebihan (*no fluff*), tidak membuat asumsi sepihak, dan kode yang rapi sesuai konvensi.
 - **Progress Tulis Cepat Masih Estimasi**: `/api/posts/quick` hanya membalas sekali di akhir proses, jadi tahap dijalankan timer internal (3.5s/9s/13s). Jangan mengklaim ini real-time; untuk itu perlu worker + Supabase Realtime (`execution_logs` sudah siap sebagai sumbernya).
 - **`npm run lint` Kadang > 2 menit**: jalankan dengan timeout 300000ms, jangan diasumsikan gagal bila kelamaan.
+- **Test**: `npm test` (Vitest, berkas `src/**/*.test.ts`). Jalankan bersama `npx tsc --noEmit` sebelum menyatakan selesai.
 - **Author Persona vs Byline**: Data author WordPress hanya dipakai sebagai referensi persona/sudut pandang. Byline `Penulis: ...` dilarang di prompt dan disanitasi otomatis oleh `markdown-cleaner.ts`.
 
 ---

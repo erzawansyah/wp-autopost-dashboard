@@ -65,6 +65,44 @@ export function normalizeArticleOutput(parsed: unknown): Partial<ArticleOutput> 
   return null
 }
 
+function parseArticleJson(candidate: string): Partial<ArticleOutput> | null {
+  try {
+    return normalizeArticleOutput(JSON.parse(candidate))
+  } catch {
+    return null
+  }
+}
+
+/** Label metadata header berhuruf kapital, mis. `TITLE: ...`, `EXCERPT: ...`, `SLUG: ...`. */
+const HEADER_LABEL_LINE_RE = /^[A-Z][A-Z_ ]{1,30}:/
+const HEADER_SEPARATOR_LINE_RE = /^-{3,}$/
+
+/**
+ * Ambil badan naskah setelah header TITLE/EXCERPT. Separator `---` hanya diakui bila berupa
+ * baris tersendiri tepat setelah blok header (boleh diselingi baris kosong atau label metadata
+ * kapital lain). `---` di tempat lain — pemisah tabel `| --- |` atau garis horizontal di badan
+ * naskah — bukan separator. Tanpa separator, hanya baris TITLE dan EXCERPT yang dibuang.
+ */
+function extractBodyAfterHeader(text: string): string {
+  const lines = text.split(/\r?\n/)
+  const titleIndex = lines.findIndex((line) => /^TITLE:/i.test(line.trim()))
+  const excerptIndex = lines.findIndex((line) => /^EXCERPT:/i.test(line.trim()))
+  const headerEnd = Math.max(titleIndex, excerptIndex)
+
+  let cursor = headerEnd + 1
+  while (cursor < lines.length && (lines[cursor].trim() === "" || HEADER_LABEL_LINE_RE.test(lines[cursor].trim()))) {
+    cursor++
+  }
+  if (cursor < lines.length && HEADER_SEPARATOR_LINE_RE.test(lines[cursor].trim())) {
+    return lines.slice(cursor + 1).join("\n").trim()
+  }
+
+  return lines
+    .map((line, index) => (index === titleIndex || index === excerptIndex ? "" : line))
+    .join("\n")
+    .trim()
+}
+
 /**
  * Ekstraksi artikel cerdas (Markdown-First & JSON Dual Parser):
  * Mampu mengekstrak data artikel baik dari JSON terstruktur, fenced code block,
@@ -77,28 +115,22 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
   if (!sanitized) return null
   const trimmed = sanitized
 
-  // 1. Coba parse jika formatnya JSON murni
-  try {
-    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-      const parsed = JSON.parse(trimmed)
-      const norm = normalizeArticleOutput(parsed)
-      if (norm) return norm
-    }
-    const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
-    if (jsonMatch && jsonMatch[1]) {
-      const parsed = JSON.parse(jsonMatch[1].trim())
-      const norm = normalizeArticleOutput(parsed)
-      if (norm) return norm
-    }
-    const firstBrace = trimmed.indexOf("{")
-    const lastBrace = trimmed.lastIndexOf("}")
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      const parsed = JSON.parse(trimmed.slice(firstBrace, lastBrace + 1))
-      const norm = normalizeArticleOutput(parsed)
-      if (norm) return norm
-    }
-  } catch {
-    // Lanjut ke parser Markdown jika bukan JSON valid
+  // 1. Coba parse jika formatnya JSON (murni, di dalam fence, atau diapit teks lain).
+  //    Tiap kandidat dicoba terpisah agar kegagalan satu kandidat tidak melewatkan yang lain.
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    const norm = parseArticleJson(trimmed)
+    if (norm) return norm
+  }
+  const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (jsonMatch && jsonMatch[1]) {
+    const norm = parseArticleJson(jsonMatch[1].trim())
+    if (norm) return norm
+  }
+  const firstBrace = trimmed.indexOf("{")
+  const lastBrace = trimmed.lastIndexOf("}")
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    const norm = parseArticleJson(trimmed.slice(firstBrace, lastBrace + 1))
+    if (norm) return norm
   }
 
   // 1b. Salvage parser jika JSON terpotong / unclosed string (e.g. Unterminated string in JSON)
@@ -137,17 +169,7 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
     const title = titleMatch ? titleMatch[1].trim().replace(/^["']|["']$/g, "") : undefined
     const excerpt = excerptMatch ? excerptMatch[1].trim().replace(/^["']|["']$/g, "") : undefined
 
-    let markdownBody = trimmed
-    const dividerIndex = trimmed.indexOf("---")
-    if (dividerIndex !== -1) {
-      markdownBody = trimmed.slice(dividerIndex + 3).trim()
-    } else {
-      // Hapus baris TITLE dan EXCERPT dari body
-      markdownBody = trimmed
-        .replace(/^TITLE:\s*.+$/im, "")
-        .replace(/^EXCERPT:\s*.+$/im, "")
-        .trim()
-    }
+    const markdownBody = extractBodyAfterHeader(trimmed)
 
     if (markdownBody.length > 100) {
       return {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { parseWebhookEvents, validateWebhookUrl } from "@/lib/webhooks/validation"
 
 export const dynamic = "force-dynamic"
 
@@ -30,11 +31,22 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (typeof name === "string" && name.trim()) {
       updates.name = name.trim()
     }
-    if (typeof url === "string" && url.startsWith("http")) {
-      updates.url = url.trim()
+    if (url !== undefined) {
+      const urlCheck = await validateWebhookUrl(url)
+      if (!urlCheck.ok) {
+        return NextResponse.json({ ok: false, error: urlCheck.error }, { status: 400 })
+      }
+      updates.url = urlCheck.url
     }
-    if (Array.isArray(events) && events.length > 0) {
-      updates.events = events
+    if (events !== undefined) {
+      const validEvents = parseWebhookEvents(events)
+      if (!validEvents) {
+        return NextResponse.json(
+          { ok: false, error: "Pilih minimal 1 event yang valid untuk webhook ini." },
+          { status: 400 }
+        )
+      }
+      updates.events = validEvents
     }
     if (typeof is_active === "boolean") {
       updates.is_active = is_active

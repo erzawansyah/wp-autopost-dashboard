@@ -1,12 +1,47 @@
 import crypto from "crypto"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { decryptCredential } from "@/lib/crypto"
+import { safeFetch } from "@/lib/net/safe-fetch"
 import { WebhookEvent, WebhookPayload } from "@/types/webhook"
+import { buildWebhookHeaders } from "./signature"
+import { getWebhookUrlPolicyError } from "./validation"
 
 interface DispatchOptions {
   userId: string
   event: WebhookEvent
   data: Record<string, unknown>
+}
+
+const DELIVERY_TIMEOUT_MS = 6_000
+const TEST_TIMEOUT_MS = 8_000
+/** Body respons penerima tidak dipakai; batasi kecil agar tidak bisa membebani server. */
+const DELIVERY_MAX_RESPONSE_BYTES = 64 * 1024
+
+/**
+ * Kirim satu payload webhook lewat `safeFetch`: Anti-SSRF (DNS di-pin), tanpa mengikuti
+ * redirect, timeout pendek, dan body respons diabaikan. Mengembalikan status HTTP penerima.
+ */
+async function deliverWebhook(params: {
+  url: string
+  secret: string
+  event: WebhookEvent
+  rawBody: string
+  timeoutMs: number
+}): Promise<number> {
+  const policyError = getWebhookUrlPolicyError(new URL(params.url))
+  if (policyError) throw new Error(policyError)
+
+  const res = await safeFetch(
+    params.url,
+    {
+      method: "POST",
+      headers: buildWebhookHeaders({ secret: params.secret, event: params.event, rawBody: params.rawBody }),
+      body: params.rawBody,
+    },
+    { timeoutMs: params.timeoutMs, maxRedirects: 0, maxBytes: DELIVERY_MAX_RESPONSE_BYTES }
+  )
+  await res.body?.cancel().catch(() => undefined)
+  return res.status
 }
 
 /**
@@ -37,55 +72,40 @@ export async function dispatchWebhookEvent(options: DispatchOptions): Promise<vo
 
     if (matchedWebhooks.length === 0) return
 
-    const nowIso = new Date().toISOString()
     const payload: WebhookPayload = {
       id: crypto.randomUUID(),
       event,
-      timestamp: nowIso,
+      timestamp: new Date().toISOString(),
       data,
     }
     const payloadString = JSON.stringify(payload)
 
     // Eksekusi pengiriman paralel tanpa memblokir
     const deliveries = matchedWebhooks.map(async (webhook) => {
+      let secret: string
       try {
-        let secret = ""
-        try {
-          secret = decryptCredential(webhook.encrypted_secret)
-        } catch {
-          secret = "default_secret"
-        }
+        secret = decryptCredential(webhook.encrypted_secret)
+      } catch {
+        console.error(
+          `[webhook] Secret webhook ${webhook.id} (${webhook.name}) tidak dapat didekripsi; pengiriman dibatalkan.`
+        )
+        return
+      }
 
-        const signature = crypto
-          .createHmac("sha256", secret)
-          .update(payloadString)
-          .digest("hex")
-
-        const controller = new AbortController()
-        const timeout = setTimeout(() => controller.abort(), 6000) // 6s timeout
-
-        const res = await fetch(webhook.url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "User-Agent": "WP-Autopost-Webhook/1.0",
-            "X-Hub-Signature-256": `sha256=${signature}`,
-            "X-Webhook-Event": event,
-            "X-Webhook-Timestamp": nowIso,
-          },
-          body: payloadString,
-          signal: controller.signal,
+      try {
+        const status = await deliverWebhook({
+          url: webhook.url,
+          secret,
+          event,
+          rawBody: payloadString,
+          timeoutMs: DELIVERY_TIMEOUT_MS,
         })
-        clearTimeout(timeout)
-
-        if (!res.ok) {
-          console.warn(
-            `[webhook] Delivery to ${webhook.name} (${webhook.url}) returned status ${res.status}`
-          )
+        if (status < 200 || status >= 300) {
+          console.warn(`[webhook] Pengiriman ke ${webhook.id} (${webhook.name}) dibalas HTTP ${status}`)
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.warn(`[webhook] Failed to deliver to ${webhook.name} (${webhook.url}):`, msg)
+        console.warn(`[webhook] Gagal mengirim ke ${webhook.id} (${webhook.name}):`, msg)
       }
     })
 
@@ -96,7 +116,8 @@ export async function dispatchWebhookEvent(options: DispatchOptions): Promise<vo
 }
 
 /**
- * Uji coba pengiriman payload ping ke URL webhook target untuk mengukur status & latency
+ * Uji coba pengiriman payload ping ke URL webhook target untuk mengukur status & latency.
+ * Pesan error ke pengguna sengaja generik agar endpoint uji tidak membocorkan detail jaringan internal.
  */
 export async function testWebhookEndpoint(
   url: string,
@@ -112,45 +133,30 @@ export async function testWebhookEndpoint(
       test: true,
     },
   }
-  const payloadString = JSON.stringify(payload)
-  const signature = crypto
-    .createHmac("sha256", secret)
-    .update(payloadString)
-    .digest("hex")
 
   try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), 8000)
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "WP-Autopost-Webhook/1.0",
-        "X-Hub-Signature-256": `sha256=${signature}`,
-        "X-Webhook-Event": "test.ping",
-        "X-Webhook-Timestamp": payload.timestamp,
-      },
-      body: payloadString,
-      signal: controller.signal,
+    const status = await deliverWebhook({
+      url,
+      secret,
+      event: "test.ping",
+      rawBody: JSON.stringify(payload),
+      timeoutMs: TEST_TIMEOUT_MS,
     })
-    clearTimeout(timeout)
-
-    const latencyMs = Date.now() - startTime
+    const ok = status >= 200 && status < 300
     return {
-      ok: res.ok,
-      status: res.status,
-      latencyMs,
-      error: res.ok ? undefined : `Target server returned HTTP ${res.status}`,
+      ok,
+      status,
+      latencyMs: Date.now() - startTime,
+      error: ok ? undefined : `Server tujuan merespons HTTP ${status}.`,
     }
   } catch (err: unknown) {
-    const latencyMs = Date.now() - startTime
-    const errorMsg = err instanceof Error ? err.message : "Connection failed"
+    console.warn("[webhook] Uji webhook gagal:", err instanceof Error ? err.message : String(err))
     return {
       ok: false,
       status: 0,
-      latencyMs,
-      error: errorMsg,
+      latencyMs: Date.now() - startTime,
+      error:
+        "Gagal mengirim ke URL webhook. Pastikan URL publik (HTTPS), dapat diakses, dan merespons langsung tanpa redirect.",
     }
   }
 }

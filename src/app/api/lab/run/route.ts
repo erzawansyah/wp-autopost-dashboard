@@ -11,6 +11,15 @@ import { getKeywordSuggestions } from "@/core/shared/tools/keyword-suggestions"
 import { readWebContent } from "@/core/shared/tools/web-reader"
 import { run } from "@/core/writer"
 import { AgentStepEvent, RunRecorder } from "@/core/writer/runtime/telemetry"
+import { redactSecrets } from "@/core/writer/runtime/redact"
+
+/**
+ * Semua respons Lab melewati redaksi kredensial: output tool/agent dan log eksekusi
+ * tidak boleh memuat Application Password, API key, atau token terdekripsi.
+ */
+function labJson(body: Record<string, unknown>, init?: ResponseInit) {
+  return NextResponse.json(redactSecrets(body), init)
+}
 
 export async function POST(request: Request) {
   try {
@@ -21,12 +30,12 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+      return labJson({ error: "Unauthorized" }, { status: 401 })
     }
 
     const authorized = await hasLabAccess(supabase, user)
     if (!authorized) {
-      return NextResponse.json(
+      return labJson(
         { error: "Forbidden: Aktifkan Developer Mode di Pengaturan Profil untuk mengakses Laboratorium" },
         { status: 403 }
       )
@@ -38,10 +47,11 @@ export async function POST(request: Request) {
     const siteId = body.siteId
     const input = body.params || body.input || {}
     const requestedModel = body.model || input?.model
-    const requestedApiKey = body.apiKey || input?.apiKey
+    // API key OpenRouter TIDAK diterima dari body/params: Lab hanya memakai kunci BYOK tersimpan
+    // milik pengguna (getUserDecryptedKeys) sesuai kebijakan `@/lib/ai/platform-keys`.
 
     if (!type || !id) {
-      return NextResponse.json({ error: "Parameter type dan targetId/id wajib disertakan." }, { status: 400 })
+      return labJson({ error: "Parameter type dan targetId/id wajib disertakan." }, { status: 400 })
     }
 
     // Ambil kredensial situs jika siteId disertakan
@@ -78,7 +88,7 @@ export async function POST(request: Request) {
     if (type === "tool") {
       if (id === "wordpress_publisher") {
         if (!site || !plainPassword) {
-          return NextResponse.json({ error: "Situs WordPress yang valid wajib dipilih untuk menguji publisher." }, { status: 400 })
+          return labJson({ error: "Situs WordPress yang valid wajib dipilih untuk menguji publisher." }, { status: 400 })
         }
         const pubResult = await publishPostToWordPress({
           baseUrl: site.base_url,
@@ -94,7 +104,7 @@ export async function POST(request: Request) {
           },
         })
 
-        return NextResponse.json({
+        return labJson({
           ok: pubResult.ok,
           output: pubResult,
           durationMs: Date.now() - startTime,
@@ -106,16 +116,19 @@ export async function POST(request: Request) {
         const limit = Number(input?.limit) || 4
         const language = input?.language || "id"
         const provider = input?.provider || userKeys.searchPreferences?.default_provider || "auto"
-        const apiKey = userKeys.tavilyKey || userKeys.braveKey || userKeys.serpapiKey
-        const searxngUrl = userKeys.searxngUrl || "http://searxng-internal:8080"
 
+        // Setiap kunci BYOK dikirim terpisah agar hanya sampai ke provider-nya sendiri.
         const results = await webSearch({
           query,
           limit,
           language,
           provider,
-          apiKey,
-          searxngUrl,
+          keys: {
+            tavilyKey: userKeys.tavilyKey,
+            braveKey: userKeys.braveKey,
+            serpapiKey: userKeys.serpapiKey,
+          },
+          searxngUrl: userKeys.searxngUrl,
         })
 
         const webOutput = {
@@ -124,7 +137,7 @@ export async function POST(request: Request) {
           results,
         }
 
-        return NextResponse.json({
+        return labJson({
           ok: true,
           result: webOutput,
           output: webOutput,
@@ -138,7 +151,6 @@ export async function POST(request: Request) {
         const count = Number(input?.count) || 3
         const minWidth = Number(input?.minWidth) || 1280
         const provider = input?.provider || "auto"
-        const searxngUrl = userKeys.searxngUrl || "http://searxng-internal:8080"
 
         const photos = await searchRoyaltyFreeImages({
           query,
@@ -147,7 +159,7 @@ export async function POST(request: Request) {
           minWidth,
           provider,
           pexafyApiKey: userKeys.pexafyKey,
-          searxngUrl,
+          searxngUrl: userKeys.searxngUrl,
         })
 
         const imgOutput = {
@@ -156,7 +168,7 @@ export async function POST(request: Request) {
           photos,
         }
 
-        return NextResponse.json({
+        return labJson({
           ok: true,
           result: imgOutput,
           output: imgOutput,
@@ -169,16 +181,15 @@ export async function POST(request: Request) {
         const query = (input?.query || "").trim()
         const limit = Number(input?.limit) || 15
         const language = input?.language || "id"
-        const searxngUrl = userKeys.searxngUrl || "http://searxng-internal:8080"
 
         const res = await getKeywordSuggestions({
           query,
           limit,
           language,
-          searxngUrl,
+          searxngUrl: userKeys.searxngUrl,
         })
 
-        return NextResponse.json({
+        return labJson({
           ok: true,
           result: res,
           output: res,
@@ -192,7 +203,7 @@ export async function POST(request: Request) {
         const maxLength = Number(input?.maxLength) || 2500
         const res = await readWebContent({ url, maxLength })
 
-        return NextResponse.json({
+        return labJson({
           ok: res.ok,
           result: res,
           output: res,
@@ -204,7 +215,7 @@ export async function POST(request: Request) {
       // Ambil tool dari ToolRegistry universal
       const toolDef = ToolRegistry.get(id)
       if (!toolDef) {
-        return NextResponse.json({ error: `Tool dengan ID '${id}' tidak ditemukan di ToolRegistry.` }, { status: 404 })
+        return labJson({ error: `Tool dengan ID '${id}' tidak ditemukan di ToolRegistry.` }, { status: 404 })
       }
 
       const toolInstance = toolDef.build({
@@ -231,7 +242,7 @@ export async function POST(request: Request) {
           }
         }
 
-        return NextResponse.json({
+        return labJson({
           ok: true,
           result: parsedOutput,
           output: parsedOutput,
@@ -240,7 +251,7 @@ export async function POST(request: Request) {
         })
       } catch (toolErr: unknown) {
         const message = toolErr instanceof Error ? toolErr.message : "Kesalahan eksekusi tool"
-        return NextResponse.json({
+        return labJson({
           ok: false,
           error: message,
           durationMs: Date.now() - startTime,
@@ -276,9 +287,13 @@ export async function POST(request: Request) {
           categoryIds: [],
           tagNames: [],
         },
-        model: requestedModel || input?.model || undefined,
-        apiKey: requestedApiKey || input?.apiKey || userKeys.openrouterKey || undefined,
+        model: requestedModel || undefined,
+        // Tanpa `apiKey` di request: runtime memakai userKeys.openrouterKey dari opsi di bawah,
+        // sehingga kunci terdekripsi tidak disalin ke payload request.
         userId: user.id,
+      }, {
+        userId: user.id,
+        userKeys,
         onEventListener,
       })
 
@@ -292,7 +307,7 @@ export async function POST(request: Request) {
         error: result.error,
       }
 
-      return NextResponse.json({
+      return labJson({
         ok: result.success,
         result: enginePayload,
         output: enginePayload,
@@ -307,10 +322,10 @@ export async function POST(request: Request) {
       })
     }
 
-    return NextResponse.json({ error: `Tipe pengujian '${type}' tidak didukung.` }, { status: 400 })
+    return labJson({ error: `Tipe pengujian '${type}' tidak didukung.` }, { status: 400 })
   } catch (err: unknown) {
     console.error("[Lab/run] Unhandled error:", err)
     const message = err instanceof Error ? err.message : "Terjadi kesalahan internal lab"
-    return NextResponse.json({ error: message }, { status: 500 })
+    return labJson({ error: message }, { status: 500 })
   }
 }
