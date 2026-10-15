@@ -3,11 +3,14 @@ import { defineConfig } from "vitest/config"
 
 export default defineConfig({
   resolve: {
-    alias: { "@": path.resolve(import.meta.dirname, "src") },
+    alias: {
+      "@": path.resolve(import.meta.dirname, "src"),
+      "server-only": path.resolve(import.meta.dirname, "src/test-utils/server-only-stub.ts"),
+    },
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "supabase/tests/**/*.test.ts"],
     restoreMocks: true,
   },
 })
