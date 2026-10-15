@@ -17,6 +17,8 @@ import {
   WP_TITLE_MAX_LENGTH,
 } from "@/lib/wordpress/plain-text"
 import {
+  CLAIM_HEARTBEAT_INTERVAL_MS,
+  CLAIM_HEARTBEAT_MAX_LIFETIME_MS,
   STALE_CLAIM_THRESHOLD_MS,
   STALE_RECOVERABLE_STATES,
   decideStaleRecovery,
@@ -69,12 +71,106 @@ async function getSupabaseClient() {
 
 type QueueDbClient = Awaited<ReturnType<typeof getSupabaseClient>>
 
+/** Identitas item yang sedang dikerjakan worker (pemilik wajib ikut di setiap mutasi Service Role). */
+interface OwnedPostItem {
+  id: string
+  userId: string
+  batchId: string | null
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** State akhir sukses: dihitung sebagai `content_batches.completed_items`. */
+const BATCH_SUCCESS_STATES = ["published_on_wp", "scheduled_on_wp", "saved_draft_on_wp"] as const
+/** State akhir gagal: item selesai diproses namun tidak terbit (butuh retry manual). */
+const BATCH_FAILURE_STATES = ["failed_generation", "failed_sync"] as const
+
+async function countBatchItems(
+  supabase: QueueDbClient,
+  batchId: string,
+  userId: string,
+  states?: readonly string[]
+): Promise<number | null> {
+  let query = supabase
+    .from("post_items")
+    .select("id", { count: "exact", head: true })
+    .eq("batch_id", batchId)
+    .eq("user_id", userId)
+  if (states) query = query.in("state", [...states])
+
+  const { count, error } = await query
+  if (error) {
+    console.warn(`[worker] Gagal menghitung item batch ${batchId}:`, error.message)
+    return null
+  }
+  return count ?? 0
+}
+
+/**
+ * Hitung ulang progres batch dari state item (bukan read-modify-write counter) setelah item mencapai
+ * state akhir, sehingga item paralel tidak saling menimpa hitungan:
+ * - `completed_items` = jumlah item sukses; ditulis monoton (tidak pernah turun oleh hitungan basi);
+ * - status `completed` + webhook `batch.completed` tepat sekali saat seluruh item berada di state akhir
+ *   (update bersyarat `status != completed`: hanya satu worker yang memenangkan transisi).
+ */
+async function refreshBatchProgress(supabase: QueueDbClient, item: OwnedPostItem): Promise<void> {
+  const { batchId, userId } = item
+  if (!batchId) return
+
+  try {
+    const [total, succeeded, failed] = await Promise.all([
+      countBatchItems(supabase, batchId, userId),
+      countBatchItems(supabase, batchId, userId, BATCH_SUCCESS_STATES),
+      countBatchItems(supabase, batchId, userId, BATCH_FAILURE_STATES),
+    ])
+    if (total === null || succeeded === null || failed === null || total === 0) return
+
+    const nowIso = new Date().toISOString()
+    const { error: progressErr } = await supabase
+      .from("content_batches")
+      .update({ completed_items: succeeded, updated_at: nowIso })
+      .eq("id", batchId)
+      .eq("user_id", userId)
+      .or(`completed_items.is.null,completed_items.lt.${succeeded}`)
+    if (progressErr) {
+      console.warn(`[worker] Gagal memperbarui progres batch ${batchId}:`, progressErr.message)
+    }
+
+    if (succeeded + failed < total) return
+
+    const { data: finished, error: finishErr } = await supabase
+      .from("content_batches")
+      .update({ status: "completed", updated_at: nowIso })
+      .eq("id", batchId)
+      .eq("user_id", userId)
+      .or("status.is.null,status.neq.completed")
+      .select("id")
+      .maybeSingle()
+
+    if (finishErr) {
+      console.warn(`[worker] Gagal menandai batch ${batchId} selesai:`, finishErr.message)
+      return
+    }
+    if (!finished) return
+
+    dispatchWebhookEvent({
+      userId,
+      event: "batch.completed",
+      data: { batchId, totalItems: total, completedItems: succeeded, failedItems: failed },
+    }).catch(() => {})
+  } catch (batchErr) {
+    console.warn("[worker] Gagal memperbarui status batch:", batchErr)
+  }
+}
+
 /**
  * Menandai item gagal dan mencatat alasannya ke execution_logs (Database-First State Machine).
  */
 async function markPostItemFailed(
   supabase: QueueDbClient,
-  item: { id: string; userId: string },
+  item: OwnedPostItem,
   state: "failed_generation" | "failed_sync",
   message: string,
   step: string
@@ -100,6 +196,119 @@ async function markPostItemFailed(
     level: "error",
     message: `[Queue Worker] ${message}`,
   })
+
+  await refreshBatchProgress(supabase, item)
+}
+
+/** Jeda antar percobaan ulang penulisan state krusial (setelah WordPress sudah menerima post). */
+const CRITICAL_WRITE_RETRY_DELAYS_MS = [250, 1000] as const
+
+/**
+ * Update `post_items` milik `item` dengan percobaan ulang singkat. Dipakai setelah WordPress
+ * mengembalikan ID post: kegagalan menulis di titik ini berisiko duplikasi saat retry manual.
+ */
+async function updatePostItemWithRetry(
+  supabase: QueueDbClient,
+  item: OwnedPostItem,
+  payload: Record<string, unknown>,
+  label: string
+): Promise<boolean> {
+  let lastError = ""
+  for (let attempt = 0; attempt <= CRITICAL_WRITE_RETRY_DELAYS_MS.length; attempt++) {
+    if (attempt > 0) await sleep(CRITICAL_WRITE_RETRY_DELAYS_MS[attempt - 1])
+    try {
+      const { error } = await supabase
+        .from("post_items")
+        .update(payload)
+        .eq("id", item.id)
+        .eq("user_id", item.userId)
+      if (!error) return true
+      lastError = error.message
+    } catch (err: unknown) {
+      lastError = err instanceof Error ? err.message : String(err)
+    }
+    console.warn(`[worker] Percobaan ${attempt + 1} menulis ${label} untuk post_item ${item.id} gagal: ${lastError}`)
+  }
+  return false
+}
+
+interface ClaimHeartbeat {
+  stop(): void
+}
+
+/**
+ * Heartbeat klaim: memperbarui `updated_at` secara berkala selama item masih di state transien,
+ * sehingga auto-healing tidak mengantrekan ulang run yang masih hidup (mode deep bisa berjalan lama).
+ * Bersyarat pada pemilik & state; berhenti sendiri setelah `CLAIM_HEARTBEAT_MAX_LIFETIME_MS`.
+ */
+function startClaimHeartbeat(supabase: QueueDbClient, item: OwnedPostItem): ClaimHeartbeat {
+  const startedAt = Date.now()
+  let inFlight = false
+
+  const beat = async () => {
+    try {
+      const { error } = await supabase
+        .from("post_items")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", item.id)
+        .eq("user_id", item.userId)
+        .in("state", [...STALE_RECOVERABLE_STATES])
+      if (error) console.warn(`[worker] Heartbeat post_item ${item.id} gagal:`, error.message)
+    } catch (err) {
+      console.warn(`[worker] Heartbeat post_item ${item.id} gagal:`, err)
+    } finally {
+      inFlight = false
+    }
+  }
+
+  const timer = setInterval(() => {
+    if (Date.now() - startedAt >= CLAIM_HEARTBEAT_MAX_LIFETIME_MS) {
+      clearInterval(timer)
+      console.warn(`[worker] Heartbeat post_item ${item.id} dihentikan: run melebihi batas umur klaim.`)
+      return
+    }
+    if (inFlight) return
+    inFlight = true
+    void beat()
+  }, CLAIM_HEARTBEAT_INTERVAL_MS)
+
+  return { stop: () => clearInterval(timer) }
+}
+
+/**
+ * Fail-safe crash: item tidak boleh tertinggal di state transien. Naskah yang sudah tersimpan
+ * (`syncing_to_wp`) jatuh ke `failed_sync` agar retry tidak memicu generasi AI ulang.
+ */
+async function releaseCrashedClaim(
+  supabase: QueueDbClient,
+  item: { id: string; userId: string },
+  message: string
+): Promise<void> {
+  const failedAt = new Date().toISOString()
+  const transitions = [
+    { from: "generating_content", to: "failed_generation" },
+    { from: "syncing_to_wp", to: "failed_sync" },
+  ] as const
+
+  for (const { from, to } of transitions) {
+    const { data: released, error } = await supabase
+      .from("post_items")
+      .update({ state: to, last_error: message, updated_at: failedAt })
+      .eq("id", item.id)
+      .eq("user_id", item.userId)
+      .eq("state", from)
+      .select("batch_id")
+      .maybeSingle()
+
+    if (error) {
+      console.error(`[worker] Gagal menjalankan fail-safe status item ${item.id}:`, error.message)
+      continue
+    }
+    if (released) {
+      const batchId = typeof released.batch_id === "string" ? released.batch_id : null
+      await refreshBatchProgress(supabase, { ...item, batchId })
+    }
+  }
 }
 
 /** State yang naskahnya sudah tersimpan dan dikirim ulang tanpa generasi AI (Cost-Saver Retry). */
@@ -223,15 +432,37 @@ export function retryPostItemSync(params: { postId: string; userId: string }): P
   return runPostItem({ postId: params.postId, userId: params.userId, syncOnly: true })
 }
 
-async function runPostItem({
-  postId,
-  userId,
-  isAlreadyClaimed,
-  forceNow,
-  syncOnly,
-}: RunPostItemOptions): Promise<ProcessPostItemResult> {
-  const startTime = Date.now()
+async function runPostItem(options: RunPostItemOptions): Promise<ProcessPostItemResult> {
   const supabase = await getSupabaseClient()
+  // Holder objek (bukan `let`) agar nilai yang diisi callback tetap bertipe benar di catch/finally.
+  const claim: { item: OwnedPostItem | null; heartbeat: ClaimHeartbeat | null } = { item: null, heartbeat: null }
+
+  try {
+    return await executePostItem(supabase, options, (item) => {
+      claim.item = item
+      claim.heartbeat = startClaimHeartbeat(supabase, item)
+    })
+  } catch (err: unknown) {
+    if (!claim.item) throw err
+    const errMsg = err instanceof Error ? err.message : String(err)
+    console.error(`[worker] Error tak terduga saat memproses item ${options.postId}:`, err)
+    await releaseCrashedClaim(supabase, claim.item, `Worker crash: ${errMsg}`)
+    return { success: false, postId: options.postId, error: errMsg }
+  } finally {
+    claim.heartbeat?.stop()
+  }
+}
+
+/**
+ * Isi `runPostItem`: ambil item, klaim atomik, lalu generasi/sinkronisasi.
+ * `onClaimed` dipanggil tepat setelah klaim sah (memulai heartbeat & mengaktifkan fail-safe crash).
+ */
+async function executePostItem(
+  supabase: QueueDbClient,
+  { postId, userId, isAlreadyClaimed, forceNow, syncOnly }: RunPostItemOptions,
+  onClaimed: (item: OwnedPostItem) => void
+): Promise<ProcessPostItemResult> {
+  const startTime = Date.now()
 
   // 1. Ambil data item antrean beserta data situs WordPress-nya
   let query = supabase
@@ -393,8 +624,16 @@ async function runPostItem({
     }
   }
 
-  const ownedItem = { id: postId, userId: post.user_id as string }
-  // Naskah tersimpan (retry sync) tidak boleh "turun" ke failed_generation agar retry tidak memicu AI ulang.
+  const ownedItem: OwnedPostItem = {
+    id: postId,
+    userId: post.user_id as string,
+    batchId: typeof post.batch_id === "string" ? post.batch_id : null,
+  }
+  onClaimed(ownedItem)
+
+  // Kegagalan sebelum/tanpa naskah tersimpan selalu `failed_generation` ("Tulis ulang"); hanya retry
+  // naskah tersimpan yang jatuh ke `failed_sync` ("Kirim ulang") agar retry tidak memicu AI ulang
+  // dan item tanpa naskah tidak terjebak di `failed_sync` yang selalu ditolak (422).
   const failureState = isRetrySync ? "failed_sync" : "failed_generation"
 
   // Idempotency: item yang sudah memiliki wp_post_id tidak boleh membuat post baru di WordPress.
@@ -402,7 +641,7 @@ async function runPostItem({
     const duplicateMsg =
       `Artikel ini sudah tercatat di WordPress (WP ID #${post.wp_post_id}). ` +
       "Pembuatan post baru dibatalkan untuk mencegah duplikasi; periksa artikel tersebut langsung di wp-admin."
-    await markPostItemFailed(supabase, ownedItem, "failed_sync", duplicateMsg, "duplicate_guard")
+    await markPostItemFailed(supabase, ownedItem, failureState, duplicateMsg, "duplicate_guard")
     return { success: false, postId, errorCode: "already_on_wp", error: duplicateMsg }
   }
 
@@ -432,7 +671,7 @@ async function runPostItem({
     plainPassword = decryptCredential(site.encrypted_app_password)
   } catch (decErr: unknown) {
     const decMsg = decErr instanceof Error ? decErr.message : "Gagal mendekripsi kredensial situs"
-    await markPostItemFailed(supabase, ownedItem, "failed_sync", decMsg, "site_credentials")
+    await markPostItemFailed(supabase, ownedItem, failureState, decMsg, "site_credentials")
     return { success: false, postId, errorCode: "site_unavailable", error: decMsg }
   }
 
@@ -667,8 +906,7 @@ async function runPostItem({
           .eq("id", agentRunId)
       }
 
-
-      await supabase
+      const { error: failGenErr } = await supabase
         .from("post_items")
         .update({
           state: "failed_generation",
@@ -676,6 +914,10 @@ async function runPostItem({
           updated_at: new Date().toISOString(),
         })
         .eq("id", postId)
+        .eq("user_id", post.user_id)
+      if (failGenErr) {
+        console.error(`[worker] Gagal menandai item ${postId} sebagai failed_generation:`, failGenErr.message)
+      }
 
       await supabase.from("execution_logs").insert({
         post_item_id: postId,
@@ -684,6 +926,8 @@ async function runPostItem({
         level: "error",
         message: `[Queue Worker] Gagal generate artikel AI: ${errMsg}`,
       })
+
+      await refreshBatchProgress(supabase, ownedItem)
 
       dispatchWebhookEvent({
         userId: post.user_id,
@@ -932,7 +1176,7 @@ async function runPostItem({
 
   // 7. Evaluasi Hasil Akhir Publikasi WordPress
   if (!wpResult.ok) {
-    await supabase
+    const { error: failSyncErr } = await supabase
       .from("post_items")
       .update({
         state: "failed_sync",
@@ -940,6 +1184,11 @@ async function runPostItem({
         updated_at: new Date().toISOString(),
       })
       .eq("id", postId)
+      .eq("user_id", post.user_id)
+    if (failSyncErr) {
+      console.error(`[worker] Gagal menandai item ${postId} sebagai failed_sync:`, failSyncErr.message)
+    }
+    await refreshBatchProgress(supabase, ownedItem)
 
     dispatchWebhookEvent({
       userId: post.user_id,
@@ -969,16 +1218,39 @@ async function runPostItem({
       ? "published_on_wp"
       : "saved_draft_on_wp"
 
-  await supabase
-    .from("post_items")
-    .update({
-      state: finalState,
-      wp_post_id: wpResult.wpPostId,
-      wp_post_url: wpResult.wpPostUrl,
-      last_error: null,
-      updated_at: new Date().toISOString(),
+  // Post SUDAH ada di WordPress: catat wp_post_id lebih dulu dalam update kecil tersendiri agar
+  // retry/auto-healing tidak pernah membuat post ganda walau penulisan state final gagal.
+  const wpIdentity = { wp_post_id: wpResult.wpPostId ?? null, wp_post_url: wpResult.wpPostUrl ?? null }
+  const wpIdRecorded =
+    wpResult.wpPostId === undefined ||
+    (await updatePostItemWithRetry(
+      supabase,
+      ownedItem,
+      { ...wpIdentity, updated_at: new Date().toISOString() },
+      "wp_post_id"
+    ))
+  const finalStateRecorded = await updatePostItemWithRetry(
+    supabase,
+    ownedItem,
+    { ...wpIdentity, state: finalState, last_error: null, updated_at: new Date().toISOString() },
+    "state final"
+  )
+
+  if (!wpIdRecorded || !finalStateRecorded) {
+    const criticalMsg =
+      `Artikel sudah terbit/tersimpan di WordPress (WP ID #${wpResult.wpPostId ?? "?"}, ${wpResult.wpPostUrl ?? "tanpa URL"}) ` +
+      `tetapi ${wpIdRecorded ? "state final" : "wp_post_id"} gagal disimpan ke database. ` +
+      "JANGAN kirim ulang sebelum memeriksa wp-admin agar tidak terjadi duplikasi."
+    console.error(`[worker] KRITIS post_item ${postId}: ${criticalMsg}`)
+    await supabase.from("execution_logs").insert({
+      post_item_id: postId,
+      user_id: post.user_id,
+      step: "status_sync",
+      level: "error",
+      message: `[Queue Worker] ${criticalMsg}`,
+      details: { wpPostId: wpResult.wpPostId, url: wpResult.wpPostUrl, wpIdRecorded, finalStateRecorded },
     })
-    .eq("id", postId)
+  }
 
   await supabase.from("execution_logs").insert({
     post_item_id: postId,
@@ -1011,43 +1283,8 @@ async function runPostItem({
     },
   }).catch(() => {})
 
-  // Perbarui progress batch dan trigger webhook batch.completed jika selesai
-  if (post.batch_id) {
-    try {
-      const { data: batch } = await supabase
-        .from("content_batches")
-        .select("id, total_items, completed_items")
-        .eq("id", post.batch_id)
-        .maybeSingle()
-
-      if (batch) {
-        const newCompleted = (batch.completed_items || 0) + 1
-        const isCompleted = newCompleted >= (batch.total_items || 1)
-        await supabase
-          .from("content_batches")
-          .update({
-            completed_items: newCompleted,
-            status: isCompleted ? "completed" : "running",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", post.batch_id)
-
-        if (isCompleted) {
-          dispatchWebhookEvent({
-            userId: post.user_id,
-            event: "batch.completed",
-            data: {
-              batchId: post.batch_id,
-              totalItems: batch.total_items,
-              completedItems: newCompleted,
-            },
-          }).catch(() => {})
-        }
-      }
-    } catch (batchErr) {
-      console.warn("[worker] Gagal memperbarui status batch:", batchErr)
-    }
-  }
+  // Hitung ulang progres batch dari state item (aman untuk item paralel) & webhook batch.completed sekali.
+  await refreshBatchProgress(supabase, ownedItem)
 
   return {
     success: true,
@@ -1089,7 +1326,7 @@ async function recoverStaleQueueItems(supabase: QueueDbClient, userId?: string) 
 
   let staleQuery = supabase
     .from("post_items")
-    .select("id, user_id, state, retry_count")
+    .select("id, user_id, batch_id, state, retry_count")
     .in("state", [...STALE_RECOVERABLE_STATES])
     .lt("updated_at", staleThreshold)
     .order("updated_at", { ascending: true })
@@ -1143,6 +1380,14 @@ async function recoverStaleQueueItems(supabase: QueueDbClient, userId?: string) 
       message: `[Auto-Healing] ${decision.lastError}`,
       details: { previousState: item.state, nextState: decision.state, retryCount: decision.retryCount },
     })
+
+    if (decision.state !== "queued_input") {
+      await refreshBatchProgress(supabase, {
+        id: item.id,
+        userId: item.user_id,
+        batchId: typeof item.batch_id === "string" ? item.batch_id : null,
+      })
+    }
   }
 }
 
@@ -1288,20 +1533,9 @@ export async function processClaimedItems(items: ClaimedQueueItem[]): Promise<Pr
       const errMsg = err instanceof Error ? err.message : String(err)
       console.error(`[processClaimedItems] Error fatal saat memproses item ${item.id} ("${item.keyword}"):`, err)
 
-      // Fail-safe: jangan tinggalkan item di state transien. Item yang naskahnya sudah tersimpan
-      // ('syncing_to_wp') jatuh ke 'failed_sync' agar retry tidak memicu generasi AI ulang.
+      // Fail-safe untuk crash sebelum klaim diverifikasi runPostItem (setelahnya ditangani di sana).
       try {
-        const failedAt = new Date().toISOString()
-        await supabase
-          .from("post_items")
-          .update({ state: "failed_generation", last_error: `Worker crash: ${errMsg}`, updated_at: failedAt })
-          .eq("id", item.id)
-          .eq("state", "generating_content")
-        await supabase
-          .from("post_items")
-          .update({ state: "failed_sync", last_error: `Worker crash: ${errMsg}`, updated_at: failedAt })
-          .eq("id", item.id)
-          .eq("state", "syncing_to_wp")
+        await releaseCrashedClaim(supabase, item, `Worker crash: ${errMsg}`)
       } catch (dbErr) {
         console.error(`[processClaimedItems] Gagal mengupdate fail-safe status ke DB:`, dbErr)
       }

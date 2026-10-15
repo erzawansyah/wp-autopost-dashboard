@@ -74,9 +74,10 @@ const limitValueSchema = z
   .transform((value) => value ?? undefined)
 
 /**
- * Skema input `limits` dari body API (dan dari kolom JSONB tersimpan).
+ * Skema input `limits` dari body API (validasi ketat untuk input pengguna).
  * Hanya memvalidasi bentuk & tipe; penegakan rentang tetap wajib lewat `clampLimits()`.
- * Kunci tak dikenal (mis. `isDefault` yang ikut tersimpan di JSONB) dibuang.
+ * Kunci tak dikenal di level atas (mis. `isDefault`) dibuang, tetapi kuota per-tool untuk tool
+ * yang tidak dikenal ditolak. Untuk baris tersimpan gunakan `parseStoredAgentLimits()`.
  */
 export const AgentLimitsInputSchema = z.object(
   {
@@ -101,8 +102,48 @@ export const AgentLimitsInputSchema = z.object(
   { error: "Batas eksekusi (limits) harus berupa objek." }
 )
 
+const LIMIT_NUMBER_KEYS = ["maxModelCalls", "maxToolCalls", "timeoutSeconds", "minWordCount"] as const
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value)
+}
+
 /**
- * Normalisasi dan penegakan batas sistem (Hard Ceiling Clamp)
+ * Parser longgar untuk `agent_profiles.limits` yang SUDAH tersimpan (JSONB). Baris lama dapat memuat
+ * kuota `perTool` untuk tool yang sudah dihapus (mis. `list_wp_tags`) atau kunci lain (`isDefault`);
+ * validasi ketat akan gagal dan membuat batas tersimpan diam-diam kembali ke default. Di sini nilai
+ * yang tidak dikenal/tidak valid cukup dibuang per kunci. Hasilnya tetap wajib lewat `clampLimits()`.
+ */
+export function parseStoredAgentLimits(raw: unknown): Partial<AgentLimits> | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined
+  const source = raw as Record<string, unknown>
+
+  const parsed: Partial<AgentLimits> = {}
+  for (const key of LIMIT_NUMBER_KEYS) {
+    const value = source[key]
+    if (isFiniteNumber(value)) parsed[key] = value
+  }
+
+  const rawPerTool = source.perTool
+  if (typeof rawPerTool === "object" && rawPerTool !== null && !Array.isArray(rawPerTool)) {
+    const perTool: Record<string, number> = {}
+    for (const [toolId, value] of Object.entries(rawPerTool)) {
+      if (PER_TOOL_QUOTA_IDS.includes(toolId) && isFiniteNumber(value)) perTool[toolId] = value
+    }
+    if (Object.keys(perTool).length > 0) parsed.perTool = perTool
+  }
+
+  return parsed
+}
+
+/** Batas efektif untuk baris `agent_profiles` tersimpan: parse longgar + clamp sesuai mode baris. */
+export function resolveStoredAgentLimits(raw: unknown, mode: unknown): AgentLimits {
+  return clampLimits(parseStoredAgentLimits(raw), mode === "deep" ? "deep" : "standard")
+}
+
+/**
+ * Normalisasi dan penegakan batas sistem (Hard Ceiling Clamp).
+ * Kuota per-tool hanya untuk tool yang punya kuota bawaan; kunci tool lain (mis. tool lama) dibuang.
  */
 export function clampLimits(limits?: Partial<AgentLimits>, mode: AgentMode = "standard"): AgentLimits {
   const defaults = mode === "deep" ? DEFAULT_DEEP_LIMITS : DEFAULT_STANDARD_LIMITS
@@ -116,6 +157,7 @@ export function clampLimits(limits?: Partial<AgentLimits>, mode: AgentMode = "st
   const perTool: Record<string, number> = { ...defaults.perTool }
   if (input.perTool && typeof input.perTool === "object") {
     for (const [toolName, limitVal] of Object.entries(input.perTool)) {
+      if (!PER_TOOL_QUOTA_IDS.includes(toolName)) continue
       if (typeof limitVal === "number" && !isNaN(limitVal)) {
         perTool[toolName] = Math.max(1, Math.min(SYSTEM_LIMIT_BOUNDS.defaultPerToolLimit, Math.round(limitVal)))
       }

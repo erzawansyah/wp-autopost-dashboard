@@ -4,10 +4,12 @@ import { describe, expect, it } from "vitest"
 import {
   ENFORCED_LINK_REL,
   FORBIDDEN_TAGS,
+  MAX_DIMENSION,
   SAFE_URI_REGEXP,
   SANITIZE_CONFIGS,
   filterClassList,
   hardenElementAttributes,
+  isSafeDimension,
   isSafeUrl,
   sanitizeHtml,
   useSanitizedHtml,
@@ -56,12 +58,18 @@ describe("isSafeUrl", () => {
     expect(isSafeUrl(url, "link")).toBe(true)
   })
 
-  it("src gambar wajib absolut (tidak memicu GET ke origin dasbor)", () => {
+  it("src gambar wajib absolut http(s) (tidak memicu GET ke origin dasbor)", () => {
     expect(isSafeUrl("https://img.contoh.com/a.jpg", "image")).toBe(true)
-    expect(isSafeUrl("//cdn.contoh.com/a.png", "image")).toBe(true)
     expect(isSafeUrl("/api/sites", "image")).toBe(false)
     expect(isSafeUrl("x", "image")).toBe(false)
   })
+
+  it.each(["//cdn.contoh.com/a.png", "//127.0.0.1/a.png", " //cdn.contoh.com/a.png", "/\u0000/cdn.contoh.com/a.png"])(
+    "menolak src gambar protocol-relative: %j",
+    (url) => {
+      expect(isSafeUrl(url, "image")).toBe(false)
+    }
+  )
 
   it("menerima mailto & tel hanya untuk tautan", () => {
     expect(isSafeUrl("mailto:redaksi@contoh.com", "link")).toBe(true)
@@ -144,12 +152,51 @@ describe("hardenElementAttributes", () => {
     expect(img.getAttribute("loading")).toBe("lazy")
   })
 
+  it("membuang width/height gambar yang tidak wajar dan mempertahankan yang wajar", () => {
+    const huge = new FakeElement("img", { src: "https://contoh.com/a.png", width: "99999", height: "abc" })
+    hardenElementAttributes(huge)
+    expect(huge.getAttribute("width")).toBeNull()
+    expect(huge.getAttribute("height")).toBeNull()
+    expect(huge.getAttribute("src")).toBe("https://contoh.com/a.png")
+
+    const normal = new FakeElement("img", { src: "https://contoh.com/a.png", width: "800", height: "450" })
+    hardenElementAttributes(normal)
+    expect(normal.getAttribute("width")).toBe("800")
+    expect(normal.getAttribute("height")).toBe("450")
+  })
+
+  it("membuang src gambar protocol-relative", () => {
+    const img = new FakeElement("img", { src: "//tracker.contoh.com/pixel.gif" })
+    hardenElementAttributes(img)
+    expect(img.getAttribute("src")).toBeNull()
+  })
+
   it("membuang href/src pada elemen selain a/img dan kelas yang kosong setelah filter", () => {
     const span = new FakeElement("span", { href: "https://contoh.com", src: "https://contoh.com/x.png", class: "fixed" })
     hardenElementAttributes(span)
     expect(span.getAttribute("href")).toBeNull()
     expect(span.getAttribute("src")).toBeNull()
     expect(span.getAttribute("class")).toBeNull()
+  })
+})
+
+describe("isSafeDimension", () => {
+  it.each(["1", "800", " 1200 ", String(MAX_DIMENSION)])("menerima piksel wajar untuk gambar: %j", (value) => {
+    expect(isSafeDimension(value, "img")).toBe(true)
+  })
+
+  it.each(["0", String(MAX_DIMENSION + 1), "999999", "-5", "800px", "12.5", "50%", "auto", "", "1e4"])(
+    "menolak dimensi gambar tidak wajar: %j",
+    (value) => {
+      expect(isSafeDimension(value, "img")).toBe(false)
+    }
+  )
+
+  it("elemen selain gambar boleh persen 1..100%", () => {
+    expect(isSafeDimension("100%", "td")).toBe(true)
+    expect(isSafeDimension("640", "col")).toBe(true)
+    expect(isSafeDimension("500%", "td")).toBe(false)
+    expect(isSafeDimension("0%", "td")).toBe(false)
   })
 })
 

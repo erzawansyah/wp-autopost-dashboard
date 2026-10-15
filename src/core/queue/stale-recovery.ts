@@ -8,10 +8,38 @@
  * - `generating_content` → `queued_input` dengan `retry_count + 1`, sampai batas
  *   `MAX_STALE_GENERATION_ATTEMPTS`; setelah itu → `failed_generation` agar item "beracun"
  *   berhenti menghabiskan token AI.
+ *
+ * Selama item diklaim, worker memperbarui `updated_at` secara berkala (heartbeat) sehingga run yang
+ * masih hidup tidak pernah dianggap stale meskipun berjalan lama (mode deep).
  */
+import settingsConfig from "@/core/shared/settings.json"
 
-/** Item di state transien dianggap stale bila `updated_at` lebih lama dari ambang ini. */
-export const STALE_CLAIM_THRESHOLD_MS = 10 * 60 * 1000
+/**
+ * Overhead di luar timeout agen: pre-resolve taksonomi, emergency finalize, pipeline media,
+ * dan publish WordPress.
+ */
+const RUN_OVERHEAD_MARGIN_MS = 7 * 60 * 1000
+
+/** Ambang minimum agar jeda heartbeat sesaat (DB lambat) tidak memicu pemulihan prematur. */
+const MIN_STALE_CLAIM_THRESHOLD_MS = 15 * 60 * 1000
+
+/**
+ * Item di state transien dianggap stale bila `updated_at` lebih lama dari ambang ini.
+ * Diturunkan dari timeout agen maksimum (`systemBounds.maxTimeoutSeconds`) + margin, minimal 15 menit.
+ */
+export const STALE_CLAIM_THRESHOLD_MS = Math.max(
+  MIN_STALE_CLAIM_THRESHOLD_MS,
+  settingsConfig.systemBounds.maxTimeoutSeconds * 1000 + RUN_OVERHEAD_MARGIN_MS
+)
+
+/** Interval heartbeat `updated_at` untuk item yang sedang diklaim (jauh di bawah ambang stale). */
+export const CLAIM_HEARTBEAT_INTERVAL_MS = 60 * 1000
+
+/**
+ * Batas umur heartbeat. Run yang menggantung (promise tak pernah selesai) berhenti di-heartbeat
+ * setelah durasi ini sehingga auto-healing tetap dapat memulihkannya.
+ */
+export const CLAIM_HEARTBEAT_MAX_LIFETIME_MS = 2 * STALE_CLAIM_THRESHOLD_MS
 
 /** Total percobaan generasi yang boleh terputus/timeout sebelum item dihentikan permanen. */
 export const MAX_STALE_GENERATION_ATTEMPTS = 3

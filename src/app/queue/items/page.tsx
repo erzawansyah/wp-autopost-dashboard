@@ -28,6 +28,9 @@ import {
 import {
   QueueDataTable,
   QueueTableItem,
+  getOptimisticRetryState,
+  getQueueRetryAction,
+  requestQueueItemRetry,
 } from "@/components/organisms/queue-data-table"
 import { BatchItemData } from "@/components/organisms/batch-keyword/batch-list-table"
 
@@ -159,26 +162,26 @@ function QueueItemsContent() {
     }
   }
 
-  // Retry item gagal, atau jalankan sekarang untuk item berstatus queued_input
+  // Aksi ulang sesuai state: failed_sync/ready_to_sync → kirim ulang naskah tersimpan (tanpa AI),
+  // failed_generation → tulis ulang, queued_input → jalankan sekarang. Galat selalu ditampilkan.
   const handleRetryItem = async (id: string) => {
     if (processingItemIds.includes(id)) return
+    const targetItem = queueItems.find((item) => item.id === id)
+    const action = targetItem ? getQueueRetryAction(targetItem.status) : null
+    if (!targetItem || !action) return
 
+    const previousStatus = targetItem.status
     setProcessingItemIds((prev) => [...prev, id])
-    // Optimistic UI update: ubah status ke generating_content
     setQueueItems((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, status: "generating_content" as const } : item
-      )
+      prev.map((item) => (item.id === id ? { ...item, status: getOptimisticRetryState(action) } : item))
     )
 
     try {
-      await fetch("/api/queue/process", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId: id, forceNow: true }),
-      })
-    } catch (err) {
-      console.error("[QueueItemsPage] Error retrying item:", err)
+      const result = await requestQueueItemRetry(id, action)
+      if (!result.ok) {
+        setQueueItems((prev) => prev.map((item) => (item.id === id ? { ...item, status: previousStatus } : item)))
+        alert(result.error)
+      }
     } finally {
       setProcessingItemIds((prev) => prev.filter((itemId) => itemId !== id))
       await fetchQueue()
@@ -205,7 +208,7 @@ function QueueItemsContent() {
 
     // Filter mutlak: hanya kembalikan batch yang memiliki artikel agar tidak ada card kosong
     return Array.from(map.entries())
-      .filter(([_, data]) => data.items.length > 0)
+      .filter(([, data]) => data.items.length > 0)
       .map(([batchId, data]) => ({
         batchId,
         batchInfo: data.batchInfo,

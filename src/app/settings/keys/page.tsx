@@ -31,7 +31,6 @@ import {
   RefreshCw,
   Eye,
   EyeOff,
-  Globe,
   SlidersHorizontal,
   Info,
   Activity,
@@ -40,7 +39,30 @@ import {
 
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 import { REASONING_EFFORT_OPTIONS, ReasoningEffort } from "@/lib/ai/reasoning"
-import { UserSettingsResponse } from "@/types/settings"
+import { SearchPreferences, UserSettingsResponse } from "@/types/settings"
+
+type SearchProvider = NonNullable<SearchPreferences["default_provider"]>
+
+/**
+ * Seluruh provider yang didukung `webSearch()` beserta label Indonesia. Bertipe
+ * `Record<SearchProvider, ...>` agar tsc gagal bila union provider berubah tanpa memperbarui daftar ini,
+ * sehingga nilai tersimpan apa pun (mis. `searxng`, `serpapi`) selalu punya opsi di Select.
+ */
+const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
+  auto: "Auto Cascade (Utamakan Kunci API Pribadi ➔ Fallback Cerdas)",
+  tavily: "Tavily Search (Gunakan API Key Pribadi)",
+  brave: "Brave Search (Gunakan API Key Pribadi)",
+  serpapi: "SerpAPI / Google (Butuh API Key SerpAPI Tersimpan)",
+  searxng: "SearXNG (Metasearch Tanpa Kuota API)",
+  bing_scraper: "Bing Web (Tanpa API Key, Cadangan Wikipedia)",
+  open_knowledge: "Wikipedia / Basis Pengetahuan Terbuka (Tanpa API Key)",
+}
+
+const SEARCH_PROVIDER_OPTIONS = Object.entries(SEARCH_PROVIDER_LABELS) as [SearchProvider, string][]
+
+function isSearchProvider(value: string): value is SearchProvider {
+  return Object.hasOwn(SEARCH_PROVIDER_LABELS, value)
+}
 
 interface TestResult {
   ok: boolean
@@ -55,11 +77,10 @@ export default function ApiKeysSettingsPage() {
   const [reasoningEffort, setReasoningEffort] = React.useState<ReasoningEffort>("low")
   const [tavilyKey, setTavilyKey] = React.useState("")
   const [braveKey, setBraveKey] = React.useState("")
-  const [searxngUrl, setSearxngUrl] = React.useState("")
   const [pexafyKey, setPexafyKey] = React.useState("")
   const [langsmithKey, setLangsmithKey] = React.useState("")
   const [langsmithProject, setLangsmithProject] = React.useState("panitera")
-  const [defaultSearchProvider, setDefaultSearchProvider] = React.useState("auto")
+  const [defaultSearchProvider, setDefaultSearchProvider] = React.useState<SearchProvider>("auto")
 
   // Visibility toggles
   const [showOpenrouter, setShowOpenrouter] = React.useState(false)
@@ -124,9 +145,6 @@ export default function ApiKeysSettingsPage() {
         }
         if (data.langsmithProject) {
           setLangsmithProject(data.langsmithProject)
-        }
-        if (data.searxngUrl) {
-          setSearxngUrl(data.searxngUrl)
         }
         if (data.defaultAiModel) {
           setSelectedModel(data.defaultAiModel)
@@ -315,6 +333,9 @@ export default function ApiKeysSettingsPage() {
     setErrorMessage(null)
 
     try {
+      // Hanya field yang punya input di halaman ini yang dikirim. Field lain (mis. `searxngUrl`)
+      // sengaja tidak disertakan: PUT hanya memperbarui field yang ada di body, sehingga nilai
+      // tersimpan lama tidak divalidasi ulang dan tidak bisa memblokir penyimpanan kunci API.
       const payload: Record<string, unknown> = {
         defaultAiModel: selectedModel,
         reasoningEffort,
@@ -323,7 +344,6 @@ export default function ApiKeysSettingsPage() {
           default_ai_model: selectedModel,
           reasoning_effort: reasoningEffort,
         },
-        searxngUrl: searxngUrl.trim() || "",
       }
 
       // Process openrouter
@@ -607,20 +627,21 @@ export default function ApiKeysSettingsPage() {
                 <p className="text-[11px] text-muted-foreground">
                   Pilih mesin pencari prioritas untuk riset artikel atau gunakan mode rekomendasi cerdas otomatis.
                 </p>
-                <Select value={defaultSearchProvider} onValueChange={setDefaultSearchProvider}>
+                <Select
+                  value={defaultSearchProvider}
+                  onValueChange={(value) => {
+                    if (isSearchProvider(value)) setDefaultSearchProvider(value)
+                  }}
+                >
                   <SelectTrigger className="text-xs">
                     <SelectValue placeholder="Pilih Provider Default" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="auto" className="text-xs">
-                      Auto Cascade (Utamakan Kunci API Pribadi ➔ Fallback Cerdas)
-                    </SelectItem>
-                    <SelectItem value="tavily" className="text-xs">
-                      Tavily Search (Gunakan API Key Pribadi)
-                    </SelectItem>
-                    <SelectItem value="brave" className="text-xs">
-                      Brave Search (Gunakan API Key Pribadi)
-                    </SelectItem>
+                    {SEARCH_PROVIDER_OPTIONS.map(([value, label]) => (
+                      <SelectItem key={value} value={value} className="text-xs">
+                        {label}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>

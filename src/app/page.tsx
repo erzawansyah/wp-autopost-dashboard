@@ -8,7 +8,13 @@ import { PageContainer } from "@/components/templates/page-container"
 import { PageHeader } from "@/components/molecules/page-header"
 import { EmptyState } from "@/components/molecules/empty-state"
 import { KPISummaryGrid } from "@/components/organisms/kpi-summary-grid"
-import { QueueDataTable, QueueTableItem } from "@/components/organisms/queue-data-table"
+import {
+  QueueDataTable,
+  QueueTableItem,
+  getOptimisticRetryState,
+  getQueueRetryAction,
+  requestQueueItemRetry,
+} from "@/components/organisms/queue-data-table"
 import { Button } from "@/components/atoms/button"
 import {
   Layers,
@@ -320,38 +326,28 @@ function DashboardContent() {
 
   const handleRetryPost = async (id: string) => {
     if (processingItemIds.includes(id)) return
-    setProcessingItemIds((prev) => [...prev, id])
+    const targetPost = posts.find((p) => p.id === id)
+    const action = targetPost ? getQueueRetryAction(targetPost.state) : null
+    if (!targetPost || !action) return
 
-    // Optimistic UI update jika queued_input
+    const previousState = targetPost.state
+    setProcessingItemIds((prev) => [...prev, id])
+    // Optimistic UI: dikembalikan ke state semula bila permintaan gagal (409/422/502, jaringan).
     setPosts((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, state: "generating_content" as const } : item
-      )
+      prev.map((item) => (item.id === id ? { ...item, state: getOptimisticRetryState(action) } : item))
     )
 
     try {
-      const targetPost = posts.find((p) => p.id === id)
-      let res: Response
-      // queued_input & failed_generation: jalankan worker (generasi ulang).
-      // failed_sync / ready_to_sync: kirim ulang naskah tersimpan tanpa generasi AI.
-      if (targetPost?.state === "queued_input" || targetPost?.state === "failed_generation") {
-        res = await fetch("/api/queue/process", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ postId: id, forceNow: true }),
-        })
-      } else {
-        res = await fetch(`/api/posts/${id}`, { method: "POST" })
-      }
-      const data = await res.json()
-      if (!res.ok) {
-        alert(data.error || "Gagal memproses artikel.")
+      const result = await requestQueueItemRetry(id, action)
+      if (!result.ok) {
+        setPosts((prev) => prev.map((item) => (item.id === id ? { ...item, state: previousState } : item)))
+        alert(result.error)
+        // Ambil state & last_error terbaru dari server (mis. worker sudah menandai failed_sync).
+        void loadDataSilently()
         return
       }
 
       await loadData()
-    } catch {
-      alert("Terjadi gangguan jaringan saat memproses artikel.")
     } finally {
       setProcessingItemIds((prev) => prev.filter((itemId) => itemId !== id))
     }

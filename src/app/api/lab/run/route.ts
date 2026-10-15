@@ -11,14 +11,18 @@ import { getKeywordSuggestions } from "@/core/shared/tools/keyword-suggestions"
 import { readWebContent } from "@/core/shared/tools/web-reader"
 import { run } from "@/core/writer"
 import { AgentStepEvent, RunRecorder } from "@/core/writer/runtime/telemetry"
-import { redactSecrets } from "@/core/writer/runtime/redact"
+import { redactSecrets, redactSecretsInText } from "@/core/writer/runtime/redact"
 
 /**
- * Semua respons Lab melewati redaksi kredensial: output tool/agent dan log eksekusi
- * tidak boleh memuat Application Password, API key, atau token terdekripsi.
+ * Redaksi Lab bersifat terarah, bukan menyeluruh: konten artikel, preview, dan URL hasil riset
+ * dikembalikan apa adanya (redaksi teks menyeluruh merusak "Basic Training", URL gambar ber-`?token=`,
+ * dsb.). Yang disamarkan hanya jalur yang dapat membawa kredensial:
+ * - pesan error (bisa memuat URL request/header mentah) → `redactLabText`;
+ * - log eksekusi agen (`execution`: nodeLogs berisi request/site/input) → `redactSecrets` penuh;
+ * - keluaran tool generik → properti bernama rahasia saja (`scanText: false`).
  */
-function labJson(body: Record<string, unknown>, init?: ResponseInit) {
-  return NextResponse.json(redactSecrets(body), init)
+function redactLabText(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : redactSecretsInText(value)
 }
 
 export async function POST(request: Request) {
@@ -30,12 +34,12 @@ export async function POST(request: Request) {
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return labJson({ error: "Unauthorized" }, { status: 401 })
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     const authorized = await hasLabAccess(supabase, user)
     if (!authorized) {
-      return labJson(
+      return NextResponse.json(
         { error: "Forbidden: Aktifkan Developer Mode di Pengaturan Profil untuk mengakses Laboratorium" },
         { status: 403 }
       )
@@ -51,7 +55,7 @@ export async function POST(request: Request) {
     // milik pengguna (getUserDecryptedKeys) sesuai kebijakan `@/lib/ai/platform-keys`.
 
     if (!type || !id) {
-      return labJson({ error: "Parameter type dan targetId/id wajib disertakan." }, { status: 400 })
+      return NextResponse.json({ error: "Parameter type dan targetId/id wajib disertakan." }, { status: 400 })
     }
 
     // Ambil kredensial situs jika siteId disertakan
@@ -88,7 +92,7 @@ export async function POST(request: Request) {
     if (type === "tool") {
       if (id === "wordpress_publisher") {
         if (!site || !plainPassword) {
-          return labJson({ error: "Situs WordPress yang valid wajib dipilih untuk menguji publisher." }, { status: 400 })
+          return NextResponse.json({ error: "Situs WordPress yang valid wajib dipilih untuk menguji publisher." }, { status: 400 })
         }
         const pubResult = await publishPostToWordPress({
           baseUrl: site.base_url,
@@ -104,9 +108,9 @@ export async function POST(request: Request) {
           },
         })
 
-        return labJson({
+        return NextResponse.json({
           ok: pubResult.ok,
-          output: pubResult,
+          output: { ...pubResult, error: redactLabText(pubResult.error) },
           durationMs: Date.now() - startTime,
         })
       }
@@ -137,7 +141,7 @@ export async function POST(request: Request) {
           results,
         }
 
-        return labJson({
+        return NextResponse.json({
           ok: true,
           result: webOutput,
           output: webOutput,
@@ -168,7 +172,7 @@ export async function POST(request: Request) {
           photos,
         }
 
-        return labJson({
+        return NextResponse.json({
           ok: true,
           result: imgOutput,
           output: imgOutput,
@@ -189,7 +193,7 @@ export async function POST(request: Request) {
           searxngUrl: userKeys.searxngUrl,
         })
 
-        return labJson({
+        return NextResponse.json({
           ok: true,
           result: res,
           output: res,
@@ -203,11 +207,11 @@ export async function POST(request: Request) {
         const maxLength = Number(input?.maxLength) || 2500
         const res = await readWebContent({ url, maxLength })
 
-        return labJson({
+        return NextResponse.json({
           ok: res.ok,
           result: res,
           output: res,
-          summary: res.ok ? `Membaca ${res.wordCount} kata dari ${res.title || url}` : res.error,
+          summary: res.ok ? `Membaca ${res.wordCount} kata dari ${res.title || url}` : redactLabText(res.error),
           durationMs: Date.now() - startTime,
         })
       }
@@ -215,7 +219,7 @@ export async function POST(request: Request) {
       // Ambil tool dari ToolRegistry universal
       const toolDef = ToolRegistry.get(id)
       if (!toolDef) {
-        return labJson({ error: `Tool dengan ID '${id}' tidak ditemukan di ToolRegistry.` }, { status: 404 })
+        return NextResponse.json({ error: `Tool dengan ID '${id}' tidak ditemukan di ToolRegistry.` }, { status: 404 })
       }
 
       const toolInstance = toolDef.build({
@@ -241,8 +245,11 @@ export async function POST(request: Request) {
             parsedOutput = rawOutput
           }
         }
+        // Tool dibangun dengan kredensial WP & kunci BYOK: properti bernama rahasia disamarkan,
+        // sedangkan URL media/konten di keluaran dibiarkan utuh.
+        parsedOutput = redactSecrets(parsedOutput, { scanText: false })
 
-        return labJson({
+        return NextResponse.json({
           ok: true,
           result: parsedOutput,
           output: parsedOutput,
@@ -251,9 +258,9 @@ export async function POST(request: Request) {
         })
       } catch (toolErr: unknown) {
         const message = toolErr instanceof Error ? toolErr.message : "Kesalahan eksekusi tool"
-        return labJson({
+        return NextResponse.json({
           ok: false,
-          error: message,
+          error: redactLabText(message),
           durationMs: Date.now() - startTime,
         })
       }
@@ -297,35 +304,40 @@ export async function POST(request: Request) {
         onEventListener,
       })
 
+      // Artikel & enrichment adalah konten: tidak diredaksi. Log eksekusi (nodeLogs memuat
+      // request/site/input) dan error diredaksi sebelum dikirim ke browser.
+      const execution = redactSecrets({ ...result.execution, stepEvents })
+      const agentError = result.error
+        ? {
+            ...result.error,
+            message: redactSecretsInText(result.error.message),
+            details: result.error.details ? redactSecrets(result.error.details) : undefined,
+          }
+        : undefined
+
       const enginePayload = {
         article: result.article,
         enrichment: result.enrichment,
-        execution: {
-          ...result.execution,
-          stepEvents,
-        },
-        error: result.error,
+        execution,
+        error: agentError,
       }
 
-      return labJson({
+      return NextResponse.json({
         ok: result.success,
         result: enginePayload,
         output: enginePayload,
         article: result.article,
         enrichment: result.enrichment,
-        execution: {
-          ...result.execution,
-          stepEvents,
-        },
-        error: result.error?.message,
+        execution,
+        error: agentError?.message,
         durationMs: Date.now() - startTime,
       })
     }
 
-    return labJson({ error: `Tipe pengujian '${type}' tidak didukung.` }, { status: 400 })
+    return NextResponse.json({ error: `Tipe pengujian '${type}' tidak didukung.` }, { status: 400 })
   } catch (err: unknown) {
     console.error("[Lab/run] Unhandled error:", err)
     const message = err instanceof Error ? err.message : "Terjadi kesalahan internal lab"
-    return labJson({ error: message }, { status: 500 })
+    return NextResponse.json({ error: redactLabText(message) }, { status: 500 })
   }
 }

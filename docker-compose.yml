@@ -97,7 +97,7 @@ services:
         while true; do
           # Token hanya lewat header (query ?secret= tidak didukung). --max-time mencegah loop macet
           # bila worker lama merespons (generasi Agent Profile mode deep bisa beberapa menit).
-          RESPONSE=$$(curl -sS --connect-timeout 10 --max-time 600 -X POST "http://panitera:3000/api/queue/process?limit=$${CRON_LIMIT}" \
+          RESPONSE=$$(curl -sS --connect-timeout 10 --max-time 900 -X POST "http://panitera:3000/api/queue/process?limit=$${CRON_LIMIT}" \
             -H "Authorization: Bearer $$CRON_SECRET" \
             -H "Accept: text/plain" \
             -H "Content-Type: application/json")

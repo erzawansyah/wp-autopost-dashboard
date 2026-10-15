@@ -25,6 +25,7 @@ import {
 } from "@/components/atoms/select"
 import Link from "next/link"
 import { formatIndonesianDateTime } from "@/lib/scheduler/date-calculator"
+import { cn } from "@/lib/utils"
 import {
   ExternalLink,
   RefreshCw,
@@ -33,18 +34,14 @@ import {
   Terminal,
   Trash2,
   Globe,
-  Filter,
-  X,
   RotateCcw,
   Loader2,
   CheckCircle2,
   CalendarClock,
-  Clock,
   FileText,
   AlertCircle,
   Layers,
   Folder,
-  Sparkles,
 } from "lucide-react"
 import {
   DropdownMenu,
@@ -74,6 +71,84 @@ export interface QueueTableItem {
   lastError?: string
   batchId?: string
   batchName?: string
+}
+
+/**
+ * Aksi ulang per state item:
+ * - `run`: item masih antre → "Jalankan sekarang" (worker, abaikan jadwal antrean);
+ * - `regenerate`: `failed_generation` → "Tulis ulang" (generasi AI ulang lewat worker);
+ * - `resync`: `failed_sync`/`ready_to_sync` → "Kirim ulang" naskah tersimpan tanpa AI (Cost-Saver Retry).
+ */
+export type QueueRetryAction = "run" | "regenerate" | "resync"
+
+export function getQueueRetryAction(status: PostItemState): QueueRetryAction | null {
+  switch (status) {
+    case "queued_input":
+      return "run"
+    case "failed_generation":
+      return "regenerate"
+    case "failed_sync":
+    case "ready_to_sync":
+      return "resync"
+    default:
+      return null
+  }
+}
+
+/** State optimistis selama aksi ulang berjalan (dikembalikan bila permintaan gagal). */
+export function getOptimisticRetryState(action: QueueRetryAction): PostItemState {
+  return action === "resync" ? "syncing_to_wp" : "generating_content"
+}
+
+export type QueueRetryResult = { ok: true } | { ok: false; error: string }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function readErrorMessage(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
+/**
+ * Memicu aksi ulang lewat endpoint yang sesuai state:
+ * - `resync` → `POST /api/posts/[id]` (sinkronisasi saja, menghormati jadwal tayang tersimpan);
+ * - `run`/`regenerate` → `POST /api/queue/process` dengan `postId`; hanya `run` yang memakai
+ *   `forceNow` (tombol eksplisit "Jalankan sekarang"), "Tulis ulang" tetap mengikuti jadwal tayang.
+ * Galat (HTTP 4xx/5xx atau `{ ok: false }` dari worker) dikembalikan sebagai pesan siap tampil.
+ */
+export async function requestQueueItemRetry(id: string, action: QueueRetryAction): Promise<QueueRetryResult> {
+  const fallbackError =
+    action === "resync" ? "Gagal mengirim ulang artikel ke WordPress." : "Gagal memproses artikel."
+
+  try {
+    const res =
+      action === "resync"
+        ? await fetch(`/api/posts/${encodeURIComponent(id)}`, { method: "POST" })
+        : await fetch("/api/queue/process", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify(action === "run" ? { postId: id, forceNow: true } : { postId: id }),
+          })
+
+    const body: unknown = await res.json().catch(() => null)
+    const data = isRecord(body) ? body : {}
+    if (res.ok && data.ok !== false) return { ok: true }
+
+    const workerResult = isRecord(data.result) ? data.result : {}
+    return {
+      ok: false,
+      error: readErrorMessage(data.error) ?? readErrorMessage(workerResult.error) ?? fallbackError,
+    }
+  } catch {
+    return { ok: false, error: "Terjadi gangguan jaringan saat memproses artikel." }
+  }
+}
+
+const RETRY_ACTION_COPY: Record<QueueRetryAction, { idle: string; busy: string; menu: string }> = {
+  run: { idle: "Jalankan sekarang", busy: "Sedang memproses...", menu: "Jalankan Sekarang" },
+  regenerate: { idle: "Tulis ulang artikel (generasi AI ulang)", busy: "Sedang menulis ulang...", menu: "Coba Tulis Ulang" },
+  resync: { idle: "Kirim ulang ke WordPress", busy: "Sedang mengirim ulang...", menu: "Coba Kirim Ulang" },
 }
 
 interface QueueDataTableProps {
@@ -428,6 +503,8 @@ export function QueueDataTable({
             ) : (
               filteredItems.map((item) => {
                 const isSelected = selectedIds.includes(item.id)
+                const retryAction = getQueueRetryAction(item.status)
+                const isProcessing = processingItemIds.includes(item.id)
 
                 return (
                   <TableRow
@@ -695,44 +772,29 @@ export function QueueDataTable({
                           </Button>
                         )}
 
-                        {item.status === "failed_sync" && onRetryItem && (
+                        {retryAction && onRetryItem && (
                           <Button
                             variant="outline"
                             size="icon-xs"
-                            disabled={processingItemIds.includes(item.id)}
+                            disabled={isProcessing}
                             onClick={() => onRetryItem(item.id)}
-                            className="size-7 text-destructive border-destructive/30 hover:bg-destructive/10 disabled:opacity-70"
-                            title={
-                              processingItemIds.includes(item.id)
-                                ? "Sedang mengirim ulang..."
-                                : "Kirim ulang ke WordPress"
-                            }
+                            className={cn(
+                              "size-7 disabled:opacity-70",
+                              retryAction === "run"
+                                ? "text-primary border-primary/30 hover:bg-primary/10"
+                                : "text-destructive border-destructive/30 hover:bg-destructive/10"
+                            )}
+                            title={isProcessing ? RETRY_ACTION_COPY[retryAction].busy : RETRY_ACTION_COPY[retryAction].idle}
+                            aria-label={RETRY_ACTION_COPY[retryAction].idle}
                           >
-                            {processingItemIds.includes(item.id) ? (
-                              <Loader2 className="size-3.5 animate-spin text-destructive" />
+                            {isProcessing ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : retryAction === "run" ? (
+                              <Play className="size-3.5" />
+                            ) : retryAction === "regenerate" ? (
+                              <RotateCcw className="size-3.5" />
                             ) : (
                               <RefreshCw className="size-3.5" />
-                            )}
-                          </Button>
-                        )}
-
-                        {item.status === "queued_input" && onRetryItem && (
-                          <Button
-                            variant="outline"
-                            size="icon-xs"
-                            disabled={processingItemIds.includes(item.id)}
-                            onClick={() => onRetryItem(item.id)}
-                            className="size-7 text-primary border-primary/30 hover:bg-primary/10 disabled:opacity-70"
-                            title={
-                              processingItemIds.includes(item.id)
-                                ? "Sedang memproses..."
-                                : "Jalankan sekarang"
-                            }
-                          >
-                            {processingItemIds.includes(item.id) ? (
-                              <Loader2 className="size-3.5 animate-spin text-primary" />
-                            ) : (
-                              <Play className="size-3.5" />
                             )}
                           </Button>
                         )}
@@ -770,12 +832,13 @@ export function QueueDataTable({
                                 </a>
                               </DropdownMenuItem>
                             )}
-                            {item.status === "failed_sync" && (
+                            {retryAction && onRetryItem && (
                               <DropdownMenuItem
-                                onClick={() => onRetryItem && onRetryItem(item.id)}
+                                disabled={isProcessing}
+                                onClick={() => onRetryItem(item.id)}
                                 className="cursor-pointer text-primary"
                               >
-                                Coba Kirim Ulang
+                                {RETRY_ACTION_COPY[retryAction].menu}
                               </DropdownMenuItem>
                             )}
                             <DropdownMenuSeparator />

@@ -7,8 +7,11 @@
  *   tampilan; sumber mentahnya tetap tersedia lewat tampilan kode (React escape).
  * - Tag/atribut berbahaya (script, style, iframe, object, embed, form, svg, `on*`,
  *   `style`, `id`, `srcset`, `data-*`) tidak pernah lolos.
- * - URL hanya `http(s)`, `mailto`, `tel`, relatif, atau fragmen; `src` gambar boleh
- *   `data:image/*;base64` raster. `javascript:`, `vbscript:`, `data:text/html`, dll. dibuang.
+ * - URL hanya `http(s)`, `mailto`, `tel`, relatif, atau fragmen; `src` gambar wajib absolut
+ *   `http(s)` (bukan relatif/protocol-relative `//host`) atau `data:image/*;base64` raster.
+ *   `javascript:`, `vbscript:`, `data:text/html`, dll. dibuang.
+ * - `width`/`height` hanya bilangan bulat wajar (≤ `MAX_DIMENSION`; selain gambar boleh persen ≤ 100%)
+ *   agar konten tidak bisa membuat elemen raksasa yang menutupi/merusak tata letak dasbor.
  * - Setiap tautan dipaksa `rel="noopener noreferrer nofollow"`; tautan non-fragmen
  *   dibuka di tab baru. Gambar dipaksa `referrerpolicy="no-referrer"` + lazy load.
  * - Kelas CSS difilter ke prefiks WordPress (`wp-*`, `is-*`, `has-*`, ...) agar konten
@@ -187,8 +190,9 @@ export function isSafeUrl(raw: string, kind: "link" | "image"): boolean {
 
   const scheme = URL_SCHEME.exec(value)?.[1]?.toLowerCase()
   // Tanpa skema: path relatif, fragmen, query, atau protocol-relative (`//host`).
-  // Gambar dimuat otomatis, jadi path relatif (GET ke origin dasbor) ditolak.
-  if (!scheme) return kind === "link" || value.startsWith("//")
+  // Gambar dimuat otomatis tanpa interaksi, jadi semuanya ditolak: path relatif memicu GET ke origin
+  // dasbor, dan `//host` mewarisi skema halaman sehingga tujuan/skemanya tidak eksplisit.
+  if (!scheme) return kind === "link"
   if (scheme === "http" || scheme === "https") return true
   if (kind === "link") return scheme === "mailto" || scheme === "tel"
   return SAFE_IMAGE_DATA_URI.test(value)
@@ -205,6 +209,28 @@ export function filterClassList(value: string): string {
     .join(" ")
 }
 
+/** Batas atas atribut `width`/`height` (px) yang dianggap wajar untuk konten artikel. */
+export const MAX_DIMENSION = 4000
+
+const PIXEL_DIMENSION = /^\d+$/
+const PERCENT_DIMENSION = /^(\d{1,3})%$/
+
+/**
+ * Validasi nilai atribut `width`/`height`. Gambar hanya bilangan bulat piksel 1..MAX_DIMENSION
+ * (format WordPress); elemen lain (mis. sel tabel) juga boleh persen 1..100%.
+ */
+export function isSafeDimension(raw: string, tag: string): boolean {
+  const value = raw.trim()
+  if (PIXEL_DIMENSION.test(value)) {
+    const pixels = Number(value)
+    return pixels >= 1 && pixels <= MAX_DIMENSION
+  }
+  const percent = tag === "img" ? null : PERCENT_DIMENSION.exec(value)
+  if (!percent) return false
+  const ratio = Number(percent[1])
+  return ratio >= 1 && ratio <= 100
+}
+
 /** Subset `Element` yang dipakai hook (memudahkan pengujian tanpa DOM). */
 export interface MutableAttributes {
   readonly nodeName: string
@@ -213,9 +239,14 @@ export interface MutableAttributes {
   removeAttribute(name: string): void
 }
 
-/** Hook `afterSanitizeAttributes`: validasi URL, filter kelas, paksa rel/target. */
+/** Hook `afterSanitizeAttributes`: validasi URL & dimensi, filter kelas, paksa rel/target. */
 export function hardenElementAttributes(el: MutableAttributes): void {
   const tag = el.nodeName.toLowerCase()
+
+  for (const attr of ["width", "height"] as const) {
+    const dimension = el.getAttribute(attr)
+    if (dimension !== null && !isSafeDimension(dimension, tag)) el.removeAttribute(attr)
+  }
 
   const className = el.getAttribute("class")
   if (className !== null) {

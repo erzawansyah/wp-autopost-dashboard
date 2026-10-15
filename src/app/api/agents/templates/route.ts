@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { getBuiltinPrompts, getPresetPrompts } from "@/core/writer/profiles"
+import { getPresetPrompts } from "@/core/writer/profiles"
 
 export async function GET() {
   try {

@@ -3,11 +3,12 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { BUILTIN_PRESETS } from "@/core/writer/profiles"
 import {
-  AgentLimits,
   AgentLimitsInputSchema,
   AgentModeSchema,
   clampLimits,
   ensureMandatoryToolIds,
+  parseStoredAgentLimits,
+  resolveStoredAgentLimits,
 } from "@/core/writer/types/profile"
 
 /** Validasi bertipe untuk field yang menentukan batas eksekusi (update parsial); nilai akhir tetap di-clamp. */
@@ -69,7 +70,7 @@ export async function GET(
       workflowPrompt: row.workflow_prompt || "",
       toolIds: Array.isArray(row.tool_ids) ? row.tool_ids : [],
       skills: Array.isArray(row.skills) ? row.skills : [],
-      limits: row.limits as AgentLimits,
+      limits: resolveStoredAgentLimits(row.limits, row.mode),
       isDefault: Boolean(row.is_default ?? (row.limits as Record<string, unknown> | null)?.isDefault ?? false),
       isPreset: false,
       createdAt: row.created_at,
@@ -181,9 +182,10 @@ export async function PUT(
 
       const storedMode = AgentModeSchema.safeParse(currentProf?.mode)
       const targetMode = mode ?? (storedMode.success ? storedMode.data : "standard")
-      // `limits` tidak dikirim → pertahankan batas tersimpan (jika valid); `null` → kembali ke default mode.
-      const storedLimits = AgentLimitsInputSchema.safeParse(currentProf?.limits)
-      const limitsSource = limits !== undefined ? limits : storedLimits.success ? storedLimits.data : undefined
+      // `limits` tidak dikirim → pertahankan batas tersimpan; `null` → kembali ke default mode.
+      // Baris tersimpan di-parse longgar: kuota tool lama (mis. `list_wp_*`) dibuang per kunci,
+      // bukan membuat seluruh batas tersimpan jatuh ke default.
+      const limitsSource = limits !== undefined ? limits : parseStoredAgentLimits(currentProf?.limits)
       const baseLimits = clampLimits(limitsSource ?? undefined, targetMode)
       const targetIsDefault = isDefault !== undefined ? Boolean(isDefault) : Boolean((currentProf?.limits as Record<string, unknown> | null)?.isDefault)
       updatePayload.limits = {
@@ -238,7 +240,7 @@ export async function PUT(
       workflowPrompt: updated.workflow_prompt || "",
       toolIds: Array.isArray(updated.tool_ids) ? updated.tool_ids : [],
       skills: Array.isArray(updated.skills) ? updated.skills : [],
-      limits: updated.limits as AgentLimits,
+      limits: resolveStoredAgentLimits(updated.limits, updated.mode),
       isDefault: Boolean((updated.limits as Record<string, unknown> | null)?.isDefault ?? updated.is_default ?? false),
       isPreset: false,
       createdAt: updated.created_at,

@@ -3,11 +3,11 @@ import { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { BUILTIN_PRESETS } from "@/core/writer/profiles"
 import {
-  AgentLimits,
   AgentLimitsInputSchema,
   AgentModeSchema,
   clampLimits,
   ensureMandatoryToolIds,
+  resolveStoredAgentLimits,
 } from "@/core/writer/types/profile"
 
 /** Validasi bertipe untuk field yang menentukan batas eksekusi; nilai akhir tetap di-clamp. */
@@ -68,7 +68,7 @@ export async function GET() {
       workflowPrompt: row.workflow_prompt || "",
       toolIds: Array.isArray(row.tool_ids) ? row.tool_ids : [],
       skills: Array.isArray(row.skills) ? row.skills : [],
-      limits: row.limits as AgentLimits,
+      limits: resolveStoredAgentLimits(row.limits, row.mode),
       isDefault: Boolean(row.is_default ?? (row.limits as Record<string, unknown> | null)?.isDefault ?? false),
       isPreset: false,
       createdAt: row.created_at,
@@ -201,7 +201,7 @@ export async function POST(request: Request) {
       workflowPrompt: newProfile.workflow_prompt || "",
       toolIds: Array.isArray(newProfile.tool_ids) ? newProfile.tool_ids : [],
       skills: Array.isArray(newProfile.skills) ? newProfile.skills : [],
-      limits: newProfile.limits as AgentLimits,
+      limits: resolveStoredAgentLimits(newProfile.limits, newProfile.mode),
       isDefault: Boolean((newProfile.limits as Record<string, unknown> | null)?.isDefault ?? newProfile.is_default ?? false),
       isPreset: false,
       createdAt: newProfile.created_at,

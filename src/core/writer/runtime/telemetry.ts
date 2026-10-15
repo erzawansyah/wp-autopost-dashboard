@@ -1,5 +1,5 @@
 import { ArticleSource, FeaturedImageMeta, InContentImage } from "../types/contracts"
-import { redactSecretsInText } from "./redact"
+import { isSensitiveKey, redactSecretsInText } from "./redact"
 
 export type StepEventKind = "model_call" | "tool_call" | "guard" | "finalize" | "summary"
 
@@ -70,7 +70,7 @@ export class RunRecorder {
       for (const [k, v] of Object.entries(event.argsPreview)) {
         if (count >= 6) break
         // Skip potential sensitive keys
-        if (/password|key|token|auth|secret/i.test(k)) continue
+        if (isSensitiveKey(k)) continue
         if (typeof v === "string") {
           const safe = redactSecretsInText(v)
           sanitizedArgs[k] = safe.length > 120 ? safe.slice(0, 117) + "..." : safe

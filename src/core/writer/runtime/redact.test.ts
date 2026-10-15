@@ -38,6 +38,10 @@ describe("isSensitiveKey", () => {
     "baseUrl",
     "username",
     "title",
+    "primaryKey",
+    "cache_key",
+    "idempotencyKey",
+    "publicKey",
   ])("tidak menandai '%s'", (key) => {
     expect(isSensitiveKey(key)).toBe(false)
   })
@@ -102,10 +106,60 @@ describe("redactSecrets", () => {
   })
 
   it("menyaring pesan Error", () => {
-    const result = redactSecrets({ error: new Error("gagal: ?token=abc123") }) as {
+    // Sebelumnya `?token=abc123` (pendek) ikut disamarkan; kini `token=` generik hanya disamarkan
+    // bila nilainya menyerupai kredensial (>= 16 karakter dan memuat angka) agar URL gambar tidak rusak.
+    const result = redactSecrets({ error: new Error("gagal: ?token=tk_9f8e7d6c5b4a3f2e1d") }) as {
       error: { name: string; message: string }
     }
     expect(result.error).toEqual({ name: "Error", message: `gagal: ?token=${REDACTED}` })
+  })
+
+  it("scanText: false hanya menyamarkan properti rahasia tanpa mengubah teks/URL lain", () => {
+    const output = {
+      title: "Basic Training: Authorization: Bearer abc",
+      imageUrl: "https://cdn.contoh.com/a.jpg?token=tk_9f8e7d6c5b4a3f2e1d",
+      apiKey: "sk-or-v1-abcdef0123456789",
+    }
+
+    const result = redactSecrets(output, { scanText: false }) as typeof output
+
+    expect(result.title).toBe(output.title)
+    expect(result.imageUrl).toBe(output.imageUrl)
+    expect(result.apiKey).toBe(REDACTED)
+  })
+})
+
+describe("redactSecretsInText — pola sempit (tidak merusak konten)", () => {
+  it.each([
+    "Basic Training untuk pemula",
+    "BASIC Training 2024",
+    "Bearer of bad news",
+    "Authorization header wajib diisi",
+    "https://images.contoh.com/foto.jpg?token=abc123&w=800",
+    "https://contoh.com/?key=homepage-hero-banner",
+  ])("tidak mengubah teks biasa: %j", (text) => {
+    expect(redactSecretsInText(text)).toBe(text)
+  })
+
+  it("selalu menyamarkan nilai field Authorization (dengan/tanpa skema)", () => {
+    expect(redactSecretsInText('{"Authorization":"Basic ZWRpdG9yOnNlY3JldA=="}')).toBe(
+      `{"Authorization":"Basic ${REDACTED}"}`,
+    )
+    expect(redactSecretsInText("authorization=rahasia")).toBe(`authorization=${REDACTED}`)
+  })
+
+  it("menyamarkan token Bearer/Basic tanpa prefiks header bila menyerupai kredensial", () => {
+    expect(redactSecretsInText("pakai Bearer sk-or-v1-0123456789abcdef")).toBe(`pakai Bearer ${REDACTED}`)
+    expect(redactSecretsInText("kredensial Basic ZWRpdG9yOnNlY3JldDEyMw==")).toBe(`kredensial Basic ${REDACTED}`)
+  })
+
+  it("menyamarkan parameter query rahasia; key/token generik hanya bila panjang", () => {
+    expect(redactSecretsInText("https://x.test/?apikey=abc&q=1")).toBe(`https://x.test/?apikey=${REDACTED}&q=1`)
+    expect(redactSecretsInText("https://x.test/?access_token=abc")).toBe(`https://x.test/?access_token=${REDACTED}`)
+    expect(redactSecretsInText("https://x.test/?key=AIzaSyA1b2C3d4E5f6G7h8")).toBe(`https://x.test/?key=${REDACTED}`)
+    expect(redactSecretsInText("https://x.test/?a=1&token=0123456789abcdefXYZ#top")).toBe(
+      `https://x.test/?a=1&token=${REDACTED}#top`,
+    )
   })
 })
 

@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest"
+import settingsConfig from "@/core/shared/settings.json"
 import {
+  CLAIM_HEARTBEAT_INTERVAL_MS,
+  CLAIM_HEARTBEAT_MAX_LIFETIME_MS,
   MAX_STALE_GENERATION_ATTEMPTS,
+  STALE_CLAIM_THRESHOLD_MS,
   decideStaleRecovery,
   isStaleRecoverableState,
 } from "@/core/queue/stale-recovery"
+
+describe("ambang stale & heartbeat klaim", () => {
+  it("ambang stale minimal 15 menit dan di atas timeout agen maksimum", () => {
+    expect(STALE_CLAIM_THRESHOLD_MS).toBeGreaterThanOrEqual(15 * 60 * 1000)
+    expect(STALE_CLAIM_THRESHOLD_MS).toBeGreaterThan(settingsConfig.systemBounds.maxTimeoutSeconds * 1000)
+  })
+
+  it("heartbeat jauh lebih rapat dari ambang stale dan berumur lebih panjang dari ambang", () => {
+    expect(CLAIM_HEARTBEAT_INTERVAL_MS * 5).toBeLessThanOrEqual(STALE_CLAIM_THRESHOLD_MS)
+    expect(CLAIM_HEARTBEAT_MAX_LIFETIME_MS).toBeGreaterThan(STALE_CLAIM_THRESHOLD_MS)
+  })
+})
 
 describe("decideStaleRecovery", () => {
   it("syncing_to_wp yang stale menjadi failed_sync (tidak pernah generate ulang)", () => {

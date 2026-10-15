@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin"
-import { AgentProfile, clampLimits, ensureMandatoryToolIds } from "../types/profile"
+import { AgentProfile, ensureMandatoryToolIds, resolveStoredAgentLimits } from "../types/profile"
 import { getBuiltinProfile, resolveLegacyEngineToProfile } from "../profiles/builtin"
 
 /**
@@ -47,7 +47,7 @@ export async function resolveAgentProfile(
           workflowPrompt: data.workflow_prompt,
           toolIds: ensureMandatoryToolIds(Array.isArray(data.tool_ids) ? data.tool_ids : []),
           skills: Array.isArray(data.skills) ? data.skills : undefined,
-          limits: clampLimits(data.limits, mode),
+          limits: resolveStoredAgentLimits(data.limits, mode),
           isDefault: Boolean(data.is_default ?? (data.limits as Record<string, unknown> | null)?.isDefault ?? false),
           basedOnPreset: data.based_on_preset || undefined,
           version: data.version || 1,

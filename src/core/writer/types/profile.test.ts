@@ -7,6 +7,8 @@ import {
   DEFAULT_STANDARD_LIMITS,
   SYSTEM_LIMIT_BOUNDS,
   clampLimits,
+  parseStoredAgentLimits,
+  resolveStoredAgentLimits,
 } from "./profile"
 
 describe("clampLimits — default per mode", () => {
@@ -98,6 +100,12 @@ describe("clampLimits — kuota per-tool", () => {
     expect(result.perTool.web_search).toBe(DEFAULT_STANDARD_LIMITS.perTool.web_search)
   })
 
+  it("membuang kuota untuk tool yang tidak punya kuota bawaan (mis. tool lama list_wp_*)", () => {
+    const result = clampLimits({ perTool: { list_wp_tags: 3, web_search: 2 } })
+    expect(result.perTool).not.toHaveProperty("list_wp_tags")
+    expect(result.perTool.web_search).toBe(2)
+  })
+
   it("tidak memutasi objek default", () => {
     const result = clampLimits({ perTool: { web_search: 1 } })
     expect(result.perTool).not.toBe(DEFAULT_STANDARD_LIMITS.perTool)
@@ -161,5 +169,50 @@ describe("AgentLimitsInputSchema", () => {
     const result = AgentLimitsInputSchema.safeParse({ perTool: { list_wp_tags: 2 } })
     expect(result.success).toBe(false)
     expect(result.error?.issues[0]?.message).toMatch(/^Kuota per-tool hanya berlaku untuk tool: .*set_featured_image/)
+  })
+})
+
+describe("parseStoredAgentLimits — baris agent_profiles tersimpan", () => {
+  const legacyRow = {
+    maxModelCalls: 20,
+    maxToolCalls: 25,
+    timeoutSeconds: 300,
+    minWordCount: 900,
+    isDefault: true,
+    perTool: { list_wp_categories: 3, list_wp_tags: 2, list_wp_authors: 1, web_search: 7 },
+  }
+
+  it("validasi ketat menolak baris lama, parser longgar mempertahankan nilai valid", () => {
+    expect(AgentLimitsInputSchema.safeParse(legacyRow).success).toBe(false)
+
+    expect(parseStoredAgentLimits(legacyRow)).toEqual({
+      maxModelCalls: 20,
+      maxToolCalls: 25,
+      timeoutSeconds: 300,
+      minWordCount: 900,
+      perTool: { web_search: 7 },
+    })
+  })
+
+  it("membuang nilai non-angka per kunci tanpa menggagalkan kunci lain", () => {
+    expect(
+      parseStoredAgentLimits({ maxModelCalls: "12", maxToolCalls: 9, timeoutSeconds: null, perTool: { web_reader: "x" } })
+    ).toEqual({ maxToolCalls: 9 })
+  })
+
+  it("nilai bukan objek menghasilkan undefined (default mode)", () => {
+    expect(parseStoredAgentLimits(null)).toBeUndefined()
+    expect(parseStoredAgentLimits("deep")).toBeUndefined()
+    expect(parseStoredAgentLimits([1, 2])).toBeUndefined()
+  })
+
+  it("resolveStoredAgentLimits menjepit sesuai mode baris dan tidak menjatuhkan batas ke default", () => {
+    const result = resolveStoredAgentLimits(legacyRow, "deep")
+    expect(result.maxModelCalls).toBe(20)
+    expect(result.perTool.web_search).toBe(7)
+    expect(result.perTool).not.toHaveProperty("list_wp_tags")
+    expect(result.perTool.web_reader).toBe(DEFAULT_DEEP_LIMITS.perTool.web_reader)
+
+    expect(resolveStoredAgentLimits(undefined, "mode-tak-dikenal")).toEqual(DEFAULT_STANDARD_LIMITS)
   })
 })
