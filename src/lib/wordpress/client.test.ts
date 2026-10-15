@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { SsrfBlockedError } from "@/lib/net/safe-fetch"
 import {
   createWordPressCategory,
+  createWordPressPost,
   describeWpNetworkError,
   fetchWordPressPostRawContent,
   isValidWpPostId,
@@ -144,6 +145,7 @@ describe("operasi konten & taksonomi WordPress", () => {
         }
         if (path === "/wp-json/wp/v2/tags") return json(201, { id: 99 })
         if (path === "/wp-json/wp/v2/categories") return json(201, { id: 12, name: "Kat", slug: "kat" })
+        if (path === "/wp-json/wp/v2/posts") return json(201, { id: 77, link: "https://contoh.test/?p=77", status: "draft" })
         if (path.startsWith("/wp-json/wp/v2/posts/42?")) {
           return json(200, { id: 42, content: { raw: "<!-- wp:paragraph -->\n<p>x</p>\n<!-- /wp:paragraph -->", rendered: "<p>x</p>" } })
         }
@@ -165,6 +167,21 @@ describe("operasi konten & taksonomi WordPress", () => {
 
   afterEach(() => {
     requests.length = 0
+  })
+
+  it("judul & excerpt di-encode tepat sekali saat dikirim ke WordPress (nilai polos maupun lama yang ter-encode)", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
+
+    for (const title of ['Film "Dilan" <2025>', "Film &quot;Dilan&quot; &lt;2025&gt;"]) {
+      const result = await createWordPressPost({
+        ...creds,
+        post: { title, content: "<!-- wp:paragraph -->\n<p>x</p>\n<!-- /wp:paragraph -->", excerpt: "a > b" },
+      })
+      expect(result.ok).toBe(true)
+      const sent = JSON.parse(requests.at(-1)?.body ?? "{}") as { title: string; excerpt: string }
+      expect(sent.title).toBe("Film &quot;Dilan&quot; &lt;2025&gt;")
+      expect(sent.excerpt).toBe("a &gt; b")
+    }
   })
 
   it("nama tag dibersihkan dari HTML, dideduplikasi, dan dicocokkan dengan nama ter-escape WordPress", async () => {

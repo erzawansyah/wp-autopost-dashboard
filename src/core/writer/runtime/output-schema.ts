@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner"
 
 export const ArticleOutputSchema = z.object({
   title: z.string().describe("Judul artikel maksimal 60 karakter, lugas, padat, dan memuat kata kunci."),
@@ -65,6 +66,11 @@ export function normalizeArticleOutput(parsed: unknown): Partial<ArticleOutput> 
   return null
 }
 
+/** Buang sepasang tanda kutip pembungkus (`"Judul"` → `Judul`); kutip di dalam/ujung saja dibiarkan. */
+export function stripWrappingQuotes(value: string): string {
+  return value.replace(/^(["'])([\s\S]+)\1$/, "$2")
+}
+
 function parseArticleJson(candidate: string): Partial<ArticleOutput> | null {
   try {
     return normalizeArticleOutput(JSON.parse(candidate))
@@ -73,15 +79,73 @@ function parseArticleJson(candidate: string): Partial<ArticleOutput> | null {
   }
 }
 
+/** Penanda naskah Markdown/header di luar kandidat JSON: heading `#` atau label TITLE/EXCERPT. */
+const ARTICLE_MARKER_LINE_RE = /^[ \t]*(?:#{1,6}[ \t]|TITLE:|EXCERPT:)/im
+
+/**
+ * Kandidat JSON di `text[start, end)` hanya diterima bila mendominasi pesan: teks di luarnya (tanpa
+ * penanda fence) lebih pendek dari kandidat dan bukan naskah Markdown. Contoh JSON di dalam artikel
+ * (mis. payload REST API pada blok ```json) dengan begitu tidak menggantikan seluruh artikel.
+ */
+function isPredominantJson(text: string, start: number, end: number): boolean {
+  const outside = `${text.slice(0, start)}\n${text.slice(end)}`.replace(/```[a-zA-Z]*/g, "").trim()
+  if (!outside) return true
+  return outside.length < end - start && !ARTICLE_MARKER_LINE_RE.test(outside)
+}
+
+/** Buang blok `<think>…</think>` (case-insensitive) dengan pemindaian maju yang linear. */
+function stripThinkBlocks(text: string): string {
+  const openRe = /<think>/gi
+  const closeRe = /<\/think>/gi
+  let output = ""
+  let cursor = 0
+  for (let open = openRe.exec(text); open; open = openRe.exec(text)) {
+    closeRe.lastIndex = open.index + open[0].length
+    const close = closeRe.exec(text)
+    // Tanpa penutup: pembuka berikutnya juga tidak punya penutup, sisa teks dipertahankan.
+    if (!close) break
+    output += text.slice(cursor, open.index)
+    cursor = closeRe.lastIndex
+    openRe.lastIndex = cursor
+  }
+  return output + text.slice(cursor)
+}
+
+/** Fence pertama (```lang … ```) beserta posisinya; label `json` dilewati dari isi. */
+function findFirstFence(text: string): { start: number; end: number; body: string } | null {
+  const start = text.indexOf("```")
+  if (start === -1) return null
+  let bodyStart = start + 3
+  if (text.slice(bodyStart, bodyStart + 4).toLowerCase() === "json") bodyStart += 4
+  const close = text.indexOf("```", bodyStart)
+  if (close === -1) return null
+  return { start, end: close + 3, body: text.slice(bodyStart, close).trim() }
+}
+
+/**
+ * Baris prosa untuk excerpt heuristik: penanda kutipan `>` dibuang; heading, gambar, tabel, fence,
+ * dan HTML dilewati (excerpt dikirim sebagai teks polos sehingga sintaks Markdown akan tampil apa adanya).
+ */
+function proseExcerptLine(line: string): string | null {
+  const text = line.trim().replace(/^(?:>\s*)+/, "")
+  if (!text || /^(?:#|!\[|\||```|<)/.test(text)) return null
+  return text
+}
+
 /** Label metadata header berhuruf kapital, mis. `TITLE: ...`, `EXCERPT: ...`, `SLUG: ...`. */
 const HEADER_LABEL_LINE_RE = /^[A-Z][A-Z_ ]{1,30}:/
+/** Label metadata bebas, opsional tebal: `Meta Description: …`, `**Kata kunci:** …`. */
+const HEADER_ANY_LABEL_LINE_RE = /^(?:\*\*|__)?\p{L}[\p{L}\p{N} _-]{0,40}(?:\*\*|__)?[:：]/u
 const HEADER_SEPARATOR_LINE_RE = /^-{3,}$/
 
 /**
  * Ambil badan naskah setelah header TITLE/EXCERPT. Separator `---` hanya diakui bila berupa
  * baris tersendiri tepat setelah blok header (boleh diselingi baris kosong atau label metadata
- * kapital lain). `---` di tempat lain — pemisah tabel `| --- |` atau garis horizontal di badan
- * naskah — bukan separator. Tanpa separator, hanya baris TITLE dan EXCERPT yang dibuang.
+ * lain). Label bebas (`Meta Description:`, `**Kata kunci:**`) hanya diakui bila menempel pada blok
+ * header tanpa baris kosong, agar paragraf pembuka seperti "Catatan: …" sebelum garis horizontal
+ * tidak ikut terbuang; label kapital (`SLUG:`) boleh setelah baris kosong. `---` di tempat lain —
+ * pemisah tabel `| --- |` atau garis horizontal di badan naskah — bukan separator. Tanpa separator,
+ * hanya baris TITLE dan EXCERPT yang dibuang.
  */
 function extractBodyAfterHeader(text: string): string {
   const lines = text.split(/\r?\n/)
@@ -90,7 +154,12 @@ function extractBodyAfterHeader(text: string): string {
   const headerEnd = Math.max(titleIndex, excerptIndex)
 
   let cursor = headerEnd + 1
-  while (cursor < lines.length && (lines[cursor].trim() === "" || HEADER_LABEL_LINE_RE.test(lines[cursor].trim()))) {
+  let afterBlank = false
+  while (cursor < lines.length) {
+    const line = lines[cursor].trim()
+    if (line === "") afterBlank = true
+    else if (HEADER_LABEL_LINE_RE.test(line)) afterBlank = false
+    else if (afterBlank || !HEADER_ANY_LABEL_LINE_RE.test(line)) break
     cursor++
   }
   if (cursor < lines.length && HEADER_SEPARATOR_LINE_RE.test(lines[cursor].trim())) {
@@ -111,30 +180,36 @@ function extractBodyAfterHeader(text: string): string {
 export function extractArticleJsonFromText(text: string): Partial<ArticleOutput> | null {
   if (!text) return null
   // Hapus tag reasoning / thinking (<think>...</think>) dari model penalaran seperti DeepSeek R1 / Qwen Thinking
-  const sanitized = text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()
+  const sanitized = stripThinkBlocks(text).trim()
   if (!sanitized) return null
   const trimmed = sanitized
 
   // 1. Coba parse jika formatnya JSON (murni, di dalam fence, atau diapit teks lain).
-  //    Tiap kandidat dicoba terpisah agar kegagalan satu kandidat tidak melewatkan yang lain.
+  //    Tiap kandidat dicoba terpisah agar kegagalan satu kandidat tidak melewatkan yang lain, dan
+  //    hanya diterima bila mendominasi pesan (contoh JSON di dalam artikel Markdown diabaikan).
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     const norm = parseArticleJson(trimmed)
     if (norm) return norm
   }
-  const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
-  if (jsonMatch && jsonMatch[1]) {
-    const norm = parseArticleJson(jsonMatch[1].trim())
+  const fence = findFirstFence(trimmed)
+  if (fence?.body && isPredominantJson(trimmed, fence.start, fence.end)) {
+    const norm = parseArticleJson(fence.body)
     if (norm) return norm
   }
   const firstBrace = trimmed.indexOf("{")
   const lastBrace = trimmed.lastIndexOf("}")
-  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+  if (firstBrace !== -1 && lastBrace > firstBrace && isPredominantJson(trimmed, firstBrace, lastBrace + 1)) {
     const norm = parseArticleJson(trimmed.slice(firstBrace, lastBrace + 1))
     if (norm) return norm
   }
 
-  // 1b. Salvage parser jika JSON terpotong / unclosed string (e.g. Unterminated string in JSON)
-  if (trimmed.includes('"markdownContent"') || trimmed.includes('"content"')) {
+  // 1b. Salvage parser jika JSON terpotong / unclosed string (e.g. Unterminated string in JSON).
+  //     Hanya bila pesan memang diawali objek JSON (bukan artikel yang memuat contoh JSON).
+  if (
+    (trimmed.includes('"markdownContent"') || trimmed.includes('"content"')) &&
+    firstBrace !== -1 &&
+    isPredominantJson(trimmed, firstBrace, trimmed.length)
+  ) {
     try {
       const titleMatch = trimmed.match(/"title"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i)
       const excerptMatch = trimmed.match(/"excerpt"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i)
@@ -161,15 +236,20 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
     }
   }
 
+  // Naskah non-JSON satu baris yang seluruhnya ter-escape (`TITLE: X\nEXCERPT: Y\n---\n…` dengan `\n`
+  // literal) dipulihkan dulu agar header & heading terbaca per baris; naskah multi-baris dibiarkan
+  // (literal `\n`-nya dipulihkan cleanMarkdown tanpa menyentuh kode).
+  const markdown = trimmed.includes("\n") ? trimmed : unescapeLiteralNewlines(trimmed)
+
   // 2. Parser Metadata Header (TITLE: ... / EXCERPT: ... / ---)
-  const titleMatch = trimmed.match(/^TITLE:\s*(.+)$/im)
-  const excerptMatch = trimmed.match(/^EXCERPT:\s*(.+)$/im)
+  const titleMatch = markdown.match(/^TITLE:\s*(.+)$/im)
+  const excerptMatch = markdown.match(/^EXCERPT:\s*(.+)$/im)
 
   if (titleMatch || excerptMatch) {
-    const title = titleMatch ? titleMatch[1].trim().replace(/^["']|["']$/g, "") : undefined
-    const excerpt = excerptMatch ? excerptMatch[1].trim().replace(/^["']|["']$/g, "") : undefined
+    const title = titleMatch ? stripWrappingQuotes(titleMatch[1].trim()) : undefined
+    const excerpt = excerptMatch ? stripWrappingQuotes(excerptMatch[1].trim()) : undefined
 
-    const markdownBody = extractBodyAfterHeader(trimmed)
+    const markdownBody = extractBodyAfterHeader(markdown)
 
     if (markdownBody.length > 100) {
       return {
@@ -181,8 +261,8 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
   }
 
   // 3. Parser Markdown Murni (jika diawali heading # atau ##)
-  if (trimmed.startsWith("#") || trimmed.includes("\n## ")) {
-    const lines = trimmed.split(/\r?\n/)
+  if (markdown.startsWith("#") || markdown.includes("\n## ")) {
+    const lines = markdown.split(/\r?\n/)
     let detectedTitle: string | undefined
     let detectedExcerpt: string | undefined
     const bodyLines: string[] = []
@@ -193,8 +273,9 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
         detectedTitle = line.replace(/^#+\s*/, "").trim()
         continue
       }
-      if (detectedTitle && !detectedExcerpt && line.length > 20 && !line.startsWith("#")) {
-        detectedExcerpt = line.slice(0, 160).trim()
+      const prose = detectedTitle && !detectedExcerpt ? proseExcerptLine(line) : null
+      if (prose && prose.length > 20) {
+        detectedExcerpt = prose.slice(0, 160).trim()
       }
       bodyLines.push(lines[i])
     }
@@ -210,16 +291,16 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
   }
 
   // 4. Parser Naskah Naratif Murni (bila naskah diawali langsung dengan paragraf pembuka tanpa heading/label)
-  if (trimmed.length > 150) {
-    const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  if (markdown.length > 150) {
+    const lines = markdown.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
     const firstHeading = lines.find((l) => l.startsWith("#") || l.startsWith("##"))
     const title = firstHeading ? firstHeading.replace(/^#+\s*/, "").trim() : undefined
-    const excerpt = lines[0] && !lines[0].startsWith("#") ? lines[0].slice(0, 160).trim() : undefined
+    const excerpt = lines[0] ? proseExcerptLine(lines[0])?.slice(0, 160).trim() : undefined
 
     return {
       title,
       excerpt,
-      markdownContent: trimmed,
+      markdownContent: markdown,
     }
   }
 

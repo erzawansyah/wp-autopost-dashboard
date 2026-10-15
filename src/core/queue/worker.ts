@@ -15,6 +15,7 @@ import {
   toPlainText,
   WP_EXCERPT_MAX_LENGTH,
   WP_TITLE_MAX_LENGTH,
+  stripToPlainText,
 } from "@/lib/wordpress/plain-text"
 import {
   CLAIM_HEARTBEAT_INTERVAL_MS,
@@ -958,11 +959,12 @@ async function executePostItem(
   }
 
   // 5. Susun konten & metadata final.
-  // Judul/excerpt dikirim sebagai teks polos: WordPress tidak menyaring HTML field ini untuk akun
-  // ber-unfiltered_html (berlaku juga untuk naskah lama yang tersimpan sebelum sanitasi postprocess).
+  // Judul/excerpt disimpan sebagai teks polos tanpa encode (tampil benar di dashboard). Naskah lama
+  // yang tersimpan ter-encode ikut di-decode. Encode HTML dilakukan createWordPressPost saat dikirim.
   const wpTitle =
-    toPlainText(generated.title, WP_TITLE_MAX_LENGTH) || toPlainText(post.target_keyword, WP_TITLE_MAX_LENGTH)
-  const wpExcerpt = toPlainText(generated.excerpt, WP_EXCERPT_MAX_LENGTH) || undefined
+    stripToPlainText(generated.title, WP_TITLE_MAX_LENGTH) ||
+    stripToPlainText(post.target_keyword, WP_TITLE_MAX_LENGTH)
+  const wpExcerpt = stripToPlainText(generated.excerpt, WP_EXCERPT_MAX_LENGTH) || undefined
 
   let finalContentHtml = generated.contentHtml
   let finalFeaturedImageUrl: string | null = post.featured_image_url || null

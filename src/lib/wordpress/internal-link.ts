@@ -11,7 +11,7 @@
  * entitas HTML, kutip/dash/ellipsis hasil `wptexturize`, dan variasi spasi.
  */
 
-import { decodeHtmlEntities, toPlainText } from "./plain-text"
+import { decodeHtmlEntities, stripToPlainText } from "./plain-text"
 
 export type InsertInternalLinkResult =
   | { ok: true; content: string }
@@ -40,7 +40,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
-/** Pola regex toleran untuk teks polos (sudah dirapikan `toPlainText`). */
+/** Pola regex toleran untuk teks polos (sudah dirapikan `stripToPlainText`). */
 function buildFlexiblePattern(plainText: string): string {
   let pattern = ""
   for (const char of plainText) {
@@ -74,7 +74,7 @@ export function parseSuggestedLink(sentenceWithLink: string): { href: string; an
   }
   if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) return null
 
-  const anchorText = toPlainText(match[4])
+  const anchorText = stripToPlainText(match[4])
   if (!anchorText || Array.from(anchorText).length > MAX_ANCHOR_LENGTH) return null
 
   return { href: url.href, anchorText }
@@ -100,7 +100,7 @@ export function insertInternalLink(
   sentenceWithLink: string
 ): InsertInternalLinkResult {
   const link = parseSuggestedLink(sentenceWithLink)
-  const sentence = toPlainText(sentenceOriginal)
+  const sentence = stripToPlainText(sentenceOriginal)
   if (!link || !sentence || Array.from(sentence).length > MAX_SENTENCE_LENGTH) {
     return { ok: false, reason: "invalid_link" }
   }

@@ -18,6 +18,8 @@ import {
   sanitizeTermNames,
   toPlainText,
   WP_TERM_DESCRIPTION_MAX_LENGTH,
+  WP_TITLE_MAX_LENGTH,
+  WP_EXCERPT_MAX_LENGTH,
 } from "./plain-text"
 
 export { generateAutoWpAppName }
@@ -224,14 +226,17 @@ export async function createWordPressPost(params: {
   const endpoint = `${normalizedUrl}/wp-json/wp/v2/posts`
 
   try {
+    // Satu-satunya titik encode judul/excerpt: WordPress tidak menyaring field ini untuk akun
+    // ber-unfiltered_html. toPlainText idempoten, aman untuk nilai lama yang sudah ter-encode.
     const payload: Record<string, unknown> = {
-      title: params.post.title,
+      title: toPlainText(params.post.title, WP_TITLE_MAX_LENGTH),
       content: params.post.content,
       status: params.post.status || "draft",
     }
 
-    if (params.post.excerpt) {
-      payload.excerpt = params.post.excerpt
+    const excerpt = toPlainText(params.post.excerpt, WP_EXCERPT_MAX_LENGTH)
+    if (excerpt) {
+      payload.excerpt = excerpt
     }
     if (params.post.categories && params.post.categories.length > 0) {
       payload.categories = params.post.categories

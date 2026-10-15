@@ -1,13 +1,29 @@
+import vm from "node:vm"
 import { describe, expect, it } from "vitest"
 import { markdownToGutenberg } from "./gutenberg"
 import {
+  calculateWordCount,
   cleanMarkdown,
+  MAX_MARKDOWN_LENGTH,
+  sanitizeAISlopPhrases,
   sanitizeAuthorBylines,
   sanitizeCitationsAndReferences,
+  sanitizeConversationalPreamblesAndOutros,
   sanitizeDashes,
   sanitizeDuplicateTitleAndH1,
+  sanitizeMetaAnnouncements,
   unescapeLiteralNewlines,
 } from "./markdown-cleaner"
+
+/**
+ * Anggaran waktu untuk regresi kuadratik: watchdog `vm` menghentikan loop sinkron yang menggantung
+ * (timeout vitest tidak bisa), lalu durasi nyata dibandingkan dengan anggaran.
+ */
+function expectFast(fn: () => unknown, budgetMs = 200): void {
+  const started = performance.now()
+  vm.runInNewContext("run()", { run: fn }, { timeout: 5000 })
+  expect(performance.now() - started).toBeLessThan(budgetMs)
+}
 
 describe("cleanMarkdown — perilaku normal tidak berubah", () => {
   it("artikel tipikal (preamble, H1, heading generik, meta, sitasi, slop, referensi)", () => {
@@ -103,6 +119,27 @@ describe("sanitizeAuthorBylines — jangan hapus kalimat biasa (HIGH)", () => {
     expect(out).toContain("Paragraf akhir.")
   })
 
+  it.each(["**By The Numbers**", "By Car", "**By Air**", "By Train Or Plane", "*By The Way*"])(
+    "pseudo-heading Inggris bukan byline: %s",
+    (line) => {
+      const text = `Paragraf awal.\n\n${line}\n\nParagraf akhir.`
+      expect(sanitizeAuthorBylines(text)).toBe(text)
+    }
+  )
+
+  it("byline nama saja hanya dihapus di tepi naskah; baris serupa di tengah dipertahankan", () => {
+    const middle = ["P1.", "P2.", "P3.", "**Oleh Oleh Khas Bali**", "P4.", "P5.", "P6."].join("\n\n")
+    expect(sanitizeAuthorBylines(middle)).toBe(middle)
+
+    const top = ["*By John Smith*", "P1.", "P2.", "P3.", "P4.", "Oleh Budi Santoso"].join("\n\n")
+    expect(sanitizeAuthorBylines(top)).toBe(["", "P1.", "P2.", "P3.", "P4.", ""].join("\n\n"))
+  })
+
+  it("byline berlabel titik dua tetap dihapus di mana pun", () => {
+    const text = ["P1.", "P2.", "P3.", "Penulis: Dimas", "P4.", "P5.", "P6."].join("\n\n")
+    expect(sanitizeAuthorBylines(text)).not.toContain("Penulis: Dimas")
+  })
+
   it("cleanMarkdown tidak menghapus paragraf yang diawali 'Oleh karena itu'", () => {
     const out = cleanMarkdown("Kalimat pertama.\n\nOleh karena itu, kopi harus disimpan rapat.")
     expect(out).toContain("Oleh karena itu, kopi harus disimpan rapat.")
@@ -195,5 +232,51 @@ describe("sanitizeDashes — rentang angka dipertahankan (HIGH)", () => {
 
   it("atribusi kutipan dinormalkan ke '> -- '", () => {
     expect(sanitizeDashes("> Kopi adalah hidup.\n> — Budi")).toBe("> Kopi adalah hidup.\n> -- Budi")
+  })
+})
+
+describe("kompleksitas linear pada input patologis (MEDIUM)", () => {
+  const newlines = (count: number): string => `a${"\n".repeat(count)}b`
+
+  it.each([
+    ["cleanMarkdown: 200K newline", () => cleanMarkdown(newlines(200_000))],
+    ["cleanMarkdown: 30K baris berisi spasi", () => cleanMarkdown(`a${"\n ".repeat(30_000)}b`)],
+    ["sanitizeCitationsAndReferences: 50K newline", () => sanitizeCitationsAndReferences(newlines(50_000))],
+    ["sanitizeAISlopPhrases: 50K newline", () => sanitizeAISlopPhrases(newlines(50_000))],
+    ["sanitizeAuthorBylines: 50K newline", () => sanitizeAuthorBylines(newlines(50_000))],
+    ["sanitizeConversationalPreamblesAndOutros: 50K newline", () => sanitizeConversationalPreamblesAndOutros(newlines(50_000))],
+    ["preamble 'Tentu, berikut' + 50K spasi tanpa newline", () => sanitizeConversationalPreamblesAndOutros(`Tentu, berikut${" ".repeat(50_000)}x`)],
+    ["persona 'Sebagai' + 50K spasi", () => sanitizeAuthorBylines(`Sebagai${" ".repeat(50_000)}x`)],
+    ["meta 'Dalam artikel ini' + 50K spasi", () => sanitizeMetaAnnouncements(`Dalam artikel ini${" ".repeat(50_000)}x`)],
+    ["gambar tak tertutup '![' × 50K", () => cleanMarkdown("![".repeat(50_000))],
+    ["gambar tak tertutup '![a](' × 30K", () => cleanMarkdown("![a](".repeat(30_000))],
+    ["calculateWordCount '<' × 100K", () => calculateWordCount("<".repeat(100_000))],
+  ])("%s", (_label, fn) => {
+    expectFast(fn)
+  })
+
+  it("deretan baris kosong & baris berisi spasi diringkas, kode tidak disentuh", () => {
+    const code = "```py\ndef f():\n    \n\n\n\n    return 1\n```"
+    expect(cleanMarkdown(`Satu.\n\n\n\n   \n\t\nDua.\n\n${code}`)).toBe(`Satu.\n\nDua.\n\n${code}`)
+  })
+
+  it("naskah melebihi batas dipotong defensif", () => {
+    expect(cleanMarkdown("a".repeat(MAX_MARKDOWN_LENGTH + 1000)).length).toBe(MAX_MARKDOWN_LENGTH)
+  })
+
+  it("pola yang dibuat linear tetap bekerja seperti sebelumnya", () => {
+    expect(sanitizeConversationalPreamblesAndOutros("Tentu, berikut artikel lengkap tentang kopi:\n\n## Kopi\n\nIsi.")).toBe(
+      "## Kopi\n\nIsi."
+    )
+    expect(sanitizeConversationalPreamblesAndOutros("Here is the article about coffee:\n\nBody.")).toBe("Body.")
+    expect(sanitizeConversationalPreamblesAndOutros("Berikut ini. Kalimat biasa.\n\nIsi.")).toBe("Berikut ini. Kalimat biasa.\n\nIsi.")
+    expect(sanitizeMetaAnnouncements("Dalam artikel ini kita akan membahas kopi. Kopi enak.")).toBe("Kopi enak.")
+    expect(sanitizeCitationsAndReferences("Isi.\n\n\n## Referensi\n- a\n- b")).toBe("Isi.")
+    expect(sanitizeCitationsAndReferences("Isi.\n[1]: https://a.co\nLanjut.")).toBe("Isi.\n\nLanjut.")
+    expect(sanitizeAISlopPhrases("Pembuka.\n\nSecara keseluruhan, kopi nikmat.")).toBe("Pembuka.\n\nkopi nikmat.")
+    expect(
+      sanitizeAuthorBylines("Sebagai Kurator Kopi, saya, Ni Made Ayu, selalu terpesona oleh aroma kopi. Kopi Bali unik.")
+    ).toBe("Kopi Bali unik.")
+    expect(calculateWordCount("Satu <b>dua</b> tiga")).toBe(3)
   })
 })

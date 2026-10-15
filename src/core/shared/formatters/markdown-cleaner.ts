@@ -108,30 +108,44 @@ const LABELED_BYLINE_RE =
 
 /**
  * Byline nama saja: "Oleh Budi Santoso", "*By John Smith*" — maksimal 4 kata berhuruf kapital
- * tanpa tanda baca kalimat, lalu akhir baris.
+ * tanpa tanda baca kalimat, lalu akhir baris. "By" tanpa titik dua wajib diikuti minimal dua kata
+ * nama tanpa kata sambung, sehingga pseudo-heading Inggris ("**By Air**", "By Car",
+ * "By Train Or Plane", "**By The Numbers**") tidak dianggap byline.
  */
 const NAME_ONLY_BYLINE_RE =
-  /^[ \t]*(?:>[ \t]*)?(?:[*_]{1,2})?(?:[Oo]leh|[Bb]y|[Dd]itulis\s+[Oo]leh|[Ww]ritten\s+[Bb]y)[ \t]+\p{Lu}[\p{L}.'’-]*(?:[ \t]+\p{Lu}[\p{L}.'’-]*){0,3}(?:[*_]{1,2})?[ \t]*$/gmu
+  /^[ \t]*(?:>[ \t]*)?(?:[*_]{1,2})?(?:(?:[Oo]leh|[Dd]itulis\s+[Oo]leh|[Ww]ritten\s+[Bb]y)[ \t]+\p{Lu}[\p{L}.'’-]*(?:[ \t]+\p{Lu}[\p{L}.'’-]*){0,3}|[Bb]y(?:[ \t]+(?!(?:The|A|An|And|Or|Of|To|In|On|For|With|By)\b)\p{Lu}[\p{L}.'’-]*){2,4})(?:[*_]{1,2})?[ \t]*$/u
+
+/** Byline nama saja hanya dicari di beberapa baris non-kosong pertama/terakhir (posisi byline lazim). */
+const NAME_ONLY_BYLINE_EDGE_LINES = 3
 
 /**
  * Membersihkan byline atau atribusi penulis yang mungkin secara tidak sengaja dihasilkan model AI.
  * WordPress sudah menangani profil dan byline author secara otomatis via template tema.
  */
 export function sanitizeAuthorBylines(text: string): string {
-  let result = text
+  // 1. Bersihkan baris byline di baris tersendiri: berlabel titik dua di mana pun, atau "Oleh <Nama>"
+  //    saja di tepi naskah (di tengah naskah baris seperti itu lebih mungkin pseudo-heading).
+  const lines = text.replace(LABELED_BYLINE_RE, "").split("\n")
+  const nonEmpty = lines.flatMap((line, index) => (line.trim() ? [index] : []))
+  const edges = new Set([
+    ...nonEmpty.slice(0, NAME_ONLY_BYLINE_EDGE_LINES),
+    ...nonEmpty.slice(-NAME_ONLY_BYLINE_EDGE_LINES),
+  ])
+  for (const index of edges) {
+    if (NAME_ONLY_BYLINE_RE.test(lines[index])) lines[index] = ""
+  }
+  let result = lines.join("\n")
 
-  // 1. Bersihkan baris byline di baris tersendiri (berlabel titik dua, atau "Oleh <Nama>" saja)
-  result = result.replace(LABELED_BYLINE_RE, "").replace(NAME_ONLY_BYLINE_RE, "")
-
-  // 2. Bersihkan blok "Tentang Penulis" / "Profil Penulis" / "About the Author" di bagian akhir naskah jika ada
+  // 2. Bersihkan blok "Tentang Penulis" / "Profil Penulis" / "About the Author" di bagian akhir naskah jika ada.
+  //    `(?<!\n)` membuat pencocokan hanya dimulai di awal deretan newline (linear pada deretan panjang).
   result = result.replace(
-    /\n+#{2,4}\s*(?:Tentang\s+Penulis|Profil\s+Penulis|Mengenai\s+Penulis|About\s+the\s+Author)\s*\n+[\s\S]*$/i,
+    /(?<!\n)\n+#{2,4}[ \t]*(?:Tentang\s+Penulis|Profil\s+Penulis|Mengenai\s+Penulis|About\s+the\s+Author)\s*\n[\s\S]*$/i,
     ""
   )
 
   // 3. Bersihkan perkenalan diri narsistik yang memalsukan persona (misal: "Sebagai Kurator Kopi..., saya, Ni Made Ayu, selalu terpesona...")
   result = result.replace(
-    /^(?:Sebagai|Halo,\s*saya|Perkenalkan,\s*saya)\s+[\s\S]*?,\s*(?:saya,?\s*)?[A-Z][a-zA-Z\s]+,\s*(?:selalu|sangat|ingin|akan|melihat|percaya)\s+[^.\n]*\.\s*/i,
+    /^(?:Sebagai|Halo,\s*saya|Perkenalkan,\s*saya)\s[\s\S]*?,\s*(?:saya,?\s*)?[A-Z][a-zA-Z\s]+,\s*(?:selalu|sangat|ingin|akan|melihat|percaya)\s+[^.\n]*\.\s*/i,
     ""
   )
 
@@ -145,18 +159,19 @@ export function sanitizeAuthorBylines(text: string): string {
 export function sanitizeCitationsAndReferences(text: string): string {
   let result = text
 
-  // 1. Hapus blok "Referensi" / "Daftar Pustaka" / "References" di akhir naskah (dengan heading # maupun teks biasa)
+  // 1. Hapus blok "Referensi" / "Daftar Pustaka" / "References" di akhir naskah (dengan heading # maupun teks biasa).
+  //    `(?<!\n)` membuat pencocokan hanya dimulai di awal deretan newline (linear pada deretan panjang).
   result = result.replace(
-    /\n+(?:#{1,4}\s*)?(?:Referensi|Daftar\s+Pustaka|Sumber\s+Rujukan|Sumber\s+Referensi|References|Citations?)(?:\s*:|\s*\n)[\s\S]*$/i,
+    /(?<!\n)\n+(?:#{1,4}[ \t]*)?(?:Referensi|Daftar\s+Pustaka|Sumber\s+Rujukan|Sumber\s+Referensi|References|Citations?)(?:[ \t]*:|\s*\n)[\s\S]*$/i,
     ""
   )
   result = result.replace(
-    /\n+(?:#{1,4}\s*)?(?:Referensi|Daftar\s+Pustaka|Sumber\s+Rujukan|Sumber\s+Referensi|References|Citations?)\s*$/i,
+    /(?<!\n)\n+(?:#{1,4}[ \t]*)?(?:Referensi|Daftar\s+Pustaka|Sumber\s+Rujukan|Sumber\s+Referensi|References|Citations?)\s*$/i,
     ""
   )
 
-  // 2. Hapus baris footnote referensi mandiri seperti "[1]: URL..." atau "[^1]: Judul..."
-  result = result.replace(/^\s*\[\^?\d+\]:?\s*.+$/gm, "")
+  // 2. Hapus baris footnote referensi mandiri seperti "[1]: URL..." atau "[^1]: Judul..." (tidak melintasi baris)
+  result = result.replace(/^[ \t]*\[\^?\d+\]:?[ \t]*.+$/gm, "")
 
   // 3. Hapus penanda nomor sitasi inline seperti "[1]", "[2][3]", "[^5]" yang bukan link markdown [text](url)
   result = result.replace(/\[\^?\d+\](?!\()/g, "")
@@ -184,8 +199,9 @@ export function sanitizeNumberedHeadings(text: string): string {
  * (seperti domain example.com, placeholder.com, dummyimage, atau URL tanpa protokol valid)
  */
 export function sanitizeFakeImages(text: string): string {
-  // Regex mencari tag gambar markdown: ![alt](url...)
-  return text.replace(/!\[([^\]]*)\]\(([^)]+)\)(?:\{[^}]*\})?/g, (match, _alt, fullUrlWithOptionalTitle) => {
+  // Regex mencari tag gambar markdown: ![alt](url...) — satu baris dan berbatas panjang agar naskah
+  // berisi ribuan "![" / "![a](" tanpa penutup tidak memicu pemindaian kuadratik.
+  return text.replace(/!\[([^[\]\n]{0,1000})\]\(([^()\n]{1,2000})\)(?:\{[^{}\n]{0,500}\})?/g, (match, _alt, fullUrlWithOptionalTitle) => {
     const rawUrl = fullUrlWithOptionalTitle.trim().split(/\s+["']/)[0].trim()
     
     // Cek domain dummy / fiktif
@@ -209,15 +225,17 @@ export function sanitizeFakeImages(text: string): string {
 export function sanitizeConversationalPreamblesAndOutros(text: string): string {
   let result = text
 
-  // 1. Preamble di awal artikel
+  // 1. Preamble di awal artikel: baris pembuka tanpa "." / ":" di tengah (boleh diakhiri ":" atau ".").
+  //    `(?=(…))\N` meniru grup atomik sehingga spasi & sisa baris tidak di-backtrack (kuadratik pada
+  //    baris pembuka berisi deretan spasi panjang yang tidak berakhir newline).
   result = result.replace(
-    /^(?:(?:Tentu(?: saja)?,?\s*)?(?:berikut\s+(?:adalah\s+)?(?:draf\s+|artikel\s+|panduan\s+|naskah\s+|ulasan\s+)?(?:lengkap\s+)?(?:mengenai|tentang|terkait)?[^\n.:]+[:.]?)|(?:Sure|Certainly|Here\s+is\s+(?:a|the)\s+(?:comprehensive\s+)?(?:guide|article|blog\s+post|post)\s+(?:about|on)?)[^\n.:]+[:.]?)\s*\n+/i,
+    /^(?:(?:Tentu(?: saja)?,?\s*)?berikut(?=(\s+))\1|Sure|Certainly|Here\s+is\s+(?:a|the)\s+(?:comprehensive\s+)?(?:guide|article|blog\s+post|post)\b)(?=([^\n.:]+))\2[:.]?\s*\n+/i,
     ""
   )
 
-  // 2. Outro di akhir artikel
+  // 2. Outro di akhir artikel (`(?<!\n)`: hanya dimulai di awal deretan newline agar tetap linear)
   result = result.replace(
-    /\n+(?:(?:Semoga\s+artikel\s+ini\s+(?:dapat\s+)?(?:bermanfaat|membantu)[^.\n]*\.?)|(?:Demikian\s+(?:pembahasan|ulasan|panduan)\s+(?:mengenai|tentang)[^.\n]*\.?)|(?:I\s+hope\s+this\s+article\s+helps[^.\n]*\.?))\s*$/i,
+    /(?<!\n)\n+(?:(?:Semoga\s+artikel\s+ini\s+(?:dapat\s+)?(?:bermanfaat|membantu)[^.\n]*\.?)|(?:Demikian\s+(?:pembahasan|ulasan|panduan)\s+(?:mengenai|tentang)[^.\n]*\.?)|(?:I\s+hope\s+this\s+article\s+helps[^.\n]*\.?))\s*$/i,
     ""
   )
 
@@ -267,11 +285,11 @@ export function sanitizeDuplicateTitleAndH1(text: string, expectedTitle?: string
 export function sanitizeAISlopPhrases(text: string): string {
   let result = text
 
-  // 1. "Secara keseluruhan," di awal paragraf
-  result = result.replace(/(^|\n\n)\s*(?:Secara\s+keseluruhan|Kesimpulannya|Dapat\s+disimpulkan\s+bahwa),?\s*/gi, "$1")
+  // 1. "Secara keseluruhan," di awal paragraf ([ \t]* — bukan \s* — agar deretan newline panjang tetap linear)
+  result = result.replace(/(^|\n\n)[ \t]*(?:Secara\s+keseluruhan|Kesimpulannya|Dapat\s+disimpulkan\s+bahwa),?\s*/gi, "$1")
 
   // 2. Frasa pembuka klise kosmik
-  result = result.replace(/(^|\n\n)\s*(?:Di\s+era\s+digital\s+yang\s+serba\s+cepat\s+ini|Dalam\s+kehidupan\s+modern\s+saat\s+ini|Dewasa\s+ini),?\s*/gi, "$1")
+  result = result.replace(/(^|\n\n)[ \t]*(?:Di\s+era\s+digital\s+yang\s+serba\s+cepat\s+ini|Dalam\s+kehidupan\s+modern\s+saat\s+ini|Dewasa\s+ini),?\s*/gi, "$1")
 
   // 3. Frasa penggelembung tanpa makna di awal kalimat
   result = result.replace(/(^|[.!?]\s+)(?:Tidak\s+dapat\s+dipungkiri\s+bahwa|Perlu\s+digarisbawahi\s+bahwa|Tak\s+dapat\s+dimungkiri\s+bahwa)\s*/gi, "$1")
@@ -303,7 +321,7 @@ export function sanitizeGenericHeadings(text: string): string {
 export function sanitizeMetaAnnouncements(text: string): string {
   let result = text
   result = result.replace(
-    /(?:(?:Dalam|Pada)\s+artikel\s+ini,?\s*(?:kita|penulis|kami)?\s*(?:akan\s+)?(?:membahas|mengupas|menjelaskan|mengulas|mempelajari)[^.\n]*[.!?]\s*)/gi,
+    /(?:(?:Dalam|Pada)\s+artikel\s+ini,?\s*(?:(?:kita|penulis|kami)\s*)?(?:akan\s+)?(?:membahas|mengupas|menjelaskan|mengulas|mempelajari)[^.\n]*[.!?]\s*)/gi,
     ""
   )
   result = result.replace(
@@ -313,9 +331,25 @@ export function sanitizeMetaAnnouncements(text: string): string {
   return result
 }
 
+/**
+ * Batas defensif panjang naskah (karakter). Artikel nyata jauh di bawahnya; batas ini mencegah
+ * output model yang rusak/berulang tanpa akhir membebani sanitasi berbasis regex.
+ */
+export const MAX_MARKDOWN_LENGTH = 500_000
+
+/** Potong ke `maxLength` unit UTF-16 tanpa menyisakan high surrogate yatim di ujung. */
+function capLength(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text
+  const code = text.charCodeAt(maxLength - 1)
+  return text.slice(0, code >= 0xd800 && code <= 0xdbff ? maxLength - 1 : maxLength)
+}
+
 export function cleanMarkdown(rawMarkdown: string, expectedTitle?: string): string {
-  // 0. Normalisasi newline; buang karakter token placeholder agar tidak bisa dipalsukan naskah
-  let cleaned = (rawMarkdown || "").replace(CODE_TOKEN_CHARS_RE, "").trim().replace(/\r\n/g, "\n")
+  // 0. Batasi ukuran, normalisasi newline; buang karakter token placeholder agar tidak bisa dipalsukan naskah
+  let cleaned = capLength(rawMarkdown || "", MAX_MARKDOWN_LENGTH)
+    .replace(CODE_TOKEN_CHARS_RE, "")
+    .trim()
+    .replace(/\r\n/g, "\n")
 
   // Hilangkan pembungkus markdown code block jika model mengembalikan ```markdown ... ```
   cleaned = stripMarkdownWrapperFence(cleaned)
@@ -325,7 +359,10 @@ export function cleanMarkdown(rawMarkdown: string, expectedTitle?: string): stri
 
   // Lindungi fenced code & kode inline dari seluruh sanitasi prosa di bawah
   const code = protectCode(cleaned)
-  cleaned = code.text
+
+  // Baris berisi spasi saja dikosongkan dan deretan baris kosong diringkas di awal, sehingga pola
+  // sanitasi berbasis `\n+` / `\s*` di bawah tidak pernah bertemu deretan newline panjang.
+  cleaned = code.text.replace(/^[ \t]+$/gm, "").replace(/\n{3,}/g, "\n\n")
 
   // Bersihkan basa-basi percakapan pembuka & penutup
   cleaned = sanitizeConversationalPreamblesAndOutros(cleaned)
@@ -389,7 +426,7 @@ export function extractSubheadings(markdown: string): string[] {
 export function calculateWordCount(text: string): number {
   return text
     .replace(/[#*`_~[\]()]/g, " ")
-    .replace(/<[^>]*>/g, " ")
+    .replace(/<[^<>]*>/g, " ")
     .split(/\s+/)
     .filter(Boolean).length
 }

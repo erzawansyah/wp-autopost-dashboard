@@ -18,7 +18,7 @@
  * injection) dan sering dikirim sebagai admin dengan `unfiltered_html`, sehingga WordPress
  * TIDAK menyaring ulang. Karena itu serializer ini:
  * - meng-escape seluruh teks & nilai atribut HTML; tidak ada passthrough HTML/komentar blok mentah;
- * - hanya mengizinkan URL http/https/mailto/relatif untuk tautan (http/https untuk gambar & embed);
+ * - hanya mengizinkan URL http/https/mailto/tel/sms/relatif untuk tautan (http/https untuk gambar & embed);
  * - menyerialisasi atribut komentar blok dengan konvensi `serializeAttributes()` @wordpress/blocks;
  * - menetralkan shortcode (`[` → `&#91;`) agar tidak dieksekusi `do_shortcode` saat render.
  */
@@ -36,12 +36,22 @@ export interface GutenbergImageMetadata {
 // Escaping & validasi URL
 // ---------------------------------------------------------------------------
 
-/** `&` yang bukan awal entitas sah di-escape; entitas yang sudah ada dipertahankan (aman di teks/alt). */
-const BARE_AMPERSAND_RE = /&(?!(amp|lt|gt|quot|#39|#x[0-9a-fA-F]+|[0-9]+);)/g
+/**
+ * `&` yang bukan awal referensi entitas sah di-escape. Entitas bernama (`&nbsp;`, `&mdash;`) dan
+ * numerik (`&#8217;`, `&#x2014;`) dipertahankan agar tampil sebagai karakternya, bukan teks literal
+ * `&amp;nbsp;`. Aman di konteks teks maupun atribut ber-kutip: referensi entitas hanya menghasilkan
+ * karakter, tidak pernah markup, sedangkan `<`, `>`, dan `"` mentah tetap di-escape.
+ */
+const BARE_AMPERSAND_RE = /&(?![a-zA-Z][a-zA-Z0-9]{1,31};|#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};)/g
 
 /** Escape teks node HTML. */
 function escapeText(text: string): string {
   return text.replace(BARE_AMPERSAND_RE, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+}
+
+/** Escape isi kode (inline maupun blok): seluruh `&` di-escape agar `&nbsp;` di kode tampil apa adanya. */
+function escapeCode(code: string): string {
+  return neutralizeShortcodes(code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
 }
 
 /** Netralkan shortcode WordPress: `[` dirender identik oleh browser namun tidak dikenali `do_shortcode`. */
@@ -78,8 +88,10 @@ function decodeHtmlEntities(value: string): string {
 }
 
 type UrlPolicy = "link" | "media"
-const LINK_SCHEMES = new Set(["http", "https", "mailto"])
+const LINK_SCHEMES = new Set(["http", "https", "mailto", "tel", "sms"])
 const MEDIA_SCHEMES = new Set(["http", "https"])
+/** `tel:` / `sms:` hanya boleh berisi nomor telepon (opsional `?body=` untuk teks SMS). */
+const PHONE_URL_RE = /^(?:tel|sms):\+?[0-9][0-9().-]{2,30}(?:\?body=\S*)?$/i
 
 /** Karakter kontrol C0 / DEL (dibuang browser dari skema URL, mis. `java\tscript:`). */
 function hasControlChars(value: string): boolean {
@@ -93,7 +105,8 @@ function hasControlChars(value: string): boolean {
 /**
  * Validasi URL dari naskah tidak tepercaya. Mengembalikan URL ter-decode (belum di-escape)
  * atau `null` bila ditolak.
- * - `link`: http/https/mailto, atau relatif/anchor (`/path`, `#id`, `?q`, `halaman.html`).
+ * - `link`: http/https/mailto, tel/sms berisi nomor telepon, atau relatif/anchor (`/path`, `#id`,
+ *   `?q`, `halaman.html`).
  * - `media`: wajib absolut http/https.
  * Karakter kontrol ditolak karena browser membuangnya dari skema (`java\tscript:`).
  */
@@ -103,8 +116,11 @@ function sanitizeUrl(raw: string, policy: UrlPolicy): string | null {
 
   const scheme = decoded.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/)
   if (scheme) {
+    const name = scheme[1].toLowerCase()
     const allowed = policy === "media" ? MEDIA_SCHEMES : LINK_SCHEMES
-    return allowed.has(scheme[1].toLowerCase()) ? decoded : null
+    if (!allowed.has(name)) return null
+    if ((name === "tel" || name === "sms") && !PHONE_URL_RE.test(decoded)) return null
+    return decoded
   }
   if (policy === "media") return null
   // Titik dua sebelum "/", "?", atau "#" tanpa skema valid → ambigu, tolak.
@@ -149,37 +165,63 @@ const INLINE_TOKEN_RE = /\uE000(\d+)\uE001/g
  */
 const URL_CHAR_SRC = String.raw`[^()\s\uE000\uE001]`
 const LINK_TARGET_SRC = String.raw`\(\s*((?:${URL_CHAR_SRC}|\(${URL_CHAR_SRC}*\))+)(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)`
-const INLINE_LINK_RE = new RegExp(String.raw`\[([^\]]+)\]${LINK_TARGET_SRC}`, "g")
-const BUTTON_LINE_RE = new RegExp(String.raw`^\[([^\]]+)\]${LINK_TARGET_SRC}\s*\{[.:]?(?:button|btn)\s*\}$`, "i")
+/**
+ * Label tautan: tanpa `[`/`]` dan berbatas panjang, sehingga pencocokan tetap linear pada naskah
+ * yang dipenuhi `[` (tanpa batas ini setiap `[` memindai sampai akhir teks → kuadratik).
+ */
+const LINK_LABEL_SRC = String.raw`\[([^\[\]]{1,500})\]`
+const INLINE_LINK_RE = new RegExp(`${LINK_LABEL_SRC}${LINK_TARGET_SRC}`, "g")
+const BUTTON_LINE_RE = new RegExp(String.raw`^${LINK_LABEL_SRC}${LINK_TARGET_SRC}\s*\{[.:]?(?:button|btn)\s*\}$`, "i")
 /** Gambar di awal baris: ![alt](url "judul"){caption="..." id=123} — teks setelahnya boleh ada. */
 const IMAGE_PREFIX_RE = new RegExp(String.raw`^!\[([^\]]*)\]${LINK_TARGET_SRC}(?:\{([^}]*)\})?`)
+
+const EMPHASIS_TAG_RE = /<(\/?)(strong|em|del|mark|sub|sup|kbd)>/g
+
+/** true bila tag penekanan di `html` berpasangan dan bersarang rapi (tidak ada yang terpotong batas span). */
+function hasBalancedEmphasisTags(html: string): boolean {
+  const open: string[] = []
+  for (const [, closing, name] of html.matchAll(EMPHASIS_TAG_RE)) {
+    if (!closing) open.push(name)
+    else if (open.pop() !== name) return false
+  }
+  return open.length === 0
+}
+
+/**
+ * Pembungkus span penekanan untuk `String.replace` (grup: sebelum, isi, sesudah). Span yang isinya
+ * memotong tag lain (mis. `~~a **b~~ c**`) dibiarkan sebagai teks agar HTML tidak pernah bersilangan
+ * (`<del>…<strong>…</del>…</strong>`) — markup seperti itu ditandai "invalid content" oleh editor.
+ */
+function emphasis(tag: string) {
+  return (match: string, before: string, inner: string, after: string): string =>
+    hasBalancedEmphasisTags(inner) ? `${before}<${tag}>${inner}</${tag}>${after}` : match
+}
 
 /** Format penekanan inline (bold, italic, strike, mark, sub/sup, kbd) pada teks yang di-escape. */
 function formatEmphasis(text: string): string {
   let formatted = escapeText(text)
 
   // Bold: **text** atau __text__
-  formatted = formatted.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-  formatted = formatted.replace(/__([^_]+)__/g, "<strong>$1</strong>")
+  formatted = formatted.replace(/()\*\*([^*]+)\*\*()/g, emphasis("strong"))
+  formatted = formatted.replace(/()__([^_]+)__()/g, emphasis("strong"))
 
   // Italic: *text* atau _text_
-  formatted = formatted.replace(/(^|[^*])\*([^*]+)\*([^*]|$)/g, "$1<em>$2</em>$3")
-  formatted = formatted.replace(/(^|[^_])_([^_]+)_([^_]|$)/g, "$1<em>$2</em>$3")
+  formatted = formatted.replace(/(^|[^*])\*([^*]+)\*([^*]|$)/g, emphasis("em"))
+  formatted = formatted.replace(/(^|[^_])_([^_]+)_([^_]|$)/g, emphasis("em"))
 
   // Strikethrough: ~~text~~
-  formatted = formatted.replace(/~~([^~]+)~~/g, "<del>$1</del>")
+  formatted = formatted.replace(/()~~([^~]+)~~()/g, emphasis("del"))
 
   // Highlight / Mark: ==text==
-  formatted = formatted.replace(/==([^=]+)==/g, "<mark>$1</mark>")
+  formatted = formatted.replace(/()==([^=]+)==()/g, emphasis("mark"))
 
-  // Subscript: ~text~ (bukan ~~strike~~)
-  formatted = formatted.replace(/(^|[^~])~([^~]+)~([^~]|$)/g, "$1<sub>$2</sub>$3")
+  // Subscript ~text~ dan superscript ^text^ hanya untuk span rapat tanpa spasi (H~2~O, 2^10^),
+  // sehingga "~" penanda kira-kira ("suhu ~25°C dan ~80%") tidak berubah menjadi subscript.
+  formatted = formatted.replace(/(^|[^~])~([^~\s]+)~([^~]|$)/g, emphasis("sub"))
+  formatted = formatted.replace(/()\^([^^\s]+)\^()/g, emphasis("sup"))
 
-  // Superscript: ^text^
-  formatted = formatted.replace(/\^([^^]+)\^/g, "<sup>$1</sup>")
-
-  // Keyboard: [[key]] -> <kbd>key</kbd>
-  formatted = formatted.replace(/\[\[([^\]]+)\]\]/g, "<kbd>$1</kbd>")
+  // Keyboard: [[key]] -> <kbd>key</kbd> (isi berbatas & tanpa kurung siku agar deretan "[[" tetap linear)
+  formatted = formatted.replace(/()\[\[([^[\]]{1,100})\]\]()/g, emphasis("kbd"))
 
   return neutralizeShortcodes(formatted)
 }
@@ -200,9 +242,7 @@ export function formatInlineMarkdown(text: string): string {
   let formatted = text.replace(INLINE_TOKEN_CHARS_RE, "")
 
   // Inline Code: `code`
-  formatted = formatted.replace(/`([^`]+)`/g, (_match, code: string) =>
-    hold(`<code>${neutralizeShortcodes(escapeText(code))}</code>`)
-  )
+  formatted = formatted.replace(/`([^`]+)`/g, (_match, code: string) => hold(`<code>${escapeCode(code)}</code>`))
 
   // Links: [label](url)
   formatted = formatted.replace(INLINE_LINK_RE, (_match, label: string, url: string) => {
@@ -292,59 +332,86 @@ export function serializeQuote(quoteLines: string[]): string {
   return `<!-- wp:quote -->\n<blockquote class="wp-block-quote">\n  <p>${content}</p>${citeHtml}\n</blockquote>\n<!-- /wp:quote -->`
 }
 
+interface ListNode {
+  text: string
+  indent: number
+  ordered: boolean
+}
+
+const LIST_MARKER_RE = /^([-*+]|\d+\.)\s+/
+
 /**
- * Serialisasi blok List WordPress dengan dukungan sub-list bertingkat (Nested List)
+ * Pecah node menjadi kelompok saudara berurutan dengan jenis penanda yang sama (beserta turunannya).
+ * Saudara adalah node pertama dan setiap node berikutnya yang indentasinya tidak lebih dalam darinya.
+ */
+function splitByListType(nodes: ListNode[]): ListNode[][] {
+  const groups: ListNode[][] = []
+  let i = 0
+  while (i < nodes.length) {
+    const sibling = nodes[i]
+    let end = i + 1
+    while (end < nodes.length && nodes[end].indent > sibling.indent) end++
+    const last = groups[groups.length - 1]
+    if (last && last[0].ordered === sibling.ordered) last.push(...nodes.slice(i, end))
+    else groups.push(nodes.slice(i, end))
+    i = end
+  }
+  return groups
+}
+
+function renderListBlock(nodes: ListNode[], ordered: boolean): string {
+  const tag = ordered ? "ol" : "ul"
+  const open = openBlock("list", ordered ? { ordered: true } : undefined)
+  return `${open}\n<${tag} class="wp-block-list">\n${renderListItems(nodes)}\n</${tag}>\n<!-- /wp:list -->`
+}
+
+function renderListItems(nodes: ListNode[]): string {
+  const rendered: string[] = []
+  let i = 0
+  while (i < nodes.length) {
+    const current = nodes[i]
+    let end = i + 1
+    while (end < nodes.length && nodes[end].indent > current.indent) end++
+    const children = nodes.slice(i + 1, end)
+    i = end
+
+    const itemHtml = formatInlineMarkdown(current.text)
+    if (children.length === 0) {
+      rendered.push(`<!-- wp:list-item -->\n<li>${itemHtml}</li>\n<!-- /wp:list-item -->`)
+      continue
+    }
+    // Jenis sub-list (ol/ul) ditentukan penanda anak-anaknya sendiri, bukan diwarisi dari induk.
+    const subLists = splitByListType(children)
+      .map((group) => renderListBlock(group, group[0].ordered))
+      .join("\n")
+    rendered.push(`<!-- wp:list-item -->\n<li>${itemHtml}\n${subLists}</li>\n<!-- /wp:list-item -->`)
+  }
+  return rendered.join("\n")
+}
+
+/**
+ * Serialisasi blok List WordPress dengan dukungan sub-list bertingkat (Nested List).
+ * `ordered` menentukan jenis daftar teratas; tiap sub-list memakai jenis penanda miliknya sendiri.
+ * Baris berindentasi tanpa penanda adalah lanjutan teks item sebelumnya, bukan item baru.
  */
 export function serializeList(items: string[], ordered: boolean): string {
-  const tag = ordered ? "ol" : "ul"
-  const openList = openBlock("list", ordered ? { ordered: true } : undefined)
-
-  // Parsing baris list berindentasi
-  const parsedItems: { text: string; indent: number }[] = []
-
+  const nodes: ListNode[] = []
   for (const raw of items) {
-    const indentMatch = raw.match(/^(\s*)/)
-    const indent = indentMatch ? indentMatch[1].length : 0
-    let cleanText = raw.trim()
-
-    // Buang prefix bullet/angka
-    cleanText = cleanText.replace(/^([-*+]|\d+\.)\s+/, "")
-    parsedItems.push({ text: cleanText, indent })
-  }
-
-  // Render HTML list items
-  const renderItemTree = (nodes: typeof parsedItems): string => {
-    const rendered: string[] = []
-    let i = 0
-
-    while (i < nodes.length) {
-      const current = nodes[i]
-      const currentIndent = current.indent
-      const childNodes: typeof parsedItems = []
-
-      i++
-      while (i < nodes.length && nodes[i].indent > currentIndent) {
-        childNodes.push(nodes[i])
-        i++
-      }
-
-      const itemHtml = formatInlineMarkdown(current.text)
-      if (childNodes.length > 0) {
-        // Rekursif untuk nested sub-list
-        const subListHtml = renderItemTree(childNodes)
-        rendered.push(
-          `<!-- wp:list-item -->\n<li>${itemHtml}\n${openList}\n<${tag} class="wp-block-list">\n${subListHtml}\n</${tag}>\n<!-- /wp:list --></li>\n<!-- /wp:list-item -->`
-        )
-      } else {
-        rendered.push(`<!-- wp:list-item -->\n<li>${itemHtml}</li>\n<!-- /wp:list-item -->`)
-      }
+    const text = raw.trim()
+    if (!text) continue
+    const marker = text.match(LIST_MARKER_RE)
+    const previous = nodes[nodes.length - 1]
+    if (!marker && previous) {
+      previous.text += ` ${text}`
+      continue
     }
-
-    return rendered.join("\n")
+    nodes.push({
+      text: marker ? text.slice(marker[0].length) : text,
+      indent: raw.length - raw.trimStart().length,
+      ordered: marker ? /\d/.test(marker[1]) : ordered,
+    })
   }
-
-  const listItemsHtml = renderItemTree(parsedItems)
-  return `${openList}\n<${tag} class="wp-block-list">\n${listItemsHtml}\n</${tag}>\n<!-- /wp:list -->`
+  return renderListBlock(nodes, ordered)
 }
 
 /**
@@ -370,15 +437,17 @@ export function serializeTable(headerRow: string, separatorRow: string, bodyRows
     return null
   })
 
-  const getStyleAttr = (index: number): string => {
+  // Markup perataan persis seperti save() core/table (atribut sel `align` dari `data-align`);
+  // `style="text-align:…"` membuat blok ditandai "invalid content" oleh editor.
+  const getAlignAttrs = (index: number): string => {
     const align = alignments[index]
-    return align ? ` style="text-align:${align}"` : ""
+    return align ? ` class="has-text-align-${align}" data-align="${align}"` : ""
   }
 
   // Header
   const headers = parseCells(headerRow)
   const thHtml = headers
-    .map((h, i) => `<th${getStyleAttr(i)}>${formatInlineMarkdown(h)}</th>`)
+    .map((h, i) => `<th${getAlignAttrs(i)}>${formatInlineMarkdown(h)}</th>`)
     .join("")
 
   // Body
@@ -386,7 +455,7 @@ export function serializeTable(headerRow: string, separatorRow: string, bodyRows
     .map((row) => {
       const cells = parseCells(row)
       const tdHtml = cells
-        .map((cell, i) => `<td${getStyleAttr(i)}>${formatInlineMarkdown(cell)}</td>`)
+        .map((cell, i) => `<td${getAlignAttrs(i)}>${formatInlineMarkdown(cell)}</td>`)
         .join("")
       return `<tr>${tdHtml}</tr>`
     })
@@ -407,13 +476,18 @@ export function serializeTable(headerRow: string, separatorRow: string, bodyRows
 }
 
 /**
- * Serialisasi blok Code WordPress dengan dukungan bahasa penyorot sintaks
+ * Serialisasi blok Code WordPress dengan dukungan bahasa penyorot sintaks.
+ * core/code tidak mengenal atribut kelas pada `<code>`; bahasa disimpan sebagai `className` blok
+ * (`<pre class="wp-block-code language-x">`) agar lolos validasi editor.
  */
 export function serializeCodeBlock(code: string, language?: string): string {
-  const escaped = neutralizeShortcodes(code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
+  const escaped = escapeCode(code)
   const safeLanguage = (language || "").toLowerCase().replace(/[^a-z0-9_-]/g, "")
-  const langClass = safeLanguage ? ` class="language-${safeLanguage}"` : ""
-  return `<!-- wp:code -->\n<pre class="wp-block-code"><code${langClass}>${escaped}</code></pre>\n<!-- /wp:code -->`
+  if (!safeLanguage) {
+    return `<!-- wp:code -->\n<pre class="wp-block-code"><code>${escaped}</code></pre>\n<!-- /wp:code -->`
+  }
+  const className = `language-${safeLanguage}`
+  return `${openBlock("code", { className })}\n<pre class="wp-block-code ${className}"><code>${escaped}</code></pre>\n<!-- /wp:code -->`
 }
 
 /**
@@ -520,20 +594,34 @@ const EMBED_LINE_RE =
   /^(https?:\/\/(www\.)?(youtube\.com\/watch\?v=[a-zA-Z0-9_-]+|youtu\.be\/[a-zA-Z0-9_-]+|vimeo\.com\/\d+))\s*$/
 const FAKE_IMAGE_DOMAIN_RE =
   /example\.(?:com|org|net)|placeholder|dummy|localhost|127\.0\.0\.1|test\.com|yourdomain|via\.placeholder/i
+const SUMMARY_OPEN_RE = /<summary>/i
+const SUMMARY_CLOSE_RE = /<\/summary>/gi
+/** Item list berindentasi (sub-list) — boleh menyambung daftar setelah satu baris kosong. */
+const NESTED_LIST_ITEM_RE = /^\s{2,}(?:[-*+]|\d+\.)\s+/
+
+const TABLE_SEPARATOR_CELL_RE = /^\s*:?-+:?\s*$/
+
+/**
+ * Baris pemisah tabel: `| --- | :---: | ---: |` — memuat `|` dan setiap selnya hanya berisi dash
+ * (opsional `:` di tepi). Diperiksa per sel, bukan dengan satu regex bersarang yang backtracking
+ * eksponensial pada baris dash panjang yang gagal di ujung (mis. `|-----|-----|, `).
+ */
+function isTableSeparatorRow(line: string): boolean {
+  let row = line.trim()
+  if (!row.includes("|")) return false
+  if (row.startsWith("|")) row = row.slice(1)
+  if (row.endsWith("|")) row = row.slice(0, -1)
+  return row.split("|").every((cell) => TABLE_SEPARATOR_CELL_RE.test(cell))
+}
 
 /**
  * Helper untuk mendeteksi apakah baris saat ini adalah awal dari tabel markdown
  */
 function isTableStart(lines: string[], index: number): boolean {
   if (index >= lines.length - 1) return false
-  const current = lines[index].trim()
-  const next = lines[index + 1].trim()
 
-  // Header harus mengandung karakter pipe '|'
-  if (!current.includes("|")) return false
-
-  // Baris kedua harus separator tabel: | --- | :---: | ---: |
-  return /^\|?\s*:?-+:?\s*(\|?\s*:?-+:?\s*)+\|?$/.test(next)
+  // Header harus mengandung karakter pipe '|', baris kedua harus separator tabel
+  return lines[index].includes("|") && isTableSeparatorRow(lines[index + 1])
 }
 
 /**
@@ -651,9 +739,19 @@ function parseBlockAt(lines: string[], start: number, blocks: string[]): number 
     let summaryText = "Rincian"
     const contentLines: string[] = []
     const collect = (segment: string): void => {
-      const summaryMatch = segment.match(/<summary>(.*?)<\/summary>/i)
-      if (summaryMatch) summaryText = summaryMatch[1]
-      const rest = segment.replace(/<summary>.*?<\/summary>/i, "").trim()
+      // Pencarian literal (bukan regex lazy) agar baris berisi ribuan `<summary>` tanpa penutup tetap linear.
+      let rest = segment
+      const open = SUMMARY_OPEN_RE.exec(segment)
+      if (open) {
+        const summaryStart = open.index + open[0].length
+        SUMMARY_CLOSE_RE.lastIndex = summaryStart
+        const close = SUMMARY_CLOSE_RE.exec(segment)
+        if (close) {
+          summaryText = segment.slice(summaryStart, close.index)
+          rest = segment.slice(0, open.index) + segment.slice(close.index + close[0].length)
+        }
+      }
+      rest = rest.trim()
       if (rest) contentLines.push(rest)
     }
 
@@ -715,35 +813,28 @@ function parseBlockAt(lines: string[], start: number, blocks: string[]): number 
     return start + 1
   }
 
-  // 11. Unordered List (- atau * atau +)
-  if (UNORDERED_ITEM_RE.test(trimmed)) {
+  // 11-12. Unordered List (- atau * atau +) / Ordered List (1. 2. 3.)
+  const ordered = ORDERED_ITEM_RE.test(trimmed)
+  if (ordered || UNORDERED_ITEM_RE.test(trimmed)) {
+    const itemRe = ordered ? ORDERED_ITEM_RE : UNORDERED_ITEM_RE
     const listItems: string[] = []
-    while (
-      i < lines.length &&
-      (UNORDERED_ITEM_RE.test(lines[i].trim()) || (listItems.length > 0 && /^\s{2,}/.test(lines[i])))
-    ) {
-      if (lines[i].trim().length > 0) {
-        listItems.push(lines[i])
+    while (i < lines.length) {
+      const line = lines[i]
+      if (itemRe.test(line.trim()) || (listItems.length > 0 && /^\s{2,}/.test(line))) {
+        if (line.trim().length > 0) listItems.push(line)
+        i++
+        continue
       }
-      i++
-    }
-    emit(blocks, serializeList(listItems, false))
-    return i
-  }
-
-  // 12. Ordered List (1. 2. 3.)
-  if (ORDERED_ITEM_RE.test(trimmed)) {
-    const listItems: string[] = []
-    while (
-      i < lines.length &&
-      (ORDERED_ITEM_RE.test(lines[i].trim()) || (listItems.length > 0 && /^\s{2,}/.test(lines[i])))
-    ) {
-      if (lines[i].trim().length > 0) {
-        listItems.push(lines[i])
+      // Daftar "longgar": satu baris kosong di antara item sejenis (atau sebelum sub-item) tidak
+      // memutus daftar, sehingga penomoran <ol> tidak kembali ke 1.
+      const following = lines[i + 1]
+      if (!line.trim() && following !== undefined && (itemRe.test(following.trim()) || NESTED_LIST_ITEM_RE.test(following))) {
+        i++
+        continue
       }
-      i++
+      break
     }
-    emit(blocks, serializeList(listItems, true))
+    emit(blocks, serializeList(listItems, ordered))
     return i
   }
 

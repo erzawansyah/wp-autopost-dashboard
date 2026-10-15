@@ -1,5 +1,13 @@
+import vm from "node:vm"
 import { describe, expect, it } from "vitest"
 import { extractArticleJsonFromText } from "./output-schema"
+
+/** Watchdog `vm` (timeout vitest tidak menghentikan loop sinkron) + anggaran waktu nyata. */
+function expectFast(fn: () => unknown, budgetMs = 200): void {
+  const started = performance.now()
+  vm.runInNewContext("run()", { run: fn }, { timeout: 5000 })
+  expect(performance.now() - started).toBeLessThan(budgetMs)
+}
 
 const INTRO =
   "Kopi Nusantara memiliki ragam rasa yang luar biasa, dari Gayo yang fruity hingga Toraja yang earthy. Artikel ini membandingkan karakter utamanya."
@@ -82,5 +90,91 @@ describe("extractArticleJsonFromText — format lain tetap berfungsi", () => {
   it("blok <think> dibuang", () => {
     const text = `<think>rencana rahasia</think>\nTITLE: Kopi\nEXCERPT: Ringkas.\n---\n${BODY_WITH_TABLE}`
     expect(extractArticleJsonFromText(text)?.markdownContent).toBe(BODY_WITH_TABLE)
+  })
+})
+
+describe("extractArticleJsonFromText — contoh JSON di dalam artikel Markdown (MEDIUM)", () => {
+  const ARTICLE = [
+    "## Cara Membuat Post via WordPress REST API",
+    "",
+    "WordPress menyediakan REST API yang memudahkan otomasi publikasi konten dari aplikasi eksternal. Pertama, buat Application Password.",
+    "",
+    "```bash",
+    "curl -X POST https://situs.co.id/wp-json/wp/v2/posts -d @post.json",
+    "```",
+    "",
+    "Isi berkas post.json:",
+    "",
+    "```json",
+    '{"title": "Judul Contoh", "content": "Ini adalah isi artikel contoh yang dikirim melalui REST API WordPress.", "status": "draft"}',
+    "```",
+    "",
+    "## Menangani Respons",
+    "",
+    "Respons sukses berstatus 201 dan memuat ID post baru yang bisa Anda simpan untuk pembaruan berikutnya.",
+  ].join("\n")
+
+  it("contoh JSON tidak menggantikan seluruh artikel", () => {
+    const out = extractArticleJsonFromText(ARTICLE)
+    expect(out?.title).toBe("Cara Membuat Post via WordPress REST API")
+    expect(out?.markdownContent).toContain("## Menangani Respons")
+    expect(out?.markdownContent).toContain('{"title": "Judul Contoh"')
+  })
+
+  it("contoh JSON panjang di artikel tidak diambil salvage parser", () => {
+    const longExample = ARTICLE.replace("Ini adalah isi artikel contoh", `Ini adalah isi artikel contoh ${"panjang ".repeat(30)}`)
+    expect(extractArticleJsonFromText(longExample.replace(/"status": "draft"}/, '"status": "draft"'))?.title).toBe(
+      "Cara Membuat Post via WordPress REST API"
+    )
+  })
+
+  it("JSON yang mendominasi pesan (diapit basa-basi pendek) tetap diambil", () => {
+    const json = JSON.stringify({ title: "Kopi", markdownContent: BODY_WITH_TABLE })
+    expect(extractArticleJsonFromText(`Berikut hasilnya:\n${json}\nSemoga membantu.`)?.title).toBe("Kopi")
+    expect(extractArticleJsonFromText(`Berikut hasilnya:\n\n\`\`\`json\n${json}\n\`\`\``)?.title).toBe("Kopi")
+  })
+})
+
+describe("extractArticleJsonFromText — label header & blob ter-escape (LOW)", () => {
+  it.each([
+    ["Meta Description: Deskripsi meta singkat"],
+    ["**Kata kunci:** kopi, nusantara"],
+    ["SLUG: kopi-nusantara\nMeta Description: Deskripsi"],
+  ])("label metadata bebas sebelum --- tidak bocor ke badan naskah: %s", (labels) => {
+    const out = extractArticleJsonFromText(`TITLE: Kopi Nusantara\nEXCERPT: Ringkas.\n${labels}\n---\n${BODY_WITH_TABLE}`)
+    expect(out?.markdownContent).toBe(BODY_WITH_TABLE)
+  })
+
+  it("paragraf pembuka berlabel setelah baris kosong tidak dianggap header", () => {
+    const body = `Catatan: ${INTRO}\n\n---\n\n## Bagian\n\nIsi.`
+    expect(extractArticleJsonFromText(`TITLE: Kopi\nEXCERPT: Ringkas.\n\n${body}`)?.markdownContent).toBe(body)
+  })
+
+  it("blob satu baris ber-\\n literal: TITLE/EXCERPT terbaca dan badan naskah benar", () => {
+    const blob = `TITLE: Kopi Gayo\\nEXCERPT: Ringkasan kopi Gayo.\\n---\\n## Asal Kopi\\n\\n${INTRO}`
+    const out = extractArticleJsonFromText(blob)
+    expect(out?.title).toBe("Kopi Gayo")
+    expect(out?.excerpt).toBe("Ringkasan kopi Gayo.")
+    expect(out?.markdownContent).toBe(`## Asal Kopi\n\n${INTRO}`)
+  })
+
+  it("excerpt heuristik melewati penanda kutipan, gambar, dan tabel", () => {
+    const quoteFirst = `## Judul\n\n> ${INTRO}\n\n## Bagian\n\nIsi bagian.`
+    expect(extractArticleJsonFromText(quoteFirst)?.excerpt).toBe(INTRO.slice(0, 160).trim())
+    const imageFirst = `## Judul\n\n![Foto](https://a.co/x.jpg "Judul")\n\n${INTRO}`
+    expect(extractArticleJsonFromText(imageFirst)?.excerpt).toBe(INTRO.slice(0, 160).trim())
+  })
+})
+
+describe("extractArticleJsonFromText — kompleksitas linear", () => {
+  it.each([
+    ["'<think>' × 30K tanpa penutup", `${"<think>".repeat(30_000)}${"x".repeat(200)}`],
+    ["fence + 100K spasi tanpa penutup", `\`\`\`${" ".repeat(100_000)}x`],
+  ])("%s", (_label, text) => {
+    expectFast(() => extractArticleJsonFromText(text))
+  })
+
+  it("blok <think> tertutup tetap dibuang, yang tidak tertutup dibiarkan", () => {
+    expect(extractArticleJsonFromText(`<THINK>rahasia</think>TITLE: Kopi\n---\n${BODY_WITH_TABLE}`)?.markdownContent).toBe(BODY_WITH_TABLE)
   })
 })

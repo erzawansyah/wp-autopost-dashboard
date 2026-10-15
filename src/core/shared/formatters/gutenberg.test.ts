@@ -27,6 +27,26 @@ function convertWithin(markdown: string, ms = 2000): string {
 }
 
 /**
+ * Anggaran waktu untuk regresi ReDoS / kuadratik: watchdog `vm` menghentikan loop sinkron yang
+ * menggantung, lalu durasi nyata dibandingkan dengan anggaran (kode lama butuh detik–menit).
+ */
+function expectFast(fn: () => unknown, budgetMs = 200): void {
+  const started = performance.now()
+  runWithin(fn, 5000)
+  expect(performance.now() - started).toBeLessThan(budgetMs)
+}
+
+/** Semua tag inline (selain void) di `html` berpasangan dan bersarang rapi. */
+function isWellNested(html: string): boolean {
+  const open: string[] = []
+  for (const [, closing, name] of html.matchAll(/<(\/?)(p|strong|em|del|mark|sub|sup|kbd|code|a|li|ul|ol|th|td|tr|summary)\b[^>]*>/g)) {
+    if (!closing) open.push(name)
+    else if (open.pop() !== name) return false
+  }
+  return open.length === 0
+}
+
+/**
  * Tokenizer atribut HTML sederhana yang meniru cara browser memecah atribut di dalam tag
  * (termasuk `href="a"onclick="b"` tanpa spasi). Komentar blok dan teks ter-escape diabaikan.
  * Mengembalikan nama atribut event handler (`on*`) yang ditemukan.
@@ -177,11 +197,11 @@ describe("markdownToGutenberg — format Markdown normal tidak berubah", () => {
       <figure class="wp-block-table">
         <table>
           <thead>
-            <tr><th style="text-align:left">Kolom A</th><th style="text-align:center">Kolom B</th><th style="text-align:right">Kolom C</th></tr>
+            <tr><th class="has-text-align-left" data-align="left">Kolom A</th><th class="has-text-align-center" data-align="center">Kolom B</th><th class="has-text-align-right" data-align="right">Kolom C</th></tr>
           </thead>
           <tbody>
-            <tr><td style="text-align:left">a1</td><td style="text-align:center"><strong>b1</strong></td><td style="text-align:right">c1</td></tr>
-            <tr><td style="text-align:left">a2</td><td style="text-align:center">b2</td><td style="text-align:right">c2</td></tr>
+            <tr><td class="has-text-align-left" data-align="left">a1</td><td class="has-text-align-center" data-align="center"><strong>b1</strong></td><td class="has-text-align-right" data-align="right">c1</td></tr>
+            <tr><td class="has-text-align-left" data-align="left">a2</td><td class="has-text-align-center" data-align="center">b2</td><td class="has-text-align-right" data-align="right">c2</td></tr>
           </tbody>
         </table>
       </figure>
@@ -198,8 +218,8 @@ describe("markdownToGutenberg — format Markdown normal tidak berubah", () => {
       <blockquote class="wp-block-quote is-style-plain has-border-color"><p><strong>💡 Tips:</strong> Simpan biji kopi di wadah kedap udara.</p></blockquote>
       <!-- /wp:quote -->
 
-      <!-- wp:code -->
-      <pre class="wp-block-code"><code class="language-js">const x = 1 &lt; 2 &amp;&amp; "ok"</code></pre>
+      <!-- wp:code {"className":"language-js"} -->
+      <pre class="wp-block-code language-js"><code>const x = 1 &lt; 2 &amp;&amp; "ok"</code></pre>
       <!-- /wp:code -->
 
       <!-- wp:separator -->
@@ -341,6 +361,141 @@ describe("markdownToGutenberg — regresi infinite loop (CRITICAL)", () => {
   })
 })
 
+describe("markdownToGutenberg — ReDoS & kompleksitas (HIGH)", () => {
+  const separator = (columns: number, dashes: number): string => `|${`${"-".repeat(dashes)}|`.repeat(columns)}`
+
+  it.each([
+    [
+      "pemisah tabel + en-dash yang sudah disanitasi menjadi ', '",
+      `| A | B | C | D | E | F |\n${separator(6, 7)}, \n| 1 | 2 | 3 | 4 | 5 | 6 |`,
+    ],
+    ["pemisah menyatu dengan baris data", `| Kota | Harga | Stok | Ket |\n${separator(4, 8)}| Jakarta | 10 | 5 | ok |`],
+    ["prosa ber-pipe lalu 30 dash + teks", `Harga | Kualitas\n${"-".repeat(30)} catatan`],
+    ["pemisah lebar yang gagal di karakter terakhir", `| a |\n${separator(12, 40)}x`],
+  ])("isTableStart tidak backtracking eksponensial: %s", (_label, md) => {
+    expectFast(() => markdownToGutenberg(md))
+    expect(convertWithin(md)).not.toContain("wp:table")
+  })
+
+  it("tabel valid tetap dikenali (satu kolom, pemisah lebar)", () => {
+    expect(convertWithin("| A |\n| - |\n| 1 |")).toContain("<td>1</td>")
+    expect(convertWithin(`| A | B |\n${separator(2, 200)}\n| 1 | 2 |`)).toContain("<td>2</td>")
+  })
+
+  it("garis --- tanpa pipe setelah baris ber-pipe adalah separator, bukan tabel", () => {
+    const html = convertWithin("Pilih A | B\n---\n\nTeks")
+    expect(html).not.toContain("wp:table")
+    expect(html).toContain("<!-- wp:separator -->")
+  })
+
+  it.each([
+    ["'[' × 200K", "[".repeat(200_000)],
+    ["'[a' × 100K", "[a".repeat(100_000)],
+    ["'[[a' × 60K", "[[a".repeat(60_000)],
+    ["'<details>' + '<summary>' × 20K", `<details>${"<summary>".repeat(20_000)}`],
+  ])("input penuh kurung/summary tetap linear: %s", (_label, md) => {
+    expectFast(() => markdownToGutenberg(md))
+  })
+})
+
+describe("formatInlineMarkdown — tag tidak pernah bersilangan (invalid block)", () => {
+  it.each([
+    ["tilde 'kira-kira' + bold", "Suhu ~25°C dan **kelembapan ~80%** di pagi hari.", "Suhu ~25°C dan <strong>kelembapan ~80%</strong> di pagi hari."],
+    ["strike memotong bold", "~~a **b~~ c**", "~~a <strong>b~~ c</strong>"],
+    ["superscript memotong bold", "**a^b** c^d", "<strong>a^b</strong> c^d"],
+    ["mark memotong bold", "==x **y== z**", "==x <strong>y== z</strong>"],
+  ])("%s", (_label, md, expected) => {
+    const html = formatInlineMarkdown(md)
+    expect(html).toBe(expected)
+    expect(isWellNested(html)).toBe(true)
+  })
+
+  it("subscript/superscript rapat tetap didukung, strikethrough tetap jalan", () => {
+    expect(formatInlineMarkdown("H~2~O, 2^10^ dan ~~coret~~")).toBe("H<sub>2</sub>O, 2<sup>10</sup> dan <del>coret</del>")
+  })
+
+  it("span ber-spasi tidak menjadi subscript/superscript", () => {
+    expect(formatInlineMarkdown("Antara ~5 kg~ dan x^2 + y^2")).toBe("Antara ~5 kg~ dan x^2 + y^2")
+  })
+
+  it.each([
+    "*x **y* z**",
+    "__p *q__ r*",
+    "[[Ctrl **x]] y**",
+    "**a ~~b** c~~ ==d **e== f** ^g _h^ i_",
+  ])("kombinasi penekanan bersilangan selalu menghasilkan HTML bersarang rapi: %s", (md) => {
+    expect(isWellNested(formatInlineMarkdown(md))).toBe(true)
+  })
+})
+
+describe("formatInlineMarkdown — entitas HTML", () => {
+  it("entitas bernama & numerik dipertahankan (tidak tampil literal &amp;nbsp;)", () => {
+    expect(formatInlineMarkdown("Spasi&nbsp;tak terputus &mdash; panah &rarr; &#8217; &#x2014; dan &copy; 2024")).toBe(
+      "Spasi&nbsp;tak terputus &mdash; panah &rarr; &#8217; &#x2014; dan &copy; 2024"
+    )
+  })
+
+  it("ampersand telanjang & tag tetap di-escape", () => {
+    expect(formatInlineMarkdown("AT&T & R&D &lt;b&gt; <script>")).toBe("AT&amp;T &amp; R&amp;D &lt;b&gt; &lt;script&gt;")
+  })
+
+  it("entitas di dalam kode inline ditampilkan apa adanya", () => {
+    expect(formatInlineMarkdown("Tulis `&nbsp; <br>` di HTML")).toBe("Tulis <code>&amp;nbsp; &lt;br&gt;</code> di HTML")
+  })
+})
+
+describe("markdownToGutenberg — daftar (list)", () => {
+  /** Ringkas HTML list: buang komentar list-item & newline agar struktur mudah dibandingkan. */
+  const compact = (html: string): string => html.replace(/<!-- \/?wp:list-item -->/g, "").replace(/\n/g, "")
+
+  it("sub-list memakai jenis penandanya sendiri (ul di dalam ol, ol di dalam ul)", () => {
+    const html = compact(convertWithin("1. Langkah\n   - poin a\n   - poin b\n2. Langkah dua\n\n- Butir\n  1. sub satu"))
+    expect(html).toContain(
+      '<li>Langkah<!-- wp:list --><ul class="wp-block-list"><li>poin a</li><li>poin b</li></ul><!-- /wp:list --></li>'
+    )
+    expect(html).toContain('<li>Butir<!-- wp:list {"ordered":true} --><ol class="wp-block-list"><li>sub satu</li></ol>')
+  })
+
+  it("sub-item berlainan jenis di bawah satu item menjadi dua sub-list", () => {
+    const html = compact(convertWithin("1. A\n   - x\n   1. y"))
+    expect(html).toContain('<ul class="wp-block-list"><li>x</li></ul><!-- /wp:list --><!-- wp:list {"ordered":true} --><ol class="wp-block-list"><li>y</li></ol>')
+  })
+
+  it("baris lanjutan berindentasi tanpa penanda menyambung teks item, bukan item bertingkat", () => {
+    const html = compact(convertWithin("- Item satu panjang\n  lanjutan teks\n- Item dua"))
+    expect(html).toBe('<!-- wp:list --><ul class="wp-block-list"><li>Item satu panjang lanjutan teks</li><li>Item dua</li></ul><!-- /wp:list -->')
+  })
+
+  it("item yang dipisah satu baris kosong tetap satu daftar (penomoran tidak mulai ulang)", () => {
+    const html = convertWithin("1. Satu\n\n2. Dua\n\n3. Tiga\n\n- a\n\n- b\n\n  - b1")
+    expect(html.match(/<!-- wp:list \{"ordered":true\} -->/g)).toHaveLength(1)
+    expect(compact(html)).toContain("<li>Satu</li><li>Dua</li><li>Tiga</li>")
+    expect(compact(html)).toContain('<li>a</li><li>b<!-- wp:list --><ul class="wp-block-list"><li>b1</li>')
+  })
+
+  it("daftar berbeda jenis atau dipisah paragraf tetap blok terpisah", () => {
+    const html = convertWithin("1. Satu\n\n- a\n\nParagraf.\n\n- b")
+    expect(html.match(/<!-- wp:list(?: \{"ordered":true\})? -->\n<[ou]l/g)).toHaveLength(3)
+    expect(html).toContain("<p>Paragraf.</p>")
+  })
+})
+
+describe("markdownToGutenberg — markup blok sesuai save() core (lolos validasi editor)", () => {
+  it("blok kode berbahasa: className blok di <pre>, tanpa kelas di <code>", () => {
+    expect(serializeCodeBlock("x < 1", "JavaScript")).toBe(
+      '<!-- wp:code {"className":"language-javascript"} -->\n<pre class="wp-block-code language-javascript"><code>x &lt; 1</code></pre>\n<!-- /wp:code -->'
+    )
+    expect(serializeCodeBlock("x")).toBe('<!-- wp:code -->\n<pre class="wp-block-code"><code>x</code></pre>\n<!-- /wp:code -->')
+  })
+
+  it("perataan kolom tabel memakai has-text-align-* + data-align, bukan style", () => {
+    const html = convertWithin("| A | B | C |\n| :--- | :---: | --- |\n| 1 | 2 | 3 |")
+    expect(html).toContain('<th class="has-text-align-left" data-align="left">A</th>')
+    expect(html).toContain('<td class="has-text-align-center" data-align="center">2</td><td>3</td>')
+    expect(html).not.toContain("style=")
+  })
+})
+
 describe("formatInlineMarkdown — XSS (CRITICAL)", () => {
   it("tanda kutip di URL tidak bisa keluar dari atribut href", () => {
     const html = formatInlineMarkdown('[x](https://a"onmouseover="alert(1))')
@@ -385,9 +540,24 @@ describe("formatInlineMarkdown — XSS (CRITICAL)", () => {
   })
 
   it.each([
+    "tel:javascript:alert(1)",
+    "tel:+62<script>",
+    "sms:abc",
+    "tel:",
+    "whatsapp://send?phone=62812",
+  ])("tel/sms tidak sah dan skema di luar allowlist ditolak: %s", (url) => {
+    const html = formatInlineMarkdown(`[hubungi](${url})`)
+    expect(html).not.toContain("<a ")
+    expect(html).toContain("hubungi")
+  })
+
+  it.each([
     ["https://contoh.co.id/a?b=1&c=2", 'href="https://contoh.co.id/a?b=1&amp;c=2"'],
     ["http://contoh.co.id", 'href="http://contoh.co.id"'],
     ["mailto:redaksi@contoh.co.id", 'href="mailto:redaksi@contoh.co.id"'],
+    ["tel:+6281234567890", 'href="tel:+6281234567890"'],
+    ["tel:021-555-0123", 'href="tel:021-555-0123"'],
+    ["sms:+62812?body=Halo", 'href="sms:+62812?body=Halo"'],
     ["/kategori/kopi", 'href="/kategori/kopi"'],
     ["#faq", 'href="#faq"'],
     ["https://id.wikipedia.org/wiki/Kopi_luwak_terbaik", 'href="https://id.wikipedia.org/wiki/Kopi_luwak_terbaik"'],
