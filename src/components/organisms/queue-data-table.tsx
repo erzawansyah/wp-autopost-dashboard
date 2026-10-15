@@ -297,6 +297,10 @@ export function QueueDataTable({
     enableRowSelection: (row) => !row.getIsGrouped(),
     groupedColumnMode: false,
     autoResetExpanded: false,
+    // Tabel ini tanpa paginasi. Bila aktif, TanStack menjadwalkan `resetPageIndex` (setState) lewat microtask dari
+    // dalam render setiap kali row model berubah; saat tabel belum ter-commit (hydrasi) React memperingatkan
+    // "Can't perform a React state update on a component that hasn't mounted yet".
+    autoResetPageIndex: false,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),

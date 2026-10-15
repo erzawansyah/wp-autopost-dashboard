@@ -11,6 +11,7 @@ import { FieldGroup } from "@/components/atoms/field"
 import { Input } from "@/components/atoms/input"
 import { ControlledField } from "@/components/molecules/controlled-field"
 import { authErrorMessage } from "@/lib/auth/auth-errors"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useZodForm } from "@/lib/hooks/use-zod-form"
 import { createClient } from "@/lib/supabase/client"
 import { LoginSchema } from "@/lib/validation/auth"
@@ -30,6 +31,8 @@ export function LoginForm({ redirectTo, defaultEmail = "", notice }: LoginFormPr
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const form = useZodForm(LoginSchema, { defaultValues: { email: defaultEmail, password: "" } })
   const { isSubmitting } = form.formState
+  // Tombol aktif hanya setelah handler `onSubmit` terpasang (lihat `useHydrated`).
+  const hydrated = useHydrated()
 
   const onSubmit = form.handleSubmit(async (values) => {
     setSubmitError(null)
@@ -45,7 +48,9 @@ export function LoginForm({ redirectTo, defaultEmail = "", notice }: LoginFormPr
   })
 
   return (
-    <form noValidate onSubmit={onSubmit}>
+    // `method="post"`: submit native sebelum hydrasi (mis. JS lambat) mengirim isian di body ke halaman ini,
+    // bukan ke query string URL (riwayat browser & log akses). Next merender ulang halaman tanpa memproses body.
+    <form method="post" noValidate onSubmit={onSubmit}>
       <CardHeader className="pt-4 pb-2">
         <CardTitle className="text-base">Masuk ke Akun</CardTitle>
         <CardDescription className="text-xs">Lanjutkan kelola draf dan postingan di semua blog Anda.</CardDescription>
@@ -87,7 +92,7 @@ export function LoginForm({ redirectTo, defaultEmail = "", notice }: LoginFormPr
       </CardContent>
 
       <CardFooter className="flex flex-col gap-3 pt-0 pb-6">
-        <Button type="submit" className="h-9 w-full cursor-pointer gap-2 text-xs font-semibold shadow-2xs" disabled={isSubmitting}>
+        <Button type="submit" className="h-9 w-full cursor-pointer gap-2 text-xs font-semibold shadow-2xs" disabled={!hydrated || isSubmitting}>
           {isSubmitting ? (
             <>
               <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />

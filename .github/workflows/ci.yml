@@ -101,3 +101,61 @@ jobs:
             NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  e2e:
+    name: E2E (Playwright + Supabase lokal + WordPress Playground)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      # Log layanan, trace/video, dan laporan HTML (di luar checkout; lihat e2e/support/config.ts).
+      E2E_OUTPUT_DIR: ${{ runner.temp }}/e2e
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Versi browser mengikuti @playwright/test di package-lock (cache per versi).
+      - name: Cache browser Playwright
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Chromium Playwright
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install dependensi sistem Chromium
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      # Unduhan WordPress oleh @wp-playground/cli (paket CLI sendiri ikut cache npm di ~/.npm/_npx).
+      - name: Cache unduhan WordPress Playground
+        uses: actions/cache@v4
+        with:
+          path: ~/.wordpress-playground
+          key: wp-playground-${{ runner.os }}-${{ hashFiles('e2e/support/config.ts', 'e2e/wordpress/blueprint.json') }}
+
+      # Global setup E2E menjalankan `supabase start` (Docker; migrasi + seed), WordPress Playground, dan
+      # `next dev` dengan runner antrean tertanam. Kunci Supabase adalah kunci demo lokal dari `supabase status`
+      # yang diteruskan lewat env proses — tidak ada secret repository yang dipakai job ini.
+      - name: Test E2E
+        run: npm run test:e2e
+
+      - name: Unggah laporan Playwright & log layanan
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            ${{ env.E2E_OUTPUT_DIR }}/report
+            ${{ env.E2E_OUTPUT_DIR }}/test-results
+            ${{ env.E2E_OUTPUT_DIR }}/logs
+          retention-days: 14

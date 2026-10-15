@@ -86,7 +86,10 @@ export function ManualConnectForm({ accountIdentifier, onConnected, onCancel }: 
   }
 
   return (
+    // Form ini hanya dipasang di dalam Dialog (setelah hydrasi), jadi tidak ada submit native sebelum hydrasi;
+    // `method="post"` tetap dipasang agar Application Password tidak pernah bisa berakhir di query string URL.
     <form
+      method="post"
       noValidate
       onSubmit={form.handleSubmit((values) => {
         setSubmitError(null)

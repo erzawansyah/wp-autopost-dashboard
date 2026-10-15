@@ -11,6 +11,7 @@ import { FieldGroup } from "@/components/atoms/field"
 import { Input } from "@/components/atoms/input"
 import { ControlledField } from "@/components/molecules/controlled-field"
 import { authErrorMessage } from "@/lib/auth/auth-errors"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { useZodForm } from "@/lib/hooks/use-zod-form"
 import { createClient } from "@/lib/supabase/client"
 import { PASSWORD_MIN_LENGTH, RegisterSchema } from "@/lib/validation/auth"
@@ -28,6 +29,8 @@ export function RegisterForm({ redirectTo, onRegisteredWithoutSession }: Registe
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const form = useZodForm(RegisterSchema, { defaultValues: { email: "", password: "", confirmPassword: "" } })
   const { isSubmitting } = form.formState
+  // Tombol aktif hanya setelah handler `onSubmit` terpasang (lihat `useHydrated`).
+  const hydrated = useHydrated()
 
   const onSubmit = form.handleSubmit(async ({ email, password }) => {
     setSubmitError(null)
@@ -46,7 +49,9 @@ export function RegisterForm({ redirectTo, onRegisteredWithoutSession }: Registe
   })
 
   return (
-    <form noValidate onSubmit={onSubmit}>
+    // `method="post"`: submit native sebelum hydrasi (mis. JS lambat) mengirim isian di body ke halaman ini,
+    // bukan ke query string URL (riwayat browser & log akses). Next merender ulang halaman tanpa memproses body.
+    <form method="post" noValidate onSubmit={onSubmit}>
       <CardHeader className="pt-4 pb-2">
         <CardTitle className="text-base">Bikin Akun Baru</CardTitle>
         <CardDescription className="text-xs">Mulai atur posting artikel otomatis ke website WordPress Anda.</CardDescription>
@@ -103,7 +108,7 @@ export function RegisterForm({ redirectTo, onRegisteredWithoutSession }: Registe
       </CardContent>
 
       <CardFooter className="flex flex-col gap-3 pt-0 pb-6">
-        <Button type="submit" className="h-9 w-full cursor-pointer gap-2 text-xs font-semibold shadow-2xs" disabled={isSubmitting}>
+        <Button type="submit" className="h-9 w-full cursor-pointer gap-2 text-xs font-semibold shadow-2xs" disabled={!hydrated || isSubmitting}>
           {isSubmitting ? (
             <>
               <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />

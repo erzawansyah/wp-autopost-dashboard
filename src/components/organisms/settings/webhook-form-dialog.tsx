@@ -75,7 +75,14 @@ function WebhookForm({ webhook, onSaved }: Pick<WebhookFormDialogProps, "webhook
   })
 
   return (
-    <form noValidate onSubmit={form.handleSubmit((values) => save.mutate(values))} className="flex flex-col gap-4">
+    // Hanya dipasang di dalam Dialog (setelah hydrasi); `method="post"` menjaga secret HMAC kustom tidak pernah
+    // berakhir di query string URL bila submit native terjadi.
+    <form
+      method="post"
+      noValidate
+      onSubmit={form.handleSubmit((values) => save.mutate(values))}
+      className="flex flex-col gap-4"
+    >
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2 text-base">
           <Webhook aria-hidden="true" className="size-4 text-primary" />

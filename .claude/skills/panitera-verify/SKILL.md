@@ -23,6 +23,16 @@ npm run build                      # next build
 - Hanya mengubah dokumen/Markdown → typecheck/lint/test/build boleh dilewati; sebutkan itu di laporan.
 - Mengubah migrasi atau RLS → `npm run db:test` dulu untuk umpan balik cepat (tetap jalankan urutan penuh).
 
+### Opsional: E2E (wajib lulus di CI, job `e2e`)
+
+```bash
+npm run test:e2e   # Playwright: Supabase lokal (Docker) + WordPress Playground + next dev
+```
+
+- Jalankan bila menyentuh alur yang diuji `e2e/tests/` (auth, situs, Tulis Cepat/antrean, publikasi ke WordPress, kunci BYOK) atau runner/migrasi. Butuh Docker berjalan dan port `54321`, `9400`, `3100` bebas; tidak boleh ada `next dev` lain di checkout yang sama.
+- Supabase lokal dibiarkan berjalan setelahnya (`npx supabase stop` untuk mematikan). Log layanan, trace, dan laporan HTML ada di `E2E_OUTPUT_DIR` (default `<tmp>/panitera-e2e`). Detail: README § Test End-to-End.
+- Browser uji tidak menerima pesan reload/update HMR `next dev` (`e2e/support/ui.ts`), tetapi edit berkas saat suite berjalan tetap terpakai di halaman berikutnya → hasil run campuran; hindari mengedit selama run.
+
 ## Saat Gagal
 
 - Perbaiki **akar masalah**. Dilarang `@ts-ignore`, `any` tanpa alasan, `eslint-disable` tanpa komentar alasan, `.skip`/`.only` di test, atau melemahkan assertion agar hijau.

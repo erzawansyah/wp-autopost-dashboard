@@ -9,6 +9,7 @@ import { Button } from "@/components/atoms/button"
 import { apiFetch } from "@/lib/api/client"
 import { settingsQueries } from "@/lib/api/queries/settings"
 import { queryKeys } from "@/lib/api/query-keys"
+import { useHydrated } from "@/lib/hooks/use-hydrated"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
 import { notify } from "@/lib/ui/notify"
 import { ApiKeysFormSchema, type ApiKeysFormValues } from "@/lib/validation/settings"
@@ -31,6 +32,7 @@ export function ApiKeysForm({ initialSettings }: { initialSettings: UserSettings
   const queryClient = useQueryClient()
   const { data: settings } = useQuery({ ...settingsQueries.user(), initialData: initialSettings })
   const form = useZodForm(ApiKeysFormSchema, { defaultValues: toApiKeysFormValues(initialSettings) })
+  const hydrated = useHydrated()
 
   React.useEffect(() => {
     try {
@@ -57,7 +59,14 @@ export function ApiKeysForm({ initialSettings }: { initialSettings: UserSettings
   })
 
   return (
-    <form noValidate onSubmit={form.handleSubmit((values) => save.mutate(values))} className="flex flex-col gap-6">
+    // `method="post"` + tombol nonaktif sebelum hydrasi: kunci API yang sudah diketik tidak pernah terkirim lewat
+    // submit native, apalagi ke query string URL (riwayat browser & log akses).
+    <form
+      method="post"
+      noValidate
+      onSubmit={form.handleSubmit((values) => save.mutate(values))}
+      className="flex flex-col gap-6"
+    >
       <Alert variant="success" role="note">
         <ShieldCheck aria-hidden="true" />
         <AlertTitle>Zero Plaintext Storage Guarantee</AlertTitle>
@@ -80,7 +89,11 @@ export function ApiKeysForm({ initialSettings }: { initialSettings: UserSettings
           <Button asChild variant="outline" size="sm" className="w-full text-xs sm:w-auto">
             <Link href="/settings">Batal</Link>
           </Button>
-          <Button type="submit" disabled={save.isPending} className="w-full cursor-pointer gap-2 px-6 text-xs sm:w-auto">
+          <Button
+            type="submit"
+            disabled={!hydrated || save.isPending}
+            className="w-full cursor-pointer gap-2 px-6 text-xs sm:w-auto"
+          >
             {save.isPending ? (
               <Loader2 aria-hidden="true" className="size-3.5 animate-spin motion-reduce:animate-none" />
             ) : (

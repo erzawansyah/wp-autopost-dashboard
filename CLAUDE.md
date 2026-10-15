@@ -43,6 +43,7 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
    npm test               # Vitest: src/**/*.test.ts + test DB PGlite di supabase/tests
    npm run audit:hygiene  # orphan file, prompt hardcode, istilah legacy, raw fetch, warna arbitrer
    npm run build
+   npm run test:e2e       # opsional lokal (Docker); job CI `e2e`: Playwright + Supabase lokal + WP Playground
    ```
    Urutan lengkap & penanganan kegagalan: skill `panitera-verify`. CI (`.github/workflows/ci.yml`) menjalankan hal yang sama.
 9. **Sandbox lokal `.workspaces/`** (di-ignore Git) untuk skrip, scratch, fixture, dan worklog — jangan menaruh berkas ad-hoc di root.

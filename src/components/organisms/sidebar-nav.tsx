@@ -255,19 +255,23 @@ export function SidebarNav({ developerMode: initialDeveloperMode }: SidebarNavPr
               className="hidden lg:flex items-center flex-1 min-w-0 py-0.5 hover:opacity-85 transition-opacity"
               title="Kembali ke Dashboard Panitera"
             >
+              {/* Logo 3:1 → lebar tetap `w-30` (120 px) + `h-auto` = 120×40 sesuai atribut width/height. Selalu di atas lipatan dan
+                  sering menjadi LCP; dua kandidat (terang/gelap) → `loading="eager"`, bukan `preload`. */}
               <Image
                 src="/assets/panitera-logo.png"
                 alt="Panitera - Publishing Desk"
                 width={120}
                 height={40}
-                className="h-10 w-full max-w-[195px] object-contain object-left dark:hidden"
+                loading="eager"
+                className="h-auto w-30 dark:hidden"
               />
               <Image
                 src="/assets/panitera-logo-inverse.png"
                 alt="Panitera - Publishing Desk"
                 width={120}
                 height={40}
-                className="h-10 w-full max-w-[195px] object-contain object-left hidden dark:block"
+                loading="eager"
+                className="hidden h-auto w-30 dark:block"
               />
             </Link>
             {/* Mobile: Favicon Logo */}

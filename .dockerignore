@@ -30,6 +30,12 @@ out
 .workspaces/assets
 *.log
 
+# Test E2E (Playwright) — tidak dibutuhkan untuk build image
+e2e
+playwright.config.ts
+test-results
+playwright-report
+
 # Claude Code harness & local agent workspace (tidak dibutuhkan di image)
 .claude
 CLAUDE.md

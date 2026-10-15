@@ -1,0 +1,29 @@
+{
+  "$schema": "https://playground.wordpress.net/blueprint-schema.json",
+  "meta": {
+    "title": "Panitera E2E WordPress",
+    "author": "panitera",
+    "description": "Situs WordPress sekali pakai untuk test E2E Panitera: admin + Application Password (REST API) + kategori contoh. Tanpa plugin custom (Zero-Friction Onboarding)."
+  },
+  "landingPage": "/wp-admin/",
+  "steps": [
+    {
+      "step": "defineWpConfigConsts",
+      "consts": {
+        "WP_ENVIRONMENT_TYPE": "local"
+      }
+    },
+    {
+      "step": "setSiteOptions",
+      "options": {
+        "blogname": "Panitera E2E",
+        "blogdescription": "Situs uji E2E",
+        "permalink_structure": "/%postname%/"
+      }
+    },
+    {
+      "step": "runPHP",
+      "code": "<?php\nrequire '/wordpress/wp-load.php';\nflush_rewrite_rules();\nforeach (array('Teknologi', 'Gaya Hidup') as $name) {\n  if (!term_exists($name, 'category')) {\n    wp_insert_term($name, 'category');\n  }\n}\n$user = get_user_by('login', 'admin');\nif (!$user) {\n  throw new Exception('User admin tidak ditemukan.');\n}\n$created = WP_Application_Passwords::create_new_application_password($user->ID, array('name' => 'panitera-e2e'));\nif (is_wp_error($created)) {\n  throw new Exception($created->get_error_message());\n}\nif (!is_dir('/e2e-state')) {\n  throw new Exception('Direktori /e2e-state belum di-mount.');\n}\nfile_put_contents('/e2e-state/credentials.json', json_encode(array('username' => 'admin', 'appPassword' => $created[0])));\n"
+    }
+  ]
+}

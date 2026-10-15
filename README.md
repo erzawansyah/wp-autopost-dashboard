@@ -148,6 +148,7 @@ Setelah berjalan:
 | `npm run db:diff` / `npm run db:push` | Supabase CLI. `db:push` menerapkan migrasi ke proyek yang di-*link*, jadi gunakan hanya untuk proyek dev/staging atau dengan persetujuan pemilik proyek. |
 | `npm run audit:hygiene` | Audit kebersihan codebase (lihat di bawah). |
 | `npm run build` | Build produksi (`output: "standalone"`). |
+| `npm run test:e2e` | Test end-to-end Playwright: Supabase lokal + WordPress Playground + `next dev` (lihat di bawah). |
 
 **Audit kebersihan** (`scripts/audit-codebase.ts`, langsung dijalankan Node 22 tanpa dependensi) memeriksa: berkas yatim dan modul yang hanya dipakai test, berkas prompt `.md` yang salah nama atau tidak dirujuk, prompt LLM hardcode di kode TS, istilah legacy "engine", warna mentah/arbitrary di UI, serta `fetch()` mentah ke URL non-relatif. Temuan lama yang disengaja dicatat di `scripts/audit-allowlist.json` dengan alasan dan batas `max` per berkas. Temuan baru membuat audit gagal. Host eksternal tetap (OpenRouter, Tavily, dll.) didaftarkan di `externalHosts`; URL dari pengguna/LLM wajib lewat `safeFetch()`.
 
@@ -157,6 +158,18 @@ Sebelum membuka PR, jalankan urutan yang sama dengan CI: `typecheck` → `lint -
 NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=dummy npm run build
 ```
 
+### Test End-to-End (Playwright)
+`npm run test:e2e` menjalankan suite di `e2e/tests/` terhadap layanan lokal yang dinyalakan global setup (`e2e/global-setup.ts`) dan dimatikan lagi saat selesai:
+
+1. **Supabase lokal** (Supabase CLI + Docker): dipakai ulang bila sudah berjalan (migrasi tertunda diterapkan dengan `supabase migration up --local`), selain itu `supabase start` (migrasi + seed). Stack dibiarkan berjalan setelah test; hentikan dengan `npx supabase stop`.
+2. **WordPress Playground** (`@wp-playground/cli`, WordPress 7.1, PHP 8.3) dari blueprint `e2e/wordpress/blueprint.json`: admin + Application Password, tanpa plugin.
+3. **Aplikasi** lewat `next dev` (bukan `next start`: build production sengaja menolak WordPress di loopback/http) dengan runner antrean tertanam, kunci demo Supabase lokal dari `supabase status`, dan `ENCRYPTION_MASTER_KEY` acak per run. `.env.local` tidak dipakai; tidak ada panggilan LLM atau layanan internet.
+
+- **Prasyarat:** Docker berjalan; port `54321`–`54322` (Supabase), `9400` (WordPress), dan `3100` (aplikasi) bebas; tidak ada `next dev` lain di checkout yang sama (Next.js mengunci satu server dev per proyek). Browser: `npx playwright install chromium` sekali.
+- **Data:** setiap test memakai akun baru `@e2e.panitera.test`; semua akun berdomain itu dihapus saat setup & teardown. Karena runner memproses antrean semua tenant, setup menolak berjalan bila Supabase lokal berisi antrean aktif milik akun lain (`E2E_ALLOW_SHARED_DB=1` untuk melewati).
+- **Env opsional:** `E2E_OUTPUT_DIR` (default `<tmp>/panitera-e2e`), `E2E_APP_PORT`, `E2E_WP_PORT`, `E2E_WP_VERSION`, `E2E_PHP_VERSION`, `E2E_KEEP_DATA=1` (akun uji tidak dihapus).
+- **Hasil:** log layanan (`logs/`), trace/video/screenshot test gagal (`test-results/`), dan laporan HTML (`report/`) di `E2E_OUTPUT_DIR` — buka dengan `npx playwright show-report <E2E_OUTPUT_DIR>/report`.
+
 ### Continuous Integration
 Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) berjalan pada setiap pull request dan push ke `main`/`v2`. Run lama pada ref yang sama dibatalkan otomatis, dan token workflow hanya berizin `contents: read`.
 
@@ -165,6 +178,7 @@ Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) berjalan pada se
 | `checks` | `npm ci`, typecheck, lint (`--max-warnings=0`), Vitest (termasuk test DB PGlite), `audit:hygiene`, dan `npm audit --omit=dev --audit-level=critical`. |
 | `build` | `next build` dengan env publik placeholder (tanpa secret) dan cache `.next/cache`. |
 | `docker` | `docker build` lewat Buildx dengan cache GitHub Actions, tanpa push. |
+| `e2e` | `npm run test:e2e` (Supabase lokal via Docker, WordPress Playground, `next dev`); laporan Playwright + log layanan diunggah sebagai artifact saat gagal. |
 
 Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) membuka PR mingguan untuk npm (minor/patch digabung, major Next.js diabaikan) dan PR bulanan untuk GitHub Actions, `Dockerfile`, serta image di `docker-compose.yml`.
 
