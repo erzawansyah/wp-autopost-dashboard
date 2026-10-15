@@ -34,6 +34,9 @@ const CHAR_PATTERNS: Record<string, string> = {
   "–": "(?:–|&#8211;|&ndash;|--|-)",
   "—": "(?:—|&#8212;|&mdash;|---|--)",
   "…": "(?:…|&#8230;|&hellip;|\\.\\.\\.)",
+  // Serializer Gutenberg menetralkan shortcode: `[` → `&#91;` + WORD JOINER (U+2060) yang tak terlihat.
+  "[": "(?:\\[|&#91;|&#x5[bB];)(?:\u2060|&#8288;)?",
+  "]": "(?:\\]|&#93;|&#x5[dD];)",
 }
 
 function escapeRegExp(value: string): string {
@@ -50,14 +53,18 @@ function buildFlexiblePattern(plainText: string): string {
   return pattern
 }
 
-/** Escape URL tervalidasi untuk atribut `href` (shortcode dinetralkan seperti serializer Gutenberg). */
+/**
+ * Escape URL tervalidasi untuk atribut `href`. `[`/`]` di-percent-encode (seperti serializer Gutenberg):
+ * entitas `&#91;` akan didekode editor blok saat disimpan ulang sehingga shortcode bisa hidup kembali.
+ */
 function escapeHrefAttribute(url: string): string {
   return url
+    .replace(/\[/g, "%5B")
+    .replace(/\]/g, "%5D")
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\[/g, "&#91;")
 }
 
 /** Ambil URL http(s) & teks anchor dari HTML rekomendasi; null bila tidak sah. */

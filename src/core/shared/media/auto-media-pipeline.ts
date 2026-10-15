@@ -149,12 +149,15 @@ export async function processAndSyncArticleMedia(
     // Ganti seluruh kemunculan link eksternal dengan URL WordPress dan penanda id
     const { sourceUrl: cleanWpUrl, mediaId, isCached } = uploadRes.data
 
-    // Regex untuk menggantikan gambar spesifik ini
+    // Regex untuk menggantikan gambar spesifik ini; atribut `{…}` lain (mis. caption) dipertahankan.
     const targetPattern = new RegExp(
-      `!\\[([^\\]]*)\\]\\(${escapeRegExp(externalUrl)}\\)(?:\\{[^}]*\\})?`,
+      `!\\[([^\\]]*)\\]\\(${escapeRegExp(externalUrl)}\\)(?:\\{([^}]*)\\})?`,
       "g"
     )
-    updatedMarkdown = updatedMarkdown.replace(targetPattern, `![$1](${cleanWpUrl}){id=${mediaId}}`)
+    updatedMarkdown = updatedMarkdown.replace(
+      targetPattern,
+      (_match, alt: string, attributes: string | undefined) => `![${alt}](${cleanWpUrl})${withMediaId(attributes, mediaId)}`
+    )
     if (!isCached) uploadedCount++
   }
 
@@ -168,6 +171,20 @@ export async function processAndSyncArticleMedia(
     featuredImageUrl: resolvedFeaturedImageUrl,
     uploadedImagesCount: uploadedCount,
   }
+}
+
+/**
+ * Atribut `{…}` gambar dengan `id` media WordPress: `id` lama diganti, atribut lain (mis. `caption="…"`)
+ * dipertahankan. Nilai berkutip dilewati agar teks seperti `caption="id=5"` tidak ikut terhapus.
+ */
+function withMediaId(attributes: string | undefined, mediaId: number): string {
+  const kept = (attributes ?? "")
+    .replace(/(["'])[^"']*\1|(^|\s)id=[^\s"']*/g, (match, quote: string | undefined, lead: string | undefined) =>
+      quote ? match : (lead ?? "")
+    )
+    .replace(/\s+/g, " ")
+    .trim()
+  return kept ? `{${kept} id=${mediaId}}` : `{id=${mediaId}}`
 }
 
 function escapeRegExp(string: string): string {

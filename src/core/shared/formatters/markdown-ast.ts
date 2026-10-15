@@ -11,8 +11,13 @@
  *   - `full`: seluruh konstruksi CommonMark + GFM;
  *   - `inline-safe`: struktur blok tetap di-parse, tetapi seluruh konstruksi inline (emphasis, tautan,
  *     gambar, kode inline, escape, autolink) tidak dikenali dan tampil sebagai teks literal, karena naskah
- *     memuat terlalu banyak penanda inline (per paragraf atau total);
+ *     melewati anggaran biaya inline;
  *   - `plain` (`root: null`): naskah terlalu besar/patologis, pemanggil memakai jalur teks polos linear.
+ * - Anggaran inline tidak bergantung pada ketepatan pra-pemindaian meniru micromark: paragraf tidak pernah
+ *   melewati baris kosong (atau baris berisi `>` saja), sehingga biaya dihitung per kelompok baris di antara
+ *   baris kosong dengan menghitung SEMUA barisnya (termasuk baris yang dikira fence/kode). Penanda di dalam
+ *   kode inline hanya dikecualikan bila pemasangan backtick-nya pasti sama dengan micromark.
+ * - Biaya penutupan kontainer (`MAX_CONTAINER_COST`) juga dihitung atas semua baris.
  */
 
 import type { Nodes, Parents, Root } from "mdast"
@@ -39,15 +44,38 @@ const MAX_AST_CHARS = 80_000
 const MAX_AST_LINES = 2_500
 const MAX_AST_TOTAL_LINES = 6_000
 const MAX_AST_CHUNKS = 1_000
-const MAX_CONTAINER_MARKERS = 8
-const MAX_CONTENT_COLUMN = 48
-const MAX_TABLE_PIPES_PER_LINE = 64
-/** Penanda dengan resolver kuadratik (`*`, `_`, `~`, `[`, `]`, kandidat autolink) per potongan paragraf. */
-const MAX_CHUNK_TRIGGERS = 200
-/** Seluruh token inline (penanda di atas + `` ` ``, `<`, `\`, `&`, `!`) per naskah. */
+/** Sarang patologis (ribuan tingkat → stack overflow / biaya kontainer × baris). */
+const MAX_CONTAINER_MARKERS = 32
+const MAX_CONTENT_COLUMN = 128
+/**
+ * Setiap kontainer yang ditutup micromark menyusun ulang array event dokumen (biaya ∝ posisi baris), sehingga
+ * baris berpenanda banyak yang terus berganti item (`- > - > …` × ratusan baris) kuadratik: ±0,35 µs per
+ * (kontainer tertutup × nomor baris). Anggaran ini membatasinya di ±0,25 dtk; list biasa (satu penanda per
+ * baris, sub-list lewat indentasi) tidak menambah biaya.
+ */
+const MAX_CONTAINER_COST = 300_000
+/** Sel tabel: biaya per sel seperti potongan inline. */
+const MAX_TABLE_PIPES_PER_LINE = 256
+const MAX_TABLE_PIPES = 8_000
+/**
+ * Anggaran kelompok baris (dipisah baris kosong). Resolver emphasis/label micromark berbiaya ±G² untuk G
+ * penanda (`*`, `_`, `~`, `[`, `]`, kandidat autolink) dalam satu paragraf; G per kelompok membatasi G
+ * paragraf mana pun di dalamnya. Σ G × (G + baris) ≤ anggaran membatasi total (±0,15 dtk per parse).
+ */
+const MAX_GROUP_TRIGGERS = 1_500
+const MAX_GROUP_COST = 6_000_000
+/**
+ * Deret backtick tanpa pasangan memindai sampai akhir paragraf (±0,3 µs per karakter). Paling banyak satu
+ * deret tak berpasangan per panjang deret, sehingga Σ (jumlah panjang deret berbeda × karakter kelompok)
+ * membatasi biayanya.
+ */
+const MAX_BACKTICK_COST = 1_000_000
+/** Seluruh token inline prosa (penanda di atas + `` ` ``, `<`, `\`, `&`, `!`) per naskah. */
 const MAX_INLINE_TOKENS = 12_000
 /** Deretan `[-.\w+]` terpanjang (regex email autolink GFM kuadratik pada deretan bertanda baca). */
 const MAX_WORD_RUN = 2_000
+/** Kolom maksimum hasil `normalizeListIndentation` (membatasi pertambahan panjang naskah). */
+const MAX_NORMALIZED_COLUMN = 48
 
 /**
  * Konstruksi micromark yang selalu dimatikan:
@@ -124,7 +152,9 @@ interface LinePrefix {
   /** Jumlah penanda kontainer (`>` dan penanda list) di awal baris. */
   markers: number
   quotes: number
+  /** Penanda list terdalam di baris ini beserta kolomnya. */
   list: ListMarker | null
+  listColumn: number
   /** Kolom awal konten setelah seluruh prefiks (tab = kelipatan 4). */
   column: number
   rest: string
@@ -172,6 +202,7 @@ function parseLinePrefix(line: string): LinePrefix {
   let markers = 0
   let quotes = 0
   let list: ListMarker | null = null
+  let listColumn = 0
   let thematicChecked = false
 
   while (markers <= MAX_CONTAINER_MARKERS) {
@@ -197,6 +228,7 @@ function parseLinePrefix(line: string): LinePrefix {
       }
       markers++
       list = "bullet"
+      listColumn = column
       index++
       column++
       continue
@@ -212,6 +244,7 @@ function parseLinePrefix(line: string): LinePrefix {
     ) {
       markers++
       list = Number(line.slice(index, index + digits)) === 1 ? "ordered-one" : "ordered"
+      listColumn = column
       index = afterDelimiter
       column += digits + 1
       continue
@@ -219,7 +252,7 @@ function parseLinePrefix(line: string): LinePrefix {
     break
   }
 
-  return { markers, quotes, list, column, rest: line.slice(index) }
+  return { markers, quotes, list, listColumn, column, rest: line.slice(index) }
 }
 
 /** Prefiks `>` (opsional satu spasi) lalu indentasi, untuk baris di dalam fence. */
@@ -254,7 +287,7 @@ function closesFence(rest: string, fence: { marker: string; size: number }): boo
   return Boolean(match && match[1][0] === fence.marker && match[1].length >= fence.size)
 }
 
-interface InlineStats {
+interface LineStats {
   /** Penanda ber-resolver kuadratik: `*`, `_`, `~`, `[`, `]`, `@`, `www.`, `://`. */
   triggers: number
   /** Seluruh token inline: `triggers` + `` ` ``, `<`, `\`, `&`, `!`. */
@@ -262,6 +295,15 @@ interface InlineStats {
   pipes: number
   /** Deretan `[-.\w+]` terpanjang. */
   longestRun: number
+  /** Baris memuat backtick. */
+  backticks: boolean
+  /** Kode inline berpasangan di baris ini tidak dapat dipastikan (lihat `lineCodeSpans`). */
+  spansUnsure: boolean
+  /** Ada deret backtick tanpa pasangan di baris ini (bisa berpasangan dengan baris lain). */
+  spansUnpaired: boolean
+  /** Bagian `triggers` / `tokens` yang berada di dalam kode inline berpasangan. */
+  spanTriggers: number
+  spanTokens: number
 }
 
 const TRIGGER_CHARS = new Set(["*", "_", "~", "[", "]", "@"])
@@ -275,11 +317,66 @@ function isWordRunChar(code: number): boolean {
   )
 }
 
-function inlineStats(text: string): InlineStats {
-  const stats: InlineStats = { triggers: 0, tokens: 0, pipes: 0, longestRun: 0 }
+type BacktickRun = readonly [start: number, size: number]
+
+/**
+ * Isi kode inline berpasangan dalam satu baris (`[awal, akhir)`), menirukan micromark: deret backtick
+ * pembuka berpasangan dengan deret berikutnya yang sama panjang; tanpa pasangan → literal (`unpaired`).
+ * `null` bila pemasangan tidak dapat dipastikan dari baris ini saja: `\` sebelum backtick (escape), `<`
+ * (autolink lebih kuat dari kode inline), `://`/`www.` (autolink literal GFM dapat menelan backtick), atau
+ * `|` (sel tabel memotong kode inline).
+ */
+function lineCodeSpans(text: string, runs: readonly BacktickRun[]): { spans: SourceRange[]; unpaired: boolean } | null {
+  if (/[|<]|:\/\/|www\./.test(text)) return null
+  const next = new Array<number>(runs.length).fill(-1)
+  const following = new Map<number, number>()
+  for (let index = runs.length - 1; index >= 0; index--) {
+    const [start, size] = runs[index]
+    if (start > 0 && text[start - 1] === "\\") return null
+    next[index] = following.get(size) ?? -1
+    following.set(size, index)
+  }
+  const spans: SourceRange[] = []
+  let unpaired = false
+  for (let index = 0; index < runs.length; ) {
+    const closer = next[index]
+    if (closer === -1) {
+      unpaired = true
+      index++
+      continue
+    }
+    spans.push([runs[index][0] + runs[index][1], runs[closer][0]])
+    index = closer + 1
+  }
+  return { spans, unpaired }
+}
+
+/** Statistik satu baris utuh; panjang deret backtick dicatat ke `backtickRuns`. */
+function lineStats(text: string, backtickRuns: Set<number>): LineStats {
+  const stats: LineStats = {
+    triggers: 0,
+    tokens: 0,
+    pipes: 0,
+    longestRun: 0,
+    backticks: false,
+    spansUnsure: false,
+    spansUnpaired: false,
+    spanTriggers: 0,
+    spanTokens: 0,
+  }
+  const runs: BacktickRun[] = []
   let run = 0
-  for (let index = 0; index < text.length; index++) {
+  let ticks = 0
+  for (let index = 0; index <= text.length; index++) {
     const char = text[index]
+    if (char === "`") {
+      ticks++
+    } else if (ticks > 0) {
+      backtickRuns.add(ticks)
+      runs.push([index - ticks, ticks])
+      ticks = 0
+    }
+    if (index === text.length) break
     const autolink = (char === "." && text.startsWith("www", index - 3)) || (char === ":" && text.startsWith("//", index + 1))
     if (TRIGGER_CHARS.has(char) || autolink) {
       stats.triggers++
@@ -292,30 +389,101 @@ function inlineStats(text: string): InlineStats {
     run = isWordRunChar(text.charCodeAt(index)) ? run + 1 : 0
     if (run > stats.longestRun) stats.longestRun = run
   }
+  if (runs.length === 0) return stats
+
+  stats.backticks = true
+  const paired = lineCodeSpans(text, runs)
+  if (paired === null) {
+    stats.spansUnsure = true
+    return stats
+  }
+  stats.spansUnpaired = paired.unpaired
+  for (const [start, end] of paired.spans) {
+    for (let index = start; index < end; index++) {
+      const char = text[index]
+      if (TRIGGER_CHARS.has(char)) {
+        stats.spanTriggers++
+        stats.spanTokens++
+      } else if (TOKEN_CHARS.has(char)) {
+        stats.spanTokens++
+      }
+    }
+  }
   return stats
 }
 
+/** Item list yang memuat paragraf yang sedang terbuka. */
+interface OpenItem {
+  ordered: boolean
+  /** Kolom konten item (baris berpenanda dengan kolom lebih kecil adalah item saudara). */
+  content: number
+}
+
+/** Baris kosong atau berisi `>` saja: tidak pernah menjadi bagian paragraf. */
+const GROUP_BOUNDARY_RE = /^[\s>]*$/
+
 /**
  * Pindai naskah sekali per baris: tentukan mode parse dan rentang fenced code perkiraan.
- * Potongan inline didekati seperti micromark: dipisah baris kosong, fence, heading, pembatas, item list
- * baru, awal blockquote, dan tiap baris badan tabel. Perkiraan meleset paling jauh ke arah konservatif
- * (menghitung lebih banyak), kecuali faktor kecil yang terbatas.
+ * - Potongan inline (tokenizer anak micromark) didekati dengan aturan interupsi CommonMark: selama paragraf
+ *   terbuka, item list berurut yang tidak diawali 1 atau item kosong tidak dapat memotong paragraf, sehingga
+ *   barisnya adalah lanjutan paragraf (bukan fence/heading), kecuali item saudara dari list yang sama.
+ * - Anggaran inline dihitung per kelompok baris di antara baris kosong atas SEMUA baris (lihat
+ *   `MAX_GROUP_TRIGGERS`), jadi perkiraan yang meleset tidak bisa melewati batas biaya.
  */
 function scanMarkdown(source: string): { mode: ParseMode; fences: SourceRange[] } {
   const fences: SourceRange[] = []
   let mode: ParseMode = source.length > MAX_AST_CHARS ? "plain" : "full"
+  let inlineHeavy = false
   let totalLines = 0
   let nonBlankLines = 0
   let chunks = 0
   let inlineTokens = 0
+  let tablePipes = 0
   let fence: OpenFence | null = null
-  /** Baris prosa berikutnya melanjutkan potongan inline yang sedang terbuka. */
-  let chunkOpen = false
-  let chunkTriggers = 0
+  /** Baris sebelumnya teks paragraf: baris berikut bisa menjadi lanjutan (termasuk lanjutan malas). */
+  let paragraphOpen = false
+  let paragraphItem: OpenItem | null = null
+  let lastItem: OpenItem | null = null
   let tableBody = false
   let previousHadPipe = false
   let previousQuotes = 0
-  let lastList: ListMarker | null = null
+
+  let groupTriggers = 0
+  let groupLines = 0
+  let groupChars = 0
+  const groupBackticks = new Set<number>()
+  /** Kode inline: dikecualikan hanya bila pemasangan per baris pasti sama dengan pemasangan micromark. */
+  let groupBacktickLines = 0
+  let groupUnpairedLines = 0
+  let groupSpansUnsure = false
+  let groupSpanTriggers = 0
+  let groupSpanTokens = 0
+  let groupCost = 0
+  let backtickCost = 0
+  let previousMarkers = 0
+  let containerCost = 0
+  const closeGroup = (): void => {
+    // Penanda di dalam kode inline tidak memicu resolver. Pemasangan per baris sama dengan pemasangan
+    // micromark (apa pun batas paragrafnya) bila hanya satu baris berbacktick, atau bila setiap deret di
+    // setiap baris sudah berpasangan di barisnya sendiri (tidak ada deret sisa yang bisa melintas baris).
+    const spansExact = !groupSpansUnsure && (groupBacktickLines <= 1 || groupUnpairedLines === 0)
+    const triggers = spansExact ? groupTriggers - groupSpanTriggers : groupTriggers
+    if (spansExact) inlineTokens -= groupSpanTokens
+    groupCost += triggers * (triggers + groupLines)
+    backtickCost += groupBackticks.size * groupChars
+    if (triggers > MAX_GROUP_TRIGGERS || groupCost > MAX_GROUP_COST || backtickCost > MAX_BACKTICK_COST) {
+      inlineHeavy = true
+    }
+    groupTriggers = 0
+    groupLines = 0
+    groupChars = 0
+    groupBackticks.clear()
+    groupBacktickLines = 0
+    groupUnpairedLines = 0
+    groupSpansUnsure = false
+    groupSpanTriggers = 0
+    groupSpanTokens = 0
+  }
 
   const closeFence = (end: number): void => {
     if (fence) fences.push([fence.start, end])
@@ -330,6 +498,30 @@ function scanMarkdown(source: string): { mode: ParseMode; fences: SourceRange[] 
     start = end + 1
     totalLines++
 
+    let stats: LineStats | null = null
+    if (GROUP_BOUNDARY_RE.test(line)) {
+      closeGroup()
+    } else {
+      stats = lineStats(line, groupBackticks)
+      groupTriggers += stats.triggers
+      groupLines++
+      groupChars += line.length
+      if (stats.backticks) groupBacktickLines++
+      if (stats.spansUnpaired) groupUnpairedLines++
+      if (stats.spansUnsure) groupSpansUnsure = true
+      groupSpanTriggers += stats.spanTriggers
+      if (stats.longestRun > MAX_WORD_RUN) inlineHeavy = true
+    }
+
+    // Biaya kontainer dihitung untuk SEMUA baris (termasuk yang dikira isi fence): kontainer baris sebelumnya
+    // (selain yang terluar) dianggap tertutup bila baris ini item baru atau berpenanda lebih sedikit.
+    const prefix = parseLinePrefix(line)
+    if (prefix.markers > MAX_CONTAINER_MARKERS) mode = "plain"
+    if ((prefix.list !== null || prefix.markers < previousMarkers) && previousMarkers > 1) {
+      containerCost += (previousMarkers - 1) * totalLines
+    }
+    previousMarkers = prefix.markers
+
     if (fence) {
       const inside = parseQuotePrefix(line, fence.quotes)
       const blank = !inside.rest.trim()
@@ -343,23 +535,52 @@ function scanMarkdown(source: string): { mode: ParseMode; fences: SourceRange[] 
       }
     }
 
-    const prefix = parseLinePrefix(line)
-    if (prefix.markers > MAX_CONTAINER_MARKERS || prefix.column > MAX_CONTENT_COLUMN) mode = "plain"
+    if (prefix.column > MAX_CONTENT_COLUMN) mode = "plain"
     const rest = prefix.rest
     const trimmed = rest.trim()
-    if (!trimmed) {
-      chunkOpen = false
+    if (!trimmed && prefix.list === null) {
+      paragraphOpen = false
       tableBody = false
       previousHadPipe = false
       previousQuotes = prefix.quotes
       continue
     }
     nonBlankLines++
+    if (stats) {
+      inlineTokens += stats.tokens
+      groupSpanTokens += stats.spanTokens
+      if (stats.pipes > MAX_TABLE_PIPES_PER_LINE) mode = "plain"
+      if (stats.pipes > 1) tablePipes += stats.pipes
+    }
+
+    // Item list yang tidak boleh memotong paragraf terbuka: seluruh baris adalah lanjutan paragraf.
+    if (prefix.list !== null && paragraphOpen) {
+      const ordered = prefix.list !== "bullet"
+      const sibling = paragraphItem !== null && paragraphItem.ordered === ordered && prefix.listColumn < paragraphItem.content
+      const canInterrupt = (prefix.list === "bullet" || prefix.list === "ordered-one") && trimmed !== ""
+      if (!sibling && !canInterrupt) {
+        previousHadPipe = rest.includes("|")
+        previousQuotes = prefix.quotes
+        continue
+      }
+    }
+
+    if (prefix.list !== null) {
+      lastItem = { ordered: prefix.list !== "bullet", content: prefix.column }
+      if (!trimmed) {
+        // Item kosong: belum ada paragraf; konten item (bila ada) dimulai di baris berikutnya.
+        paragraphOpen = false
+        previousQuotes = prefix.quotes
+        continue
+      }
+    } else if (!paragraphOpen && lastItem && prefix.column < lastItem.content) {
+      lastItem = null
+    }
 
     const opener = fenceOpener(rest)
     if (opener) {
       fence = { ...opener, quotes: prefix.quotes, column: prefix.column, start: lineStart }
-      chunkOpen = false
+      paragraphOpen = false
       tableBody = false
       previousHadPipe = false
       continue
@@ -368,13 +589,7 @@ function scanMarkdown(source: string): { mode: ParseMode; fences: SourceRange[] 
     const heading = /^#{1,6}(?:[ \t]|$)/.test(rest)
     const thematic = isThematicBreak(trimmed)
     const hasPipe = rest.includes("|")
-    let newChunk =
-      heading ||
-      thematic ||
-      prefix.quotes > previousQuotes ||
-      prefix.list === "bullet" ||
-      prefix.list === "ordered-one" ||
-      (prefix.list === "ordered" && lastList !== "bullet" && lastList !== null)
+    let newChunk = !paragraphOpen || heading || thematic || prefix.quotes > previousQuotes || prefix.list !== null
     if (tableBody) {
       if (hasPipe) newChunk = true
       else tableBody = false
@@ -382,29 +597,26 @@ function scanMarkdown(source: string): { mode: ParseMode; fences: SourceRange[] 
       tableBody = true
       newChunk = true
     }
-    if (newChunk || !chunkOpen) {
+    if (newChunk) {
       chunks++
-      chunkTriggers = 0
-      chunkOpen = true
+      paragraphItem = prefix.list !== null || (lastItem && prefix.column >= lastItem.content) ? lastItem : null
     }
-
-    const stats = inlineStats(rest)
-    chunkTriggers += stats.triggers
-    inlineTokens += stats.tokens
-    if (stats.pipes > MAX_TABLE_PIPES_PER_LINE) mode = "plain"
-    const inlineHeavy =
-      chunkTriggers > MAX_CHUNK_TRIGGERS || inlineTokens > MAX_INLINE_TOKENS || stats.longestRun > MAX_WORD_RUN
-    if (inlineHeavy && mode === "full") mode = "inline-safe"
-    if (heading || thematic) chunkOpen = false
+    paragraphOpen = !heading && !thematic
 
     previousHadPipe = hasPipe
     previousQuotes = prefix.quotes
-    if (prefix.list) lastList = prefix.list
   }
   closeFence(source.length)
+  closeGroup()
 
-  if (nonBlankLines > MAX_AST_LINES || totalLines > MAX_AST_TOTAL_LINES || chunks > MAX_AST_CHUNKS) mode = "plain"
-  return { mode, fences }
+  if (inlineHeavy || inlineTokens > MAX_INLINE_TOKENS) mode = mode === "plain" ? "plain" : "inline-safe"
+  const tooBig =
+    nonBlankLines > MAX_AST_LINES ||
+    totalLines > MAX_AST_TOTAL_LINES ||
+    chunks > MAX_AST_CHUNKS ||
+    tablePipes > MAX_TABLE_PIPES ||
+    containerCost > MAX_CONTAINER_COST
+  return { mode: tooBig ? "plain" : mode, fences }
 }
 
 // ---------------------------------------------------------------------------
@@ -437,7 +649,7 @@ const UNDER_INDENTED_MARKER_RE = /^ {2,}(?:[-*+]|\d{1,9}[.)])[ \t]/m
  * terjaga; baris lanjutan malas (lazy) tidak disentuh.
  *
  * Tidak berubah: indentasi 0–1 spasi (saudara), baris bukan penanda list, isi fence, kutipan, dan baris
- * berindentasi tab. Linear, idempoten, dan indentasi hasil tidak melewati `MAX_CONTENT_COLUMN`. Hasilnya
+ * berindentasi tab. Linear, idempoten, dan indentasi hasil tidak melewati `MAX_NORMALIZED_COLUMN`. Hasilnya
  * teks baru: pemanggil menormalkan dulu, baru mem-parse teks hasil normalisasi.
  */
 export function normalizeListIndentation(source: string): string {
@@ -479,7 +691,7 @@ export function normalizeListIndentation(source: string): string {
             shift = frame.shift
             break
           }
-          if (indent >= frame.indent + 2 && frame.content + frame.shift <= MAX_CONTENT_COLUMN) {
+          if (indent >= frame.indent + 2 && frame.content + frame.shift <= MAX_NORMALIZED_COLUMN) {
             shift = frame.content + frame.shift - indent
             break
           }

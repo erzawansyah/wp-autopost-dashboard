@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest"
 import { markdownToGutenberg } from "./gutenberg"
 
 const VOID_TAGS = new Set(["img", "hr", "br"])
+/** WORD JOINER penetral shortcode (tak terlihat) yang disisipkan setelah `&#91;` di rich text. */
+const WJ = "\u2060"
+const CODE_BLOCK_RE = /<!-- wp:code[^\n]*-->[\s\S]*?<!-- \/wp:code -->/g
+/** `[` / `[/` (setelah entitas didekode editor) yang langsung diikuti karakter nama shortcode. */
+const DECODED_SHORTCODE_RE = /\[\/?[\w-]/
 /** Grup: 1 penutup blok, 2 nama blok, 3 penutup tag, 4 nama tag. */
 const MARKUP_TOKEN_RE = /<!-- (\/)?wp:([a-z0-9/-]+)(?: \{[^\n]*?\})? -->|<(\/)?([a-z][a-z0-9]*)\b[^>]*>/g
 
@@ -12,6 +17,9 @@ const MARKUP_TOKEN_RE = /<!-- (\/)?wp:([a-z0-9/-]+)(?: \{[^\n]*?\})? -->|<(\/)?(
  */
 function assertWellFormedBlocks(html: string): void {
   expect(html).not.toContain("[")
+  // Editor blok mendekode `&#91;` saat menyimpan ulang (kecuali di core/code): di rich text
+  // setiap `[` harus tetap dipisah dari nama shortcode oleh WORD JOINER.
+  expect(html.replace(CODE_BLOCK_RE, "").replace(/&#91;/g, "[")).not.toMatch(DECODED_SHORTCODE_RE)
   expect(html).not.toMatch(/<(?:script|iframe|style|svg|object)\b|<!-- wp:html/i)
   const stack: string[] = []
   for (const [token, closeBlock, block, closeTag, tag] of html.matchAll(MARKUP_TOKEN_RE)) {
@@ -364,14 +372,42 @@ describe("markdownToGutenberg — CommonMark/GFM via remark", () => {
   })
 
   it("blok non-list di dalam item list diratakan menjadi inline (core/list-item hanya menerima sub-list)", () => {
-    const html = convertWithin("- Langkah:\n\n  ```bash\n  npm i\n  ```\n\n  ### Catatan\n\n  > kutip")
-    expect(html).toContain("<li>Langkah:<br/><code>npm i</code><br/><strong>Catatan</strong><br/>kutip</li>")
+    const html = convertWithin("- Langkah:\n\n  ### Catatan\n\n  > kutip")
+    expect(html).toContain("<li>Langkah:<br/><strong>Catatan</strong><br/>kutip</li>")
+  })
+
+  it("blok kode di item list memecah list: wp:code asli lalu list lanjutan dengan start", () => {
+    const html = convertWithin(
+      "1. Instal paket:\n\n   ```bash\n   npm install x\n   npm run build\n   ```\n\n   Lalu cek hasilnya.\n\n2. Jalankan\n3. Selesai"
+    )
+    expect(html).toBe(
+      [
+        '<!-- wp:list {"ordered":true} -->\n<ol class="wp-block-list">\n<!-- wp:list-item -->\n<li>Instal paket:</li>\n<!-- /wp:list-item -->\n</ol>\n<!-- /wp:list -->',
+        '<!-- wp:code {"className":"language-bash"} -->\n<pre class="wp-block-code language-bash"><code>npm install x\nnpm run build</code></pre>\n<!-- /wp:code -->',
+        "<!-- wp:paragraph -->\n<p>Lalu cek hasilnya.</p>\n<!-- /wp:paragraph -->",
+        '<!-- wp:list {"ordered":true,"start":2} -->\n<ol start="2" class="wp-block-list">\n<!-- wp:list-item -->\n<li>Jalankan</li>\n<!-- /wp:list-item -->\n<!-- wp:list-item -->\n<li>Selesai</li>\n<!-- /wp:list-item -->\n</ol>\n<!-- /wp:list -->',
+      ].join("\n\n")
+    )
+  })
+
+  it("penomoran lanjutan mengikuti start awal; item terakhir berkode tidak menyisakan list kosong", () => {
+    const html = convertWithin("5. a\n6. b\n   ```\n   x\n   ```\n7. c\n   ```\n   y\n   ```")
+    expect(html.match(/<!-- wp:code -->/g)).toHaveLength(2)
+    expect(html).toContain('<ol start="5" class="wp-block-list">')
+    expect(html).toContain('<ol start="7" class="wp-block-list">')
+    expect(html.match(/<!-- wp:list /g)).toHaveLength(2)
+    expect(html.trimEnd().endsWith("<!-- /wp:code -->")).toBe(true)
+  })
+
+  it("blok kode di sub-list tetap inline tetapi baris kodenya dipertahankan", () => {
+    const html = convertWithin("- a\n  - b\n\n    ```\n    x\n    y\n    ```")
+    expect(html).toContain("<li>b<br/><code>x<br/>y</code></li>")
   })
 
   it("task list menampilkan kotak centang sebagai teks", () => {
     const html = convertWithin("- [ ] tugas\n- [x] selesai")
     expect(html).toContain("<li>&#91; ] tugas</li>")
-    expect(html).toContain("<li>&#91;x] selesai</li>")
+    expect(html).toContain(`<li>&#91;${WJ}x] selesai</li>`)
   })
 
   it("tabel: sel dilengkapi/dipotong sesuai header; tanpa baris badan tidak ada <tbody>", () => {
@@ -415,6 +451,31 @@ describe("markdownToGutenberg — CommonMark/GFM via remark", () => {
     expect(convertWithin("> — Tokoh")).toContain("<p>— Tokoh</p>")
   })
 
+  it.each([
+    ["em dash + tautan", "> Isi kutipan.\n> — [Budi](https://contoh.co.id/budi)"],
+    ["'-- ' + tautan (hasil pembersih)", "> Isi kutipan.\n> -- [Budi](https://contoh.co.id/budi)"],
+  ])("atribusi berisi tautan: penanda dash dibuang utuh (%s)", (_label, md) => {
+    expect(convertWithin(md)).toContain(
+      '<cite><a href="https://contoh.co.id/budi" target="_blank" rel="noopener noreferrer">Budi</a></cite>'
+    )
+  })
+
+  it("atribusi dengan format inline setelah dash", () => {
+    expect(convertWithin("> Isi kutipan.\n> — **Budi**, barista")).toContain("<cite><strong>Budi</strong>, barista</cite>")
+    expect(convertWithin("> Isi kutipan.\n> --Sumber")).toContain("<cite>Sumber</cite>")
+  })
+
+  it.each([
+    ["minus persen", "> Harga kopi tahun ini turun\n> -10% dibanding 2023.", "-10% dibanding 2023."],
+    ["minus en dash", "> Suhu malam turun\n> –5 derajat di puncak.", "–5 derajat di puncak."],
+    ["dash ganda + angka", "> Selisih\n> --5 poin", "--5 poin"],
+    ["dash tanpa isi", "> Isi kutipan.\n> —", "—"],
+  ])("baris berawalan tanda minus/dash kosong bukan atribusi: %s", (_label, md, lastLine) => {
+    const html = convertWithin(md)
+    expect(html).not.toContain("<cite>")
+    expect(html).toContain(`<br/>${lastLine}</p>`)
+  })
+
   it("callout: penanda sendirian, lalu paragraf berikutnya mendapat label", () => {
     const html = convertWithin("> [!WARNING]\n>\n> Jangan seduh dengan air mendidih.")
     expect(html).toContain("<p><strong>⚠️ Peringatan:</strong> Jangan seduh dengan air mendidih.</p>")
@@ -436,7 +497,7 @@ describe("markdownToGutenberg — regresi infinite loop (CRITICAL)", () => {
     ["hashtag setelah paragraf", "Teks pembuka.\n#hashtag trending", "<p>Teks pembuka. #hashtag trending</p>"],
     ["satu pagar saja", "#", "<p>#</p>"],
     ["tujuh pagar (bukan heading valid)", "####### tujuh pagar", "<p>####### tujuh pagar</p>"],
-    ["gambar tak lengkap", "![rusak tanpa penutup", "<p>!&#91;rusak tanpa penutup</p>"],
+    ["gambar tak lengkap", "![rusak tanpa penutup", `<p>!&#91;${WJ}rusak tanpa penutup</p>`],
     ["bullet dengan tab", "-\tItem dengan tab", "<li>Item dengan tab</li>"],
   ])("%s tidak menggantung", (_label, md, expected) => {
     expect(convertWithin(md)).toContain(expected)
@@ -445,7 +506,7 @@ describe("markdownToGutenberg — regresi infinite loop (CRITICAL)", () => {
   it("baris caption miring tepat di bawah gambar menjadi figcaption (di-escape)", () => {
     const html = convertWithin("![Kebun](https://images.pexels.com/a.jpg)\n*Sumber: **Pexels** <script> [gallery]*")
     expect(html).toContain(
-      '<figcaption class="wp-element-caption">Sumber: <strong>Pexels</strong> &lt;script&gt; &#91;gallery]</figcaption>'
+      `<figcaption class="wp-element-caption">Sumber: <strong>Pexels</strong> &lt;script&gt; &#91;${WJ}gallery]</figcaption>`
     )
     expect(html).not.toContain("wp:paragraph")
   })
@@ -592,14 +653,117 @@ describe("markdownToGutenberg — ReDoS & kompleksitas (HIGH)", () => {
   })
 
   it("paragraf patologis dirender sebagai teks literal (mode inline-safe), struktur blok tetap", () => {
-    const html = convertWithin(`## Judul\n\n${"a* ".repeat(300)}\n\n- **item**`)
+    const html = convertWithin(`## Judul\n\n${"a* ".repeat(1_600)}\n\n- **item**`)
     expect(html).toContain('<h2 class="wp-block-heading">Judul</h2>')
     expect(html).toContain("<li>**item**</li>")
   })
 
   it("naskah di atas batas AST menjadi paragraf teks polos yang tetap di-escape", () => {
     const html = convertWithin(`${"x".repeat(120_000)}\n\n<script>alert(1)</script> [gallery]`)
-    expect(html).toContain("<p>&lt;script&gt;alert(1)&lt;/script&gt; &#91;gallery]</p>")
+    expect(html).toContain(`<p>&lt;script&gt;alert(1)&lt;/script&gt; &#91;${WJ}gallery]</p>`)
+  })
+})
+
+/** PRNG deterministik (mulberry32) untuk fuzz yang dapat direproduksi. */
+function seededRandom(seed: number): () => number {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let value = Math.imul(state ^ (state >>> 15), state | 1)
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61)
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const FUZZ_LEADS = ["Kopi itu enak", "- Kopi", "1. Kopi", "> Kopi", "## Kopi", ""]
+/** Header struktural (penanda list/fence) beserta indentasi yang membuat baris muatan tampak berada di dalamnya. */
+const FUZZ_HEADERS: ReadonlyArray<readonly [string, string]> = [
+  ["2. ```", "   "], ["7) ~~~", "   "], ["  2. ````", "     "], ["   2. ```js", "      "], ["> 2. ```", ">    "],
+  ["- ```", "  "], ["```", ""], ["-", "  "], ["1.", "   "], ["*", "  "], ["2.", "   "], ["| a | b |", ""], ["3)", "   "],
+]
+const FUZZ_INDENTS = ["", "  ", "   ", "     ", "> "]
+const FUZZ_UNITS = ["*_ ", "a* ", "_a* ", "[a", "]", "` ", "``x ", "\\` ", "~~ ", "a@b.c ", "**_", "`a_b` ", "*_ `", "[a]("]
+
+/** Naskah acak berbentuk serangan pra-pemindaian: paragraf pembuka, header struktural, lalu ratusan baris muatan. */
+function fuzzDocument(seed: number): string {
+  const next = seededRandom(seed)
+  const pick = <T,>(items: readonly T[]): T => items[Math.floor(next() * items.length)]
+  const lines = [pick(FUZZ_LEADS)]
+  const segments = 1 + Math.floor(next() * 3)
+  for (let segment = 0; segment < segments; segment++) {
+    const [header, matching] = pick(FUZZ_HEADERS)
+    lines.push(header)
+    const indent = next() < 0.7 ? matching : pick(FUZZ_INDENTS)
+    const payload = indent + pick(FUZZ_UNITS).repeat(60 + Math.floor(next() * 60))
+    const count = 60 + Math.floor(next() * (200 / segments))
+    for (let line = 0; line < count; line++) lines.push(payload)
+  }
+  return lines.join("\n")
+}
+
+describe("pra-pemindaian tidak bisa dikelabui struktur palsu (HIGH: parse sinkron memblokir proses Next.js)", () => {
+  const payload = (indent: string, lines = 260): string => Array.from({ length: lines }, () => indent + "*_ ".repeat(100)).join("\n")
+  const repeatLines = (count: number, line: string, separator: string): string =>
+    Array.from({ length: count }, () => line).join(separator)
+
+  // Sebelum perbaikan: F1 > 30 detik (hingga 72 detik), F2 2–4 detik per parse.
+  it.each([
+    ["F1 '2. ```' tidak memotong paragraf (79 KB)", () => `Kopi itu enak\n2. \`\`\`\n${payload("   ")}`],
+    ["F1 '7) ~~~'", () => `Kopi itu enak\n7) ~~~\n${payload("   ")}`],
+    ["F1 di dalam item list '  2. ```'", () => `- Kopi\n  2. \`\`\`\n${payload("     ")}`],
+    ["F1 bersarang di item berurut", () => `1. Kopi\n   2. \`\`\`\n${payload("      ")}`],
+    ["F2 item kosong '-' (36 KB)", () => `p\n${repeatLines(60, "a* ".repeat(199), "\n-\n")}`],
+    ["F2 item kosong '-' + '*_ ' (18 KB)", () => `p\n${repeatLines(60, "*_ ".repeat(100), "\n-\n")}`],
+    ["F2 item kosong '1.'", () => `p\n${repeatLines(60, "a* ".repeat(199), "\n1.\n")}`],
+    ["F2 'N.' setelah list berurut", () => `1. x\n\np\n${repeatLines(60, `2. ${"a* ".repeat(199)}`, "\n")}`],
+    [
+      "F2 deret backtick 1..150 lalu teks panjang (78 KB)",
+      () => `${Array.from({ length: 150 }, (_, index) => `${"\`".repeat(index + 1)} x `).join("")}${"teks ".repeat(13_000)}`,
+    ],
+    ["kode inline palsu (backtick tanpa pasangan di baris lain)", () => `p \`\n${repeatLines(60, `\` ${"*_ ".repeat(200)} \``, "\n")}`],
+    // Penutupan kontainer menyusun ulang array event dokumen: 8 penanda × 1.000 baris ±1,3 dtk, 32 penanda ±5,6 dtk.
+    ["kontainer campuran 8 penanda × 1.000 baris", () => repeatLines(1_000, `${"- > ".repeat(4)}teks`, "\n")],
+    ["kontainer campuran 32 penanda × 1.000 baris", () => repeatLines(1_000, `${"- > ".repeat(16)}teks`, "\n")],
+    ["kontainer di balik fence palsu", () => `Kopi itu enak\n2. \`\`\`\n${repeatLines(1_000, `${"- > ".repeat(8)}teks`, "\n")}`],
+  ])("%s", (_label, build) => {
+    const md = build()
+    expectFast(() => markdownToGutenberg(md), 1500)
+  })
+
+  // Seed 8, 72, dan 90 mereproduksi parse 4–33 detik sebelum perbaikan.
+  it.each([...Array.from({ length: 20 }, (_, index) => index + 1), 72, 90])("fuzz penanda list/fence/emphasis seed %i", (seed) => {
+    const md = fuzzDocument(seed)
+    expectFast(() => markdownToGutenberg(md), 1500)
+  })
+})
+
+describe("mode parse hanya turun untuk input yang benar-benar patologis (LOW)", () => {
+  it("paragraf dengan 105 kode inline tidak menurunkan seluruh artikel ke inline-safe", () => {
+    const spans = Array.from({ length: 105 }, (_, index) => `\`user_id_${index}\``).join(", ")
+    const html = convertWithin(`Paragraf **indeks** biasa.\n\nKolom: ${spans}\n\nAkhir *miring*.`)
+    expect(html).toContain("<strong>indeks</strong>")
+    expect(html).toContain("<code>user_id_0</code>")
+    expect(html).toContain("<em>miring</em>")
+  })
+
+  it("daftar panjang berisi kode inline snake_case per baris tetap terformat", () => {
+    const items = Array.from({ length: 900 }, (_, index) => `- \`kolom_${index}_id\` dan \`nilai_${index}\``).join("\n")
+    expect(convertWithin(`**Skema**\n\n${items}`, 5000)).toContain("<strong>Skema</strong>")
+  })
+
+  it("list panjang di dalam kutipan (dua penanda per baris) tetap terstruktur", () => {
+    const html = convertWithin(`**Daftar**\n\n${Array.from({ length: 300 }, (_, index) => `> - butir ${index}`).join("\n")}`, 5000)
+    expect(html).toContain("<strong>Daftar</strong>")
+    expect(html).toContain("<li>butir 299</li>")
+  })
+
+  it.each([
+    ["baris prosa berindentasi 60 spasi", `Puisi:\n${" ".repeat(60)}bait menjorok`],
+    ["kutipan bersarang 10 tingkat", `${"> ".repeat(10)}kutipan dalam`],
+    ["tabel 70 kolom", `${"| k ".repeat(70)}|\n${"|---".repeat(70)}|\n${"| 1 ".repeat(70)}|`],
+  ])("struktur wajar tidak memicu jalur teks polos: %s", (_label, block) => {
+    const html = convertWithin(`Pembuka **tebal**.\n\n${block}`)
+    expect(html).toContain("<strong>tebal</strong>")
   })
 })
 
@@ -840,8 +1004,36 @@ describe("shortcode WordPress dinetralkan di semua konteks (CRITICAL)", () => {
       ].join("\n")
     )
     expect(html).not.toMatch(/\[\/?[a-z]/i)
-    expect(html).toContain("&#91;contact-form-7")
-    expect(html).toContain('href="https://a.co/&#91;gallery]"')
+    expect(html).toContain(`Isi &#91;${WJ}contact-form-7 id="1"] dan &#91;${WJ}/embed]`)
+    expect(html).toContain(`Lihat &#91;${WJ}gallery]</a>`)
+    expect(html).toContain('href="https://a.co/%5Bgallery%5D"')
+    expect(html).toContain(`Judul &#91;${WJ}audio]</h2>`)
+    expect(html).toContain(`<code>&#91;${WJ}shortcode]</code>`)
+    expect(html).toContain(`alt="alt &#91;${WJ}gallery]"`)
+    // core/code meng-escape `[` sendiri saat disimpan ulang: kode tetap bersih tanpa karakter tak terlihat.
+    expect(html).toContain("<pre class=\"wp-block-code\"><code>&#91;embed]x&#91;/embed]</code></pre>")
+  })
+
+  it("summary details, cite kutipan & label tombol juga dinetralkan", () => {
+    const html = convertWithin(
+      [
+        ":::details Ringkasan [gallery]",
+        "Isi [audio]",
+        ":::",
+        "",
+        "> Kutipan",
+        "> — Sumber [caption]",
+        "",
+        "[Daftar [embed]](https://a.co/daftar){.button}",
+      ].join("\n")
+    )
+    expect(html).toContain(`<summary>Ringkasan &#91;${WJ}gallery]</summary>`)
+    expect(html).toContain(`<cite>Sumber &#91;${WJ}caption]</cite>`)
+    expect(html).toContain(`>Daftar &#91;${WJ}embed]</a></div>`)
+  })
+
+  it("teks visual tidak berubah: `[` lepas, `[ ]` & `[]` tanpa WORD JOINER", () => {
+    expect(convertWithin("Rentang [ 1, 2 ] dan [] serta a [")).toContain("Rentang &#91; 1, 2 ] dan &#91;] serta a &#91;")
   })
 })
 
@@ -872,7 +1064,14 @@ describe("markdownToGutenberg — XSS & injeksi blok (CRITICAL)", () => {
     const html = convertWithin('![a](https://images.pexels.com/a.jpg){caption="<b>x</b> [gallery]" id=abc}\n\n![b](https://images.pexels.com/b.jpg){id=99999999999999999999}')
     expect(html).not.toContain("wp-image-")
     expect(html).not.toContain('"id"')
-    expect(html).toContain("&lt;b&gt;x&lt;/b&gt; &#91;gallery]")
+    expect(html).toContain(`&lt;b&gt;x&lt;/b&gt; &#91;${WJ}gallery]`)
+  })
+
+  it("atribut {…} dari pipeline media: caption dipertahankan, id di dalam caption bukan id media", () => {
+    const html = convertWithin('![Kebun](https://wp.test/up/a.jpg){caption="Kebun id=5 di Gayo" id=42}')
+    expect(html).toContain('<!-- wp:image {"id":42,"sizeSlug":"large","linkDestination":"none"} -->')
+    expect(html).toContain('class="wp-image-42"')
+    expect(html).toContain('<figcaption class="wp-element-caption">Kebun id=5 di Gayo</figcaption>')
   })
 
   it("blok wp:html mentah tidak diteruskan apa adanya", () => {

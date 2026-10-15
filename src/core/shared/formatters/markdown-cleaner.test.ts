@@ -364,6 +364,15 @@ describe("sanitizeDashes — rentang angka dipertahankan (HIGH)", () => {
     expect(sanitizeDashes("> Kopi adalah hidup.\n> — Budi")).toBe("> Kopi adalah hidup.\n> -- Budi")
     expect(cleanMarkdown("> Kopi adalah hidup.\n> — Budi")).toBe("> Kopi adalah hidup.\n> -- Budi")
   })
+
+  it.each([
+    ["awal baris kutipan", "> Harga turun\n> –10% dibanding 2023.", "> Harga turun\n> -10% dibanding 2023."],
+    ["di tengah kalimat", "Suhu malam –5 °C dan siang (—2 °C).", "Suhu malam -5 °C dan siang (-2 °C)."],
+    ["rentang berspasi tetap rentang", "Skor 10 –20 poin.", "Skor 10–20 poin."],
+    ["kata–angka rapat tetap", "Varian COVID–19 dan Mei–2024.", "Varian COVID–19 dan Mei–2024."],
+  ])("dash yang langsung diikuti angka adalah tanda minus, bukan atribusi/koma: %s", (_label, input, expected) => {
+    expect(sanitizeDashes(input)).toBe(expected)
+  })
 })
 
 describe("cleanMarkdown — basa-basi, meta, slop", () => {

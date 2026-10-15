@@ -419,6 +419,18 @@ function replaceDashes(source: string, start: number, end: number): string {
     const char = source[index]
     if (char !== "—" && char !== "–") continue
 
+    // Dash di awal kata yang langsung diikuti angka adalah tanda minus ("suhu –5 °C", "> –10%"), kecuali
+    // rentang angka berspasi ("10 –20") yang ditangani di bawah.
+    if (/\d/.test(source.charAt(index + 1)) && (index === 0 || /[\s>(]/.test(source[index - 1]))) {
+      let previous = index
+      while (previous > 0 && isHorizontalSpace(source[previous - 1])) previous--
+      if (!/\d/.test(source.charAt(previous - 1))) {
+        output += source.slice(cursor, index) + "-"
+        cursor = index + 1
+        continue
+      }
+    }
+
     if (isQuoteLineStart(source, index)) {
       let after = index + 1
       while (after < end && isHorizontalSpace(source[after])) after++

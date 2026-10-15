@@ -40,6 +40,29 @@ describe("processAndSyncArticleMedia (ToolOutcome upload_media)", () => {
     expect(mocks.upload.mock.calls.every(([params]) => params.signal === controller.signal)).toBe(true)
   })
 
+  it("atribut {…} yang ada (caption) dipertahankan; id lama diganti id media WordPress", async () => {
+    mocks.upload.mockResolvedValue(toolSuccess({ mediaId: 42, sourceUrl: "https://wp.test/up/$1-a.jpg" }))
+
+    const result = await processAndSyncArticleMedia({
+      ...WP,
+      markdownContent: [
+        '![A](https://img.test/a.jpg){caption="Kebun kopi id=5 di Gayo"}',
+        '![A lagi](https://img.test/a.jpg){id=7 caption=\'Panen\'}',
+        "![A polos](https://img.test/a.jpg)",
+      ].join("\n\n"),
+      articleTitle: "Judul",
+    })
+
+    expect(mocks.upload).toHaveBeenCalledTimes(1)
+    expect(result.updatedMarkdown).toBe(
+      [
+        '![A](https://wp.test/up/$1-a.jpg){caption="Kebun kopi id=5 di Gayo" id=42}',
+        "![A lagi](https://wp.test/up/$1-a.jpg){caption='Panen' id=42}",
+        "![A polos](https://wp.test/up/$1-a.jpg){id=42}",
+      ].join("\n\n")
+    )
+  })
+
   it("berhenti mengunggah gambar inline setelah sinyal dibatalkan", async () => {
     const controller = new AbortController()
     mocks.upload.mockImplementation(async () => {

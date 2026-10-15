@@ -43,19 +43,41 @@ import {
 // Escaping & validasi URL
 // ---------------------------------------------------------------------------
 
-/** Netralkan shortcode WordPress: `[` dirender identik oleh browser namun tidak dikenali `do_shortcode`. */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+}
+
+/**
+ * Netralkan shortcode WordPress di teks kaya (paragraf, heading, list, sel, caption, alt, summary, kode
+ * inline): `[` menjadi `&#91;` dan, bila diikuti calon nama shortcode, disisipi U+2060 WORD JOINER. Entitas
+ * saja tidak cukup: editor blok men-decode `&#91;` saat menyimpan ulang, sedangkan WORD JOINER (tak
+ * terlihat) tetap ada sehingga `do_shortcode` tidak pernah melihat `[nama`.
+ */
 function neutralizeShortcodes(html: string): string {
-  return html.replace(/\[/g, "&#91;")
+  return html.replace(/\[(?=[^\s\]])/g, "&#91;\u2060").replace(/\[/g, "&#91;")
 }
 
 /** Escape teks (nilai node sudah ter-decode parser, sehingga seluruh `&` di-escape). */
 function escapeText(text: string): string {
-  return neutralizeShortcodes(text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
+  return neutralizeShortcodes(escapeHtml(text))
 }
 
-/** Escape nilai atribut ber-kutip ganda (alt, href, src). */
+/** Escape nilai atribut teks ber-kutip ganda (alt). */
 function escapeAttribute(value: string): string {
   return escapeText(value).replace(/"/g, "&quot;")
+}
+
+/** Escape URL tervalidasi untuk atribut: `[`/`]` di-percent-encode (setara bagi server, tahan simpan ulang). */
+function escapeUrl(url: string): string {
+  return escapeHtml(url.replace(/\[/g, "%5B").replace(/]/g, "%5D")).replace(/"/g, "&quot;")
+}
+
+/**
+ * Escape isi blok kode: `[` cukup menjadi `&#91;` karena save() core/code sendiri meng-escape ulang `[`
+ * (kode yang disalin pembaca tetap bersih tanpa karakter tak terlihat).
+ */
+function escapeCodeBlock(code: string): string {
+  return escapeHtml(code).replace(/\[/g, "&#91;")
 }
 
 type UrlPolicy = "link" | "media"
@@ -196,7 +218,7 @@ function formatText(value: string, softBreak: string): string {
 function renderLink(url: string, innerHtml: string): string {
   const safeUrl = sanitizeUrl(url, "link")
   if (safeUrl === null) return innerHtml
-  return `<a href="${escapeAttribute(safeUrl)}" target="_blank" rel="noopener noreferrer">${innerHtml}</a>`
+  return `<a href="${escapeUrl(safeUrl)}" target="_blank" rel="noopener noreferrer">${innerHtml}</a>`
 }
 
 function renderInline(nodes: readonly PhrasingContent[], ctx: RenderContext): string {
@@ -254,7 +276,7 @@ function renderHeading(node: Heading, ctx: RenderContext): string[] {
  * blok (`<pre class="wp-block-code language-x">`) agar lolos validasi editor.
  */
 function renderCode(value: string, language: string | null | undefined): string {
-  const escaped = escapeText(value)
+  const escaped = escapeCodeBlock(value)
   const safeLanguage = (language || "").toLowerCase().replace(/[^a-z0-9_-]/g, "")
   if (!safeLanguage) return `<!-- wp:code -->\n<pre class="wp-block-code"><code>${escaped}</code></pre>\n<!-- /wp:code -->`
   const className = `language-${safeLanguage}`
@@ -294,7 +316,8 @@ function renderImage(image: ImageSource, attributes: string, lineCaptionHtml: st
   const safeUrl = sanitizeUrl(image.url, "media")
   if (safeUrl === null || isPlaceholderImageUrl(safeUrl)) return ""
 
-  const idMatch = /(?:^|\s)id=(\d{1,15})(?:\s|$)/.exec(attributes)
+  // Nilai berkutip (caption) dilewati: `caption="foto id=5"` bukan id media.
+  const idMatch = /(?:^|\s)id=(\d{1,15})(?:\s|$)/.exec(attributes.replace(/(["'])[^"']*\1/g, " "))
   const caption = explicitCaption(image, attributes)
   const id = idMatch && Number.isSafeInteger(Number(idMatch[1])) && Number(idMatch[1]) > 0 ? Number(idMatch[1]) : undefined
 
@@ -304,7 +327,7 @@ function renderImage(image: ImageSource, attributes: string, lineCaptionHtml: st
   const imgClass = id === undefined ? "" : ` class="wp-image-${id}"`
   const figcaption = caption ? renderInlineMarkdown(caption) : lineCaptionHtml
   const captionHtml = figcaption ? `\n  <figcaption class="wp-element-caption">${figcaption}</figcaption>` : ""
-  return `${openBlock("image", blockAttributes)}\n<figure class="wp-block-image size-large">\n  <img src="${escapeAttribute(safeUrl)}" alt="${escapeAttribute(image.alt)}"${imgClass}/>${captionHtml}\n</figure>\n<!-- /wp:image -->`
+  return `${openBlock("image", blockAttributes)}\n<figure class="wp-block-image size-large">\n  <img src="${escapeUrl(safeUrl)}" alt="${escapeAttribute(image.alt)}"${imgClass}/>${captionHtml}\n</figure>\n<!-- /wp:image -->`
 }
 
 /** Embed video: baris yang hanya berisi URL YouTube/Vimeo. */
@@ -323,7 +346,7 @@ function renderEmbed(url: string): string {
   return `${open}
 <figure class="wp-block-embed is-type-video is-provider-${providerSlug} wp-block-embed-${providerSlug} wp-embed-aspect-16-9 wp-has-aspect-ratio">
   <div class="wp-block-embed__wrapper">
-    ${escapeAttribute(url)}
+    ${escapeUrl(url)}
   </div>
 </figure>
 <!-- /wp:embed -->`
@@ -343,7 +366,7 @@ function renderButton(node: Paragraph, ctx: RenderContext): string | null {
   return `${openBlock("buttons", { layout: { type: "flex", justifyContent: "center" } })}
 <div class="wp-block-buttons">
   ${openBlock("button", { className: "is-style-fill" })}
-  <div class="wp-block-button is-style-fill"><a class="wp-block-button__link wp-element-button" href="${escapeAttribute(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a></div>
+  <div class="wp-block-button is-style-fill"><a class="wp-block-button__link wp-element-button" href="${escapeUrl(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a></div>
   <!-- /wp:button -->
 </div>
 <!-- /wp:buttons -->`
@@ -419,8 +442,8 @@ const CALLOUT_LABELS: Record<string, string> = {
 }
 const CALLOUT_CLASS = "is-style-plain has-border-color"
 
-/** Baris atribusi kutipan: diawali —, –, -, -- atau "cite:". */
-const CITATION_RE = /^(?:[—–-]{1,2}|cite:)[ \t]*(?=\S)/i
+/** Baris atribusi kutipan: diawali —, –, -, -- atau "cite:"; dash tepat sebelum angka adalah tanda minus. */
+const CITATION_RE = /^(?:—|–(?!\d)|-{1,2}(?![\d-])|cite:)[ \t]*/i
 
 /** Pisahkan baris terakhir (soft/hard break) dari isi inline paragraf. */
 function splitLastLine(children: readonly PhrasingContent[]): { body: PhrasingContent[]; last: PhrasingContent[] } | null {
@@ -439,11 +462,13 @@ function splitLastLine(children: readonly PhrasingContent[]): { body: PhrasingCo
   return null
 }
 
-/** Isi inline baris atribusi tanpa penanda dash/"cite:", atau null bila bukan atribusi. */
+/** Isi inline baris atribusi tanpa penanda dash/"cite:", atau null bila bukan atribusi (atau kosong). */
 function citationLine(line: readonly PhrasingContent[]): PhrasingContent[] | null {
   const [first, ...rest] = line
   if (first?.type !== "text" || !CITATION_RE.test(first.value)) return null
-  return [{ type: "text", value: first.value.replace(CITATION_RE, "") }, ...rest]
+  const value = first.value.replace(CITATION_RE, "")
+  if (!value.trim() && rest.length === 0) return null
+  return value ? [{ type: "text", value }, ...rest] : rest
 }
 
 /** Pisahkan atribusi di akhir kutipan (baris terakhir paragraf terakhir, atau "- Tokoh" setelah isi). */
@@ -503,7 +528,8 @@ function flattenToInline(node: RootContent, ctx: RenderContext): string {
     case "heading":
       return `<strong>${renderInline(node.children, ctx).trim()}</strong>`
     case "code":
-      return `<code>${escapeText(node.value)}</code>`
+      // Hanya untuk sub-list (list level blok dipecah oleh renderListBlocks): baris kode tetap terpisah.
+      return `<code>${escapeText(node.value).replace(/\n/g, "<br/>")}</code>`
     case "thematicBreak":
     case "definition":
       return ""
@@ -519,7 +545,7 @@ function renderListItem(item: ListItem, ctx: RenderContext): string {
     if (child.type === "list") subLists.push(renderList(child, nested(ctx)))
     else texts.push(flattenToInline(child, ctx))
   }
-  const checkbox = item.checked === true ? "&#91;x] " : item.checked === false ? "&#91; ] " : ""
+  const checkbox = item.checked === true ? escapeText("[x] ") : item.checked === false ? escapeText("[ ] ") : ""
   const text = checkbox + texts.filter(Boolean).join("<br/>")
   if (subLists.length === 0) return `<!-- wp:list-item -->\n<li>${text}</li>\n<!-- /wp:list-item -->`
   return `<!-- wp:list-item -->\n<li>${text}\n${subLists.join("\n")}</li>\n<!-- /wp:list-item -->`
@@ -536,6 +562,34 @@ function renderList(node: List, ctx: RenderContext): string {
   const startAttribute = start === undefined ? "" : ` start="${start}"`
   const items = node.children.map((item) => renderListItem(item, itemCtx)).join("\n")
   return `${openBlock("list", attributes)}\n<${tag}${startAttribute} class="wp-block-list">\n${items}\n</${tag}>\n<!-- /wp:list -->`
+}
+
+/**
+ * List di konteks blok (dokumen, kutipan, details). core/list-item tidak bisa memuat core/code, jadi item
+ * yang berisi blok kode dipecah: list sampai teks item itu → blok `wp:code` (dan sisa isi item sebagai blok)
+ * → list lanjutan dengan `start` agar penomoran tetap bersambung.
+ */
+function renderListBlocks(node: List, ctx: RenderContext): string[] {
+  if (ctx.depth > MAX_RENDER_DEPTH) return [renderList(node, ctx)]
+  const firstNumber = typeof node.start === "number" ? node.start : 1
+  const blocks: string[] = []
+  let segment: ListItem[] = []
+  let segmentStart = firstNumber
+  node.children.forEach((item, index) => {
+    const codeIndex = item.children.findIndex((child) => child.type === "code")
+    if (codeIndex === -1) {
+      segment.push(item)
+      return
+    }
+    segment.push({ ...item, children: item.children.slice(0, codeIndex) })
+    blocks.push(renderList({ ...node, start: segmentStart, children: segment }, ctx))
+    const rest = nested(ctx)
+    for (const child of item.children.slice(codeIndex)) blocks.push(...renderBlock(child, rest))
+    segment = []
+    segmentStart = firstNumber + index + 1
+  })
+  if (segment.length > 0) blocks.push(renderList({ ...node, start: segmentStart, children: segment }, ctx))
+  return blocks
 }
 
 /**
@@ -586,7 +640,7 @@ function renderBlock(node: RootContent, ctx: RenderContext): string[] {
         ? [paragraphBlock(escapeText(plainText(node).trim()))]
         : [renderQuote(node.children, ctx)]
     case "list":
-      return [renderList(node, ctx)]
+      return renderListBlocks(node, ctx)
     case "table":
       return [renderTable(node, ctx)]
     case "definition":

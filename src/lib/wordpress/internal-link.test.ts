@@ -79,7 +79,22 @@ describe("insertInternalLink", () => {
     )
     expect(result.ok).toBe(true)
     if (!result.ok) return
-    expect(result.content).toContain('<a href="https://contoh.test/a?x=1&amp;y=&#91;gallery]">pour over</a>')
+    expect(result.content).toContain('<a href="https://contoh.test/a?x=1&amp;y=%5Bgallery%5D">pour over</a>')
+    expect(result.content).not.toMatch(/href="[^"]*(?:\[|&#91;)/)
+  })
+
+  it("kalimat dengan kurung siku cocok dengan konten yang shortcode-nya sudah dinetralkan serializer", () => {
+    const raw =
+      "<!-- wp:paragraph -->\n<p>Gunakan opsi &#91;\u2060filter] untuk menyaring ampas kopi dengan rapi.</p>\n<!-- /wp:paragraph -->"
+    const result = insertInternalLink(
+      raw,
+      "Gunakan opsi [filter] untuk menyaring ampas kopi dengan rapi.",
+      `<a href="${URL_NEW}">menyaring ampas kopi</a>`
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.content).toContain(`<a href="${URL_NEW}">menyaring ampas kopi</a>`)
+    expect(result.content).toContain("&#91;\u2060filter]")
   })
 
   it("melaporkan kalimat yang tidak ditemukan atau anchor di luar kalimat", () => {
