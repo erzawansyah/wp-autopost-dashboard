@@ -20,7 +20,7 @@ import { PGlite, type Transaction } from "@electric-sql/pglite"
 export const SUPABASE_DIR = fileURLToPath(new URL("../../", import.meta.url))
 const MIGRATIONS_DIR = path.join(SUPABASE_DIR, "migrations")
 
-/** 10 tabel aplikasi di skema `public` (urutan: induk → anak). */
+/** 11 tabel aplikasi di skema `public` (urutan: induk → anak). */
 export const APP_TABLES = [
   "wp_sites",
   "content_batches",
@@ -32,6 +32,7 @@ export const APP_TABLES = [
   "user_settings",
   "webhooks",
   "uploaded_media",
+  "generation_checkpoints",
 ] as const
 
 export type AppTable = (typeof APP_TABLES)[number]
@@ -197,6 +198,7 @@ export interface TenantFixture {
   settingsId: string
   webhookId: string
   mediaId: string
+  checkpointId: string
 }
 
 async function insertReturningId(db: PGlite, sql: string, params: unknown[]): Promise<string> {
@@ -270,7 +272,14 @@ export async function seedTenant(db: PGlite, label: string): Promise<TenantFixtu
     [userId, siteId, postId]
   )
 
-  return { userId, siteId, batchId, postId, logId, profileId, runId, skillId, settingsId, webhookId, mediaId }
+  const checkpointId = await insertReturningId(
+    db,
+    `insert into public.generation_checkpoints (post_item_id, user_id, step, schema_version, data)
+     values ($1, $2, 'pre_resolve', 1, '{"inputKey": "fixture"}') returning id`,
+    [postId, userId]
+  )
+
+  return { userId, siteId, batchId, postId, logId, profileId, runId, skillId, settingsId, webhookId, mediaId, checkpointId }
 }
 
 export async function countRows(db: PGlite | Transaction, table: AppTable, id: string): Promise<number> {

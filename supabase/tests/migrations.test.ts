@@ -188,7 +188,7 @@ describe("instalasi baru", () => {
     expect(await catalogSnapshot(db, { columns: true })).toEqual(before)
   })
 
-  it("tepat 10 tabel di public; seluruhnya RLS enable + force dan punya policy", async () => {
+  it("tepat 11 tabel di public; seluruhnya RLS enable + force dan punya policy", async () => {
     const tables = await db.query<{ relname: string; rls: boolean; force: boolean; policies: number }>(
       `select c.relname, c.relrowsecurity as rls, c.relforcerowsecurity as force,
               (select count(*)::int from pg_policies p where p.schemaname = 'public' and p.tablename = c.relname) as policies
@@ -241,6 +241,7 @@ describe("instalasi baru", () => {
       user_settings: matrix["authenticated:user_settings"],
       webhooks: matrix["authenticated:webhooks"],
       uploaded_media: matrix["authenticated:uploaded_media"],
+      generation_checkpoints: matrix["authenticated:generation_checkpoints"],
     }).toEqual({
       wp_sites: crud,
       content_batches: crud,
@@ -253,6 +254,8 @@ describe("instalasi baru", () => {
       user_settings: crud,
       webhooks: crud,
       uploaded_media: "SELECT",
+      // Ditulis worker lewat RPC save_generation_checkpoint (service_role).
+      generation_checkpoints: "SELECT",
     })
 
     const fn = await one<{ anon: boolean; authenticated: boolean }>(

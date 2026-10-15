@@ -1,5 +1,6 @@
 import "server-only"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { closeAbandonedAgentRuns } from "@/core/queue/agent-runs"
 import { refreshBatchProgress, type QueueDbClient } from "@/core/queue/batch-progress"
 import { clampRetryCount } from "@/core/queue/retry-policy"
 import {
@@ -234,6 +235,15 @@ async function settleRow(
   }
   if (outcome !== "applied") return null
 
+  // Percobaan generasi yang terputus tidak boleh tampil "running" selamanya di dasbor.
+  if (row.state === "generating_content") {
+    await closeAbandonedAgentRuns(
+      supabase,
+      { id: row.id, userId: row.user_id },
+      step === "stale_recovery" ? "lease_expired" : "shutdown"
+    )
+  }
+
   const finalized = written.lastError === null
   await logQueueEvent(supabase, {
     postItemId: row.id,
@@ -288,6 +298,9 @@ export async function releaseClaims(input: ReleaseClaimsInput): Promise<number> 
     if (error) console.error(`[queue] Gagal mengembalikan klaim ${from} ke antrean:`, error.message)
     for (const row of data ?? []) {
       released++
+      if (from === "generating_content") {
+        await closeAbandonedAgentRuns(supabase, { id: row.id, userId: row.user_id }, "shutdown")
+      }
       await logQueueEvent(supabase, {
         postItemId: row.id,
         userId: row.user_id,

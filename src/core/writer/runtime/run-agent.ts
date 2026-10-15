@@ -26,7 +26,20 @@ import { executeSingleFinalizeCall } from "./finalize";
 import { postprocessArticle } from "./postprocess";
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
 import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
-import { preResolveTaxonomyAndAuthor } from "./pre-resolve";
+import { preResolveTaxonomyAndAuthor, type PreResolvedContext } from "./pre-resolve";
+import {
+  GENERATION_CHECKPOINT_MAX_BYTES,
+  GENERATION_CHECKPOINT_SCHEMA_VERSION,
+  checkpointByteLength,
+  computeGenerationInputKeys,
+  describeStepUsage,
+  planGenerationResume,
+  usageSince,
+  type DraftCheckpointData,
+  type GenerationCheckpoint,
+  type GenerationCheckpointOptions,
+  type IgnoredCheckpointReason,
+} from "./checkpoints";
 import { getLanguageDisplayName } from "@/lib/constants/languages";
 import "../tools"; // Pastikan seluruh tool terdaftar ke registry
 
@@ -37,6 +50,11 @@ export interface RunAgentOptions {
   userId?: string;
   onEventListener?: (event: AgentStepEvent) => void;
   abortSignal?: AbortSignal;
+  /**
+   * Resume dari checkpoint percobaan sebelumnya + callback penyimpanan langkah yang selesai
+   * (lihat `checkpoints.ts`). Tanpa opsi ini run berjalan penuh tanpa persistensi (Lab, eval).
+   */
+  checkpoints?: GenerationCheckpointOptions;
 }
 
 export interface RunAgentResult {
@@ -46,9 +64,168 @@ export interface RunAgentResult {
   enrichment: WpEnrichment;
   recorder: RunRecorder;
   stopReason: string;
-  /** Model utama hasil resolusi gateway LLM. */
+  /** Model utama hasil resolusi gateway LLM (resume dari draft: model yang menulis naskah). */
   model: string;
   error?: WriterError;
+}
+
+const IGNORED_CHECKPOINT_LABELS: Record<IgnoredCheckpointReason, string> = {
+  unknown_step: "langkah tidak dikenal",
+  schema_version: "versi skema berbeda",
+  invalid_data: "data tidak valid",
+  input_changed: "input artikel/Agent Profile berubah",
+};
+
+/**
+ * Serahkan checkpoint langkah ke pemanggil (best-effort): kegagalan menyimpan dicatat ke telemetri
+ * tanpa menggagalkan run, karena checkpoint hanya penghemat biaya untuk percobaan berikutnya.
+ */
+async function persistCheckpoint(
+  checkpoint: GenerationCheckpoint,
+  recorder: RunRecorder,
+  onCheckpoint: GenerationCheckpointOptions["onCheckpoint"],
+): Promise<void> {
+  if (!onCheckpoint) return;
+  const bytes = checkpointByteLength(checkpoint.data);
+  const sizeKb = Math.ceil(bytes / 1024);
+  if (bytes > GENERATION_CHECKPOINT_MAX_BYTES) {
+    recorder.recordEvent({
+      kind: "guard",
+      tool: "checkpoint_save",
+      status: "error",
+      durationMs: 0,
+      summary: `Checkpoint '${checkpoint.step}' tidak disimpan: ukuran ${sizeKb} KB melebihi batas ${GENERATION_CHECKPOINT_MAX_BYTES / 1024} KB.`,
+    });
+    return;
+  }
+
+  const start = Date.now();
+  try {
+    const saved = await onCheckpoint(checkpoint);
+    recorder.recordEvent({
+      kind: "guard",
+      tool: "checkpoint_save",
+      status: saved ? "ok" : "blocked",
+      durationMs: Date.now() - start,
+      summary: saved
+        ? `Checkpoint '${checkpoint.step}' tersimpan (${sizeKb} KB); percobaan berikutnya melanjutkan dari langkah ini.`
+        : `Checkpoint '${checkpoint.step}' ditolak penyimpanan (klaim item sudah tidak berlaku).`,
+    });
+  } catch (err: unknown) {
+    recorder.recordEvent({
+      kind: "guard",
+      tool: "checkpoint_save",
+      status: "error",
+      durationMs: Date.now() - start,
+      summary: `Checkpoint '${checkpoint.step}' gagal disimpan: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+}
+
+interface CompleteArticleParams {
+  request: WriterRequest;
+  keyword: string;
+  rawOutput: Partial<ArticleOutput> & { markdownContent: string };
+  preResolved: PreResolvedContext;
+  recorder: RunRecorder;
+  stopReason: string;
+  model: string;
+}
+
+/**
+ * Langkah akhir deterministik (dijalankan ulang juga saat resume dari draft): postprocess Markdown →
+ * Gutenberg dan penggabungan taksonomi/author/media dari pre-resolve, temuan agen, dan request.
+ */
+function completeArticle(params: CompleteArticleParams): RunAgentResult {
+  const { request, keyword, rawOutput, preResolved, recorder, stopReason } = params;
+
+  // Postprocessing ke Native WordPress Gutenberg Blocks (Global & Tersembunyi dari User)
+  const generatedArticle = postprocessArticle({
+    rawTitle:
+      rawOutput.title || request.content.title || `Panduan Lengkap ${keyword}`,
+    rawExcerpt: rawOutput.excerpt || `Ulasan lengkap mengenai ${keyword}.`,
+    rawMarkdown: rawOutput.markdownContent,
+  });
+
+  // Gabungkan taksonomi dari hasil pre-resolution, temuan agent, dan request manual
+  const finalCategories =
+    rawOutput.categoryIds && rawOutput.categoryIds.length > 0
+      ? rawOutput.categoryIds
+      : preResolved.categoryIds.length > 0
+        ? preResolved.categoryIds
+        : request.publishing.categoryIds || [];
+
+  const finalTags: number[] =
+    preResolved.tagIds.length > 0 ? preResolved.tagIds : [];
+
+  const enrichment: WpEnrichment = {
+    categories: finalCategories,
+    categoryNames: preResolved.categoryNames,
+    tags: finalTags,
+    tagNames: preResolved.tagNames,
+    author:
+      preResolved.author?.id ??
+      request.publishing.authorId ??
+      rawOutput.authorId ??
+      undefined,
+    authorDetail: preResolved.author
+      ? {
+          id: preResolved.author.id,
+          name: preResolved.author.name,
+          bio: preResolved.author.bio,
+        }
+      : undefined,
+    featuredMedia:
+      request.publishing.featuredImageId ??
+      rawOutput.featuredMediaId ??
+      recorder.featuredMediaId ??
+      undefined,
+    featuredImage: recorder.featuredImage,
+    inContentImages: recorder.inContentImages,
+  };
+
+  recorder.recordEvent({
+    kind: "summary",
+    status: "ok",
+    durationMs: 1,
+    summary: `Artikel sukses dibuat: "${generatedArticle.title}" (${generatedArticle.wordCount} kata, ${stopReason})`,
+  });
+
+  return {
+    success: true,
+    article: generatedArticle,
+    sources: Array.from(recorder.sources.values()),
+    enrichment,
+    recorder,
+    stopReason,
+    model: params.model,
+  };
+}
+
+/**
+ * Resume dari checkpoint draft: tanpa LLM, tanpa request WordPress pre-resolve, dan tanpa tool (media
+ * yang sudah diunggah dipulihkan dari checkpoint). Hanya langkah deterministik yang dijalankan ulang.
+ */
+function resumeFromDraft(
+  draft: DraftCheckpointData,
+  params: Omit<CompleteArticleParams, "rawOutput" | "preResolved" | "stopReason" | "model">,
+): RunAgentResult {
+  const { recorder } = params;
+  for (const source of draft.sources) recorder.trackSource(source);
+  if (draft.featuredImage) recorder.featuredImage = draft.featuredImage;
+  if (draft.featuredMediaId) recorder.featuredMediaId = draft.featuredMediaId;
+  recorder.inContentImages.push(...draft.inContentImages);
+  recorder.markResumed(
+    ["pre_resolve", "draft"],
+    `Melanjutkan dari checkpoint draft: naskah, taksonomi, riset & media percobaan sebelumnya dipakai ulang tanpa LLM (hemat ${describeStepUsage(draft.usage)}).`,
+  );
+  return completeArticle({
+    ...params,
+    rawOutput: draft.output,
+    preResolved: draft.preResolved,
+    stopReason: draft.stopReason,
+    model: draft.model,
+  });
 }
 
 /**
@@ -86,6 +263,26 @@ export async function runAgentWriter(
   const language = request.content.language || "id";
   const targetWordCount =
     request.content.wordCountTarget || limits.minWordCount || 800;
+  const runUserId = options.userId || request.userId;
+
+  // 0. Resume dari checkpoint percobaan sebelumnya (hanya yang versi skema & sidik inputnya cocok)
+  const inputKeys = computeGenerationInputKeys(request, profile);
+  const resumePlan = planGenerationResume(options.checkpoints?.resume, inputKeys);
+  for (const ignored of resumePlan.ignored) {
+    recorder.recordEvent({
+      kind: "guard",
+      tool: "checkpoint_resume",
+      status: "blocked",
+      durationMs: 0,
+      summary: `Checkpoint '${ignored.step}' diabaikan (${IGNORED_CHECKPOINT_LABELS[ignored.reason]}); langkah dijalankan ulang.`,
+    });
+  }
+  const saveCheckpoint = (checkpoint: GenerationCheckpoint) =>
+    persistCheckpoint(checkpoint, recorder, options.checkpoints?.onCheckpoint);
+
+  if (resumePlan.draft) {
+    return resumeFromDraft(resumePlan.draft, { request, keyword, recorder });
+  }
 
   // Sinyal agent loop (model & tools): batal saat run dibatalkan dari luar ATAU timeout loop
   // tercapai (timer dimulai tepat sebelum loop). Pre-resolve & finalize hanya terikat sinyal luar.
@@ -138,6 +335,11 @@ export async function runAgentWriter(
         language,
         recorder,
         signal: loopController.signal,
+        // Cache deduplikasi media per pemilik & situs: run ulang tidak mengunggah gambar yang sama lagi.
+        mediaCache:
+          runUserId && site?.siteId
+            ? { userId: runUserId, siteId: site.siteId }
+            : undefined,
       });
     })
     .filter(Boolean) as StructuredTool[];
@@ -203,18 +405,51 @@ export async function runAgentWriter(
     }
 
     // 4. Pre-Resolution: Resolusi Taksonomi & Author WordPress di latar belakang via LLM
-    const preResolved = await preResolveTaxonomyAndAuthor({
-      wpCredentials,
-      requestedAuthorId: request.publishing.authorId,
-      requestedCategoryIds: request.publishing.categoryIds,
-      requestedTagNames: request.publishing.tagNames,
-      keyword,
-      language,
-      brief: request.content.brief,
-      gateway,
-      signal: abortSignal,
-      recorder,
-    });
+    //    (atau dipakai ulang dari checkpoint percobaan sebelumnya).
+    let preResolved: PreResolvedContext;
+    if (resumePlan.preResolve) {
+      preResolved = resumePlan.preResolve.preResolved;
+      recorder.markResumed(
+        ["pre_resolve"],
+        `Melanjutkan dari checkpoint pre_resolve: taksonomi & author dipakai ulang tanpa LLM/WordPress (hemat ${describeStepUsage(resumePlan.preResolve.usage)}).`,
+      );
+    } else {
+      const usageBefore = recorder.usage.snapshot();
+      preResolved = await preResolveTaxonomyAndAuthor({
+        wpCredentials,
+        requestedAuthorId: request.publishing.authorId,
+        requestedCategoryIds: request.publishing.categoryIds,
+        requestedTagNames: request.publishing.tagNames,
+        keyword,
+        language,
+        brief: request.content.brief,
+        gateway,
+        signal: abortSignal,
+        recorder,
+      });
+      // Run yang dibatalkan di tengah pre-resolve bisa jatuh ke fallback heuristik (LLM/WordPress terputus):
+      // hasil seperti itu tidak disimpan agar percobaan berikutnya me-resolve ulang secara utuh.
+      if (abortSignal?.aborted) {
+        recorder.recordEvent({
+          kind: "guard",
+          tool: "checkpoint_save",
+          status: "blocked",
+          durationMs: 0,
+          summary: "Checkpoint 'pre_resolve' dilewati: run dibatalkan sehingga hasil resolusi mungkin tidak lengkap.",
+        });
+      } else {
+        await saveCheckpoint({
+          step: "pre_resolve",
+          schemaVersion: GENERATION_CHECKPOINT_SCHEMA_VERSION,
+          data: {
+            inputKey: inputKeys.preResolve,
+            preResolved,
+            usage: usageSince(usageBefore, recorder.usage.snapshot()),
+          },
+        });
+      }
+    }
+    const usageAfterPreResolve = recorder.usage.snapshot();
 
     // 5. Prompting
     const siteUrl = request.site?.baseUrl || "";
@@ -269,7 +504,7 @@ export async function runAgentWriter(
         limits,
         recorder,
         skills: profile.skills,
-        userId: options.userId || request.userId,
+        userId: runUserId,
       });
     } catch (agentBuildErr: unknown) {
       const errText =
@@ -465,67 +700,42 @@ export async function runAgentWriter(
       });
     }
 
-    // 11. Postprocessing ke Native WordPress Gutenberg Blocks (Global & Tersembunyi dari User)
-    const generatedArticle = postprocessArticle({
-      rawTitle:
-        rawOutput.title || request.content.title || `Panduan Lengkap ${keyword}`,
-      rawExcerpt: rawOutput.excerpt || `Ulasan lengkap mengenai ${keyword}.`,
-      rawMarkdown: rawOutput.markdownContent,
+    // 11. Checkpoint draft (sebelum postprocess deterministik): percobaan berikutnya tidak memanggil LLM lagi.
+    const draftOutput = { ...rawOutput, markdownContent: rawOutput.markdownContent };
+    await saveCheckpoint({
+      step: "draft",
+      schemaVersion: GENERATION_CHECKPOINT_SCHEMA_VERSION,
+      data: {
+        inputKey: inputKeys.draft,
+        model: selectedModel,
+        preResolved,
+        output: {
+          title: draftOutput.title,
+          excerpt: draftOutput.excerpt,
+          markdownContent: draftOutput.markdownContent,
+          categoryIds: draftOutput.categoryIds,
+          authorId: draftOutput.authorId,
+          featuredMediaId: draftOutput.featuredMediaId,
+        },
+        stopReason,
+        sources: Array.from(recorder.sources.values()),
+        featuredImage: recorder.featuredImage,
+        featuredMediaId: recorder.featuredMediaId,
+        inContentImages: [...recorder.inContentImages],
+        usage: usageSince(usageAfterPreResolve, recorder.usage.snapshot()),
+      },
     });
 
-    // Gabungkan taksonomi dari hasil pre-resolution, temuan agent, dan request manual
-    const finalCategories =
-      rawOutput.categoryIds && rawOutput.categoryIds.length > 0
-        ? rawOutput.categoryIds
-        : preResolved.categoryIds.length > 0
-          ? preResolved.categoryIds
-          : request.publishing.categoryIds || [];
-
-    const finalTags: number[] =
-      preResolved.tagIds.length > 0 ? preResolved.tagIds : [];
-
-    const enrichment: WpEnrichment = {
-      categories: finalCategories,
-      categoryNames: preResolved.categoryNames,
-      tags: finalTags,
-      tagNames: preResolved.tagNames,
-      author:
-        preResolved.author?.id ??
-        request.publishing.authorId ??
-        rawOutput.authorId ??
-        undefined,
-      authorDetail: preResolved.author
-        ? {
-            id: preResolved.author.id,
-            name: preResolved.author.name,
-            bio: preResolved.author.bio,
-          }
-        : undefined,
-      featuredMedia:
-        request.publishing.featuredImageId ??
-        rawOutput.featuredMediaId ??
-        recorder.featuredMediaId ??
-        undefined,
-      featuredImage: recorder.featuredImage,
-      inContentImages: recorder.inContentImages,
-    };
-
-    recorder.recordEvent({
-      kind: "summary",
-      status: "ok",
-      durationMs: 1,
-      summary: `Artikel sukses dibuat: "${generatedArticle.title}" (${generatedArticle.wordCount} kata, ${stopReason})`,
-    });
-
-    return {
-      success: true,
-      article: generatedArticle,
-      sources: Array.from(recorder.sources.values()),
-      enrichment,
+    // 12. Postprocessing & penggabungan metadata WordPress
+    return completeArticle({
+      request,
+      keyword,
+      rawOutput: draftOutput,
+      preResolved,
       recorder,
       stopReason,
       model: selectedModel,
-    };
+    });
   } finally {
     abortSignal?.removeEventListener("abort", abortLoop);
     await gateway.flush();

@@ -13,7 +13,7 @@ Berlaku untuk seluruh kode. Panitera adalah SaaS multi-tenant yang menyimpan kre
 - Dekripsi (`decryptCredential()`) hanya di server. Nilai terdekripsi tidak boleh dikirim ke browser, ditulis ke log, `execution_logs`, telemetri, atau pesan error.
 - Respons API ke client hanya boleh memuat versi tersamar (mis. `sk-or-…a1b2`) atau flag `hasKey: true`. Nilai terenkripsi juga tidak boleh dikembalikan.
 - BYOK-only: kunci tenant tidak pernah jatuh ke kunci platform (`process.env`), kecuali operator men-set `PLATFORM_KEY_ALLOWED=true` (`src/lib/ai/platform-keys.ts`). Jangan pernah menulis ke `process.env` atau berkas `.env*` saat runtime, dan jangan menyimpan kunci di localStorage.
-- Log, telemetri, dan respons Lab wajib melewati `redactSecrets()` (`src/core/writer/runtime/redact.ts`).
+- Log, telemetri, hasil tool, dan respons Lab wajib melewati `redactSecrets()` / `redactSecretsInText()` (`src/lib/security/redact.ts`).
 - Kunci master diambil dari `ENCRYPTION_MASTER_KEY` (32 byte / 64 karakter hex). Jangan pernah menulis fallback kunci di kode.
 
 ## 3. Anti-SSRF untuk URL Input Pengguna

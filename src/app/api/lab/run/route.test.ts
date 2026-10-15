@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { ToolMessage } from "@langchain/core/messages"
 import { toolFailure, toolSuccess } from "@/core/shared/tools/contract"
-import { REDACTED } from "@/core/writer/runtime/redact"
+import { REDACTED } from "@/lib/security/redact"
 
 /**
  * Lab: gerbang Developer Mode, validasi, kepemilikan situs, rate limit, dan redaksi terarah
@@ -75,11 +75,12 @@ const OTHER_SITE = "44444444-4444-4444-8444-444444444444"
 const SIGNED_IMAGE_URL = "https://cdn.contoh.test/foto.jpg?token=tk_9f8e7d6c5b4a3f2e1d&w=1200"
 const noParams = { params: Promise.resolve({}) }
 
-function labRequest(body: unknown) {
+function labRequest(body: unknown, signal?: AbortSignal) {
   return new Request("http://localhost/api/lab/run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   })
 }
 
@@ -266,6 +267,45 @@ describe("POST /api/lab/run — redaksi terarah", () => {
   it("tool tidak terdaftar → 404", async () => {
     mocks.toolGet.mockReturnValue(undefined)
     expect((await POST(labRequest({ type: "tool", targetId: "list_wp_tags" }), noParams)).status).toBe(404)
+  })
+})
+
+describe("POST /api/lab/run — pembatalan request", () => {
+  /** Sinyal yang diteruskan sama dengan sinyal request (Request membungkus sinyal pemanggil). */
+  function followsRequestAbort(signal: unknown, controller: AbortController): boolean {
+    if (!(signal instanceof AbortSignal) || signal.aborted) return false
+    controller.abort()
+    return signal.aborted
+  }
+
+  it("sinyal request diteruskan ke writer.run (abortSignal) untuk uji Agent Profile", async () => {
+    const controller = new AbortController()
+    mocks.run.mockResolvedValue({ success: true, execution: { nodesExecuted: [], durationMs: 1, retries: 0, modelUsed: "x", warnings: [] } })
+
+    await POST(labRequest({ type: "agent", targetId: "preset:quick-writer" }, controller.signal), noParams)
+
+    const [, runOptions] = mocks.run.mock.calls[0]
+    expect(followsRequestAbort(runOptions.abortSignal, controller)).toBe(true)
+  })
+
+  it("sinyal request diteruskan ke tool langsung (web_search) dan ke tool registry (konteks & invoke)", async () => {
+    const searchController = new AbortController()
+    mocks.webSearch.mockResolvedValue(toolSuccess([]))
+    await POST(labRequest({ type: "tool", targetId: "web_search", params: { query: "kopi" } }, searchController.signal), noParams)
+    expect(followsRequestAbort(mocks.webSearch.mock.calls[0][0].signal, searchController)).toBe(true)
+
+    const toolController = new AbortController()
+    const invoke = vi.fn<(call: { id: string; name: string }, config?: { signal?: AbortSignal }) => Promise<ToolMessage>>(
+      async (call) => new ToolMessage({ content: "ok", tool_call_id: call.id, name: call.name, artifact: toolSuccess({ ok: 1 }) })
+    )
+    const build = vi.fn<(ctx: { signal?: AbortSignal }) => { invoke: typeof invoke }>(() => ({ invoke }))
+    mocks.toolGet.mockReturnValue({ id: "upload_media", build, summarize: () => "ringkas" })
+
+    await POST(labRequest({ type: "tool", targetId: "upload_media", params: {} }, toolController.signal), noParams)
+
+    const ctxSignal = build.mock.calls[0][0].signal
+    expect(invoke.mock.calls[0][1]?.signal).toBe(ctxSignal)
+    expect(followsRequestAbort(ctxSignal, toolController)).toBe(true)
   })
 })
 

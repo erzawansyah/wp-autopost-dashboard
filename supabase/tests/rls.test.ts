@@ -147,6 +147,17 @@ const CASES: TableCase[] = [
     }),
     update: "update public.uploaded_media set image_id = 999 where id = $1",
   },
+  {
+    table: "generation_checkpoints",
+    key: "checkpointId",
+    access: "read-only",
+    insert: (o) => ({
+      sql: `insert into public.generation_checkpoints (post_item_id, user_id, step, schema_version, data)
+            values ($2, $1, 'draft', 1, '{"inputKey": "palsu"}')`,
+      params: [o.userId, o.postId],
+    }),
+    update: `update public.generation_checkpoints set data = '{"inputKey": "diretas"}' where id = $1`,
+  },
 ]
 
 let db: PGlite
@@ -186,7 +197,7 @@ afterAll(async () => {
   await db.close()
 })
 
-it("matriks test mencakup seluruh 10 tabel aplikasi", () => {
+it("matriks test mencakup seluruh 11 tabel aplikasi", () => {
   expect(CASES.map((c) => c.table).sort()).toEqual([...APP_TABLES].sort())
 })
 

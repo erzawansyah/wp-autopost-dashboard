@@ -6,6 +6,14 @@ import type { DecryptedUserKeys } from "@/types/settings"
 import { WriterRequestSchema } from "../types/contracts"
 import { DEFAULT_STANDARD_LIMITS, type AgentProfile } from "../types/profile"
 import { ToolRegistry, type ToolRuntimeContext } from "../tools/registry"
+import {
+  GENERATION_CHECKPOINT_SCHEMA_VERSION,
+  computeGenerationInputKeys,
+  type GenerationCheckpoint,
+  type StoredGenerationCheckpoint,
+} from "./checkpoints"
+import type { PreResolveOptions } from "./pre-resolve"
+import type { RunRecorder } from "./telemetry"
 import { runAgentWriter } from "./run-agent"
 
 /**
@@ -17,14 +25,13 @@ import { runAgentWriter } from "./run-agent"
 const mocks = vi.hoisted(() => ({
   buildWriterAgent: vi.fn(),
   finalize: vi.fn(),
+  preResolve: vi.fn(),
   toolContexts: [] as ToolRuntimeContext[],
 }))
 
 vi.mock("./build-agent", () => ({ buildWriterAgent: mocks.buildWriterAgent }))
 vi.mock("./finalize", () => ({ executeSingleFinalizeCall: mocks.finalize }))
-vi.mock("./pre-resolve", () => ({
-  preResolveTaxonomyAndAuthor: async () => ({ categoryIds: [], categoryNames: [], tagNames: [], tagIds: [] }),
-}))
+vi.mock("./pre-resolve", () => ({ preResolveTaxonomyAndAuthor: mocks.preResolve }))
 
 const PROBE_TOOL_ID = "test_signal_probe"
 ToolRegistry.register({
@@ -65,6 +72,7 @@ const request = WriterRequestSchema.parse({ content: { keyword: "kopi arabika" }
 beforeEach(() => {
   mocks.buildWriterAgent.mockReset()
   mocks.finalize.mockReset()
+  mocks.preResolve.mockReset().mockResolvedValue({ categoryIds: [], categoryNames: [], tagNames: [], tagIds: [] })
   mocks.toolContexts.length = 0
   vi.spyOn(console, "log").mockImplementation(() => {})
 })
@@ -132,5 +140,304 @@ describe("runAgentWriter + gateway LLM", () => {
 
     expect(result).toMatchObject({ success: false, stopReason: "missing_api_key", error: { code: "MISSING_API_KEY" } })
     expect(mocks.buildWriterAgent).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Checkpoint & resume
+// ---------------------------------------------------------------------------
+
+const PRE_RESOLVED = {
+  author: { id: 4, name: "Sari Penulis", bio: "Barista 10 tahun", slug: "sari" },
+  categoryIds: [12],
+  categoryNames: ["Kopi"],
+  tagNames: ["kopi arabika"],
+  tagIds: [301],
+}
+
+/** Catat satu panggilan LLM sukses ke ledger run (sama dengan callback gateway). */
+function spend(recorder: RunRecorder, totalTokens: number, costUsd: number) {
+  recorder.usage.recordSuccess({
+    model: "acme/request-model",
+    promptTokens: totalTokens - 10,
+    completionTokens: 10,
+    totalTokens,
+    reasoningTokens: 0,
+    cachedPromptTokens: 0,
+    costUsd,
+  })
+}
+
+/** Agent yang "menulis" naskah panjang dan memakai 1000 token. */
+function writingAgent() {
+  mocks.buildWriterAgent.mockImplementation(async ({ recorder }: { recorder: RunRecorder }) => ({
+    invoke: async () => {
+      spend(recorder, 1000, 0.01)
+      recorder.trackSource({ url: "https://sumber.test/kopi", title: "Sumber Kopi" })
+      recorder.featuredMediaId = 88
+      recorder.inContentImages.push({
+        subheading: "Biji",
+        imageUrl: "https://wp.test/up/biji.jpg",
+        originalUrl: "https://img.test/biji.jpg",
+        altText: "Biji kopi",
+        wpMediaId: 89,
+      })
+      return { messages: [{ content: `TITLE: Kopi Arabika\nEXCERPT: Ringkas.\n---\n${LONG_ARTICLE}` }] }
+    },
+  }))
+}
+
+const keys = computeGenerationInputKeys(request, profile)
+const ZERO_USAGE = {
+  calls: 0,
+  failedCalls: 0,
+  promptTokens: 0,
+  completionTokens: 0,
+  totalTokens: 0,
+  reasoningTokens: 0,
+  cachedPromptTokens: 0,
+  costUsd: null,
+  byModel: [],
+}
+
+function storedPreResolve(overrides: Partial<StoredGenerationCheckpoint> = {}): StoredGenerationCheckpoint {
+  return {
+    step: "pre_resolve",
+    schemaVersion: GENERATION_CHECKPOINT_SCHEMA_VERSION,
+    data: { inputKey: keys.preResolve, preResolved: PRE_RESOLVED, usage: { ...ZERO_USAGE, calls: 1, totalTokens: 100 } },
+    ...overrides,
+  }
+}
+
+function storedDraft(dataOverrides: Record<string, unknown> = {}): StoredGenerationCheckpoint {
+  return {
+    step: "draft",
+    schemaVersion: GENERATION_CHECKPOINT_SCHEMA_VERSION,
+    data: {
+      inputKey: keys.draft,
+      model: "acme/penulis-asli",
+      preResolved: PRE_RESOLVED,
+      output: { title: "Kopi Arabika Tersimpan", excerpt: "Ringkasan tersimpan.", markdownContent: LONG_ARTICLE },
+      stopReason: "completed",
+      sources: [{ url: "https://sumber.test/kopi", title: "Sumber Kopi", snippet: null }],
+      featuredImage: {
+        title: "Sampul",
+        imageUrl: "https://wp.test/up/sampul.jpg",
+        originalUrl: "https://img.test/sampul.jpg",
+        explanation: "Dipilih agen",
+        wpMediaId: 88,
+      },
+      featuredMediaId: 88,
+      inContentImages: [{ subheading: "Biji", imageUrl: "https://wp.test/up/biji.jpg", altText: "Biji kopi", wpMediaId: 89 }],
+      usage: { ...ZERO_USAGE, calls: 6, totalTokens: 9000, costUsd: 0.09 },
+      ...dataOverrides,
+    },
+  }
+}
+
+function checkpointEvents(recorder: RunRecorder, tool: string) {
+  return recorder.getEvents().filter((event) => event.tool === tool)
+}
+
+describe("runAgentWriter — checkpoint langkah", () => {
+  it("run baru menyimpan pre_resolve lalu draft (naskah mentah, konteks, media, pemakaian per langkah)", async () => {
+    mocks.preResolve.mockImplementation(async ({ recorder }: PreResolveOptions) => {
+      if (recorder) spend(recorder, 100, 0.001)
+      return PRE_RESOLVED
+    })
+    writingAgent()
+    const saved: GenerationCheckpoint[] = []
+
+    const result = await runAgentWriter({
+      request,
+      profile,
+      userKeys,
+      checkpoints: { onCheckpoint: async (checkpoint) => (saved.push(checkpoint), true) },
+    })
+
+    expect(result.success).toBe(true)
+    expect(saved.map((c) => c.step)).toEqual(["pre_resolve", "draft"])
+    expect(saved.every((c) => c.schemaVersion === GENERATION_CHECKPOINT_SCHEMA_VERSION)).toBe(true)
+
+    const [pre, draft] = saved
+    expect(pre.data).toMatchObject({ inputKey: keys.preResolve, preResolved: PRE_RESOLVED, usage: { calls: 1, totalTokens: 100, costUsd: 0.001 } })
+    expect(draft.data).toMatchObject({
+      inputKey: keys.draft,
+      model: "acme/request-model",
+      preResolved: PRE_RESOLVED,
+      stopReason: "completed",
+      output: { title: "Kopi Arabika", markdownContent: expect.stringContaining("Sejarah Kopi Arabika") },
+      sources: [{ url: "https://sumber.test/kopi", title: "Sumber Kopi" }],
+      featuredMediaId: 88,
+      inContentImages: [{ wpMediaId: 89 }],
+      // Pemakaian langkah draft tidak memuat token pre_resolve.
+      usage: { calls: 1, totalTokens: 1000, costUsd: 0.01, byModel: [{ model: "acme/request-model", totalTokens: 1000 }] },
+    })
+    expect(checkpointEvents(result.recorder, "checkpoint_save").map((e) => e.status)).toEqual(["ok", "ok"])
+    expect(result.recorder.getSummary("completed")).toMatchObject({ tokensTotal: 1100, resumedSteps: [] })
+  })
+
+  it("resume dari pre_resolve: resolver tidak dipanggil ulang, hanya draft yang disimpan, token tidak dihitung ganda", async () => {
+    writingAgent()
+    const saved: GenerationCheckpoint[] = []
+
+    const result = await runAgentWriter({
+      request,
+      profile,
+      userKeys,
+      checkpoints: { resume: [storedPreResolve()], onCheckpoint: (c) => (saved.push(c), true) },
+    })
+
+    expect(result.success).toBe(true)
+    expect(mocks.preResolve).not.toHaveBeenCalled()
+    expect(saved.map((c) => c.step)).toEqual(["draft"])
+    expect(result.enrichment).toMatchObject({ categories: [12], tags: [301], author: 4 })
+    expect(result.recorder.getSummary("completed")).toMatchObject({
+      resumedSteps: ["pre_resolve"],
+      tokensTotal: 1000,
+      llmCalls: 1,
+    })
+    expect(checkpointEvents(result.recorder, "checkpoint_resume")[0]?.summary).toMatch(/checkpoint pre_resolve/)
+  })
+
+  it("resume dari draft: tanpa LLM sama sekali (agen, finalize, resolver), bahkan tanpa kunci BYOK", async () => {
+    const onCheckpoint = vi.fn()
+
+    const result = await runAgentWriter({
+      request,
+      profile,
+      userKeys: { ...userKeys, openrouterKey: undefined },
+      checkpoints: { resume: [storedPreResolve(), storedDraft()], onCheckpoint },
+    })
+
+    expect(mocks.buildWriterAgent).not.toHaveBeenCalled()
+    expect(mocks.finalize).not.toHaveBeenCalled()
+    expect(mocks.preResolve).not.toHaveBeenCalled()
+    expect(onCheckpoint).not.toHaveBeenCalled()
+    expect(mocks.toolContexts).toHaveLength(0)
+
+    expect(result).toMatchObject({ success: true, stopReason: "completed", model: "acme/penulis-asli" })
+    expect(result.article?.title).toBe("Kopi Arabika Tersimpan")
+    expect(result.article?.contentHtml).toContain("<!-- wp:")
+    // Media yang sudah diunggah tool dipulihkan: pipeline media tidak mengunggah ulang.
+    expect(result.enrichment).toMatchObject({
+      categories: [12],
+      tags: [301],
+      author: 4,
+      featuredMedia: 88,
+      featuredImage: { wpMediaId: 88 },
+      inContentImages: [{ wpMediaId: 89 }],
+    })
+    expect(result.sources).toEqual([{ url: "https://sumber.test/kopi", title: "Sumber Kopi" }])
+
+    const summary = result.recorder.getSummary("completed")
+    expect(summary).toMatchObject({ resumedSteps: ["pre_resolve", "draft"], tokensTotal: 0, llmCalls: 0, costUsd: null, modelCalls: 0 })
+    expect(checkpointEvents(result.recorder, "checkpoint_resume")[0]?.summary).toMatch(/9\.000 token/)
+  })
+
+  it.each([
+    ["versi skema berbeda", { ...storedDraft(), schemaVersion: GENERATION_CHECKPOINT_SCHEMA_VERSION + 1 }, /versi skema berbeda/],
+    ["input berubah (kata kunci lain)", storedDraft({ inputKey: "sidik-lama" }), /input artikel\/Agent Profile berubah/],
+    ["data rusak (naskah terlalu pendek)", storedDraft({ output: { markdownContent: "pendek" } }), /data tidak valid/],
+  ])("checkpoint draft %s diabaikan → generasi penuh dengan event telemetri", async (_label, checkpoint, reason) => {
+    writingAgent()
+
+    const result = await runAgentWriter({ request, profile, userKeys, checkpoints: { resume: [checkpoint] } })
+
+    expect(result.success).toBe(true)
+    expect(mocks.buildWriterAgent).toHaveBeenCalledTimes(1)
+    expect(mocks.preResolve).toHaveBeenCalledTimes(1)
+    const ignored = checkpointEvents(result.recorder, "checkpoint_resume")
+    expect(ignored).toHaveLength(1)
+    expect(ignored[0]).toMatchObject({ status: "blocked" })
+    expect(ignored[0].summary).toMatch(reason)
+    expect(result.recorder.getSummary("completed").resumedSteps).toEqual([])
+  })
+
+  it("sidik input: Agent Profile kustom yang diubah membatalkan draft, tetapi pre_resolve tetap dipakai", () => {
+    const edited = computeGenerationInputKeys(request, { ...profile, updatedAt: "2026-10-15T00:00:00Z" })
+    expect(edited.preResolve).toBe(keys.preResolve)
+    expect(edited.draft).not.toBe(keys.draft)
+
+    const otherSite = computeGenerationInputKeys({ ...request, site: { baseUrl: "https://lain.test" } }, profile)
+    expect(otherSite.preResolve).not.toBe(keys.preResolve)
+  })
+
+  it("penyimpanan ditolak (klaim hilang) atau error tidak menggagalkan run; dicatat ke telemetri", async () => {
+    writingAgent()
+    const outcomes = [false, new Error("db putus")]
+
+    const result = await runAgentWriter({
+      request,
+      profile,
+      userKeys,
+      checkpoints: {
+        onCheckpoint: async () => {
+          const next = outcomes.shift()
+          if (next instanceof Error) throw next
+          return next ?? true
+        },
+      },
+    })
+
+    expect(result.success).toBe(true)
+    const events = checkpointEvents(result.recorder, "checkpoint_save")
+    expect(events.map((e) => e.status)).toEqual(["blocked", "error"])
+    expect(events[1].summary).toMatch(/gagal disimpan: db putus/)
+  })
+
+  it("run dibatalkan di tengah pre-resolve (lease hilang): hasil resolusi tidak disimpan & agen tidak dijalankan", async () => {
+    const external = new AbortController()
+    mocks.preResolve.mockImplementation(async () => {
+      external.abort()
+      return { categoryIds: [], categoryNames: [], tagNames: ["fallback heuristik"], tagIds: [] }
+    })
+    mocks.buildWriterAgent.mockResolvedValue({
+      invoke: async (_input: unknown, config: { signal: AbortSignal }) => {
+        config.signal.throwIfAborted()
+        throw new Error("tidak boleh sampai sini")
+      },
+    })
+    const onCheckpoint = vi.fn(async () => true)
+
+    const result = await runAgentWriter({ request, profile, userKeys, abortSignal: external.signal, checkpoints: { onCheckpoint } })
+
+    expect(onCheckpoint).not.toHaveBeenCalled()
+    expect(mocks.finalize).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ success: false, stopReason: "failed_timeout_exceeded" })
+    expect(checkpointEvents(result.recorder, "checkpoint_save")[0]).toMatchObject({ status: "blocked" })
+  })
+
+  it("naskah melebihi batas ukuran checkpoint tidak dikirim ke penyimpanan", async () => {
+    mocks.buildWriterAgent.mockResolvedValue({
+      invoke: async () => ({ messages: [{ content: `TITLE: Besar\n---\n## Bagian\n\n${"kata ".repeat(45_000)}` }] }),
+    })
+    const saved: string[] = []
+
+    const result = await runAgentWriter({
+      request,
+      profile,
+      userKeys,
+      checkpoints: { onCheckpoint: async (checkpoint) => (saved.push(checkpoint.step), true) },
+    })
+
+    expect(result.success).toBe(true)
+    expect(saved).toEqual(["pre_resolve"])
+    expect(checkpointEvents(result.recorder, "checkpoint_save").at(-1)?.summary).toMatch(/melebihi batas/)
+  })
+
+  it("tool upload_media menerima kunci cache media (pemilik & situs) agar run ulang tidak mengunggah ulang", async () => {
+    writingAgent()
+    const withSite = WriterRequestSchema.parse({
+      content: { keyword: "kopi arabika" },
+      site: { siteId: "site-1", baseUrl: "https://wp.test", username: "editor", applicationPassword: "abcd efgh" },
+    })
+
+    await runAgentWriter({ request: withSite, profile, userKeys, userId: "user-1" })
+    expect(mocks.toolContexts[0]?.mediaCache).toEqual({ userId: "user-1", siteId: "site-1" })
+
+    mocks.toolContexts.length = 0
+    await runAgentWriter({ request, profile, userKeys, userId: "user-1" })
+    expect(mocks.toolContexts[0]?.mediaCache).toBeUndefined()
   })
 })

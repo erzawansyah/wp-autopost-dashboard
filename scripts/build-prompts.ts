@@ -207,7 +207,7 @@ export function inferJsonSchemaFromExample(example: unknown): Record<string, unk
 }
 
 /** Menghapus akhiran `?` dari kunci objek agar contoh JSON yang disisipkan ke prompt bersih. */
-export function cleanExampleForPrompt(example: unknown): unknown {
+function cleanExampleForPrompt(example: unknown): unknown {
   if (Array.isArray(example)) return example.map(cleanExampleForPrompt)
   if (isPlainObject(example)) {
     const cleaned: Record<string, unknown> = {}
@@ -550,7 +550,7 @@ function walkSources(root: string, dirRel: string, out: SourceFile[]): SourceFil
   return out
 }
 
-export function createRepoView(root: string): RepoView {
+function createRepoView(root: string): RepoView {
   return {
     exists: (file) => existsSync(path.join(root, file)),
     read: (file) => readFileSync(path.join(root, file), "utf-8"),
@@ -563,12 +563,12 @@ export function createRepoView(root: string): RepoView {
 // ---------------------------------------------------------------------------
 
 /** Membaca, mengompilasi, dan memvalidasi seluruh prompt di repo `root`. */
-export function buildRegistry(root: string, repo: RepoView = createRepoView(root)): RegistryBuild {
+export function buildRegistry(root: string): RegistryBuild {
   const dirAbs = path.join(root, PROMPTS_DIR)
   const names = readdirSync(dirAbs).filter((f) => f.endsWith(".md")).sort()
   const compiled = names.map((name) => compilePrompt(`${PROMPTS_DIR}/${name}`, readFileSync(path.join(dirAbs, name), "utf-8")))
   const knownNames = new Set(names.map((name) => name.replace(/\.md$/, "")))
-  const issues = [...compiled.flatMap((c) => c.issues), ...validatePromptUsage(compiled, knownNames, repo)]
+  const issues = [...compiled.flatMap((c) => c.issues), ...validatePromptUsage(compiled, knownNames, createRepoView(root))]
   const prompts = compiled.flatMap((c) => (c.prompt ? [c.prompt] : []))
   return { prompts, issues }
 }

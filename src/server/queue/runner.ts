@@ -1,3 +1,4 @@
+import { ClaimAbortedError, type ClaimAbortCode } from "@/core/queue/claim-abort"
 import type { ClaimedQueueItem, ReleaseClaimsInput, RecoverOptions } from "@/core/queue/leases"
 import type { RunClaimContext } from "@/core/queue/worker"
 import { CLAIM_HEARTBEAT_INTERVAL_MS } from "@/core/queue/stale-recovery"
@@ -10,7 +11,9 @@ import { CLAIM_HEARTBEAT_INTERVAL_MS } from "@/core/queue/stale-recovery"
  *      yang masih dikerjakan proses ini;
  *   2. klaim hingga (`concurrency` − job berjalan) item via `claim_post_items` (lease bertoken + batas
  *      per situs);
- *   3. setiap item dijalankan lewat jalur eksekusi worker; lease diperpanjang heartbeat berkala;
+ *   3. setiap item dijalankan lewat jalur eksekusi worker; lease diperpanjang heartbeat berkala. Sinyal klaim
+ *      job dibatalkan saat heartbeat MEMASTIKAN lease hilang, job melewati batas umur, atau klaim dicabut
+ *      saat shutdown (bukan saat RPC heartbeat gagal sementara), sehingga run berhenti memakai token;
  *   4. tidur `pollIntervalMs` saat idle — `nudge()` atau job yang selesai membangunkan loop seketika.
  * Shutdown (`stop()`): dalam SATU tenggat total — berhenti mengklaim, tunggu job berjalan, cabut klaim
  * yang belum selesai, lalu lepas lease-nya: job yang belum mengirim request WordPress kembali ke antrean,
@@ -64,6 +67,8 @@ interface RunningJob {
   wpRequestStarted: boolean
   /** Klaim dicabut runner (shutdown): request WordPress tidak boleh dimulai lagi. */
   revoked: boolean
+  /** Sumber `RunClaimContext.signal`; dibatalkan dengan `ClaimAbortedError` (kode alasan). */
+  controller: AbortController
   done: Promise<void>
 }
 
@@ -216,7 +221,10 @@ export class QueueRunner {
     if (!finished && unfinished.length > 0) {
       // Pencabutan & pembacaan flag terjadi sinkron: worker yang belum memulai request WordPress
       // pasti melihat `revoked` dan tidak akan mengirimnya.
-      for (const job of unfinished) job.revoked = true
+      for (const job of unfinished) {
+        job.revoked = true
+        this.abortJob(job, "shutdown")
+      }
       const input: ReleaseClaimsInput = {
         revert: unfinished.filter((job) => !job.wpRequestStarted).map((job) => job.item),
         uncertain: unfinished.filter((job) => job.wpRequestStarted).map((job) => job.item),
@@ -307,6 +315,7 @@ export class QueueRunner {
       leaseLost: false,
       wpRequestStarted: false,
       revoked: false,
+      controller: new AbortController(),
       done: Promise.resolve(),
     }
     const context: RunClaimContext = {
@@ -315,6 +324,7 @@ export class QueueRunner {
         job.wpRequestStarted = true
         return true
       },
+      signal: job.controller.signal,
     }
     job.done = this.backend
       .run(item, context)
@@ -329,6 +339,11 @@ export class QueueRunner {
       })
     this.jobs.set(item.id, job)
     this.ensureHeartbeat()
+  }
+
+  /** Batalkan sinyal klaim job (idempoten; alasan pertama yang tercatat). */
+  private abortJob(job: RunningJob, code: ClaimAbortCode): void {
+    if (!job.controller.signal.aborted) job.controller.abort(new ClaimAbortedError(code))
   }
 
   private ensureHeartbeat(): void {
@@ -351,7 +366,8 @@ export class QueueRunner {
       const beats: Promise<void>[] = []
       for (const [postId, job] of this.jobs) {
         if (now - job.startedAt >= this.maxJobDurationMs) {
-          // Job menggantung: bebaskan slot & hentikan heartbeat; lease kedaluwarsa → auto-healing.
+          // Job menggantung: batalkan run, bebaskan slot & hentikan heartbeat; lease kedaluwarsa → auto-healing.
+          this.abortJob(job, "max_duration")
           this.jobs.delete(postId)
           this.logger.error(
             `[queue-runner] Job ${postId} melebihi batas umur ${Math.round(this.maxJobDurationMs / 60_000)} menit; ` +
@@ -367,11 +383,14 @@ export class QueueRunner {
             .then((extended) => {
               if (!extended) {
                 job.leaseLost = true
+                // Pasti hilang (RPC menjawab `false`): run dihentikan agar tidak membakar token/menulis apa pun.
+                this.abortJob(job, "lease_lost")
                 this.logger.warn(
-                  `[queue-runner] Lease item ${postId} sudah tidak dipegang worker ini; hasil run tidak akan menimpa klaim baru.`
+                  `[queue-runner] Lease item ${postId} sudah tidak dipegang worker ini; run dihentikan dan hasilnya tidak akan menimpa klaim baru.`
                 )
               }
             })
+            // Gangguan sementara (jaringan/DB): run TIDAK dibatalkan; heartbeat berikutnya mencoba lagi.
             .catch((err: unknown) =>
               this.logger.warn(`[queue-runner] Heartbeat item ${postId} gagal: ${describeError(err)}`)
             )

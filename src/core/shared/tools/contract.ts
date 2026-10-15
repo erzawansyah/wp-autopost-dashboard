@@ -14,7 +14,7 @@
  */
 
 import { z } from "zod"
-import { redactSecretsInText } from "@/core/writer/runtime/redact"
+import { redactSecretsInText } from "@/lib/security/redact"
 import { getTrustedInternalOrigins, ResponseTooLargeError, SsrfBlockedError } from "@/lib/net/safe-fetch"
 
 /** Daftar tertutup kode kegagalan tool. Menambah kode berarti memperbarui `RETRYABLE_CODES` bila perlu. */

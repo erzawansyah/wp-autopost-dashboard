@@ -33,18 +33,20 @@ const LabRunBodySchema = z
 // Hasil gagal tetap HTTP 200 dengan `ok: false` agar UI dapat menampilkan hasil parsial & log.
 export const POST = defineRoute(
   { auth: "user", body: LabRunBodySchema, rateLimit: RATE_LIMITS.llm },
-  async ({ supabase, user, body }) => {
+  async ({ request, supabase, user, body }) => {
     await assertLabAccess(supabase, user)
-    const request = {
+    const labRequest = {
       targetId: body.targetId || body.id || "",
       siteId: body.siteId,
       model: body.model,
       input: body.params ?? body.input ?? {},
+      // Klien memutus koneksi (tab ditutup/dibatalkan) → tool & agen ikut berhenti, token tidak terbuang.
+      signal: request.signal,
     }
     const result =
       body.type === "tool"
-        ? await runLabTool(supabase, user.id, request)
-        : await runLabAgentProfile(supabase, user.id, request)
+        ? await runLabTool(supabase, user.id, labRequest)
+        : await runLabAgentProfile(supabase, user.id, labRequest)
     return Response.json(result)
   }
 )

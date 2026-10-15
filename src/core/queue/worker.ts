@@ -3,7 +3,9 @@ import { createAdminClient } from "@/lib/supabase/admin"
 import { decryptCredential } from "@/lib/crypto"
 import { run, publishPostToWordPress } from "@/core/writer"
 import type { WpEnrichment, WriterResult } from "@/core/writer/types/contracts"
+import type { GenerationCheckpoint } from "@/core/writer/runtime/checkpoints"
 import { processAndSyncArticleMedia } from "@/core/shared/media/auto-media-pipeline"
+import { createPromptVersionTracker } from "@/core/shared/prompts/loader"
 import { resolveAgentProfile } from "@/core/writer/runtime/resolve-profile"
 import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import { AgentStepEvent } from "@/core/writer/runtime/telemetry"
@@ -19,6 +21,18 @@ import {
   stripToPlainText,
 } from "@/lib/wordpress/plain-text"
 import { refreshBatchProgress, type OwnedPostItem, type QueueDbClient } from "@/core/queue/batch-progress"
+import { closeAbandonedAgentRuns } from "@/core/queue/agent-runs"
+import {
+  ClaimAbortedError,
+  claimAbortCode,
+  describeClaimAbort,
+  type ClaimAbortCode,
+} from "@/core/queue/claim-abort"
+import {
+  clearGenerationCheckpoints,
+  loadGenerationCheckpoints,
+  saveGenerationCheckpoint,
+} from "@/core/queue/checkpoints"
 import type { ClaimedQueueItem } from "@/core/queue/leases"
 import { finalStateForStatus, inferRecordedFinalState } from "@/core/queue/final-state"
 import type { StaleRecoverableState } from "@/core/queue/stale-recovery"
@@ -64,6 +78,12 @@ export interface RunClaimContext {
    * (item yang berhenti setelah titik ini diperlakukan "mungkin sudah terkirim").
    */
   beginWordPressRequest(): boolean
+  /**
+   * Sinyal klaim dari runner, dibatalkan dengan `ClaimAbortedError` saat lease PASTI hilang (heartbeat),
+   * job melewati batas umur, atau klaim dicabut saat shutdown. Diteruskan ke writer agar run berhenti
+   * memakai token; TIDAK pernah diteruskan ke request pembuatan post WordPress yang sedang berjalan.
+   */
+  signal: AbortSignal
 }
 
 /** Klaim aktif: item, token lease, state yang diharapkan saat ini, dan retry_count saat klaim. */
@@ -125,6 +145,42 @@ async function updateClaimedItem(
   const { data, error } = await query.select("id").maybeSingle()
   if (error) return { ok: false, error: error.message }
   return { ok: Boolean(data) }
+}
+
+/**
+ * Kehilangan klaim yang pasti (bukan shutdown): lease hilang, batas umur job, atau checkpoint ditolak.
+ * Shutdown sengaja dikecualikan: sebelum request WordPress, klaim yang dicabut tetap boleh menyimpan
+ * naskah (transisi berpagar) lalu `beginWordPressRequest()` menolak pengiriman dan pelepasan klaim
+ * mengembalikan item ke antrean.
+ */
+function definitiveClaimLoss(signal: AbortSignal): ClaimAbortCode | null {
+  const code = claimAbortCode(signal)
+  return code === "shutdown" ? null : code
+}
+
+/**
+ * Metrik `agent_runs` satu percobaan (sukses maupun gagal). Token, biaya, dan panggilan LLM hanya
+ * pemakaian percobaan ini: langkah yang dipakai ulang dari checkpoint tercatat di `resumed_steps`
+ * dan biayanya sudah tercatat pada percobaan asalnya (tidak dihitung ganda).
+ */
+function agentRunMetrics(result: WriterResult | null, promptVersions: Record<string, string>): Record<string, unknown> {
+  const summary = result?.agentRun
+  const model = result?.execution.modelUsed
+  return {
+    stop_reason: summary?.stopReason ?? null,
+    model_calls: summary?.modelCalls ?? 0,
+    tool_calls: summary?.toolCalls ?? 0,
+    tokens_prompt: summary?.tokensPrompt ?? null,
+    tokens_completion: summary?.tokensCompletion ?? null,
+    tokens_total: summary?.tokensTotal ?? null,
+    llm_calls: summary?.llmCalls ?? 0,
+    cost_usd: summary?.costUsd ?? null,
+    model: model && model !== "none" ? model.slice(0, 200) : null,
+    model_usage: summary?.modelUsage ?? [],
+    prompt_versions: promptVersions,
+    resumed_steps: summary?.resumedSteps ?? [],
+    duration_ms: summary?.durationMs ?? result?.execution.durationMs ?? null,
+  }
 }
 
 /** Petunjuk untuk kegagalan WordPress yang mungkin terjadi setelah post tersimpan. */
@@ -412,6 +468,28 @@ async function finalizeRecordedPost(
 }
 
 /**
+ * Klaim pasti hilang sebelum request WordPress: hentikan tanpa menulis state (milik klaim lain), cukup log.
+ */
+async function abandonLostClaim(
+  supabase: QueueDbClient,
+  claim: ActiveClaim,
+  userId: string,
+  code: ClaimAbortCode,
+  step: string
+): Promise<ProcessPostItemResult> {
+  const message = `Pengiriman ke WordPress dibatalkan: ${describeClaimAbort(code)} Item tidak diubah oleh run ini.`
+  await insertLog(supabase, {
+    postItemId: claim.id,
+    userId,
+    step,
+    level: "warn",
+    message: `[Queue Worker] ${message}`,
+    details: { reason: code },
+  })
+  return { success: false, postId: claim.id, error: message }
+}
+
+/**
  * Proses satu item yang sudah diklaim runner. Tidak pernah melempar: crash dicatat ke item
  * (fail-safe) dan dilaporkan sebagai `success: false`.
  */
@@ -434,6 +512,7 @@ export async function runClaimedPostItem(
       wpRequestStarted = context.beginWordPressRequest()
       return wpRequestStarted
     },
+    signal: context.signal,
   }
 
   try {
@@ -631,6 +710,10 @@ async function executePostItem(
       resolvedProfile.modelName ||
       serverEnv().OPENROUTER_DEFAULT_MODEL
 
+    // Checkpoint langkah generasi dari percobaan sebelumnya (retry otomatis, auto-healing, shutdown,
+    // "Tulis ulang"/"Jalankan sekarang"): writer melanjutkan dari langkah valid terakhir tanpa LLM ulang.
+    const storedCheckpoints = await loadGenerationCheckpoints(supabase, claim)
+
     // Catat inisialisasi antrean ke execution_logs
     await insertLog(supabase, {
       postItemId: postId,
@@ -648,6 +731,7 @@ async function executePostItem(
           site: site.site_name,
           targetStatus: post.wp_target_status || "draft",
           attempt: (claim.retryCount ?? 0) + 1,
+          checkpoints: storedCheckpoints.map((checkpoint) => checkpoint.step),
         },
         output: {
           status: "accepted",
@@ -656,6 +740,10 @@ async function executePostItem(
         durationMs: 15,
       },
     })
+
+    // Percobaan sebelumnya yang mati tanpa sempat menutup barisnya (crash proses) tidak boleh tampil
+    // "running" selamanya: klaim ini satu-satunya pemegang item, jadi baris running lama pasti yatim.
+    await closeAbandonedAgentRuns(supabase, claim, "superseded")
 
     // Buat row di agent_runs untuk pelacakan performa & telemetri agen
     let agentRunId: string | null = null
@@ -718,46 +806,62 @@ async function executePostItem(
         })
     }
 
+    // Run dihentikan bila klaim pasti hilang: sinyal runner (heartbeat lease hilang, batas umur, shutdown)
+    // atau penyimpanan checkpoint berpagar (RPC) ditolak — agar tidak membakar token untuk naskah yang
+    // tidak akan pernah disimpan run ini.
+    const runController = new AbortController()
+    const claimSignal = AbortSignal.any([context.signal, runController.signal])
+    const promptTracker = createPromptVersionTracker()
+    const onCheckpoint = async (checkpoint: GenerationCheckpoint): Promise<boolean> => {
+      const saved = await saveGenerationCheckpoint(supabase, claim, checkpoint, promptTracker.versions())
+      if (!saved) runController.abort(new ClaimAbortedError("claim_lost"))
+      return saved
+    }
+
     let writerResult: WriterResult | null = null
     let generationFailure: { message: string; failure: FailureClass } | null = null
     try {
-      writerResult = await run(
-        {
-          agentProfileRef: resolvedProfile.ref,
-          content: {
-            keyword,
-            title: post.title || undefined,
-            brief: post.custom_instructions_override || undefined,
-            style,
-            language,
+      writerResult = await promptTracker.run(() =>
+        run(
+          {
+            agentProfileRef: resolvedProfile.ref,
+            content: {
+              keyword,
+              title: post.title || undefined,
+              brief: post.custom_instructions_override || undefined,
+              style,
+              language,
+            },
+            site: {
+              siteId: site.id,
+              siteName: site.site_name,
+              wpSiteId: site.id,
+              baseUrl: site.base_url,
+              username: site.wp_username,
+              applicationPassword: plainPassword,
+            },
+            publishing: {
+              mode: post.wp_target_status || "draft",
+              categoryIds: requestedCategoryIds,
+              tagNames: sanitizeTermNames(storedTags),
+            },
+            model: aiModel,
+            reasoningEffort:
+              (payloadMeta.reasoningEffort as "low" | "medium" | "high" | undefined) ||
+              resolvedProfile.reasoningEffort ||
+              userKeys.reasoningEffort ||
+              "low",
+            userId: post.user_id,
+            customInstructions: post.custom_instructions_override || undefined,
           },
-          site: {
-            siteId: site.id,
-            siteName: site.site_name,
-            wpSiteId: site.id,
-            baseUrl: site.base_url,
-            username: site.wp_username,
-            applicationPassword: plainPassword,
-          },
-          publishing: {
-            mode: post.wp_target_status || "draft",
-            categoryIds: requestedCategoryIds,
-            tagNames: sanitizeTermNames(storedTags),
-          },
-          model: aiModel,
-          reasoningEffort:
-            (payloadMeta.reasoningEffort as "low" | "medium" | "high" | undefined) ||
-            resolvedProfile.reasoningEffort ||
-            userKeys.reasoningEffort ||
-            "low",
-          userId: post.user_id,
-          customInstructions: post.custom_instructions_override || undefined,
-        },
-        {
-          userId: post.user_id,
-          userKeys,
-          onEventListener: handleStepEvent,
-        }
+          {
+            userId: post.user_id,
+            userKeys,
+            onEventListener: handleStepEvent,
+            abortSignal: claimSignal,
+            checkpoints: { resume: storedCheckpoints, onCheckpoint },
+          }
+        )
       )
       if (!writerResult.success || !writerResult.article) {
         generationFailure = {
@@ -772,19 +876,49 @@ async function executePostItem(
       }
     }
 
+    const finishAgentRun = async (
+      status: "completed" | "failed",
+      errorMessage: string | null,
+      stopReason?: ClaimAbortCode
+    ) => {
+      if (!agentRunId) return
+      const { error: runUpdErr } = await supabase
+        .from("agent_runs")
+        .update({
+          ...agentRunMetrics(writerResult, promptTracker.versions()),
+          ...(stopReason ? { stop_reason: stopReason } : {}),
+          status,
+          error_message: errorMessage,
+          word_count: writerResult?.article?.wordCount ?? null,
+          finished_at: new Date().toISOString(),
+        })
+        .eq("id", agentRunId)
+        .eq("user_id", post.user_id)
+      if (runUpdErr) console.warn("[worker] Gagal update agent_runs:", runUpdErr.message)
+    }
+
+    // Klaim hilang/dicabut di tengah generasi: state item milik klaim baru atau pelepasan runner — jangan
+    // menulis kegagalan maupun melanjutkan ke pipeline media/WordPress. Token yang terpakai tetap dicatat.
+    // Naskah yang sudah jadi saat shutdown tetap disimpan lewat transisi berpagar (pengiriman ditolak runner).
+    const abortCode =
+      writerResult?.article && !generationFailure ? definitiveClaimLoss(claimSignal) : claimAbortCode(claimSignal)
+    if (abortCode) {
+      const message = `Generasi dihentikan: ${describeClaimAbort(abortCode)} Klaim berikutnya melanjutkan dari checkpoint tersimpan.`
+      await finishAgentRun("failed", message, abortCode)
+      await insertLog(supabase, {
+        postItemId: postId,
+        userId: post.user_id,
+        step: "generation",
+        level: "warn",
+        message: `[Queue Worker] ${message}`,
+        details: { reason: abortCode },
+      })
+      return { success: false, postId, error: message }
+    }
+
     if (generationFailure || !writerResult?.article) {
       const failure = generationFailure ?? { message: "Gagal menghasilkan naskah artikel", failure: "permanent" as const }
-      if (agentRunId) {
-        const { error: runFailErr } = await supabase
-          .from("agent_runs")
-          .update({
-            status: "failed",
-            error_message: failure.message,
-            finished_at: new Date().toISOString(),
-          })
-          .eq("id", agentRunId)
-        if (runFailErr) console.warn("[worker] Gagal update agent_runs:", runFailErr.message)
-      }
+      await finishAgentRun("failed", failure.message)
 
       const decision = await settleFailure(supabase, claim, {
         stage: "generation",
@@ -798,25 +932,7 @@ async function executePostItem(
 
     resolvedEnrichment = writerResult.enrichment || null
     generated = writerResult.article
-
-    // Update record agent_runs jika berhasil
-    if (agentRunId) {
-      const { error: runUpdErr } = await supabase
-        .from("agent_runs")
-        .update({
-          status: "completed",
-          stop_reason: writerResult.agentRun?.stopReason || null,
-          model_calls: writerResult.agentRun?.modelCalls || 0,
-          tool_calls: writerResult.agentRun?.toolCalls || 0,
-          tokens_prompt: writerResult.agentRun?.tokensPrompt ?? null,
-          tokens_completion: writerResult.agentRun?.tokensCompletion ?? null,
-          duration_ms: writerResult.agentRun?.durationMs || writerResult.execution?.durationMs || 0,
-          word_count: writerResult.article?.wordCount ?? null,
-          finished_at: new Date().toISOString(),
-        })
-        .eq("id", agentRunId)
-      if (runUpdErr) console.warn("[worker] Gagal update agent_runs:", runUpdErr.message)
-    }
+    await finishAgentRun("completed", null)
   }
 
   // 5. Susun konten & metadata final.
@@ -924,6 +1040,10 @@ async function executePostItem(
     }
   }
 
+  // Lease pasti hilang (heartbeat) selama pipeline media: item milik klaim lain, transisi tidak dicoba.
+  const lostBeforeSync = definitiveClaimLoss(context.signal)
+  if (lostBeforeSync) return abandonLostClaim(supabase, claim, post.user_id, lostBeforeSync, "prepare_sync")
+
   const syncLock = await updateClaimedItem(supabase, claim, syncTransition, { requireNoWpPostId: true })
 
   if (!syncLock.ok) {
@@ -941,6 +1061,9 @@ async function executePostItem(
     return { success: false, postId, error: lostClaimMsg }
   }
   claim.state = "syncing_to_wp"
+
+  // Naskah sudah tersimpan: item tidak pernah digenerasi ulang lagi, jadi checkpoint generasi dibuang.
+  if (!isRetrySync) await clearGenerationCheckpoints(supabase, claim)
 
   await insertLog(supabase, {
     postItemId: postId,
@@ -971,8 +1094,14 @@ async function executePostItem(
   const isFutureDate = scheduledAt !== null && scheduledAt.getTime() > Date.now()
   const targetWpStatus = post.wp_target_status === "draft" ? "draft" : isFutureDate ? "future" : "publish"
 
+  // Lease pasti hilang setelah naskah tersimpan: auto-healing memegang item (mis. → failed_sync), jadi
+  // request WordPress TIDAK dikirim agar tidak ada posting yang tidak tercatat.
+  const lostBeforePublish = definitiveClaimLoss(context.signal)
+  if (lostBeforePublish) return abandonLostClaim(supabase, claim, post.user_id, lostBeforePublish, "prepare_sync")
+
   // Titik tanpa kembali: setelah ini request WordPress mungkin sudah diterima. Runner yang sedang berhenti
-  // mencabut klaim di sini sehingga item dapat dikembalikan ke antrean tanpa risiko posting ganda.
+  // mencabut klaim di sini sehingga item dapat dikembalikan ke antrean tanpa risiko posting ganda. Sinyal
+  // klaim sengaja tidak diteruskan ke request ini: request yang sudah dimulai dibiarkan selesai.
   if (!context.beginWordPressRequest()) {
     const abortedMsg =
       "Pengiriman ke WordPress dibatalkan karena runner antrean sedang berhenti; item dikembalikan ke antrean."

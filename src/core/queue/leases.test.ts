@@ -203,6 +203,14 @@ describe("releaseClaims", () => {
       expect(has(op, ["in", "locked_by", ["runner-a:t1", "runner-a:t2"]])).toBe(true)
     }
     expect(updates().some((op) => op.payload?.state === "failed_sync")).toBe(false)
+
+    // Percobaan generasi yang dikembalikan ke antrean menutup baris agent_runs "running"-nya (bukan klaim sinkronisasi).
+    const closed = ops().filter((op) => op.table === "agent_runs" && op.action === "update")
+    expect(closed).toHaveLength(1)
+    expect(closed[0].payload).toMatchObject({ status: "failed", stop_reason: "shutdown" })
+    for (const filter of [["eq", "post_item_id", "p1"], ["eq", "user_id", "u1"], ["eq", "status", "running"]] as Filter[]) {
+      expect(has(closed[0], filter)).toBe(true)
+    }
   })
 
   it("uncertain tanpa wp_post_id → failed_sync (periksa wp-admin) dipagari token & state", async () => {
@@ -282,6 +290,13 @@ describe("recoverExpiredLeases", () => {
       locked_until: null,
     })
     expect(has(genHeal, ["is", "locked_by", null])).toBe(true)
+
+    // Hanya percobaan generasi yang terputus ditutup sebagai lease_expired (pemilik + status running).
+    const closed = ops().filter((op) => op.table === "agent_runs" && op.action === "update")
+    expect(closed).toHaveLength(1)
+    expect(closed[0].payload).toMatchObject({ status: "failed", stop_reason: "lease_expired" })
+    expect(has(closed[0], ["eq", "post_item_id", "stale-gen"]) && has(closed[0], ["eq", "user_id", "u2"])).toBe(true)
+    expect(has(closed[0], ["eq", "status", "running"])).toBe(true)
   })
 
   it("syncing_to_wp dengan wp_post_id tercatat dituntaskan sukses (dihitung selesai di batch)", async () => {

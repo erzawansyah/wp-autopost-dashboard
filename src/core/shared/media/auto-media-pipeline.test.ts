@@ -58,6 +58,33 @@ describe("processAndSyncArticleMedia (ToolOutcome upload_media)", () => {
     expect(result.updatedMarkdown).toContain("https://img.test/b.jpg")
   })
 
+  it("resume dari checkpoint draft: media yang sudah di WordPress tidak diunggah ulang; sisa gambar eksternal memakai cache pemilik & situs", async () => {
+    mocks.upload.mockResolvedValue(toolSuccess({ mediaId: 21, sourceUrl: "https://wp.test/up/c.jpg", isCached: true }))
+
+    const result = await processAndSyncArticleMedia({
+      ...WP,
+      siteId: "site-1",
+      userId: "user-1",
+      postId: "post-1",
+      // Naskah draft: gambar yang diunggah tool agen sudah memakai URL WordPress.
+      markdownContent: "![A](https://wp.test/up/a.jpg)\n\n![C](https://img.test/c.jpg)",
+      featuredImageUrl: "https://wp.test/up/cover.jpg",
+      articleTitle: "Judul",
+    })
+
+    expect(mocks.upload).toHaveBeenCalledTimes(1)
+    expect(mocks.upload.mock.calls[0][0]).toMatchObject({
+      imageUrl: "https://img.test/c.jpg",
+      siteId: "site-1",
+      userId: "user-1",
+      postId: "post-1",
+    })
+    expect(result.featuredMediaId).toBeUndefined()
+    expect(result.featuredImageUrl).toBe("https://wp.test/up/cover.jpg")
+    // Cache hit tidak dihitung sebagai unggahan baru.
+    expect(result.uploadedImagesCount).toBe(0)
+  })
+
   it("tanpa kredensial WordPress tidak mengunggah apa pun", async () => {
     const result = await processAndSyncArticleMedia({ markdownContent: "![A](https://img.test/a.jpg)", articleTitle: "Judul" })
     expect(mocks.upload).not.toHaveBeenCalled()

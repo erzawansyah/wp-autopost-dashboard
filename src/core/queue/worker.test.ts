@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ClaimedQueueItem } from "@/core/queue/leases"
 import { runClaimedPostItem } from "@/core/queue/worker"
+import { ClaimAbortedError } from "@/core/queue/claim-abort"
+import { getPromptVersion, loadPrompt } from "@/core/shared/prompts/loader"
+import type { GenerationCheckpoint, StoredGenerationCheckpoint } from "@/core/writer/runtime/checkpoints"
 
 /**
  * Uji guard keamanan, idempotensi, pagar klaim (lease), dan klasifikasi retry worker antrean memakai
@@ -10,8 +13,9 @@ import { runClaimedPostItem } from "@/core/queue/worker"
 type Filter = [op: "eq" | "neq" | "in" | "is" | "lt" | "or", column: string, value: unknown]
 
 interface RecordedOp {
+  /** Nama tabel, atau `rpc:<fungsi>` untuk panggilan RPC (argumen di `payload`). */
   table: string
-  action: "select" | "update" | "insert"
+  action: "select" | "update" | "insert" | "delete" | "rpc"
   payload?: Record<string, unknown>
   /** Opsi `select()` (mis. `{ count: "exact", head: true }` untuk query hitung). */
   selectOptions?: Record<string, unknown>
@@ -42,6 +46,12 @@ const mocks = vi.hoisted(() => ({
 
 function createFakeSupabase() {
   return {
+    async rpc(fn: string, args: Record<string, unknown>) {
+      const op: RecordedOp = { table: `rpc:${fn}`, action: "rpc", payload: args, filters: [] }
+      mocks.ops.push(op)
+      const resolver = mocks.resolver.current
+      return resolver ? resolver(op) : { data: null, error: null }
+    },
     from(table: string) {
       const op: RecordedOp = { table, action: "select", filters: [] }
       let settled: Promise<{ data: unknown; error: unknown; count?: unknown }> | null = null
@@ -66,6 +76,10 @@ function createFakeSupabase() {
         insert: (payload: Record<string, unknown>) => {
           op.action = "insert"
           op.payload = payload
+          return builder
+        },
+        delete: () => {
+          op.action = "delete"
           return builder
         },
         eq: (column: string, value: unknown) => (op.filters.push(["eq", column, value]), builder),
@@ -166,8 +180,11 @@ function storedRetryPost(overrides: Record<string, unknown> = {}) {
 
 const syncClaim = (overrides: Partial<ClaimedQueueItem> = {}) => claimed({ state: "syncing_to_wp", ...overrides })
 
+/** Sinyal klaim dari runner (heartbeat lease hilang, batas umur, shutdown); baru per test. */
+let claimController = new AbortController()
+
 function run(item: ClaimedQueueItem = claimed()) {
-  return runClaimedPostItem(item, { beginWordPressRequest: mocks.beginWordPressRequest })
+  return runClaimedPostItem(item, { beginWordPressRequest: mocks.beginWordPressRequest, signal: claimController.signal })
 }
 
 function setResolver(resolver: Resolver) {
@@ -230,6 +247,7 @@ function postFailedWebhooks() {
 }
 
 beforeEach(() => {
+  claimController = new AbortController()
   mocks.ops.length = 0
   mocks.resolver.current = null
   for (const fn of [
@@ -842,5 +860,430 @@ describe("runClaimedPostItem — progres batch", () => {
 
     expect(batchUpdates()).toHaveLength(0)
     expect(batchCompletedWebhooks()).toHaveLength(0)
+  })
+})
+
+describe("runClaimedPostItem — checkpoint generasi & metrik agent_runs", () => {
+  const ARTICLE = {
+    title: "Judul Baru",
+    contentHtml: "<p>awal</p>",
+    markdownContent: "Isi naskah",
+    excerpt: "Ringkasan",
+    slug: "judul-baru",
+    wordCount: 812,
+  }
+  const PRE_RESOLVE: GenerationCheckpoint = {
+    step: "pre_resolve",
+    schemaVersion: 1,
+    data: {
+      inputKey: "sidik",
+      preResolved: { categoryIds: [7], categoryNames: ["Minuman"], tagNames: ["kopi"], tagIds: [45] },
+      usage: { calls: 1, failedCalls: 0, promptTokens: 90, completionTokens: 10, totalTokens: 100, reasoningTokens: 0, cachedPromptTokens: 0, costUsd: 0.001, byModel: [] },
+    },
+  }
+  const AGENT_RUN = {
+    stopReason: "completed",
+    modelCalls: 4,
+    toolCalls: 3,
+    tokensPrompt: 900,
+    tokensCompletion: 300,
+    tokensTotal: 1200,
+    llmCalls: 5,
+    llmFailedCalls: 0,
+    costUsd: 0.0042,
+    modelUsage: [{ model: "acme/model", calls: 5, totalTokens: 1200, costUsd: 0.0042 }],
+    resumedSteps: ["pre_resolve"],
+    durationMs: 3210,
+  }
+
+  interface RunOptions {
+    abortSignal: AbortSignal
+    checkpoints: {
+      resume: StoredGenerationCheckpoint[]
+      onCheckpoint: (checkpoint: GenerationCheckpoint) => Promise<boolean>
+    }
+  }
+
+  /**
+   * Fake penyimpanan checkpoint: RPC menyimpan hanya bila token sama dengan pemegang klaim saat ini
+   * (meniru pagar `save_generation_checkpoint`), SELECT mengembalikan baris tersimpan.
+   */
+  function checkpointStore(post: Record<string, unknown>) {
+    const store = { holder: TOKEN, rows: new Map<string, Record<string, unknown>>() }
+    setResolver((op) => {
+      if (op.table === "rpc:save_generation_checkpoint") {
+        const args = op.payload ?? {}
+        if (args.p_lease_token !== store.holder) return { data: false, error: null }
+        store.rows.set(String(args.p_step), { step: args.p_step, schema_version: args.p_schema_version, data: args.p_data })
+        return { data: true, error: null }
+      }
+      if (op.table === "generation_checkpoints" && op.action === "select") {
+        return { data: [...store.rows.values()], error: null }
+      }
+      if (op.table === "agent_runs" && op.action === "insert") return { data: { id: "run-1" }, error: null }
+      return defaultResolver(post)(op)
+    })
+    return store
+  }
+
+  /** Update baris agent_runs milik percobaan ini (berdasarkan id; bukan penutupan baris yatim). */
+  function agentRunUpdates(): RecordedOp[] {
+    return recordedOps().filter(
+      (op) => op.table === "agent_runs" && op.action === "update" && op.filters.some((f) => f[1] === "id")
+    )
+  }
+
+  it("memuat checkpoint milik pemilik, meneruskannya ke writer, dan menyimpan langkah lewat RPC berpagar token", async () => {
+    const store = checkpointStore(basePost())
+    store.rows.set("pre_resolve", { step: "pre_resolve", schema_version: 1, data: PRE_RESOLVE.data })
+    mocks.run.mockImplementation(async (_request: unknown, options: RunOptions) => {
+      loadPrompt("system-finalize.md", "Tulis naskah.")
+      await options.checkpoints.onCheckpoint({ ...PRE_RESOLVE, step: "draft" } as unknown as GenerationCheckpoint)
+      return { success: true, article: ARTICLE, enrichment: { categories: [7], tags: [45] }, agentRun: AGENT_RUN, execution: { modelUsed: "acme/model", durationMs: 4000 } }
+    })
+
+    const result = await run()
+
+    expect(result.success).toBe(true)
+    const load = recordedOps().find((op) => op.table === "generation_checkpoints" && op.action === "select")
+    expect(hasFilter(load, ["eq", "post_item_id", "post-1"]) && hasFilter(load, ["eq", "user_id", OWNER])).toBe(true)
+    const [, options] = mocks.run.mock.calls[0] as [unknown, RunOptions]
+    expect(options.checkpoints.resume).toEqual([{ step: "pre_resolve", schemaVersion: 1, data: PRE_RESOLVE.data }])
+
+    const rpc = recordedOps().find((op) => op.table === "rpc:save_generation_checkpoint")
+    expect(rpc?.payload).toMatchObject({
+      p_post_item_id: "post-1",
+      p_lease_token: TOKEN,
+      p_step: "draft",
+      p_schema_version: 1,
+      p_prompt_versions: { "system-finalize": getPromptVersion("system-finalize.md") },
+    })
+    expect(options.abortSignal.aborted).toBe(false)
+  })
+
+  it("agent_runs diisi metrik run (model, token, biaya, rincian model, versi prompt, langkah resume)", async () => {
+    checkpointStore(basePost())
+    mocks.run.mockImplementation(async () => {
+      loadPrompt("system-finalize.md", "Tulis naskah.")
+      return { success: true, article: ARTICLE, enrichment: {}, agentRun: AGENT_RUN, execution: { modelUsed: "acme/model", durationMs: 4000 } }
+    })
+
+    await run()
+
+    const [update] = agentRunUpdates()
+    expect(update.payload).toMatchObject({
+      status: "completed",
+      error_message: null,
+      stop_reason: "completed",
+      model: "acme/model",
+      model_calls: 4,
+      tool_calls: 3,
+      tokens_prompt: 900,
+      tokens_completion: 300,
+      tokens_total: 1200,
+      llm_calls: 5,
+      cost_usd: 0.0042,
+      model_usage: AGENT_RUN.modelUsage,
+      prompt_versions: { "system-finalize": getPromptVersion("system-finalize.md") },
+      resumed_steps: ["pre_resolve"],
+      duration_ms: 3210,
+      word_count: 812,
+    })
+    expect(hasFilter(update, ["eq", "id", "run-1"]) && hasFilter(update, ["eq", "user_id", OWNER])).toBe(true)
+  })
+
+  it("kegagalan writer tetap mencatat metrik (token/biaya yang sudah terpakai) ke agent_runs", async () => {
+    checkpointStore(basePost())
+    mocks.run.mockResolvedValue({
+      success: false,
+      error: { code: "GENERATION_FAILED", message: "Agent gagal", retryable: true },
+      agentRun: { ...AGENT_RUN, stopReason: "failed_agent_loop_interrupted", resumedSteps: [] },
+      execution: { modelUsed: "acme/model", durationMs: 100 },
+    })
+
+    await run()
+
+    expect(agentRunUpdates()[0]?.payload).toMatchObject({
+      status: "failed",
+      error_message: "Agent gagal",
+      stop_reason: "failed_agent_loop_interrupted",
+      tokens_total: 1200,
+      cost_usd: 0.0042,
+      llm_calls: 5,
+      resumed_steps: [],
+    })
+    expect(settledFailure()?.payload).toMatchObject({ state: "queued_input", retry_count: 1 })
+  })
+
+  it("checkpoint dihapus setelah naskah tersimpan (transisi syncing_to_wp), dipagari pemilik", async () => {
+    checkpointStore(basePost())
+    mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: AGENT_RUN, execution: { modelUsed: "acme/model" } })
+
+    await run()
+
+    const ops = recordedOps()
+    const transition = ops.findIndex(isSyncTransition)
+    const cleared = ops.findIndex((op) => op.table === "generation_checkpoints" && op.action === "delete")
+    expect(transition).toBeGreaterThanOrEqual(0)
+    expect(cleared).toBeGreaterThan(transition)
+    expect(hasFilter(ops[cleared], ["eq", "post_item_id", "post-1"]) && hasFilter(ops[cleared], ["eq", "user_id", OWNER])).toBe(true)
+    expect(ops.findIndex((op) => op.table === "rpc:save_generation_checkpoint")).toBe(-1)
+  })
+
+  it("retry naskah tersimpan (Kirim ulang) tidak membaca maupun menghapus checkpoint", async () => {
+    checkpointStore(storedRetryPost())
+    await run(syncClaim())
+    expect(recordedOps().some((op) => op.table === "generation_checkpoints")).toBe(false)
+  })
+
+  it("transisi naskah gagal (klaim hilang) → checkpoint TIDAK dihapus agar klaim baru dapat melanjutkan", async () => {
+    const store = checkpointStore(basePost())
+    setResolver((op) => {
+      if (isSyncTransition(op)) return { data: null, error: null }
+      if (op.table === "agent_runs" && op.action === "insert") return { data: { id: "run-1" }, error: null }
+      if (op.table === "generation_checkpoints" && op.action === "select") return { data: [...store.rows.values()], error: null }
+      return defaultResolver(basePost())(op)
+    })
+    mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: AGENT_RUN, execution: { modelUsed: "acme/model" } })
+
+    const result = await run()
+
+    expect(result.success).toBe(false)
+    expect(recordedOps().some((op) => op.table === "generation_checkpoints" && op.action === "delete")).toBe(false)
+  })
+
+  it("auto-healing di tengah run: penyimpanan berikutnya ditolak → run dibatalkan, tanpa media/WordPress/state; klaim baru melanjutkan dari pre_resolve", async () => {
+    const store = checkpointStore(basePost())
+    let staleSignal: AbortSignal | undefined
+    mocks.run.mockImplementationOnce(async (_request: unknown, options: RunOptions) => {
+      staleSignal = options.abortSignal
+      expect(await options.checkpoints.onCheckpoint(PRE_RESOLVE)).toBe(true)
+      // Lease kedaluwarsa → auto-healing memulihkan item → claim_post_items memberi token baru.
+      store.holder = "runner-baru:ffffffffffffffffffffffffffffffff"
+      expect(await options.checkpoints.onCheckpoint({ ...PRE_RESOLVE, step: "draft" } as unknown as GenerationCheckpoint)).toBe(false)
+      expect(options.abortSignal.aborted).toBe(true)
+      return { success: true, article: ARTICLE, enrichment: {}, agentRun: AGENT_RUN, execution: { modelUsed: "acme/model" } }
+    })
+
+    const stale = await run()
+
+    expect(staleSignal?.aborted).toBe(true)
+    expect(stale).toMatchObject({ success: false, error: expect.stringMatching(/klaim item sudah berpindah/) })
+    expect(postItemUpdates()).toHaveLength(0)
+    expect(mocks.processAndSyncArticleMedia).not.toHaveBeenCalled()
+    expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
+    expect(agentRunUpdates()[0]?.payload).toMatchObject({
+      status: "failed",
+      stop_reason: "claim_lost",
+      error_message: expect.stringMatching(/klaim/),
+    })
+    expect([...store.rows.keys()]).toEqual(["pre_resolve"])
+
+    // Klaim baru (token baru) memuat checkpoint pre_resolve dari percobaan basi.
+    mocks.ops.length = 0
+    mocks.run.mockResolvedValue({
+      success: true,
+      article: ARTICLE,
+      enrichment: {},
+      agentRun: { ...AGENT_RUN, resumedSteps: ["pre_resolve"] },
+      execution: { modelUsed: "acme/model" },
+    })
+    setResolver((op) => {
+      if (op.table === "post_items" && op.action === "select") return { data: basePost({ locked_by: store.holder }), error: null }
+      if (op.table === "generation_checkpoints" && op.action === "select") return { data: [...store.rows.values()], error: null }
+      if (op.table === "agent_runs" && op.action === "insert") return { data: { id: "run-2" }, error: null }
+      return defaultResolver(basePost({ locked_by: store.holder }))(op)
+    })
+
+    const fresh = await run(claimed({ leaseToken: store.holder, retryCount: 1 }))
+
+    expect(fresh.success).toBe(true)
+    const [, options] = mocks.run.mock.calls.at(-1) as [unknown, RunOptions]
+    expect(options.checkpoints.resume.map((c) => c.step)).toEqual(["pre_resolve"])
+    expect(agentRunUpdates()[0]?.payload).toMatchObject({ resumed_steps: ["pre_resolve"] })
+  })
+
+  it("kegagalan sementara setelah checkpoint draft → antre ulang; percobaan berikutnya menerima draft untuk resume", async () => {
+    const store = checkpointStore(basePost())
+    mocks.run.mockImplementationOnce(async (_request: unknown, options: RunOptions) => {
+      await options.checkpoints.onCheckpoint(PRE_RESOLVE)
+      await options.checkpoints.onCheckpoint({ ...PRE_RESOLVE, step: "draft" } as unknown as GenerationCheckpoint)
+      throw Object.assign(new Error("ECONNRESET database"), { status: 503 })
+    })
+
+    const first = await run()
+    expect(first).toMatchObject({ success: false })
+    expect(settledFailure()?.payload).toMatchObject({ state: "queued_input", retry_count: 1 })
+    // Kegagalan generasi tidak menghapus checkpoint: hanya naskah tersimpan yang membuangnya.
+    expect([...store.rows.keys()].sort()).toEqual(["draft", "pre_resolve"])
+    expect(recordedOps().some((op) => op.table === "generation_checkpoints" && op.action === "delete")).toBe(false)
+
+    mocks.ops.length = 0
+    mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: AGENT_RUN, execution: { modelUsed: "acme/model" } })
+    await run(claimed({ retryCount: 1 }))
+
+    const [, options] = mocks.run.mock.calls.at(-1) as [unknown, RunOptions]
+    expect(options.checkpoints.resume.map((c) => c.step).sort()).toEqual(["draft", "pre_resolve"])
+  })
+})
+
+describe("runClaimedPostItem — sinyal klaim runner (heartbeat lease hilang)", () => {
+  const ARTICLE = {
+    title: "Judul Baru",
+    contentHtml: "<p>awal</p>",
+    markdownContent: "Isi naskah",
+    excerpt: "Ringkasan",
+    slug: "judul-baru",
+    wordCount: 640,
+  }
+  const SPENT = { stopReason: "failed_timeout_exceeded", modelCalls: 2, tokensTotal: 700, llmCalls: 2, costUsd: 0.002, resumedSteps: [] }
+
+  function resolverWithRun(post: Record<string, unknown>): Resolver {
+    return (op) => {
+      if (op.table === "agent_runs" && op.action === "insert") return { data: { id: "run-1" }, error: null }
+      return defaultResolver(post)(op)
+    }
+  }
+
+  it("lease hilang saat generasi → writer menerima sinyal yang ikut batal; tanpa state/media/WordPress; agent_runs failed + token", async () => {
+    setResolver(resolverWithRun(basePost()))
+    let writerSignal: AbortSignal | undefined
+    mocks.run.mockImplementation(async (_request: unknown, options: { abortSignal: AbortSignal }) => {
+      writerSignal = options.abortSignal
+      expect(writerSignal.aborted).toBe(false)
+      claimController.abort(new ClaimAbortedError("lease_lost"))
+      expect(writerSignal.aborted).toBe(true)
+      return {
+        success: false,
+        error: { code: "GENERATION_FAILED", message: "Agent gagal", retryable: true },
+        agentRun: SPENT,
+        execution: { modelUsed: "acme/model" },
+      }
+    })
+
+    const result = await run()
+
+    expect(result).toMatchObject({ success: false, error: expect.stringMatching(/^Generasi dihentikan: Lease item/) })
+    expect(postItemUpdates()).toHaveLength(0)
+    expect(mocks.processAndSyncArticleMedia).not.toHaveBeenCalled()
+    expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
+    const finished = recordedOps().find((op) => op.table === "agent_runs" && hasFilter(op, ["eq", "id", "run-1"]))
+    expect(finished?.payload).toMatchObject({ status: "failed", stop_reason: "lease_lost", tokens_total: 700, cost_usd: 0.002 })
+  })
+
+  it("gangguan sementara heartbeat (sinyal tidak batal) tidak menghentikan run", async () => {
+    setResolver(resolverWithRun(basePost()))
+    mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: SPENT, execution: { modelUsed: "acme/model" } })
+
+    const result = await run()
+
+    expect(result.success).toBe(true)
+    expect(mocks.publishPostToWordPress).toHaveBeenCalledTimes(1)
+  })
+
+  it("lease hilang selama pipeline media → transisi naskah & request WordPress tidak dicoba", async () => {
+    setResolver(resolverWithRun(basePost()))
+    mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: SPENT, execution: { modelUsed: "acme/model" } })
+    mocks.processAndSyncArticleMedia.mockImplementation(async (params: { markdownContent: string }) => {
+      claimController.abort(new ClaimAbortedError("lease_lost"))
+      return { updatedMarkdown: params.markdownContent, updatedContentHtml: "<p>naskah</p>" }
+    })
+
+    const result = await run()
+
+    expect(result).toMatchObject({ success: false, error: expect.stringMatching(/^Pengiriman ke WordPress dibatalkan/) })
+    expect(postItemUpdates()).toHaveLength(0)
+    expect(mocks.beginWordPressRequest).not.toHaveBeenCalled()
+    expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
+  })
+
+  it("lease hilang setelah naskah tersimpan (sebelum publish) → request WordPress tidak dikirim, state tidak ditulis lagi", async () => {
+    setResolver((op) => {
+      if (isSyncTransition(op)) claimController.abort(new ClaimAbortedError("lease_lost"))
+      return defaultResolver(storedRetryPost())(op)
+    })
+
+    const result = await run(syncClaim())
+
+    expect(result.success).toBe(false)
+    expect(postItemUpdates()).toHaveLength(1)
+    expect(mocks.beginWordPressRequest).not.toHaveBeenCalled()
+    expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
+  })
+
+  it("shutdown saat generasi (run gagal karena dibatalkan) → berhenti tanpa menulis kegagalan; agent_runs stop_reason shutdown", async () => {
+    setResolver(resolverWithRun(basePost()))
+    mocks.run.mockImplementation(async () => {
+      claimController.abort(new ClaimAbortedError("shutdown"))
+      return { success: false, error: { code: "GENERATION_FAILED", message: "aborted", retryable: true }, agentRun: SPENT, execution: {} }
+    })
+
+    const result = await run()
+
+    expect(result.success).toBe(false)
+    expect(postItemUpdates()).toHaveLength(0)
+    const finished = recordedOps().find((op) => op.table === "agent_runs" && hasFilter(op, ["eq", "id", "run-1"]))
+    expect(finished?.payload).toMatchObject({ status: "failed", stop_reason: "shutdown" })
+  })
+
+  it("shutdown setelah naskah jadi → naskah tetap disimpan (transisi berpagar), pengiriman ditolak runner", async () => {
+    setResolver(resolverWithRun(basePost()))
+    mocks.run.mockImplementation(async () => {
+      claimController.abort(new ClaimAbortedError("shutdown"))
+      return { success: true, article: ARTICLE, enrichment: {}, agentRun: SPENT, execution: { modelUsed: "acme/model" } }
+    })
+    mocks.beginWordPressRequest.mockReturnValue(false)
+
+    const result = await run()
+
+    expect(result.success).toBe(false)
+    expect(postItemUpdates().filter(isSyncTransition)).toHaveLength(1)
+    expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
+  })
+
+  it("shutdown sebelum publish: naskah tetap disimpan (transisi berpagar) lalu pengiriman ditolak runner", async () => {
+    setResolver(resolverWithRun(basePost()))
+    mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: SPENT, execution: { modelUsed: "acme/model" } })
+    mocks.processAndSyncArticleMedia.mockImplementation(async (params: { markdownContent: string }) => {
+      claimController.abort(new ClaimAbortedError("shutdown"))
+      return { updatedMarkdown: params.markdownContent, updatedContentHtml: "<p>naskah</p>" }
+    })
+    mocks.beginWordPressRequest.mockReturnValue(false)
+
+    const result = await run()
+
+    expect(result.success).toBe(false)
+    expect(postItemUpdates().filter(isSyncTransition)).toHaveLength(1)
+    expect(mocks.beginWordPressRequest).toHaveBeenCalledTimes(1)
+    expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
+  })
+
+  it("request WordPress yang sudah berjalan tidak dibatalkan: sinyal tidak diteruskan & hasilnya tetap dicatat", async () => {
+    setResolver(defaultResolver(storedRetryPost()))
+    mocks.publishPostToWordPress.mockImplementation(async (params: Record<string, unknown>) => {
+      claimController.abort(new ClaimAbortedError("lease_lost"))
+      expect(params).not.toHaveProperty("signal")
+      return { ok: true, wpPostId: 91, wpPostUrl: "https://contoh.test/?p=91" }
+    })
+
+    const result = await run(syncClaim())
+
+    expect(result).toMatchObject({ success: true, wpPostId: 91 })
+    expect(postItemUpdates().some((op) => op.payload?.wp_post_id === 91)).toBe(true)
+  })
+
+  it("percobaan generasi baru menutup baris agent_runs 'running' yatim milik item (pemilik + status) sebelum membuat barisnya", async () => {
+    setResolver(resolverWithRun(basePost()))
+    mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: SPENT, execution: { modelUsed: "acme/model" } })
+
+    await run()
+
+    const ops = recordedOps()
+    const closed = ops.findIndex((op) => op.table === "agent_runs" && op.action === "update" && hasFilter(op, ["eq", "status", "running"]))
+    const inserted = ops.findIndex((op) => op.table === "agent_runs" && op.action === "insert")
+    expect(closed).toBeGreaterThanOrEqual(0)
+    expect(closed).toBeLessThan(inserted)
+    expect(ops[closed].payload).toMatchObject({ status: "failed", stop_reason: "superseded" })
+    expect(hasFilter(ops[closed], ["eq", "post_item_id", "post-1"]) && hasFilter(ops[closed], ["eq", "user_id", OWNER])).toBe(true)
   })
 })

@@ -170,7 +170,7 @@ wp-autopost-dashboard/
 
 ## 3. Skema Inti Database (Supabase PostgreSQL)
 
-Database menggunakan **PostgreSQL via Supabase** (wajib PostgreSQL ≥ 15). Seluruh **10 tabel** berada di skema `public`, setiap baris terikat ke pemilik lewat `user_id` → `auth.users(id)` (`ON DELETE CASCADE`), dan **Row Level Security (RLS) aktif + `FORCE`** di seluruh tabel. Sumber kebenaran skema adalah migrasi Supabase CLI di [`supabase/migrations/`](supabase/migrations/) — baseline `20261015090000_baseline_schema.sql` merekonstruksi skema yang dipakai kode (menggantikan skrip ad-hoc `.workspaces/scripts/migrate-*.js`). Tabel lama `prompt_templates` / `prompt_template_versions` tidak dipakai kode dan tidak termasuk baseline.
+Database menggunakan **PostgreSQL via Supabase** (wajib PostgreSQL ≥ 15). Seluruh **11 tabel** berada di skema `public`, setiap baris terikat ke pemilik lewat `user_id` → `auth.users(id)` (`ON DELETE CASCADE`), dan **Row Level Security (RLS) aktif + `FORCE`** di seluruh tabel. Sumber kebenaran skema adalah migrasi Supabase CLI di [`supabase/migrations/`](supabase/migrations/) — baseline `20261015090000_baseline_schema.sql` merekonstruksi skema yang dipakai kode (menggantikan skrip ad-hoc `.workspaces/scripts/migrate-*.js`). Tabel lama `prompt_templates` / `prompt_template_versions` tidak dipakai kode dan tidak termasuk baseline.
 
 ```mermaid
 erDiagram
@@ -183,6 +183,7 @@ erDiagram
     users ||--o{ execution_logs : tracks
     users ||--o{ agent_runs : executes
     users ||--o{ webhooks : manages
+    post_items ||--o{ generation_checkpoints : resumes
     users ||--o{ uploaded_media : caches
 
     wp_sites ||--o{ content_batches : targets
@@ -263,16 +264,35 @@ erDiagram
         text profile_ref
         jsonb profile_snapshot "ref, name, mode, model, temperature, toolIds, skills"
         text status "running | completed | failed"
-        text stop_reason
+        text stop_reason "termasuk lease_expired | shutdown | superseded | claim_lost | lease_lost | max_duration"
         int model_calls
         int tool_calls
         int tokens_prompt
         int tokens_completion
+        int tokens_total
+        int llm_calls "Seluruh panggilan LLM attempt ini (loop, pre-resolve, finalize)"
+        numeric cost_usd "usage.cost OpenRouter; NULL bila tidak dilaporkan"
+        text model "Model yang benar-benar dipakai (setelah fallback)"
+        jsonb model_usage "Rincian per model: calls, tokens, reasoning, cached, cost"
+        jsonb prompt_versions "Nama prompt -> versi (hash registry)"
+        text_array resumed_steps "Langkah checkpoint yang dipakai ulang: pre_resolve | draft"
         int duration_ms
         int word_count
         text error_message
         timestamptz created_at
         timestamptz finished_at
+    }
+
+    generation_checkpoints {
+        uuid id PK
+        uuid post_item_id FK "(post_item_id, user_id) -> post_items, ON DELETE CASCADE"
+        uuid user_id FK
+        text step "pre_resolve | draft (UNIQUE per item)"
+        int schema_version "Versi format data; versi lain diabaikan"
+        jsonb data "Hasil langkah + inputKey (sidik input) + usage langkah; maks 256 KiB"
+        jsonb prompt_versions
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     content_batches {
@@ -360,7 +380,7 @@ erDiagram
 
 ### 3.1 Model Isolasi Tenant (RLS & Hak Akses)
 
-Semua policy berlaku `TO authenticated` dengan predikat `(select auth.uid()) = user_id` (subselect agar `auth.uid()` dievaluasi sekali per query). Role `anon` tidak memiliki hak apa pun atas 10 tabel. Hak akses (`GRANT`) dinyatakan eksplisit di migrasi — tidak bergantung pada auto-grant Data API.
+Semua policy berlaku `TO authenticated` dengan predikat `(select auth.uid()) = user_id` (subselect agar `auth.uid()` dievaluasi sekali per query). Role `anon` tidak memiliki hak apa pun atas 11 tabel. Hak akses (`GRANT`) dinyatakan eksplisit di migrasi — tidak bergantung pada auto-grant Data API.
 
 | Tabel | `authenticated` (client sesi) | Penulis lain |
 | :--- | :--- | :--- |
@@ -369,6 +389,7 @@ Semua policy berlaku `TO authenticated` dengan predikat `(select auth.uid()) = u
 | `post_items` | SELECT, DELETE milik sendiri; INSERT hanya item baru (`state = 'queued_input'`) dan **hanya kolom input antrean** (GRANT per kolom: `user_id, batch_id, wp_site_id, target_keyword, title, state, scheduled_for, wp_target_status, categories, tags, custom_instructions_override, source_payload`; `retry_count`, `last_error`, `created_at/updated_at`, naskah, `wp_post_*`, lease & `next_attempt_at` selalu default); **tanpa UPDATE** | transisi state, naskah, `wp_post_id`, lease: hanya worker (`service_role`); RPC `claim_post_items` & `extend_post_item_lease` hanya `service_role` |
 | `execution_logs` | SELECT + INSERT milik sendiri (append-only) | worker; terhapus via cascade item |
 | `agent_runs`, `uploaded_media` | SELECT milik sendiri saja | worker (`service_role`) |
+| `generation_checkpoints` | SELECT milik sendiri saja | worker lewat RPC `save_generation_checkpoint` (`service_role`, dipagari token lease + state `generating_content`) |
 
 `service_role` (Service Role / secret key) mem-bypass RLS dan hanya dipakai proses latar belakang; kode wajib tetap memfilter `user_id` secara eksplisit (lihat `.claude/rules/security.md`).
 
@@ -383,13 +404,15 @@ Induk memiliki `UNIQUE (id, user_id)` dan anak merujuk `(fk, user_id)`, sehingga
 | `post_items (batch_id, user_id)` | `content_batches (id, user_id)` | SET NULL (`batch_id`) |
 | `execution_logs (post_item_id, user_id)` | `post_items (id, user_id)` | CASCADE |
 | `agent_runs (post_item_id, user_id)` | `post_items (id, user_id)` | CASCADE |
+| `generation_checkpoints (post_item_id, user_id)` | `post_items (id, user_id)` | CASCADE |
 | `uploaded_media (site_id, user_id)` | `wp_sites (id, user_id)` | CASCADE |
 | `uploaded_media (post_id, user_id)` | `post_items (id, user_id)` | SET NULL (`post_id`) |
 
 ### 3.3 Constraint, Indeks & Trigger
 
 - **CHECK**: 9 state `post_items.state`, `wp_target_status`, `retry_count` 0..1000, `wp_sites.max_concurrency` 1..10 (dapat diubah tenant), pasangan lease `locked_until ⇔ locked_by`, enum status/mode/source (`wp_sites`, `content_batches`, `agent_profiles`, `agent_runs`), `execution_logs.level` (`step` sengaja bebas), format slug & kepemilikan skill sistem, serta bentuk JSON (`jsonb_typeof` object/array) untuk kolom `jsonb`.
-- **UNIQUE**: `wp_sites (user_id, base_url)`, `agent_skills (user_id, slug)` + `agent_skills (slug) WHERE is_system`, `user_settings (user_id)`.
+- **UNIQUE**: `wp_sites (user_id, base_url)`, `agent_skills (user_id, slug)` + `agent_skills (slug) WHERE is_system`, `user_settings (user_id)`, `generation_checkpoints (post_item_id, step)`.
+- **CHECK metrik & checkpoint**: `agent_runs` (metrik non-negatif, `model_usage` array, `prompt_versions` object, `resumed_steps` ⊆ {pre_resolve, draft}); `generation_checkpoints` (`step`, `schema_version` 1..1000, `data` object ≤ 256 KiB, `prompt_versions` ≤ 16 KiB).
 - **Indeks antrean**: parsial `post_items_claimable_idx (wp_site_id, created_at)` untuk kandidat klaim (`queued_input`/`ready_to_sync`), parsial `post_items_in_flight_lease_idx` untuk hitung slot per situs & pemulihan lease kedaluwarsa, `(batch_id, state)` untuk progres batch, `(user_id, created_at desc)` untuk daftar antrean. Setiap FK memiliki indeks; dedup media `uploaded_media (site_id, source_url)`.
 - **Trigger `set_updated_at`** (BEFORE UPDATE) pada tabel yang memiliki `updated_at`; auto-healing baris in-flight lama tanpa lease memakai kolom ini (heartbeat kini memperpanjang `locked_until`). Fungsi trigger tidak dapat dieksekusi role API.
 
@@ -462,7 +485,11 @@ stateDiagram-v2
    Kegagalan sementara (LLM/WP 429, 5xx LLM, jaringan) diantrekan ulang dengan backoff `next_attempt_at` 1 mnt → 5 mnt; percobaan ke-3 berhenti di `failed_*` dengan `last_error`. Kegagalan permanen (kredensial/izin WP, kunci BYOK hilang/tidak valid, validasi) langsung `failed_*`. Tahap sinkronisasi hanya mengirim ulang otomatis kegagalan yang **pasti** belum membuat post (429/503/DNS/koneksi ditolak); timeout/5xx/putus koneksi → `failed_sync` dan pengguna diminta memeriksa wp-admin.
 4. **Cost-Saver Retry & Idempotensi WordPress**:
    Item yang sudah punya naskah (`content_html`) tidak pernah digenerasi ulang, termasuk saat diklaim untuk generasi. "Kirim ulang" memindahkan `failed_sync`/`ready_to_sync` → `ready_to_sync` (`next_attempt_at = now`, `retry_count` direset) lalu runner mengirim HTML Gutenberg tersimpan bersama `wp_publish_meta` tanpa AI dan tanpa unggah ulang gambar. Item yang sudah memiliki `wp_post_id` tidak dipublikasi ulang: worker, auto-healing, dan pelepasan saat shutdown menuntaskannya ke state akhir sukses (`published_on_wp`/`scheduled_on_wp`/`saved_draft_on_wp` menurut status target & jadwal) sehingga ikut terhitung selesai di progres batch. Aksi manual (`src/core/queue/manual-actions.ts`) memakai admin client dengan filter `user_id` dari sesi.
-5. **Pengelompokan Antrean Virtual (Quick Writer Batch)**:
+5. **Checkpoint generasi & resume (`src/core/writer/runtime/checkpoints.ts`, `src/core/queue/checkpoints.ts`)**:
+   Dua langkah mahal disimpan per item di `generation_checkpoints`: `pre_resolve` (author, kategori, tag) dan `draft` (naskah mentah, sumber, enrichment termasuk ID media WordPress, `stopReason`, model, usage langkah). Penyimpanan hanya lewat RPC `save_generation_checkpoint` yang dipagari token lease + state `generating_content`; RPC menolak run usang (`false`) dan worker langsung membatalkan run tersebut. Setiap klaim generasi baru (retry otomatis, pemulihan lease, revert saat shutdown, "Jalankan sekarang", "Tulis ulang") memuat checkpoint dan melanjutkan dari langkah terakhir; dari `draft` tidak ada panggilan LLM, tool, maupun kunci BYOK yang dibutuhkan. Checkpoint diabaikan bila `schema_version` berbeda, data tidak valid, atau sidik input (`inputKey`: keyword, bahasa, brief, situs, taksonomi diminta; untuk draft juga judul, gaya, target kata, instruksi, dan Agent Profile termasuk `updatedAt`) berubah — jadi "Tulis ulang" memakai ulang draft valid (cost-saver) dan hanya menulis baru bila input/Agent Profile berubah. Postprocess (Markdown → Gutenberg) deterministik dan selalu dijalankan ulang. Checkpoint dihapus setelah naskah tersimpan. Usage dicatat per attempt di `agent_runs` (langkah yang dipakai ulang di `resumed_steps`, tanpa hitung ganda).
+6. **Pembatalan saat lease hilang**:
+   Runner memberi setiap job `AbortSignal`; sinyal dibatalkan dengan kode `lease_lost` (heartbeat mengembalikan `false`), `max_duration`, `shutdown`, atau `claim_lost` (RPC checkpoint menolak). Error jaringan heartbeat hanya dicatat, tidak membatalkan. Run yang dibatalkan berhenti tanpa menulis state, media, maupun WordPress; request publish WordPress yang sudah berjalan tidak pernah diputus. Baris `agent_runs` attempt yang mati ditutup `failed` dengan `stop_reason` (`lease_expired`, `shutdown`, `superseded`, atau kode di atas).
+7. **Pengelompokan Antrean Virtual (Quick Writer Batch)**:
    Artikel mandiri hasil dari *Tulis Cepat* (`batch_id: null`) dikelompokkan secara visual di halaman antrean ke dalam batch virtual `"⚡ Tulis Cepat (Quick Writer)"` sehingga seluruh item tetap terpantau rapi.
 
 ---

@@ -244,9 +244,10 @@ async function uploadValidatedImage(imageUrl: string, params: UploadMediaParams)
     }
   }
 
-  // 4. Rekam ke Cache Deduplikasi Media di Database Supabase
+  // 4. Rekam ke Cache Deduplikasi Media di Database Supabase. Ditunggu (tidak pernah melempar) agar
+  //    cache sudah tercatat sebelum run berlanjut: run yang terputus lalu diulang tidak mengunggah ulang.
   if (params.userId && params.siteId && wpSourceUrl) {
-    void recordUploadedMedia({
+    await recordUploadedMedia({
       userId: params.userId,
       siteId: params.siteId,
       postId: params.postId,

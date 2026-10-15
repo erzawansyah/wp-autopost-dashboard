@@ -4,7 +4,7 @@ import { ToolInputParsingException } from "@langchain/core/tools"
 import { run } from "@/core/writer"
 import { BUILTIN_PRESETS } from "@/core/writer/profiles"
 import { ToolRegistry, type ToolInputField } from "@/core/writer/tools"
-import { redactSecrets, redactSecretsInText } from "@/core/writer/runtime/redact"
+import { redactSecrets, redactSecretsInText } from "@/lib/security/redact"
 import { RunRecorder, type AgentStepEvent } from "@/core/writer/runtime/telemetry"
 import { readToolArtifact } from "@/core/writer/tools/tool-response"
 import { failureFromError, toolFailure, type ToolFailure } from "@/core/shared/tools/contract"
@@ -214,6 +214,8 @@ interface LabRunRequest {
   siteId?: string
   model?: string
   input: LabInput
+  /** Sinyal pembatalan request HTTP: diteruskan ke tool & `writer.run` (`abortSignal`). */
+  signal?: AbortSignal
 }
 
 /** Payload respons Lab; `ok: false` tetap HTTP 200 agar UI dapat menampilkan hasil parsial. */
@@ -270,7 +272,7 @@ export async function runLabTool(supabase: SupabaseClient, userId: string, reque
   const site = await resolveLabSite(supabase, userId, request.siteId)
   const userKeys = await getUserDecryptedKeys(userId)
   try {
-    return await executeLabTool(request.targetId, request.input, site, userKeys)
+    return await executeLabTool(request.targetId, request.input, site, userKeys, request.signal)
   } catch (err: unknown) {
     throw labExecutionError(err)
   }
@@ -280,13 +282,16 @@ async function executeLabTool(
   toolId: string,
   input: LabInput,
   site: LabSite | undefined,
-  userKeys: DecryptedUserKeys
+  userKeys: DecryptedUserKeys,
+  signal: AbortSignal | undefined
 ): Promise<LabRunResult> {
   const startTime = Date.now()
   const elapsed = () => Date.now() - startTime
 
   if (toolId === "wordpress_publisher") {
     if (!site) throw badRequest("Situs WordPress yang valid wajib dipilih untuk menguji publisher.")
+    // Sengaja tanpa sinyal pembatalan: request pembuatan post yang diputus di tengah bisa saja sudah
+    // tersimpan di WordPress (status tidak pasti), jadi dibiarkan selesai.
     const pubResult = await publishPostToWordPress({
       baseUrl: site.baseUrl,
       username: site.username,
@@ -317,6 +322,7 @@ async function executeLabTool(
       // Setiap kunci BYOK dikirim terpisah agar hanya sampai ke provider-nya sendiri.
       keys: { tavilyKey: userKeys.tavilyKey, braveKey: userKeys.braveKey, serpapiKey: userKeys.serpapiKey },
       searxngUrl: userKeys.searxngUrl,
+      signal,
     })
     if (!outcome.ok) return labToolFailure(outcome, elapsed())
     const results = outcome.data
@@ -334,6 +340,7 @@ async function executeLabTool(
       provider: oneOf(text(input, "provider", "auto"), IMAGE_SEARCH_PROVIDERS, "auto"),
       pexafyApiKey: userKeys.pexafyKey,
       searxngUrl: userKeys.searxngUrl,
+      signal,
     })
     if (!outcome.ok) return labToolFailure(outcome, elapsed())
     const photos = outcome.data
@@ -347,6 +354,7 @@ async function executeLabTool(
       limit: positiveInt(input, "limit", 15, 50),
       language: text(input, "language", "id"),
       searxngUrl: userKeys.searxngUrl,
+      signal,
     })
     if (!outcome.ok) return labToolFailure(outcome, elapsed())
     const output = outcome.data
@@ -361,7 +369,7 @@ async function executeLabTool(
 
   if (toolId === "web_reader") {
     const url = text(input, "url")
-    const outcome = await readWebContent({ url, maxLength: positiveInt(input, "maxLength", 2500, 20_000) })
+    const outcome = await readWebContent({ url, maxLength: positiveInt(input, "maxLength", 2500, 20_000), signal })
     if (!outcome.ok) return labToolFailure(outcome, elapsed())
     const output = outcome.data
     return {
@@ -384,12 +392,16 @@ async function executeLabTool(
       : undefined,
     language: text(input, "language", "id"),
     recorder: new RunRecorder(),
+    signal,
   })
 
   // Dipanggil sebagai tool call agar hasilnya ToolMessage lengkap dengan artifact `ToolOutcome`.
   let message: unknown
   try {
-    message = await toolInstance.invoke({ type: "tool_call", id: `lab_${toolDef.id}_${startTime}`, name: toolDef.id, args: input })
+    message = await toolInstance.invoke(
+      { type: "tool_call", id: `lab_${toolDef.id}_${startTime}`, name: toolDef.id, args: input },
+      { signal }
+    )
   } catch (toolErr: unknown) {
     const failure =
       toolErr instanceof ToolInputParsingException
@@ -440,7 +452,12 @@ export async function runLabAgentProfile(
         // sehingga kunci terdekripsi tidak disalin ke payload request.
         userId,
       },
-      { userId, userKeys, onEventListener: (event: AgentStepEvent) => stepEvents.push(event) }
+      {
+        userId,
+        userKeys,
+        onEventListener: (event: AgentStepEvent) => stepEvents.push(event),
+        abortSignal: request.signal,
+      }
     )
   } catch (err: unknown) {
     throw labExecutionError(err)

@@ -405,12 +405,14 @@ export interface WPCategoryItem {
 }
 
 /**
- * Mengambil daftar kategori dari website WordPress (/wp-json/wp/v2/categories)
+ * Mengambil daftar kategori dari website WordPress (/wp-json/wp/v2/categories).
+ * `signal` (pembatalan run/request) digabung dengan timeout request.
  */
 export async function fetchWordPressCategories(params: {
   baseUrl: string
   username: string
   applicationPassword: string
+  signal?: AbortSignal
 }): Promise<{ ok: boolean; categories?: WPCategoryItem[]; error?: string }> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
@@ -429,6 +431,7 @@ export async function fetchWordPressCategories(params: {
           "User-Agent": WP_USER_AGENT,
           Accept: "application/json",
         },
+        signal: params.signal,
       },
       { timeoutMs: 12_000 }
     )
@@ -467,6 +470,8 @@ export async function resolveOrCreateWordPressTags(params: {
   username: string
   applicationPassword: string
   tagNames: string[]
+  /** Pembatalan run: request berikutnya tidak dikirim dan request berjalan dibatalkan. */
+  signal?: AbortSignal
 }): Promise<number[]> {
   const cleanNames = sanitizeTermNames(params.tagNames)
   const { valid, normalizedUrl } = normalizeAndValidateWpUrl(params.baseUrl)
@@ -477,6 +482,7 @@ export async function resolveOrCreateWordPressTags(params: {
   const tagIds: number[] = []
 
   for (const cleanName of cleanNames) {
+    if (params.signal?.aborted) break
     try {
       // 1. Cek apakah tag sudah ada via search
       const searchRes = await wpFetch(
@@ -487,6 +493,7 @@ export async function resolveOrCreateWordPressTags(params: {
             "User-Agent": WP_USER_AGENT,
             Accept: "application/json",
           },
+          signal: params.signal,
         }
       )
 
@@ -513,6 +520,7 @@ export async function resolveOrCreateWordPressTags(params: {
           Accept: "application/json",
         },
         body: JSON.stringify({ name: cleanName }),
+        signal: params.signal,
       })
 
       if (createRes.ok) {
@@ -606,10 +614,12 @@ export interface WPUserItem {
   avatar_urls?: Record<string, string>
 }
 
+/** Mengambil daftar user/author WordPress; `signal` (pembatalan run/request) digabung dengan timeout request. */
 export async function fetchWordPressUsers(params: {
   baseUrl: string
   username: string
   applicationPassword: string
+  signal?: AbortSignal
 }): Promise<{ ok: boolean; users?: WPUserItem[]; error?: string }> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
@@ -623,6 +633,7 @@ export async function fetchWordPressUsers(params: {
         "User-Agent": WP_USER_AGENT,
         Accept: "application/json",
       },
+      signal: params.signal,
     })
 
     if (!res.ok) {

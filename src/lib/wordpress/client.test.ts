@@ -6,7 +6,9 @@ import {
   createWordPressCategory,
   createWordPressPost,
   describeWpNetworkError,
+  fetchWordPressCategories,
   fetchWordPressPostRawContent,
+  fetchWordPressUsers,
   isValidWpPostId,
   normalizeAndValidateWpUrl,
   resolveOrCreateWordPressTags,
@@ -183,6 +185,11 @@ describe("operasi konten & taksonomi WordPress", () => {
           return json(200, { id: 42, content: { raw: "<!-- wp:paragraph -->\n<p>x</p>\n<!-- /wp:paragraph -->", rendered: "<p>x</p>" } })
         }
         if (path.startsWith("/wp-json/wp/v2/posts/404?")) return json(404, { code: "rest_post_invalid_id" })
+        // Endpoint lambat untuk menguji pembatalan request yang sedang berjalan.
+        if (path.startsWith("/wp-json/wp/v2/users?")) {
+          setTimeout(() => (res.destroyed ? undefined : json(200, [])), 3_000)
+          return
+        }
         return json(200, {})
       })
     })
@@ -228,6 +235,28 @@ describe("operasi konten & taksonomi WordPress", () => {
     expect(ids).toEqual([5, 99])
     const created = requests.filter((r) => r.method === "POST")
     expect(created.map((r) => JSON.parse(r.body))).toEqual([{ name: "Seduh" }])
+  })
+
+  it("sinyal pembatalan run: request users/kategori/tag tidak dikirim bila sudah batal", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
+    const aborted = AbortSignal.abort()
+
+    expect(await fetchWordPressUsers({ ...creds, signal: aborted })).toMatchObject({ ok: false })
+    expect(await fetchWordPressCategories({ ...creds, signal: aborted })).toMatchObject({ ok: false })
+    expect(await resolveOrCreateWordPressTags({ ...creds, tagNames: ["Kopi"], signal: aborted })).toEqual([])
+    expect(requests).toEqual([])
+  })
+
+  it("sinyal pembatalan memutus request users yang sedang berjalan (digabung dengan timeout)", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
+    const controller = new AbortController()
+    const started = Date.now()
+    setTimeout(() => controller.abort(), 50)
+
+    const result = await fetchWordPressUsers({ ...creds, signal: controller.signal })
+
+    expect(result.ok).toBe(false)
+    expect(Date.now() - started).toBeLessThan(2_000)
   })
 
   it("nama & deskripsi kategori dikirim sebagai teks polos", async () => {

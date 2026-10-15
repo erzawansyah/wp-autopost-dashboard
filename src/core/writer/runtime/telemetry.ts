@@ -1,6 +1,7 @@
 import { LlmUsageLedger, type LlmModelUsage } from "@/core/shared/llm/usage"
 import { ArticleSource, FeaturedImageMeta, InContentImage } from "../types/contracts"
-import { isSensitiveKey, redactSecretsInText } from "./redact"
+import { isSensitiveKey, redactSecretsInText } from "@/lib/security/redact"
+import type { GenerationStep } from "./checkpoints"
 
 export type StepEventKind = "model_call" | "tool_call" | "guard" | "finalize" | "summary"
 
@@ -37,6 +38,11 @@ export interface RunTelemetrySummary {
   costUsd: number | null
   /** Rincian token & biaya per model (model utama dan cadangan). */
   modelUsage: LlmModelUsage[]
+  /**
+   * Langkah generasi yang dipakai ulang dari checkpoint percobaan sebelumnya. Token & biaya di atas
+   * hanya pemakaian run ini: pemakaian langkah yang dipakai ulang sudah tercatat di run asalnya.
+   */
+  resumedSteps: GenerationStep[]
   durationMs: number
   wordCount: number
   sourcesCount: number
@@ -65,6 +71,8 @@ export class RunRecorder {
   public resolvedCategoryIds: number[] = []
   public resolvedTagNames: string[] = []
   public resolvedAuthorId?: number
+  /** Langkah yang dipulihkan dari checkpoint (lihat `markResumed`). */
+  public readonly resumedSteps: GenerationStep[] = []
 
   // Listener opsional untuk streaming event log (misal ke database execution_logs)
   private onEventListener?: (event: AgentStepEvent) => void
@@ -118,6 +126,21 @@ export class RunRecorder {
     return fullEvent
   }
 
+  /** Tandai langkah yang dipakai ulang dari checkpoint dan catat event telemetrinya. */
+  public markResumed(steps: readonly GenerationStep[], summary: string): void {
+    for (const step of steps) {
+      if (!this.resumedSteps.includes(step)) this.resumedSteps.push(step)
+    }
+    this.recordEvent({
+      kind: "guard",
+      tool: "checkpoint_resume",
+      status: "ok",
+      durationMs: 0,
+      summary,
+      argsPreview: { steps: steps.join(", ") },
+    })
+  }
+
   public getEvents(): AgentStepEvent[] {
     return [...this.events]
   }
@@ -136,6 +159,7 @@ export class RunRecorder {
       llmFailedCalls: usage.failedCalls,
       costUsd: usage.costUsd,
       modelUsage: usage.byModel,
+      resumedSteps: [...this.resumedSteps],
       durationMs: Date.now() - this.startTime,
       wordCount,
       sourcesCount: this.sources.size,

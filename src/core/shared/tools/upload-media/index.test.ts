@@ -150,6 +150,24 @@ describe("uploadMediaToWordPress", () => {
       )
     })
 
+    it("pencatatan cache selesai sebelum tool mengembalikan hasil (run yang diulang langsung menemukan cache)", async () => {
+      let recorded = false
+      mediaCache.recordUploadedMedia.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve((recorded = true)), 20))
+      )
+
+      const result = await uploadMediaToWordPress({
+        imageUrl: `${base}/img.png`,
+        baseUrl: base,
+        ...wpCredentials,
+        siteId: "site-1",
+        userId: "user-1",
+      })
+
+      expect(result.ok).toBe(true)
+      expect(recorded).toBe(true)
+    })
+
     it("hasil cache milik pemilik yang sama dipakai tanpa mengunggah ulang", async () => {
       uploads.length = 0
       mediaCache.findExistingUploadedMedia.mockResolvedValue({

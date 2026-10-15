@@ -33,3 +33,16 @@ describe("RunRecorder summary usage", () => {
     expect(new RunRecorder().getSummary("failed")).toMatchObject({ tokensTotal: 0, llmCalls: 0, costUsd: null, modelUsage: [] })
   })
 })
+
+describe("RunRecorder resume checkpoint", () => {
+  it("markResumed mencatat langkah unik + event checkpoint_resume; ringkasan memuat resumedSteps", () => {
+    const events: string[] = []
+    const recorder = new RunRecorder((event) => events.push(`${event.tool}:${event.status}`))
+
+    recorder.markResumed(["pre_resolve"], "pakai ulang pre_resolve")
+    recorder.markResumed(["pre_resolve", "draft"], "pakai ulang draft")
+
+    expect(recorder.getSummary("completed")).toMatchObject({ resumedSteps: ["pre_resolve", "draft"], tokensTotal: 0 })
+    expect(events).toEqual(["checkpoint_resume:ok", "checkpoint_resume:ok"])
+  })
+})

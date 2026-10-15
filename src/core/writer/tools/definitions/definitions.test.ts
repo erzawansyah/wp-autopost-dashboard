@@ -192,6 +192,17 @@ describe("upload_media", () => {
 
     await callTool(buildTool("upload_media", makeCtx({ wpCredentials })), { imageUrl: "https://a.test/y.jpg" })
     expect(impl.uploadMediaToWordPress.mock.calls[1][0]).toMatchObject(wpCredentials)
+    expect(impl.uploadMediaToWordPress.mock.calls[1][0]).toMatchObject({ userId: undefined, siteId: undefined })
+  })
+
+  it("pemilik & situs run diteruskan sebagai kunci cache deduplikasi media (run ulang tidak mengunggah ulang)", async () => {
+    impl.uploadMediaToWordPress.mockResolvedValue(toolSuccess({ mediaId: 5, sourceUrl: "https://wp.test/up/x.jpg", isCached: true }))
+    const ctx = makeCtx({ wpCredentials, mediaCache: { userId: "user-1", siteId: "site-1" } })
+
+    await callTool(buildTool("upload_media", ctx), { imageUrl: "https://a.test/x.jpg" })
+
+    expect(impl.uploadMediaToWordPress.mock.calls[0][0]).toMatchObject({ userId: "user-1", siteId: "site-1" })
+    expect(ctx.recorder.inContentImages[0]).toMatchObject({ wpMediaId: 5, imageUrl: "https://wp.test/up/x.jpg" })
   })
 
   it("sukses featured: recorder diisi, artifact memuat isFeatured", async () => {

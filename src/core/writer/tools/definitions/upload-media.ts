@@ -91,6 +91,8 @@ export const uploadMediaToolDef: ToolDefinition = {
           baseUrl: ctx.wpCredentials?.baseUrl,
           username: ctx.wpCredentials?.username,
           applicationPassword: ctx.wpCredentials?.applicationPassword,
+          userId: ctx.mediaCache?.userId,
+          siteId: ctx.mediaCache?.siteId,
           timeoutMs: 25000,
           signal: resolveToolSignal(ctx, config),
         })

@@ -31,6 +31,8 @@ Rujukan arsitektur lengkap: `docs/system-writer-architecture.md` dan `ARCHITECTU
 ## 3. Enam Universal Tools (riset & visual saja)
 `keyword_suggestions`, `web_search`, `web_reader`, `image_search`, `set_featured_image`, `upload_media`
 — definisi di `src/core/writer/tools/definitions/`, implementasi di `src/core/shared/tools/`, registrasi di `tools/registry.ts`. Tool baru harus murni riset/visual dan wajib lewat diskusi dengan pengguna.
+- Kontrak hasil wajib `ToolOutcome` (`src/core/shared/tools/contract.ts`): `{ ok: true, data }` atau `{ ok: false, code, message, retryable }` dengan kode dari daftar tertutup `ToolErrorCode`; pesan sudah diredaksi (tanpa secret/host internal). Definisi memakai `responseFormat: "content_and_artifact"`: LLM menerima teks ringkas, guard membaca artifact terstruktur.
+- Setiap tool menerima `AbortSignal` (`ctx.signal` + `config.signal`) dan meneruskannya ke setiap `safeFetch`/`wpFetch`.
 
 ## 4. Markdown-First → Gutenberg
 - LLM menulis **Markdown murni**. Pembersihan (`formatters/markdown-cleaner.ts`) dan konversi deterministik ke Native Gutenberg Blocks (`<!-- wp:... -->`, `formatters/gutenberg.ts`) dilakukan di `runtime/postprocess.ts` sebelum dikirim ke WP REST API.
@@ -39,10 +41,10 @@ Rujukan arsitektur lengkap: `docs/system-writer-architecture.md` dan `ARCHITECTU
 ## 5. Anti-Infinite Loop Guards (wajib dipertahankan)
 Diimplementasikan di `runtime/loop-guard.ts` dan `runtime/guards.ts`:
 - deduplikasi panggilan tool identik berturut-turut;
-- circuit breaker: tool dinonaktifkan setelah 2× gagal berturut-turut;
+- circuit breaker: tool dinonaktifkan setelah 2× gagal berturut-turut (langsung pada `missing_credentials`/`unauthorized`);
 - kuota global & per-tool (hard limits);
 - tepat 1× emergency finalize call (`runtime/finalize.ts`, prompt `system-finalize.md`) saat batas tercapai.
-Perubahan pada guard wajib menjaga keempat jaminan ini.
+Perubahan pada guard wajib menjaga keempat jaminan ini. Kegagalan tool dideteksi dari artifact `ok: false` (bukan parsing teks "ERROR").
 
 ## 6. Queue & Idempotensi (lihat juga CLAUDE.md §Prinsip Inti)
 - Job tidak pernah dijalankan di dalam request HTTP: route hanya mencatat/menjadwalkan ulang item lalu `nudge` runner (`src/server/queue/`).
@@ -51,4 +53,9 @@ Perubahan pada guard wajib menjaga keempat jaminan ini.
 - Retry otomatis & dead-letter hanya lewat `src/core/queue/retry-policy.ts`; kegagalan sinkronisasi yang mungkin sudah membuat post (timeout/5xx) tidak boleh dikirim ulang otomatis.
 - "Kirim ulang" memindahkan `failed_sync` → `ready_to_sync` dan runner mengirim naskah tersimpan; **jangan** memicu generasi AI ulang.
 - Selalu cek `wp_post_id` sebelum membuat post baru agar retry tidak menggandakan posting.
+- Checkpoint generasi (`pre_resolve`, `draft`) hanya ditulis lewat RPC `save_generation_checkpoint` yang dipagari token lease; RPC menolak → batalkan run. Resume dari `draft` tidak boleh memanggil LLM/tool.
+- Run menerima `AbortSignal` dari runner (`lease_lost`, `max_duration`, `shutdown`, `claim_lost`); jangan pernah meneruskan sinyal ke POST publish WordPress yang sudah dimulai.
+
+## 7. LLM Gateway
+- Semua panggilan LLM lewat gateway per run (`src/core/shared/llm/gateway.ts`): kunci BYOK-only, retry dengan backoff (tanpa retry untuk 400/401/402/403/kuota), fallback model hanya untuk error yang layak (`ai.fallbackModels` di `settings.json`), ledger token & biaya, tracer LangSmith per tenant. Jangan membuat `ChatOpenRouter` atau fetch ke OpenRouter di luar gateway (kecuali katalog model/verifikasi kunci di `src/server/services/ai.ts`).
 - Uji ke WordPress nyata default `status: "draft"` kecuali pengguna meminta `publish`.

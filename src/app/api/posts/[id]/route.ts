@@ -7,7 +7,39 @@ import { IdParamsSchema } from "@/server/validation/common"
 import { nudgeQueueRunner } from "@/server/queue/embedded"
 import { queueActionError } from "@/server/queue/action-errors"
 
-// GET /api/posts/[id] — detail artikel + log eksekusi + agent run terakhir (milik pengguna).
+/** Kolom `agent_runs` untuk dasbor: metrik per percobaan (token, biaya, model, versi prompt, langkah resume). */
+const AGENT_RUN_COLUMNS =
+  "id, status, profile_ref, profile_snapshot, stop_reason, model, model_calls, tool_calls, llm_calls, " +
+  "tokens_prompt, tokens_completion, tokens_total, cost_usd, model_usage, prompt_versions, resumed_steps, " +
+  "duration_ms, word_count, error_message, created_at, finished_at"
+
+/** Batas percobaan yang dibaca untuk akumulasi biaya item (retry otomatis maks 3 + aksi manual). */
+const AGENT_RUN_HISTORY_LIMIT = 50
+
+interface AgentRunUsageRow {
+  llm_calls: number | null
+  tokens_total: number | null
+  cost_usd: number | string | null
+}
+
+/**
+ * Total pemakaian seluruh percobaan item. Setiap baris `agent_runs` hanya memuat pemakaian percobaannya
+ * sendiri (langkah yang dipakai ulang dari checkpoint tidak dihitung ulang), sehingga penjumlahan aman.
+ */
+function summarizeAgentRuns(runs: AgentRunUsageRow[]) {
+  let costUsd: number | null = null
+  let tokensTotal = 0
+  let llmCalls = 0
+  for (const run of runs) {
+    tokensTotal += run.tokens_total ?? 0
+    llmCalls += run.llm_calls ?? 0
+    const cost = run.cost_usd === null ? null : Number(run.cost_usd)
+    if (cost !== null && Number.isFinite(cost)) costUsd = Math.round(((costUsd ?? 0) + cost) * 1e6) / 1e6
+  }
+  return { runs: runs.length, llmCalls, tokensTotal, costUsd }
+}
+
+// GET /api/posts/[id] — detail artikel + log eksekusi + agent run terakhir & total biaya + checkpoint (milik pengguna).
 export const GET = defineRoute({ auth: "user", params: IdParamsSchema }, async ({ supabase, user, params }) => {
   const { data: post, error: postError } = await supabase
     .from("post_items")
@@ -57,17 +89,32 @@ export const GET = defineRoute({ auth: "user", params: IdParamsSchema }, async (
     .order("created_at", { ascending: true })
   if (logsError) console.warn("[api/posts/[id]] Gagal mengambil log eksekusi:", logsError.message)
 
-  const { data: agentRun, error: runError } = await supabase
+  const { data: agentRuns, error: runError } = await supabase
     .from("agent_runs")
-    .select("*")
+    .select(AGENT_RUN_COLUMNS)
     .eq("post_item_id", params.id)
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle()
+    .limit(AGENT_RUN_HISTORY_LIMIT)
   if (runError) console.warn("[api/posts/[id]] Gagal mengambil agent run:", runError.message)
+  const runs = (agentRuns ?? []) as unknown as AgentRunUsageRow[]
 
-  return { post, logs: logs ?? [], agentRun: agentRun ?? null }
+  // Ringkasan checkpoint generasi (tanpa isi `data`): langkah yang akan dipakai ulang percobaan berikutnya.
+  const { data: checkpoints, error: checkpointError } = await supabase
+    .from("generation_checkpoints")
+    .select("step, schema_version, created_at, updated_at")
+    .eq("post_item_id", params.id)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true })
+  if (checkpointError) console.warn("[api/posts/[id]] Gagal mengambil checkpoint generasi:", checkpointError.message)
+
+  return {
+    post,
+    logs: logs ?? [],
+    agentRun: runs[0] ?? null,
+    agentRunTotals: summarizeAgentRuns(runs),
+    checkpoints: checkpoints ?? [],
+  }
 })
 
 // DELETE /api/posts/[id] — hapus artikel milik pengguna dari antrean/riwayat.

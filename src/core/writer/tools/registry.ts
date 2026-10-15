@@ -22,6 +22,11 @@ export interface ToolRuntimeContext {
    * diteruskan ke setiap fetch tool sehingga request yang sedang berjalan ikut dibatalkan.
    */
   signal?: AbortSignal
+  /**
+   * Pemilik & situs run untuk cache deduplikasi media (`uploaded_media`). Bila ada, `upload_media`
+   * memakai ulang media yang pernah diunggah dari URL sumber yang sama (mis. saat run diulang).
+   */
+  mediaCache?: { userId: string; siteId: string }
 }
 
 export interface ToolInputField {

@@ -137,7 +137,9 @@ export async function requestPostItemSyncRetry(params: { postId: string; userId:
 /**
  * "Jalankan sekarang" / "Tulis ulang" untuk satu item milik pengguna:
  * - `queued_input` → diklaim secepatnya (`next_attempt_at = now`);
- * - `failed_generation` (atau `failed_sync` tanpa naskah) → `queued_input` untuk generasi ulang;
+ * - `failed_generation` (atau `failed_sync` tanpa naskah) → `queued_input` untuk generasi ulang. Checkpoint
+ *   generasi yang masih valid (`generation_checkpoints`: pre_resolve/draft, input & Agent Profile tidak
+ *   berubah) sengaja dipakai ulang (Cost-Saver): naskah yang sudah jadi tidak ditulis ulang oleh LLM;
  * - `failed_sync`/`ready_to_sync` dengan naskah → sama dengan "Kirim ulang" (tanpa AI).
  * `forceNow` (tombol eksplisit "Jalankan sekarang") mengosongkan jadwal tayang sehingga artikel
  * diterbitkan saat selesai, bukan sebagai `future` di slot jadwal.
@@ -172,7 +174,7 @@ export async function requestPostItemRun(params: {
     userId,
     item.state === "queued_input"
       ? "[Jalankan Sekarang] Item diprioritaskan untuk diproses runner antrean."
-      : "[Tulis Ulang] Item dikembalikan ke antrean untuk generasi ulang."
+      : "[Tulis Ulang] Item dikembalikan ke antrean; langkah generasi yang sudah tersimpan (checkpoint) dipakai ulang bila masih valid."
   )
   return { ok: true, postId, state: "queued_input" }
 }

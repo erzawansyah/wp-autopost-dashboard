@@ -100,8 +100,11 @@ export async function preResolveTaxonomyAndAuthor(
 
   try {
     const [authorRes, catRes] = await Promise.all([
-      fetchWordPressUsers(wpCredentials).catch(() => ({ ok: false, users: [] as WPUserItem[] })),
-      fetchWordPressCategories(wpCredentials).catch(() => ({ ok: false, categories: [] as WPCategoryItem[] })),
+      fetchWordPressUsers({ ...wpCredentials, signal }).catch(() => ({ ok: false, users: [] as WPUserItem[] })),
+      fetchWordPressCategories({ ...wpCredentials, signal }).catch(() => ({
+        ok: false,
+        categories: [] as WPCategoryItem[],
+      })),
     ])
 
     if (authorRes.ok && Array.isArray(authorRes.users)) {
@@ -435,6 +438,7 @@ export async function preResolveTaxonomyAndAuthor(
         username: wpCredentials.username,
         applicationPassword: wpCredentials.applicationPassword,
         tagNames: result.tagNames,
+        signal,
       })
 
       if (tagIds && tagIds.length > 0) {

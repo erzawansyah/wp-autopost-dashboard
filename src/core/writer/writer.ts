@@ -12,7 +12,8 @@ import { validateAndSanitizeInput } from "./runtime/validate-input"
 import { resolveAgentProfile } from "./runtime/resolve-profile"
 import { runAgentWriter } from "./runtime/run-agent"
 import { AgentStepEvent } from "./runtime/telemetry"
-import { redactRecord, redactSecrets } from "./runtime/redact"
+import type { GenerationCheckpointOptions } from "./runtime/checkpoints"
+import { redactRecord, redactSecrets } from "@/lib/security/redact"
 
 export interface WriterRunOptions {
   userId?: string
@@ -20,6 +21,11 @@ export interface WriterRunOptions {
   userKeys?: DecryptedUserKeys
   onEventListener?: (event: AgentStepEvent) => void
   abortSignal?: AbortSignal
+  /**
+   * Opsional: resume dari checkpoint langkah (`pre_resolve`, `draft`) percobaan sebelumnya dan callback
+   * penyimpanan setiap langkah yang selesai. Tanpa opsi ini run berjalan penuh tanpa persistensi.
+   */
+  checkpoints?: GenerationCheckpointOptions
 }
 
 /**
@@ -114,6 +120,7 @@ export async function run(
     userId: effectiveUserId,
     onEventListener: normalizedOptions.onEventListener,
     abortSignal: normalizedOptions.abortSignal,
+    checkpoints: normalizedOptions.checkpoints,
   })
 
   const summary = agentRunResult.recorder.getSummary(

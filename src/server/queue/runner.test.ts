@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { ClaimAbortedError, claimAbortCode } from "@/core/queue/claim-abort"
 import type { ClaimedQueueItem } from "@/core/queue/leases"
 import type { RunClaimContext } from "@/core/queue/worker"
 import { QueueRunner, type QueueBackend, type QueueRunnerOptions } from "@/server/queue/runner"
@@ -208,17 +209,34 @@ describe("QueueRunner — heartbeat lease", () => {
     expect(backend.extendLease).toHaveBeenCalledTimes(2)
   })
 
-  it("lease yang hilang tidak diperpanjang lagi", async () => {
+  it("lease yang hilang tidak diperpanjang lagi dan sinyal klaim job dibatalkan (lease_lost)", async () => {
     const backend = fakeBackend(["a"])
     backend.extendLease.mockResolvedValue(false)
     runner = createRunner(backend)
     runner.start()
     await flush()
+    const signal = backend.contexts.get("a")?.signal
+    expect(signal?.aborted).toBe(false)
 
     await vi.advanceTimersByTimeAsync(180_000)
 
     expect(backend.extendLease).toHaveBeenCalledTimes(1)
     expect(silentLogger.warn).toHaveBeenCalledWith(expect.stringContaining("Lease item a sudah tidak dipegang"))
+    expect(signal?.reason).toBeInstanceOf(ClaimAbortedError)
+    expect(signal && claimAbortCode(signal)).toBe("lease_lost")
+  })
+
+  it("heartbeat gagal sementara (error RPC/jaringan) tidak membatalkan run; heartbeat berikutnya dicoba lagi", async () => {
+    const backend = fakeBackend(["a"])
+    backend.extendLease.mockRejectedValueOnce(new Error("fetch failed")).mockResolvedValue(true)
+    runner = createRunner(backend)
+    runner.start()
+    await flush()
+
+    await vi.advanceTimersByTimeAsync(120_000)
+
+    expect(backend.extendLease).toHaveBeenCalledTimes(2)
+    expect(backend.contexts.get("a")?.signal.aborted).toBe(false)
   })
 
   it("interval heartbeat default: min(60 detik, lease/3)", async () => {
@@ -242,6 +260,9 @@ describe("QueueRunner — heartbeat lease", () => {
     await flush()
 
     expect(silentLogger.error).toHaveBeenCalledWith(expect.stringContaining("Job hang melebihi batas umur"))
+    const hangSignal = backend.contexts.get("hang")?.signal
+    expect(hangSignal && claimAbortCode(hangSignal)).toBe("max_duration")
+    expect(backend.contexts.get("next")?.signal.aborted).toBe(false)
     expect(backend.run.mock.calls.map(([claimed]) => claimed.id)).toEqual(["hang", "next"])
     const extendedIds = backend.extendLease.mock.calls.map(([input]) => input.postId)
     expect(extendedIds.filter((id) => id === "hang")).toHaveLength(1)
@@ -284,8 +305,12 @@ describe("QueueRunner — graceful shutdown", () => {
       revert: [expect.objectContaining({ id: "masih-menulis", leaseToken: "w-test:masih-menulis" })],
       uncertain: [expect.objectContaining({ id: "sedang-kirim", leaseToken: "w-test:sedang-kirim" })],
     })
-    // Klaim yang dicabut tidak boleh lagi memulai request WordPress.
+    // Klaim yang dicabut tidak boleh lagi memulai request WordPress; run dibatalkan (shutdown).
     expect(backend.contexts.get("masih-menulis")?.beginWordPressRequest()).toBe(false)
+    for (const id of ["masih-menulis", "sedang-kirim"]) {
+      const signal = backend.contexts.get(id)?.signal
+      expect(signal && claimAbortCode(signal), id).toBe("shutdown")
+    }
   })
 
   it("item yang terklaim saat shutdown dimulai langsung dikembalikan ke state sebelum klaim", async () => {
