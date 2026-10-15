@@ -72,6 +72,39 @@ describe("describeWpNetworkError", () => {
     const message = describeWpNetworkError(new SsrfBlockedError("Host wp.corp mengarah ke jaringan privat/lokal."), "x")
     expect(message).not.toContain("wp.corp")
   })
+
+  it("menyertakan kode jaringan undici dari err.cause tanpa pesan cause (alamat internal)", () => {
+    const cause = Object.assign(new Error("connect ECONNREFUSED 10.0.0.5:443"), { code: "ECONNREFUSED" })
+    const err = new TypeError("fetch failed", { cause })
+
+    const message = describeWpNetworkError(err, "x")
+
+    expect(message).toBe("fetch failed (ECONNREFUSED)")
+    expect(message).not.toContain("10.0.0.5")
+  })
+
+  it("mengabaikan kode cause yang tidak berbentuk kode jaringan dan tidak menggandakan kode", () => {
+    expect(describeWpNetworkError(new TypeError("fetch failed", { cause: { code: "rahasia lain" } }), "x")).toBe(
+      "fetch failed"
+    )
+    const duplicated = new Error("getaddrinfo ENOTFOUND blog.test", { cause: { code: "ENOTFOUND" } })
+    expect(describeWpNetworkError(duplicated, "x")).toBe("getaddrinfo ENOTFOUND blog.test")
+    expect(describeWpNetworkError("bukan error", "cadangan")).toBe("cadangan")
+  })
+
+  it("koneksi yang benar-benar ditolak menghasilkan pesan berkode dari fetch Node", async () => {
+    const server = http.createServer()
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    const port = (server.address() as AddressInfo).port
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+
+    const err = await fetch(`http://127.0.0.1:${port}/`).then(
+      () => null,
+      (error: unknown) => error
+    )
+
+    expect(describeWpNetworkError(err, "x")).toMatch(/^fetch failed \(ECONNREFUSED\)$/)
+  })
 })
 
 describe("wpFetch", () => {

@@ -74,8 +74,8 @@ describe("serverEnv", () => {
 })
 
 describe("serverEnv — runner antrean", () => {
-  it("default: runner tertanam dengan konkurensi 3, polling 5 detik, lease 900 detik", () => {
-    expect(serverEnv({})).toMatchObject({
+  it("default production: runner tertanam dengan konkurensi 3, polling 5 detik, lease 900 detik", () => {
+    expect(serverEnv({ NODE_ENV: "production" })).toMatchObject({
       QUEUE_RUNNER: "embedded",
       QUEUE_CONCURRENCY: 3,
       QUEUE_POLL_INTERVAL_MS: 5000,
@@ -83,12 +83,26 @@ describe("serverEnv — runner antrean", () => {
     })
   })
 
+  it("default di luar production: off kecuali disetel eksplisit (mesin dev ke Supabase bersama)", () => {
+    expect(serverEnv({}).QUEUE_RUNNER).toBe("off")
+    expect(serverEnv({ NODE_ENV: "development" }).QUEUE_RUNNER).toBe("off")
+    expect(serverEnv({ NODE_ENV: "test" }).QUEUE_RUNNER).toBe("off")
+    expect(serverEnv({ NODE_ENV: "development", QUEUE_RUNNER: "embedded" }).QUEUE_RUNNER).toBe("embedded")
+    expect(serverEnv({ NODE_ENV: "production", QUEUE_RUNNER: "off" }).QUEUE_RUNNER).toBe("off")
+  })
+
   it("membaca nilai valid dan jatuh ke default untuk nilai di luar rentang", () => {
     expect(
       serverEnv({ QUEUE_RUNNER: " off ", QUEUE_CONCURRENCY: "10", QUEUE_POLL_INTERVAL_MS: "1000", QUEUE_LEASE_SECONDS: "60" })
     ).toMatchObject({ QUEUE_RUNNER: "off", QUEUE_CONCURRENCY: 10, QUEUE_POLL_INTERVAL_MS: 1000, QUEUE_LEASE_SECONDS: 60 })
     expect(
-      serverEnv({ QUEUE_RUNNER: "OFF", QUEUE_CONCURRENCY: "11", QUEUE_POLL_INTERVAL_MS: "999", QUEUE_LEASE_SECONDS: "1.5" })
+      serverEnv({
+        NODE_ENV: "production",
+        QUEUE_RUNNER: "OFF",
+        QUEUE_CONCURRENCY: "11",
+        QUEUE_POLL_INTERVAL_MS: "999",
+        QUEUE_LEASE_SECONDS: "1.5",
+      })
     ).toMatchObject({ QUEUE_RUNNER: "embedded", QUEUE_CONCURRENCY: 3, QUEUE_POLL_INTERVAL_MS: 5000, QUEUE_LEASE_SECONDS: 900 })
     expect(serverEnv({ QUEUE_CONCURRENCY: "0", QUEUE_LEASE_SECONDS: "59" })).toMatchObject({
       QUEUE_CONCURRENCY: 3,
@@ -165,6 +179,17 @@ describe("validateServerEnv", () => {
 
     const blank = validateServerEnv(validSource({ CRON_SECRET: "   ", QUEUE_RUNNER: "off" }))
     expect(variables(blank.errors)).toEqual(["CRON_SECRET"])
+  })
+
+  it("development tanpa QUEUE_RUNNER (default off) tidak memperingatkan CRON_SECRET", () => {
+    const report = validateServerEnv({
+      NODE_ENV: "development",
+      NEXT_PUBLIC_SUPABASE_URL: "https://project-ref.supabase.co",
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: PUBLISHABLE_KEY,
+      SUPABASE_SECRET_KEY: SERVICE_KEY,
+      ENCRYPTION_MASTER_KEY: MASTER_KEY,
+    })
+    expect(report).toEqual({ isProduction: false, errors: [], warnings: [] })
   })
 
   it("CRON_SECRET wajib di production hanya saat QUEUE_RUNNER=off (mode cron eksternal)", () => {

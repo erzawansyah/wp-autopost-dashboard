@@ -125,12 +125,32 @@ function isTimeoutError(err: unknown): boolean {
   return err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")
 }
 
-/** Pesan error jaringan WordPress yang aman ditampilkan (tanpa detail jaringan internal). */
+/** Kode error jaringan Node/undici (mis. ECONNREFUSED, UND_ERR_CONNECT_TIMEOUT): huruf kapital, angka, `_`. */
+const NETWORK_ERROR_CODE = /^[A-Z][A-Z0-9_]{1,40}$/
+
+/**
+ * undici melempar `TypeError: fetch failed` dengan kode aslinya di `err.cause.code`. Hanya kodenya yang
+ * diambil (tanpa pesan cause yang bisa memuat alamat/host internal).
+ */
+function networkErrorCode(err: Error): string | undefined {
+  const cause: unknown = err.cause
+  if (typeof cause !== "object" || cause === null || !("code" in cause)) return undefined
+  const code = (cause as { code: unknown }).code
+  return typeof code === "string" && NETWORK_ERROR_CODE.test(code) ? code : undefined
+}
+
+/**
+ * Pesan error jaringan WordPress yang aman ditampilkan (tanpa detail jaringan internal). Kode jaringan
+ * dari `cause` ikut ditulis agar klasifikasi retry antrean dapat membedakan koneksi yang tidak pernah
+ * terbentuk (aman dikirim ulang) dari koneksi yang putus di tengah request.
+ */
 export function describeWpNetworkError(err: unknown, fallback: string): string {
   if (err instanceof SsrfBlockedError) {
     return "Request ke WordPress diblokir proteksi keamanan (alamat privat/lokal atau redirect). Gunakan alamat publik final situs, mis. https://www.domain.com."
   }
-  return err instanceof Error ? err.message : fallback
+  if (!(err instanceof Error)) return fallback
+  const code = networkErrorCode(err)
+  return code && !err.message.includes(code) ? `${err.message} (${code})` : err.message
 }
 
 /**

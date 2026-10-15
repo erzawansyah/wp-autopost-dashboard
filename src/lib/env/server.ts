@@ -33,10 +33,13 @@ export const QUEUE_ENV_LIMITS = {
   QUEUE_LEASE_SECONDS: { min: 60, max: 3_600, fallback: 900 },
 } as const
 
+/** Nilai eksplisit yang dikenal; kosong/tidak dikenal → `undefined` (default ditentukan NODE_ENV). */
 const queueRunnerMode = z
   .string()
   .optional()
-  .transform((value): QueueRunnerMode => (value?.trim() === "off" ? "off" : "embedded"))
+  .transform((value): QueueRunnerMode | undefined =>
+    QUEUE_RUNNER_MODES.find((mode) => mode === value?.trim())
+  )
 
 const queueInt = (name: keyof typeof QUEUE_ENV_LIMITS) => {
   const { min, max, fallback } = QUEUE_ENV_LIMITS[name]
@@ -56,7 +59,11 @@ const serverEnvObject = publicEnvSchema.extend({
    * `QUEUE_RUNNER=off` (antrean digerakkan cron eksternal); dengan runner tertanam cron opsional.
    */
   CRON_SECRET: envText,
-  /** `embedded` (default): runner antrean berjalan di proses server ini. `off`: nonaktif (cron eksternal). */
+  /**
+   * `embedded`: runner antrean berjalan di proses server ini. `off`: nonaktif (cron eksternal).
+   * Default `embedded` hanya di production; di luar production default `off` agar mesin pengembang yang
+   * terhubung ke Supabase bersama tidak memproses item tenant lain tanpa sengaja.
+   */
   QUEUE_RUNNER: queueRunnerMode,
   /** Maksimum job antrean berjalan bersamaan per proses (1–10, default 3). */
   QUEUE_CONCURRENCY: queueInt("QUEUE_CONCURRENCY"),
@@ -88,6 +95,7 @@ const serverEnvObject = publicEnvSchema.extend({
 const serverEnvSchema = serverEnvObject.transform((env) => ({
   ...env,
   isProduction: env.NODE_ENV === "production",
+  QUEUE_RUNNER: env.QUEUE_RUNNER ?? (env.NODE_ENV === "production" ? "embedded" : "off"),
   /** `SUPABASE_SECRET_KEY`, atau alias lama `SUPABASE_SERVICE_ROLE_KEY`. */
   supabaseServiceRoleKey: env.SUPABASE_SECRET_KEY ?? env.SUPABASE_SERVICE_ROLE_KEY,
 }))
@@ -206,7 +214,10 @@ export function validateServerEnv(source: ServerEnvInput = readServerEnvSource()
   // 3. Runner antrean & cron
   const rawQueueRunner = source.QUEUE_RUNNER?.trim()
   if (rawQueueRunner && !(QUEUE_RUNNER_MODES as readonly string[]).includes(rawQueueRunner)) {
-    required("QUEUE_RUNNER", `harus salah satu dari: ${QUEUE_RUNNER_MODES.join(", ")} (default embedded).`)
+    required(
+      "QUEUE_RUNNER",
+      `harus salah satu dari: ${QUEUE_RUNNER_MODES.join(", ")} (default embedded di production, off di luar production).`
+    )
   }
   for (const [name, { min, max, fallback }] of Object.entries(QUEUE_ENV_LIMITS)) {
     const raw = source[name as keyof typeof QUEUE_ENV_LIMITS]
@@ -216,7 +227,9 @@ export function validateServerEnv(source: ServerEnvInput = readServerEnvSource()
   }
   const cronSecret = env.CRON_SECRET?.trim()
   if (!cronSecret) {
-    if (env.QUEUE_RUNNER === "off") {
+    // Hanya mode cron eksternal yang dipilih eksplisit; default `off` di luar production (dev) tidak
+    // memerlukan cron sehingga tidak perlu peringatan.
+    if (rawQueueRunner === "off") {
       required(
         "CRON_SECRET",
         "wajib diisi saat QUEUE_RUNNER=off; tanpa nilai ini semua pemicu cron ke /api/queue/process ditolak (401) dan antrean tidak berjalan."

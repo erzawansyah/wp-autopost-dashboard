@@ -16,6 +16,18 @@ import { ResponseTooLargeError, SsrfBlockedError } from "@/lib/net/safe-fetch"
 /** Total percobaan otomatis (run pertama + retry) sebelum item dihentikan (dead-letter). */
 export const MAX_AUTO_ATTEMPTS = 3
 
+/** Batas atas `post_items.retry_count` (CHECK 0..1000 di migrasi queue_hardening). */
+export const RETRY_COUNT_LIMIT = 1000
+
+/**
+ * Normalisasi `retry_count` tersimpan sebelum ditambah: negatif/null → 0, terlalu besar → batas − 1,
+ * sehingga hasil `+ 1` tidak pernah melanggar CHECK maupun meluap (integer out of range).
+ */
+export function clampRetryCount(retryCount: number | null | undefined): number {
+  const value = typeof retryCount === "number" && Number.isFinite(retryCount) ? Math.floor(retryCount) : 0
+  return Math.min(Math.max(value, 0), RETRY_COUNT_LIMIT - 1)
+}
+
 /** Jeda sebelum percobaan ke-(n+1); indeks = jumlah kegagalan − 1 (dibatasi elemen terakhir). */
 export const RETRY_BACKOFF_MS = [60_000, 5 * 60_000, 15 * 60_000] as const
 
@@ -48,7 +60,7 @@ export function decideFailure(input: {
   maxAttempts?: number
 }): FailureDecision {
   const { stage, failure, now = new Date(), maxAttempts = MAX_AUTO_ATTEMPTS } = input
-  const previous = Math.max(0, input.retryCount ?? 0)
+  const previous = clampRetryCount(input.retryCount)
   const failedState = stage === "sync" ? "failed_sync" : "failed_generation"
 
   if (failure === "permanent") {
@@ -102,14 +114,17 @@ export function classifyThrownError(err: unknown): FailureClass {
   return "transient"
 }
 
-/** Pasti belum diproses WordPress: dibatasi laju, mode pemeliharaan, atau koneksi tidak pernah terbentuk. */
+/**
+ * Pasti belum diproses WordPress: dibatasi laju, mode pemeliharaan, atau koneksi tidak pernah terbentuk.
+ * Kode jaringan undici (`err.cause.code`) ikut tertulis di pesan lewat `describeWpNetworkError`.
+ */
 const WP_TRANSIENT_PATTERNS = [
   /\bHTTP 429\b/,
   /too many requests/i,
   /rate.?limit/i,
   /\bHTTP 503\b/,
   /service unavailable/i,
-  /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED)\b/,
+  /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|UND_ERR_CONNECT_TIMEOUT)\b/,
   /getaddrinfo/i,
 ]
 

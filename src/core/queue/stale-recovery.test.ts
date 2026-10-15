@@ -67,6 +67,36 @@ describe("decideStaleRecovery", () => {
   })
 })
 
+describe("decideStaleRecovery — wp_post_id tercatat & retry_count ekstrem", () => {
+  const NOW = new Date("2026-10-15T10:00:00Z")
+
+  it("syncing_to_wp dengan wp_post_id dituntaskan sukses sesuai status target/jadwal, bukan failed_sync", () => {
+    const base = { state: "syncing_to_wp" as const, retryCount: 1, wpPostId: 77 }
+    expect(decideStaleRecovery({ ...base, wpTargetStatus: "draft" }, { now: NOW })).toMatchObject({
+      state: "saved_draft_on_wp",
+      retryCount: 1,
+      lastError: null,
+      nextAttemptAt: null,
+    })
+    expect(
+      decideStaleRecovery({ ...base, wpTargetStatus: "publish", scheduledFor: "2026-10-16T09:00:00Z" }, { now: NOW }).state
+    ).toBe("scheduled_on_wp")
+    const published = decideStaleRecovery({ ...base, wpTargetStatus: "future", scheduledFor: "2026-10-14T09:00:00Z" }, { now: NOW })
+    expect(published.state).toBe("published_on_wp")
+    expect(published.summary).toMatch(/WP ID #77/)
+  })
+
+  it("generating_content dengan wp_post_id tetap mengikuti aturan generasi (tidak dianggap terbit)", () => {
+    expect(decideStaleRecovery({ state: "generating_content", retryCount: 0, wpPostId: 77 }).state).toBe("queued_input")
+  })
+
+  it("retry_count di luar batas tidak pernah meluap (integer out of range) maupun melanggar CHECK", () => {
+    const decision = decideStaleRecovery({ state: "generating_content", retryCount: 2147483647 })
+    expect(decision).toMatchObject({ state: "failed_generation", retryCount: 1000 })
+    expect(decideStaleRecovery({ state: "syncing_to_wp", retryCount: 5000 }).retryCount).toBe(1000)
+  })
+})
+
 describe("isStaleRecoverableState", () => {
   it("hanya mengenali state transien", () => {
     expect(isStaleRecoverableState("generating_content")).toBe(true)

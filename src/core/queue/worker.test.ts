@@ -37,6 +37,7 @@ const mocks = vi.hoisted(() => ({
   getUserDecryptedKeys: vi.fn(),
   dispatchWebhookEvent: vi.fn(),
   fetchWordPressCategories: vi.fn(),
+  beginWordPressRequest: vi.fn(),
 }))
 
 function createFakeSupabase() {
@@ -100,7 +101,8 @@ vi.mock("@/lib/wordpress/client", () => ({ fetchWordPressCategories: mocks.fetch
 
 const OWNER = "user-owner"
 const OTHER = "user-other"
-const WORKER = "worker-uji"
+/** Token lease klaim (locked_by) hasil claim_post_items. */
+const TOKEN = "runner-uji:0123456789abcdef0123456789abcdef"
 
 function claimed(overrides: Partial<ClaimedQueueItem> = {}): ClaimedQueueItem {
   return {
@@ -109,6 +111,7 @@ function claimed(overrides: Partial<ClaimedQueueItem> = {}): ClaimedQueueItem {
     batchId: null,
     keyword: "kata kunci",
     state: "generating_content",
+    leaseToken: TOKEN,
     retryCount: 0,
     ...overrides,
   }
@@ -130,7 +133,7 @@ function basePost(overrides: Record<string, unknown> = {}) {
     excerpt: null,
     featured_image_url: null,
     state: "generating_content",
-    locked_by: WORKER,
+    locked_by: TOKEN,
     retry_count: 0,
     source_payload: {},
     scheduled_for: null,
@@ -164,7 +167,7 @@ function storedRetryPost(overrides: Record<string, unknown> = {}) {
 const syncClaim = (overrides: Partial<ClaimedQueueItem> = {}) => claimed({ state: "syncing_to_wp", ...overrides })
 
 function run(item: ClaimedQueueItem = claimed()) {
-  return runClaimedPostItem(item, { workerId: WORKER })
+  return runClaimedPostItem(item, { beginWordPressRequest: mocks.beginWordPressRequest })
 }
 
 function setResolver(resolver: Resolver) {
@@ -187,12 +190,13 @@ function hasFilter(op: RecordedOp | undefined, filter: Filter): boolean {
   )
 }
 
-/** Update dipagari klaim: pemilik, pemegang lease, dan retry_count saat klaim. */
-function isFencedByClaim(op: RecordedOp | undefined, retryCount: number | null = 0): boolean {
+/** Update dipagari klaim: pemilik, token lease klaim, dan state persis yang diharapkan run (bukan retry_count). */
+function isFencedByClaim(op: RecordedOp | undefined, expectedState = "generating_content"): boolean {
   return (
     hasFilter(op, ["eq", "user_id", OWNER]) &&
-    hasFilter(op, ["eq", "locked_by", WORKER]) &&
-    (retryCount === null ? hasFilter(op, ["is", "retry_count", null]) : hasFilter(op, ["eq", "retry_count", retryCount]))
+    hasFilter(op, ["eq", "locked_by", TOKEN]) &&
+    hasFilter(op, ["eq", "state", expectedState]) &&
+    !op?.filters.some((f) => f[1] === "retry_count")
   )
 }
 
@@ -237,9 +241,11 @@ beforeEach(() => {
     mocks.getUserDecryptedKeys,
     mocks.dispatchWebhookEvent,
     mocks.fetchWordPressCategories,
+    mocks.beginWordPressRequest,
   ]) {
     fn.mockReset()
   }
+  mocks.beginWordPressRequest.mockReturnValue(true)
   mocks.decryptCredential.mockReturnValue("app-password-plain")
   mocks.getUserDecryptedKeys.mockResolvedValue({})
   mocks.dispatchWebhookEvent.mockResolvedValue(undefined)
@@ -302,25 +308,29 @@ describe("runClaimedPostItem — ownership, klaim & isolasi tenant", () => {
 })
 
 describe("runClaimedPostItem — idempotensi & cost-saver retry", () => {
-  it("tidak generate maupun membuat post baru bila wp_post_id sudah ada", async () => {
-    setResolver(defaultResolver(basePost({ wp_post_id: 55 })))
+  it("wp_post_id sudah tercatat: tanpa generasi/posting baru, item dituntaskan sebagai sukses", async () => {
+    setResolver(defaultResolver(basePost({ wp_post_id: 55, wp_post_url: "https://contoh.test/?p=55" })))
 
     const result = await run()
 
-    expect(result.success).toBe(false)
-    expect(result.error).toMatch(/WP ID #55/)
+    expect(result).toMatchObject({ success: true, state: "saved_draft_on_wp", wpPostId: 55 })
     expect(mocks.run).not.toHaveBeenCalled()
     expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
-    expect(settledFailure()?.payload?.state).toBe("failed_generation")
+    const finalize = settledFailure()
+    expect(finalize?.payload).toMatchObject({ state: "saved_draft_on_wp", last_error: null, locked_by: null })
+    expect(isFencedByClaim(finalize)).toBe(true)
+    expect(postFailedWebhooks()).toHaveLength(0)
   })
 
-  it("naskah tersimpan yang sudah punya wp_post_id ditandai failed_sync tanpa posting", async () => {
-    setResolver(defaultResolver(storedRetryPost({ wp_post_id: 55 })))
+  it("naskah tersimpan + wp_post_id (state final sempat gagal ditulis) dituntaskan sesuai status target", async () => {
+    const future = new Date(Date.now() + 3_600_000).toISOString()
+    setResolver(defaultResolver(storedRetryPost({ wp_post_id: 55, wp_target_status: "publish", scheduled_for: future })))
 
     const result = await run(syncClaim())
 
-    expect(result).toMatchObject({ success: false, state: "failed_sync" })
+    expect(result).toMatchObject({ success: true, state: "scheduled_on_wp" })
     expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
+    expect(isFencedByClaim(settledFailure(), "syncing_to_wp")).toBe(true)
   })
 
   it("klaim sinkronisasi mengirim naskah tersimpan tanpa memanggil AI (transisi dipagari klaim)", async () => {
@@ -332,8 +342,7 @@ describe("runClaimedPostItem — idempotensi & cost-saver retry", () => {
     expect(mocks.run).not.toHaveBeenCalled()
     expect(mocks.publishPostToWordPress).toHaveBeenCalledTimes(1)
     const syncTransition = postItemUpdates().find(isSyncTransition)
-    expect(hasFilter(syncTransition, ["in", "state", ["syncing_to_wp"]])).toBe(true)
-    expect(isFencedByClaim(syncTransition)).toBe(true)
+    expect(isFencedByClaim(syncTransition, "syncing_to_wp")).toBe(true)
     // Retry tidak menulis ulang naskah tersimpan
     expect(syncTransition?.payload?.content_html).toBeUndefined()
   })
@@ -347,7 +356,7 @@ describe("runClaimedPostItem — idempotensi & cost-saver retry", () => {
     expect(mocks.run).not.toHaveBeenCalled()
     expect(publishParams().article.contentHtml).toBe(STORED_HTML)
     const syncTransition = postItemUpdates().find(isSyncTransition)
-    expect(hasFilter(syncTransition, ["in", "state", ["generating_content"]])).toBe(true)
+    expect(isFencedByClaim(syncTransition, "generating_content")).toBe(true)
   })
 
   it("klaim sinkronisasi tanpa naskah → failed_generation (gunakan Tulis ulang)", async () => {
@@ -517,8 +526,7 @@ describe("runClaimedPostItem — retry otomatis generasi", () => {
       locked_by: null,
     })
     expect(String(failure?.payload?.last_error)).toMatch(/Worker crash: DB putus — dicoba ulang otomatis \(percobaan 2 dari 3\)/)
-    expect(isFencedByClaim(failure)).toBe(true)
-    expect(hasFilter(failure, ["in", "state", ["generating_content", "syncing_to_wp"]])).toBe(true)
+    expect(isFencedByClaim(failure, "generating_content")).toBe(true)
     expect(postFailedWebhooks()).toHaveLength(0)
   })
 
@@ -539,7 +547,7 @@ describe("runClaimedPostItem — retry otomatis generasi", () => {
     const last = await run(claimed({ retryCount: 2 }))
     expect(last).toMatchObject({ success: false, state: "failed_generation", willRetry: false })
     expect(settledFailure()?.payload).toMatchObject({ state: "failed_generation", retry_count: 3, next_attempt_at: null })
-    expect(isFencedByClaim(settledFailure(), 2)).toBe(true)
+    expect(isFencedByClaim(settledFailure())).toBe(true)
     expect(postFailedWebhooks()).toHaveLength(1)
   })
 
@@ -582,6 +590,64 @@ describe("runClaimedPostItem — retry otomatis generasi", () => {
     })
     expect(isFencedByClaim(transition)).toBe(true)
     expect(publishParams().metadata).toMatchObject({ categoryIds: [7], tagIds: [45], authorId: 3 })
+  })
+})
+
+describe("runClaimedPostItem — titik request WordPress & crash sinkronisasi", () => {
+  it("klaim dicabut runner (shutdown) sebelum request WordPress: tidak ada posting maupun state lanjutan", async () => {
+    setResolver(defaultResolver(storedRetryPost()))
+    mocks.beginWordPressRequest.mockReturnValue(false)
+
+    const result = await run(syncClaim())
+
+    expect(result).toMatchObject({ success: false })
+    expect(result.error).toMatch(/runner antrean sedang berhenti/)
+    expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
+    // Hanya transisi sinkronisasi (verifikasi klaim) — tanpa penulisan gagal/final: pelepasan klaim milik runner.
+    expect(postItemUpdates().filter((op) => !isSyncTransition(op))).toHaveLength(0)
+  })
+
+  it("crash sinkronisasi SEBELUM request WordPress → ready_to_sync dengan backoff (bukan failed_sync)", async () => {
+    setResolver(defaultResolver(storedRetryPost({ categories: ["Minuman"] })))
+    mocks.fetchWordPressCategories.mockRejectedValue(new Error("DB lambat"))
+
+    const result = await run(syncClaim())
+
+    expect(result).toMatchObject({ success: false, error: "DB lambat" })
+    expect(mocks.publishPostToWordPress).not.toHaveBeenCalled()
+    expect(mocks.beginWordPressRequest).not.toHaveBeenCalled()
+    const failure = settledFailure()
+    expect(failure?.payload).toMatchObject({ state: "ready_to_sync", retry_count: 1, locked_by: null })
+    expect(isFencedByClaim(failure, "syncing_to_wp")).toBe(true)
+  })
+
+  it("crash SETELAH request WordPress dimulai → failed_sync dengan petunjuk wp-admin", async () => {
+    setResolver(defaultResolver(storedRetryPost()))
+    mocks.publishPostToWordPress.mockRejectedValue(new Error("socket ditutup"))
+
+    const result = await run(syncClaim())
+
+    expect(result).toMatchObject({ success: false, error: "socket ditutup" })
+    expect(mocks.beginWordPressRequest).toHaveBeenCalledTimes(1)
+    const failure = settledFailure()
+    expect(failure?.payload).toMatchObject({ state: "failed_sync", next_attempt_at: null })
+    expect(String(failure?.payload?.last_error)).toMatch(/periksa wp-admin/)
+    expect(isFencedByClaim(failure, "syncing_to_wp")).toBe(true)
+  })
+
+  it("setelah transisi ke syncing_to_wp, kegagalan WordPress dipagari state syncing_to_wp (bukan generating)", async () => {
+    setResolver(defaultResolver(basePost()))
+    mocks.run.mockResolvedValue({
+      success: true,
+      article: { title: "Judul", contentHtml: "<p>a</p>", markdownContent: "Isi", excerpt: "R", slug: "j" },
+      enrichment: {},
+    })
+    mocks.publishPostToWordPress.mockResolvedValue({ ok: false, error: "Sorry, you are not allowed to do that." })
+
+    await run()
+
+    expect(isFencedByClaim(postItemUpdates().find(isSyncTransition), "generating_content")).toBe(true)
+    expect(isFencedByClaim(settledFailure(), "syncing_to_wp")).toBe(true)
   })
 })
 

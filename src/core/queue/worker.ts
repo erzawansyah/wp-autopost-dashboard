@@ -20,7 +20,8 @@ import {
 } from "@/lib/wordpress/plain-text"
 import { refreshBatchProgress, type OwnedPostItem, type QueueDbClient } from "@/core/queue/batch-progress"
 import type { ClaimedQueueItem } from "@/core/queue/leases"
-import { STALE_RECOVERABLE_STATES, type StaleRecoverableState } from "@/core/queue/stale-recovery"
+import { finalStateForStatus, inferRecordedFinalState } from "@/core/queue/final-state"
+import type { StaleRecoverableState } from "@/core/queue/stale-recovery"
 import {
   MAX_AUTO_ATTEMPTS,
   classifyThrownError,
@@ -37,9 +38,9 @@ import {
  * `generating_content` → (naskah) → `syncing_to_wp` → published/scheduled/draft, atau
  * `syncing_to_wp` → WordPress untuk naskah tersimpan (Cost-Saver Retry, tanpa AI).
  *
- * Setiap mutasi state dipagari klaim (pemegang lease `locked_by`, state in-flight, `retry_count` saat
- * klaim) sehingga run basi — mis. setelah lease kedaluwarsa & item dipulihkan — tidak pernah
- * menimpa klaim baru maupun mengirim post ganda. Kegagalan diklasifikasi (retry-policy.ts):
+ * Setiap mutasi state dipagari klaim (token lease unik per klaim di `locked_by` + state persis yang
+ * diharapkan run ini) sehingga run basi — mis. setelah lease kedaluwarsa, item dipulihkan, lalu diklaim
+ * ulang proses yang sama — tidak pernah menimpa klaim baru maupun mengirim post ganda. Kegagalan diklasifikasi (retry-policy.ts):
  * sementara → antre ulang dengan backoff; permanen/habis percobaan → `failed_*`.
  */
 
@@ -57,14 +58,20 @@ export interface ProcessPostItemResult {
 }
 
 export interface RunClaimContext {
-  /** ID worker pemegang lease (harus sama dengan `locked_by` hasil klaim). */
-  workerId: string
+  /**
+   * Dipanggil tepat sebelum request pembuatan post ke WordPress. `false` = klaim dicabut runner
+   * (shutdown) sehingga request TIDAK dikirim; `true` = runner mencatat bahwa request sudah dimulai
+   * (item yang berhenti setelah titik ini diperlakukan "mungkin sudah terkirim").
+   */
+  beginWordPressRequest(): boolean
 }
 
-/** Klaim aktif: item, pemegang lease, dan token pagar `retry_count` saat klaim. */
+/** Klaim aktif: item, token lease, state yang diharapkan saat ini, dan retry_count saat klaim. */
 interface ActiveClaim extends OwnedPostItem {
-  workerId: string
+  leaseToken: string
+  /** State in-flight yang diharapkan run ini (diperbarui setelah transisi ke syncing_to_wp). */
   state: StaleRecoverableState
+  /** Hanya untuk menghitung retry berikutnya — bukan pagar. */
   retryCount: number | null
 }
 
@@ -97,23 +104,22 @@ async function insertLog(
 }
 
 /**
- * Update bersyarat atas item yang masih dipegang klaim ini. `false` bila klaim sudah hilang
- * (dipulihkan auto-healing, dilepas saat shutdown, atau diklaim ulang worker lain).
+ * Update bersyarat atas item yang masih dipegang klaim ini (token lease + state persis yang diharapkan).
+ * `false` bila klaim sudah hilang (dipulihkan auto-healing, dilepas saat shutdown, atau diklaim ulang).
  */
 async function updateClaimedItem(
   supabase: QueueDbClient,
   claim: ActiveClaim,
   payload: Record<string, unknown>,
-  options: { states: readonly string[]; requireNoWpPostId?: boolean }
+  options: { requireNoWpPostId?: boolean } = {}
 ): Promise<{ ok: boolean; error?: string }> {
   let query = supabase
     .from("post_items")
     .update(payload)
     .eq("id", claim.id)
     .eq("user_id", claim.userId)
-    .eq("locked_by", claim.workerId)
-    .in("state", [...options.states])
-  query = claim.retryCount === null ? query.is("retry_count", null) : query.eq("retry_count", claim.retryCount)
+    .eq("locked_by", claim.leaseToken)
+    .eq("state", claim.state)
   if (options.requireNoWpPostId) query = query.is("wp_post_id", null)
 
   const { data, error } = await query.select("id").maybeSingle()
@@ -145,18 +151,13 @@ async function settleFailure(
     ? `${params.message} — dicoba ulang otomatis (percobaan ${decision.retryCount + 1} dari ${MAX_AUTO_ATTEMPTS}).`
     : params.message
 
-  const written = await updateClaimedItem(
-    supabase,
-    claim,
-    {
-      state: decision.state,
-      retry_count: decision.retryCount,
-      next_attempt_at: decision.nextAttemptAt?.toISOString() ?? null,
-      last_error: lastError,
-      ...LEASE_CLEARED,
-    },
-    { states: STALE_RECOVERABLE_STATES }
-  )
+  const written = await updateClaimedItem(supabase, claim, {
+    state: decision.state,
+    retry_count: decision.retryCount,
+    next_attempt_at: decision.nextAttemptAt?.toISOString() ?? null,
+    last_error: lastError,
+    ...LEASE_CLEARED,
+  })
   if (!written.ok) {
     console.warn(
       `[worker] Klaim item ${claim.id} sudah tidak berlaku saat mencatat kegagalan (${decision.state})` +
@@ -322,10 +323,17 @@ async function resolveLegacyRetryMeta(
 
 /**
  * Fail-safe crash (exception tak terduga): item tidak boleh tertinggal in-flight sampai lease habis.
- * - `generating_content` → klasifikasi exception (sementara → antre ulang dengan backoff);
- * - `syncing_to_wp` → `failed_sync`: request WordPress mungkin sudah terkirim, tidak dikirim ulang otomatis.
+ * - `generating_content`, atau `syncing_to_wp` yang BELUM mengirim request WordPress → klasifikasi
+ *   exception (sementara → antre ulang dengan backoff; naskah tersimpan dikirim ulang tanpa AI);
+ * - `syncing_to_wp` setelah request WordPress dimulai → `failed_sync`: mungkin sudah terkirim, tidak
+ *   dikirim ulang otomatis.
  */
-async function settleCrashedClaim(supabase: QueueDbClient, claim: ActiveClaim, err: unknown): Promise<void> {
+async function settleCrashedClaim(
+  supabase: QueueDbClient,
+  claim: ActiveClaim,
+  err: unknown,
+  wpRequestStarted: boolean
+): Promise<void> {
   const errMsg = err instanceof Error ? err.message : String(err)
   const { data: current, error } = await supabase
     .from("post_items")
@@ -333,22 +341,73 @@ async function settleCrashedClaim(supabase: QueueDbClient, claim: ActiveClaim, e
     .eq("id", claim.id)
     .eq("user_id", claim.userId)
     .maybeSingle()
-  if (error || !current || current.locked_by !== claim.workerId) return
+  if (error || !current || current.locked_by !== claim.leaseToken) return
 
   if (current.state === "syncing_to_wp") {
+    claim.state = "syncing_to_wp"
     await settleFailure(supabase, claim, {
       stage: "sync",
-      failure: "permanent",
-      message: `Worker crash saat mengirim ke WordPress: ${errMsg}. ${UNCERTAIN_SYNC_HINT}`,
+      failure: wpRequestStarted ? "permanent" : classifyThrownError(err),
+      message: wpRequestStarted
+        ? `Worker crash saat mengirim ke WordPress: ${errMsg}. ${UNCERTAIN_SYNC_HINT}`
+        : `Worker crash sebelum mengirim ke WordPress: ${errMsg}`,
       step: "worker_crash",
     })
   } else if (current.state === "generating_content") {
+    claim.state = "generating_content"
     await settleFailure(supabase, claim, {
       stage: "generation",
       failure: classifyThrownError(err),
       message: `Worker crash: ${errMsg}`,
       step: "worker_crash",
     })
+  }
+}
+
+/**
+ * Item yang wp_post_id-nya sudah tercatat: post ADA di WordPress, jadi klaim dituntaskan sebagai sukses
+ * (state akhir sesuai status target/jadwal) tanpa membuat post baru maupun menandainya gagal.
+ */
+async function finalizeRecordedPost(
+  supabase: QueueDbClient,
+  claim: ActiveClaim,
+  post: {
+    target_keyword: string
+    wp_post_id: number | string
+    wp_post_url: string | null
+    wp_target_status: string | null
+    scheduled_for: string | null
+  }
+): Promise<ProcessPostItemResult> {
+  const finalState = inferRecordedFinalState({ wpTargetStatus: post.wp_target_status, scheduledFor: post.scheduled_for })
+  const written = await updateClaimedItem(supabase, claim, {
+    state: finalState,
+    last_error: null,
+    next_attempt_at: null,
+    ...LEASE_CLEARED,
+  })
+  if (!written.ok) {
+    return { success: false, postId: claim.id, error: "Item sudah tidak dipegang worker ini." }
+  }
+
+  await insertLog(supabase, {
+    postItemId: claim.id,
+    userId: claim.userId,
+    step: "duplicate_guard",
+    level: "info",
+    message:
+      `[Queue Worker] Artikel sudah tercatat di WordPress (WP ID #${post.wp_post_id}); pembuatan post baru ` +
+      `dilewati dan status dituntaskan sebagai ${finalState}.`,
+  })
+  await refreshBatchProgress(supabase, claim)
+
+  return {
+    success: true,
+    postId: claim.id,
+    keyword: post.target_keyword,
+    state: finalState,
+    wpPostId: Number(post.wp_post_id) || undefined,
+    wpPostUrl: post.wp_post_url || undefined,
   }
 }
 
@@ -365,18 +424,25 @@ export async function runClaimedPostItem(
     id: item.id,
     userId: item.userId,
     batchId: item.batchId,
-    workerId: context.workerId,
+    leaseToken: item.leaseToken,
     state: item.state,
     retryCount: item.retryCount,
   }
+  let wpRequestStarted = false
+  const tracked: RunClaimContext = {
+    beginWordPressRequest: () => {
+      wpRequestStarted = context.beginWordPressRequest()
+      return wpRequestStarted
+    },
+  }
 
   try {
-    return await executePostItem(supabase, claim)
+    return await executePostItem(supabase, claim, tracked)
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err)
     console.error(`[worker] Error tak terduga saat memproses item ${item.id}:`, err)
     try {
-      await settleCrashedClaim(supabase, claim, err)
+      await settleCrashedClaim(supabase, claim, err, wpRequestStarted)
     } catch (settleErr) {
       console.error(`[worker] Gagal mencatat fail-safe item ${item.id}:`, settleErr)
     }
@@ -384,7 +450,11 @@ export async function runClaimedPostItem(
   }
 }
 
-async function executePostItem(supabase: QueueDbClient, claim: ActiveClaim): Promise<ProcessPostItemResult> {
+async function executePostItem(
+  supabase: QueueDbClient,
+  claim: ActiveClaim,
+  context: RunClaimContext
+): Promise<ProcessPostItemResult> {
   const startTime = Date.now()
   const postId = claim.id
 
@@ -429,8 +499,8 @@ async function executePostItem(supabase: QueueDbClient, claim: ActiveClaim): Pro
     return { success: false, postId, error: `Post item tidak ditemukan: ${fetchError?.message || "Data kosong"}` }
   }
 
-  // Klaim harus masih sah: state & pemegang lease sama dengan hasil claim_post_items.
-  if (post.state !== claim.state || post.locked_by !== claim.workerId) {
+  // Klaim harus masih sah: state & token lease sama dengan hasil claim_post_items.
+  if (post.state !== claim.state || post.locked_by !== claim.leaseToken) {
     return {
       success: false,
       postId,
@@ -462,13 +532,10 @@ async function executePostItem(supabase: QueueDbClient, claim: ActiveClaim): Pro
     return { success: false, postId, state: decision.state, error: message }
   }
 
-  // Idempotency: item yang sudah memiliki wp_post_id tidak boleh membuat post baru di WordPress.
+  // Idempotency: item yang sudah memiliki wp_post_id tidak boleh membuat post baru di WordPress;
+  // post-nya sudah ada, jadi item dituntaskan sebagai sukses.
   if (post.wp_post_id) {
-    return failPermanently(
-      `Artikel ini sudah tercatat di WordPress (WP ID #${post.wp_post_id}). ` +
-        "Pembuatan post baru dibatalkan untuk mencegah duplikasi; periksa artikel tersebut langsung di wp-admin.",
-      "duplicate_guard"
-    )
+    return finalizeRecordedPost(supabase, claim, post)
   }
 
   const site = Array.isArray(post.wp_sites) ? post.wp_sites[0] : post.wp_sites
@@ -857,10 +924,7 @@ async function executePostItem(supabase: QueueDbClient, claim: ActiveClaim): Pro
     }
   }
 
-  const syncLock = await updateClaimedItem(supabase, claim, syncTransition, {
-    states: [claim.state],
-    requireNoWpPostId: true,
-  })
+  const syncLock = await updateClaimedItem(supabase, claim, syncTransition, { requireNoWpPostId: true })
 
   if (!syncLock.ok) {
     const lostClaimMsg =
@@ -876,6 +940,7 @@ async function executePostItem(supabase: QueueDbClient, claim: ActiveClaim): Pro
     })
     return { success: false, postId, error: lostClaimMsg }
   }
+  claim.state = "syncing_to_wp"
 
   await insertLog(supabase, {
     postItemId: postId,
@@ -905,6 +970,21 @@ async function executePostItem(supabase: QueueDbClient, claim: ActiveClaim): Pro
   const scheduledAt = post.scheduled_for ? new Date(post.scheduled_for) : null
   const isFutureDate = scheduledAt !== null && scheduledAt.getTime() > Date.now()
   const targetWpStatus = post.wp_target_status === "draft" ? "draft" : isFutureDate ? "future" : "publish"
+
+  // Titik tanpa kembali: setelah ini request WordPress mungkin sudah diterima. Runner yang sedang berhenti
+  // mencabut klaim di sini sehingga item dapat dikembalikan ke antrean tanpa risiko posting ganda.
+  if (!context.beginWordPressRequest()) {
+    const abortedMsg =
+      "Pengiriman ke WordPress dibatalkan karena runner antrean sedang berhenti; item dikembalikan ke antrean."
+    await insertLog(supabase, {
+      postItemId: postId,
+      userId: post.user_id,
+      step: "prepare_sync",
+      level: "warn",
+      message: `[Queue Worker] ${abortedMsg}`,
+    })
+    return { success: false, postId, error: abortedMsg }
+  }
 
   const wpPublishStart = Date.now()
   const wpResult = await publishPostToWordPress({
@@ -969,12 +1049,7 @@ async function executePostItem(supabase: QueueDbClient, claim: ActiveClaim): Pro
     return { success: false, postId, state: decision.state, error: message, willRetry: decision.willRetry }
   }
 
-  const finalState =
-    targetWpStatus === "future"
-      ? "scheduled_on_wp"
-      : targetWpStatus === "publish"
-      ? "published_on_wp"
-      : "saved_draft_on_wp"
+  const finalState = finalStateForStatus(targetWpStatus)
 
   // Post SUDAH ada di WordPress: catat wp_post_id lebih dulu dalam update kecil tersendiri agar
   // retry/auto-healing tidak pernah membuat post ganda walau penulisan state final gagal.

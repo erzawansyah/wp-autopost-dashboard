@@ -59,8 +59,9 @@ services:
     # env_file:
     #   - .env
 
-    # Graceful shutdown runner antrean: saat SIGTERM runner berhenti mengklaim, menunggu job berjalan
-    # hingga 25 detik, lalu melepas lease item yang belum selesai sebelum Next.js menutup server.
+    # Graceful shutdown runner antrean: saat SIGTERM runner berhenti mengklaim, menunggu job berjalan,
+    # lalu melepas klaim yang belum selesai — semuanya dalam tenggat total 30 detik — sebelum Next.js
+    # menutup server. Item yang belum mengirim request ke WordPress langsung kembali ke antrean.
     stop_grace_period: 40s
 
     healthcheck:

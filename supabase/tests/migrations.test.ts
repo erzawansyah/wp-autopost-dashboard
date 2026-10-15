@@ -244,7 +244,8 @@ describe("instalasi baru", () => {
     }).toEqual({
       wp_sites: crud,
       content_batches: crud,
-      post_items: "DELETE,INSERT,SELECT",
+      // INSERT hanya per kolom input antrean (GRANT kolom, migrasi queue_hardening).
+      post_items: "DELETE,SELECT",
       execution_logs: "INSERT,SELECT",
       agent_profiles: crud,
       agent_runs: "SELECT",

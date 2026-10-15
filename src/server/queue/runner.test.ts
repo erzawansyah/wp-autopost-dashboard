@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { ClaimedQueueItem } from "@/core/queue/leases"
+import type { RunClaimContext } from "@/core/queue/worker"
 import { QueueRunner, type QueueBackend, type QueueRunnerOptions } from "@/server/queue/runner"
 
 /** Runner antrean dengan jam palsu (fake timers) dan backend klaim palsu. */
 
 function item(id: string): ClaimedQueueItem {
-  return { id, userId: "u1", batchId: null, keyword: id, state: "generating_content", retryCount: 0 }
+  return { id, userId: "u1", batchId: null, keyword: id, state: "generating_content", leaseToken: `w-test:${id}`, retryCount: 0 }
 }
 
 interface Deferred {
@@ -24,10 +25,12 @@ function deferred(): Deferred {
 interface FakeBackend extends QueueBackend {
   queue: ClaimedQueueItem[]
   jobs: Map<string, Deferred>
+  /** Konteks run per item (untuk mensimulasikan worker yang memulai request WordPress). */
+  contexts: Map<string, RunClaimContext>
   claim: ReturnType<typeof vi.fn<QueueBackend["claim"]>>
   run: ReturnType<typeof vi.fn<QueueBackend["run"]>>
   extendLease: ReturnType<typeof vi.fn<QueueBackend["extendLease"]>>
-  releaseLeases: ReturnType<typeof vi.fn<QueueBackend["releaseLeases"]>>
+  releaseClaims: ReturnType<typeof vi.fn<QueueBackend["releaseClaims"]>>
   recoverExpired: ReturnType<typeof vi.fn<QueueBackend["recoverExpired"]>>
 }
 
@@ -35,15 +38,17 @@ function fakeBackend(initial: string[] = []): FakeBackend {
   const backend = {
     queue: initial.map(item),
     jobs: new Map<string, Deferred>(),
+    contexts: new Map<string, RunClaimContext>(),
   } as FakeBackend
   backend.claim = vi.fn(async ({ limit }) => backend.queue.splice(0, limit))
-  backend.run = vi.fn((claimed: ClaimedQueueItem) => {
+  backend.run = vi.fn((claimed: ClaimedQueueItem, context: RunClaimContext) => {
     const job = deferred()
     backend.jobs.set(claimed.id, job)
+    backend.contexts.set(claimed.id, context)
     return job.promise
   })
   backend.extendLease = vi.fn(async () => true)
-  backend.releaseLeases = vi.fn(async () => 0)
+  backend.releaseClaims = vi.fn(async () => 0)
   backend.recoverExpired = vi.fn(async () => 0)
   return backend
 }
@@ -93,9 +98,9 @@ describe("QueueRunner — loop klaim", () => {
     await flush()
 
     expect(backend.claim).toHaveBeenCalledWith({ workerId: "w-test", limit: 2, leaseSeconds: 900, userId: undefined })
-    expect(backend.run.mock.calls.map(([claimed, context]) => [claimed.id, context.workerId])).toEqual([
-      ["a", "w-test"],
-      ["b", "w-test"],
+    expect(backend.run.mock.calls.map(([claimed]) => [claimed.id, claimed.leaseToken])).toEqual([
+      ["a", "w-test:a"],
+      ["b", "w-test:b"],
     ])
     expect(runner.runningCount).toBe(2)
   })
@@ -129,7 +134,7 @@ describe("QueueRunner — loop klaim", () => {
     runner.nudge()
     await flush()
     expect(backend.claim).toHaveBeenCalledTimes(3)
-    expect(backend.run).toHaveBeenCalledWith(expect.objectContaining({ id: "baru" }), { workerId: "w-test" })
+    expect(backend.run).toHaveBeenCalledWith(expect.objectContaining({ id: "baru" }), expect.anything())
   })
 
   it("klaim gagal dicatat (pesan saja, dibatasi saat beruntun) lalu dicoba lagi pada polling berikutnya", async () => {
@@ -146,7 +151,7 @@ describe("QueueRunner — loop klaim", () => {
     expect(silentLogger.warn).toHaveBeenCalledTimes(1)
 
     await vi.advanceTimersByTimeAsync(5_000)
-    expect(backend.run).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), { workerId: "w-test" })
+    expect(backend.run).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), expect.anything())
     expect(silentLogger.info).toHaveBeenCalledWith("[queue-runner] Klaim antrean pulih setelah 2 kegagalan.")
   })
 
@@ -161,6 +166,17 @@ describe("QueueRunner — loop klaim", () => {
     expect(backend.recoverExpired).toHaveBeenCalledTimes(1)
     await vi.advanceTimersByTimeAsync(5_000)
     expect(backend.recoverExpired).toHaveBeenCalledTimes(2)
+  })
+
+  it("auto-healing melewati token klaim job yang masih berjalan di proses ini", async () => {
+    const backend = fakeBackend(["a"])
+    runner = createRunner(backend, { concurrency: 1 })
+    runner.start()
+    await flush()
+    expect(backend.recoverExpired).toHaveBeenLastCalledWith({ skipLeaseTokens: new Set() })
+
+    await vi.advanceTimersByTimeAsync(60_000)
+    expect(backend.recoverExpired).toHaveBeenLastCalledWith({ skipLeaseTokens: new Set(["w-test:a"]) })
   })
 
   it("start() idempoten", async () => {
@@ -182,7 +198,7 @@ describe("QueueRunner — heartbeat lease", () => {
     await flush()
 
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(backend.extendLease).toHaveBeenCalledWith({ postId: "a", workerId: "w-test", leaseSeconds: 900 })
+    expect(backend.extendLease).toHaveBeenCalledWith({ postId: "a", leaseToken: "w-test:a", leaseSeconds: 900 })
     await vi.advanceTimersByTimeAsync(60_000)
     expect(backend.extendLease).toHaveBeenCalledTimes(2)
 
@@ -244,7 +260,7 @@ describe("QueueRunner — graceful shutdown", () => {
     backend.jobs.get("a")?.resolve()
 
     await expect(stopping).resolves.toEqual({ unfinished: 0 })
-    expect(backend.releaseLeases).not.toHaveBeenCalled()
+    expect(backend.releaseClaims).not.toHaveBeenCalled()
 
     backend.queue.push(item("b"))
     current.nudge()
@@ -253,22 +269,26 @@ describe("QueueRunner — graceful shutdown", () => {
     expect(current.isRunning).toBe(false)
   })
 
-  it("job yang belum selesai saat batas waktu dilepas lease-nya agar dapat diklaim ulang", async () => {
-    const backend = fakeBackend(["a", "b"])
+  it("tenggat: job yang belum memulai request WordPress kembali ke antrean, yang sudah memulai → uncertain", async () => {
+    const backend = fakeBackend(["sedang-kirim", "masih-menulis"])
     const current = createRunner(backend)
     current.start()
     await flush()
-    backend.jobs.get("a")?.resolve()
-    await flush()
+    expect(backend.contexts.get("sedang-kirim")?.beginWordPressRequest()).toBe(true)
 
     const stopping = current.stop({ timeoutMs: 25_000 })
     await vi.advanceTimersByTimeAsync(25_000)
 
-    await expect(stopping).resolves.toEqual({ unfinished: 1 })
-    expect(backend.releaseLeases).toHaveBeenCalledWith({ workerId: "w-test", postIds: ["b"] })
+    await expect(stopping).resolves.toEqual({ unfinished: 2 })
+    expect(backend.releaseClaims).toHaveBeenCalledWith({
+      revert: [expect.objectContaining({ id: "masih-menulis", leaseToken: "w-test:masih-menulis" })],
+      uncertain: [expect.objectContaining({ id: "sedang-kirim", leaseToken: "w-test:sedang-kirim" })],
+    })
+    // Klaim yang dicabut tidak boleh lagi memulai request WordPress.
+    expect(backend.contexts.get("masih-menulis")?.beginWordPressRequest()).toBe(false)
   })
 
-  it("item yang terklaim saat shutdown dimulai langsung dikembalikan ke antrean", async () => {
+  it("item yang terklaim saat shutdown dimulai langsung dikembalikan ke state sebelum klaim", async () => {
     const backend = fakeBackend(["a"])
     const claimDone = deferred()
     backend.claim.mockImplementationOnce(async ({ limit }) => {
@@ -285,7 +305,34 @@ describe("QueueRunner — graceful shutdown", () => {
 
     await expect(stopping).resolves.toEqual({ unfinished: 0 })
     expect(backend.run).not.toHaveBeenCalled()
-    expect(backend.releaseLeases).toHaveBeenCalledWith({ workerId: "w-test", postIds: ["a"] })
+    expect(backend.releaseClaims).toHaveBeenCalledWith({
+      revert: [expect.objectContaining({ id: "a" })],
+      uncertain: [],
+    })
+  })
+
+  it("satu tenggat total: loop yang macet di panggilan database & pelepasan yang macet tidak menahan stop()", async () => {
+    const backend = fakeBackend(["a"])
+    const current = createRunner(backend, { concurrency: 2 })
+    current.start()
+    await flush()
+    // Siklus berikutnya: klaim tidak pernah selesai (database menggantung); pelepasan juga menggantung.
+    backend.claim.mockImplementation(() => new Promise(() => {}))
+    backend.releaseClaims.mockImplementation(() => new Promise(() => {}))
+    current.nudge()
+    await flush()
+
+    let report: unknown = null
+    void current.stop({ timeoutMs: 30_000 }).then((value) => {
+      report = value
+    })
+    await vi.advanceTimersByTimeAsync(29_999)
+    expect(report).toBeNull()
+    await vi.advanceTimersByTimeAsync(1)
+
+    expect(report).toEqual({ unfinished: 1 })
+    expect(backend.releaseClaims).toHaveBeenCalledTimes(1)
+    expect(silentLogger.error).toHaveBeenCalledWith(expect.stringContaining("melewati tenggat shutdown"))
   })
 
   it("stop() idempoten", async () => {
@@ -298,31 +345,32 @@ describe("QueueRunner — graceful shutdown", () => {
 })
 
 describe("QueueRunner — siklus on-demand (tanpa loop)", () => {
-  it("runCycle mengklaim sekali (opsional per pengguna & dengan auto-healing) lalu drain menunggu job", async () => {
+  it("runCycle mengklaim sekali (per pengguna, batas `limit`, dengan auto-healing); settled menunggu job siklus itu", async () => {
     const backend = fakeBackend(["a", "b", "c"])
     const onDemand = createRunner(backend)
 
-    const claimedItems = await onDemand.runCycle({ userId: "u1", recover: true })
+    const claimedItems = await onDemand.runCycle({ userId: "u1", recover: true, limit: 1 })
 
-    expect(claimedItems.map((claimed) => claimed.id)).toEqual(["a", "b"])
+    expect(claimedItems.map((claimed) => claimed.id)).toEqual(["a"])
     expect(backend.recoverExpired).toHaveBeenCalledTimes(1)
-    expect(backend.claim).toHaveBeenCalledWith({ workerId: "w-test", limit: 2, leaseSeconds: 900, userId: "u1" })
-    // Slot penuh: siklus berikutnya tidak mengklaim apa pun.
+    expect(backend.claim).toHaveBeenCalledWith({ workerId: "w-test", limit: 1, leaseSeconds: 900, userId: "u1" })
+    expect((await onDemand.runCycle()).map((claimed) => claimed.id)).toEqual(["b"])
+    // Slot penuh (konkurensi 2): siklus berikutnya tidak mengklaim apa pun.
     expect(await onDemand.runCycle()).toEqual([])
 
-    let drained = false
-    const draining = onDemand.drain().then((done) => {
-      drained = done
+    let settled = false
+    const waiting = onDemand.settled(["a"]).then(() => {
+      settled = true
     })
+    backend.jobs.get("b")?.resolve()
     await flush()
-    expect(drained).toBe(false)
+    expect(settled).toBe(false)
 
     backend.jobs.get("a")?.resolve()
-    backend.jobs.get("b")?.resolve()
-    await draining
-    expect(drained).toBe(true)
+    await waiting
+    expect(settled).toBe(true)
     // Tanpa loop: tidak ada klaim lanjutan di latar walau antrean masih berisi.
     await vi.advanceTimersByTimeAsync(60_000)
-    expect(backend.claim).toHaveBeenCalledTimes(1)
+    expect(backend.claim).toHaveBeenCalledTimes(2)
   })
 })

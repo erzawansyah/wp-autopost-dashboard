@@ -11,13 +11,17 @@ import { triggerQueueCycle, type QueueTriggerOutcome } from "@/server/queue/embe
 /**
  * Pemicu antrean. Request TIDAK PERNAH menjalankan job panjang:
  * - runner tertanam aktif (`QUEUE_RUNNER=embedded`) → cukup membangunkan runner (`nudge`);
- * - `QUEUE_RUNNER=off` (cron eksternal) → satu siklus klaim; job berjalan di latar dan diserahkan ke
- *   `after()` agar platform menunggu penyelesaiannya (dibatasi `maxDuration`).
+ * - `QUEUE_RUNNER=off` (cron eksternal) → klaim maksimal 1 item per pemicu; job berjalan di latar dan
+ *   diserahkan ke `after()` agar platform menunggu penyelesaiannya (dibatasi `maxDuration`).
  *
  * Auth: cron (header `Authorization: Bearer <CRON_SECRET>` / `x-cron-secret`, lintas tenant) atau sesi
  * pengguna (hanya item miliknya; POST saja).
  */
-export const maxDuration = 300
+// Mode `off`: satu job berjalan di `after()` dalam invocation ini. Timeout agen maksimum
+// (settings.json systemBounds.maxTimeoutSeconds = 480 dtk) + overhead finalize/media/publish harus muat;
+// 800 dtk adalah batas tertinggi umum platform serverless. Job yang tetap melewatinya terputus dan
+// dipulihkan auto-healing setelah lease kedaluwarsa. Nilai wajib literal statis (dibaca saat build).
+export const maxDuration = 800
 
 const ProcessBodySchema = z.object({
   postId: UuidSchema.optional(),

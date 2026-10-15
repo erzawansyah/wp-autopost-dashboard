@@ -53,7 +53,7 @@ wp-autopost-dashboard/
 │   ├── lib/                 # Adapter Supabase, crypto, AI, WordPress client, scheduler, webhooks
 │   └── types/               # Tipe data TypeScript (settings, skills, webhooks)
 ├── .mcp.json                # Server MCP proyek untuk Claude Code (Supabase read-only, Next DevTools, Playwright)
-├── docker-compose.yml       # Konfigurasi container Next.js + SearXNG + pemicu cron antrean
+├── docker-compose.yml       # Konfigurasi container Next.js (runner antrean tertanam) + SearXNG
 ├── Dockerfile               # Konfigurasi build Docker (standalone + HEALTHCHECK /api/health)
 ├── package.json             # Dependensi Next.js 16, LangChain, Supabase, Tailwind v4
 └── tsconfig.json            # Konfigurasi TypeScript strict
@@ -95,8 +95,9 @@ SUPABASE_SECRET_KEY=your-supabase-secret-key
 # Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ENCRYPTION_MASTER_KEY=
 
-# Token cron worker (wajib). Dikirim lewat header Authorization: Bearer <token>, bukan query string.
-CRON_SECRET=
+# Runner antrean: di luar production default `off` agar mesin dev yang terhubung ke Supabase bersama
+# tidak memproses item tenant lain. Aktifkan hanya dengan project Supabase dev/terisolasi:
+# QUEUE_RUNNER=embedded
 ```
 
 Daftar lengkap variabel ada di `.env.example`. Panitera bersifat BYOK: kunci OpenRouter, mesin pencari, Pexafy, dan LangSmith diisi tiap pengguna di `/settings/keys`, bukan di file environment.
@@ -106,6 +107,8 @@ Daftar lengkap variabel ada di `.env.example`. Panitera bersifat BYOK: kunci Ope
 npm run dev
 ```
 Buka browser di `http://localhost:3000`.
+
+Di `npm run dev` antrean **tidak** diproses otomatis kecuali `QUEUE_RUNNER=embedded` disetel di `.env.local` (pakai project Supabase dev/terisolasi). Tanpa itu, tombol "Jalankan sekarang" tetap memproses satu item milik Anda per klik.
 
 ---
 
@@ -123,7 +126,7 @@ Docker Compose membaca variabel dari berkas `.env` di root proyek (bukan `.env.l
 Setelah berjalan:
 - **Panitera Dashboard**: `http://localhost:3000` (atau port publik host yang Anda tentukan). Status kesehatan container diperiksa lewat `GET /api/health`.
 - **SearXNG**: Berjalan secara terisolasi di dalam Docker network internal (`http://searxng-internal:8080`) **tanpa membuka port ke publik luar**, menjamin keamanan dan mencegah konflik port di server Anda. Tag image dipin di `docker-compose.yml` dan diperbarui lewat Dependabot.
-- **Runner antrean tertanam**: Proses Next.js menjalankan loop antrean sendiri (dimulai dari `src/instrumentation.ts`): klaim atomik per situs, lease + heartbeat, retry dengan backoff, dan pemulihan item macet. Tidak ada lagi sidecar `panitera-cron`; saat upgrade jalankan `docker compose up -d --remove-orphans` agar container lama ikut dihapus. Tuning lewat `QUEUE_CONCURRENCY`, `QUEUE_POLL_INTERVAL_MS`, `QUEUE_LEASE_SECONDS` (lihat `.env.example`). Untuk mode serverless/cron eksternal, set `QUEUE_RUNNER=off` dan panggil `POST /api/queue/process` berkala dengan header `Authorization: Bearer $CRON_SECRET`.
+- **Runner antrean tertanam**: Proses Next.js menjalankan loop antrean sendiri (dimulai dari `src/instrumentation.ts`): klaim atomik per situs, lease + heartbeat, retry dengan backoff, dan pemulihan item macet. Tidak ada lagi sidecar `panitera-cron`; saat upgrade jalankan `docker compose up -d --remove-orphans` agar container lama ikut dihapus. Tuning lewat `QUEUE_CONCURRENCY`, `QUEUE_POLL_INTERVAL_MS`, `QUEUE_LEASE_SECONDS` (lihat `.env.example`). Untuk mode serverless/cron eksternal, set `QUEUE_RUNNER=off` dan panggil `POST /api/queue/process` berkala dengan header `Authorization: Bearer $CRON_SECRET` (setiap pemicu memproses maksimal 1 item; atur frekuensi cron sesuai volume).
 - **Urutan upgrade**: terapkan migrasi Supabase lebih dulu (`npx supabase db push`), baru deploy image baru.
 
 ---

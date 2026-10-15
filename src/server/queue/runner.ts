@@ -1,26 +1,30 @@
-import type { ClaimedQueueItem } from "@/core/queue/leases"
+import type { ClaimedQueueItem, ReleaseClaimsInput, RecoverOptions } from "@/core/queue/leases"
+import type { RunClaimContext } from "@/core/queue/worker"
 import { CLAIM_HEARTBEAT_INTERVAL_MS } from "@/core/queue/stale-recovery"
 
 /**
  * Runner antrean di dalam proses Node.js yang berumur panjang (Docker), terlepas dari umur request HTTP.
  *
  * Satu loop per proses:
- *   1. auto-healing lease kedaluwarsa setiap `recoveryIntervalMs` (default 1 menit);
- *   2. klaim hingga (`concurrency` − job berjalan) item via `claim_post_items` (lease + batas per situs);
+ *   1. auto-healing lease kedaluwarsa setiap `recoveryIntervalMs` (default 1 menit), melewati klaim
+ *      yang masih dikerjakan proses ini;
+ *   2. klaim hingga (`concurrency` − job berjalan) item via `claim_post_items` (lease bertoken + batas
+ *      per situs);
  *   3. setiap item dijalankan lewat jalur eksekusi worker; lease diperpanjang heartbeat berkala;
  *   4. tidur `pollIntervalMs` saat idle — `nudge()` atau job yang selesai membangunkan loop seketika.
- * Shutdown (`stop()`): berhenti mengklaim, tunggu job berjalan hingga batas waktu, lalu lepas lease item
- * yang belum selesai agar dapat diklaim ulang proses berikutnya.
+ * Shutdown (`stop()`): dalam SATU tenggat total — berhenti mengklaim, tunggu job berjalan, cabut klaim
+ * yang belum selesai, lalu lepas lease-nya: job yang belum mengirim request WordPress kembali ke antrean,
+ * yang sudah mengirim menjadi `failed_sync` (mungkin sudah terkirim).
  *
  * Semua akses data lewat `QueueBackend` (diinjeksi) sehingga runner dapat diuji dengan klaim & jam palsu.
  */
 
 export interface QueueBackend {
   claim(input: { workerId: string; limit: number; leaseSeconds: number; userId?: string }): Promise<ClaimedQueueItem[]>
-  run(item: ClaimedQueueItem, context: { workerId: string }): Promise<unknown>
-  extendLease(input: { postId: string; workerId: string; leaseSeconds: number }): Promise<boolean>
-  releaseLeases(input: { workerId: string; postIds: string[] }): Promise<unknown>
-  recoverExpired(): Promise<unknown>
+  run(item: ClaimedQueueItem, context: RunClaimContext): Promise<unknown>
+  extendLease(input: { postId: string; leaseToken: string; leaseSeconds: number }): Promise<boolean>
+  releaseClaims(input: ReleaseClaimsInput): Promise<unknown>
+  recoverExpired(options: Pick<RecoverOptions, "skipLeaseTokens">): Promise<unknown>
 }
 
 export interface QueueRunnerLogger {
@@ -48,7 +52,7 @@ export interface QueueRunnerOptions {
 }
 
 export interface QueueRunnerStopReport {
-  /** Job yang belum selesai saat batas waktu shutdown (lease-nya dilepas). */
+  /** Klaim yang belum selesai saat tenggat shutdown (lease-nya dilepas). */
   unfinished: number
 }
 
@@ -56,6 +60,10 @@ interface RunningJob {
   item: ClaimedQueueItem
   startedAt: number
   leaseLost: boolean
+  /** Request pembuatan post ke WordPress sudah dimulai (tidak boleh dikembalikan ke antrean). */
+  wpRequestStarted: boolean
+  /** Klaim dicabut runner (shutdown): request WordPress tidak boleh dimulai lagi. */
+  revoked: boolean
   done: Promise<void>
 }
 
@@ -63,24 +71,46 @@ type RunnerState = "idle" | "running" | "stopping" | "stopped"
 
 const DEFAULT_RECOVERY_INTERVAL_MS = 60_000
 
+/** Saat database tidak terjangkau, kegagalan klaim beruntun hanya dicatat sesekali. */
+const CLAIM_FAILURE_LOG_EVERY = 12
+
+/** Porsi tenggat shutdown yang dicadangkan untuk melepas lease (maksimum). */
+const RELEASE_RESERVE_MS = 5_000
+
 const consoleLogger: QueueRunnerLogger = {
   info: (message) => console.info(message),
   warn: (message, detail) => (detail === undefined ? console.warn(message) : console.warn(message, detail)),
   error: (message, detail) => (detail === undefined ? console.error(message) : console.error(message, detail)),
 }
 
-/** Timer runner tidak boleh menahan proses tetap hidup (server HTTP yang menahannya). */
 function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-/** Saat database tidak terjangkau, kegagalan klaim beruntun hanya dicatat sesekali. */
-const CLAIM_FAILURE_LOG_EVERY = 12
-
+/** Timer runner tidak boleh menahan proses tetap hidup (server HTTP yang menahannya). */
 function unref(timer: unknown): void {
   if (typeof timer !== "object" || timer === null || !("unref" in timer)) return
   const { unref: release } = timer as { unref: unknown }
   if (typeof release === "function") release.call(timer)
+}
+
+/** `true` bila `work` selesai sebelum `deadline` (epoch ms); `false` bila tenggat lewat lebih dulu. */
+async function settlesBefore(work: Promise<unknown>, deadline: number): Promise<boolean> {
+  const remaining = deadline - Date.now()
+  if (!Number.isFinite(remaining)) {
+    await work.catch(() => undefined)
+    return true
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(false), Math.max(0, remaining))
+    unref(timer)
+  })
+  try {
+    return await Promise.race([work.then(() => true, () => true), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 export class QueueRunner {
@@ -145,50 +175,62 @@ export class QueueRunner {
 
   /**
    * Satu siklus klaim tanpa loop (mode tanpa runner tertanam, mis. pemicu cron eksternal).
-   * `recover` menjalankan auto-healing bila jatuh tempo (hanya pemicu sistem, karena lintas tenant).
-   * Job diluncurkan di latar; tunggu dengan `drain()`.
+   * `limit` membatasi jumlah klaim siklus ini; `recover` menjalankan auto-healing bila jatuh tempo
+   * (hanya pemicu sistem, karena lintas tenant). Job diluncurkan di latar; tunggu dengan `settled()`.
    */
-  async runCycle(options: { userId?: string; recover?: boolean } = {}): Promise<ClaimedQueueItem[]> {
+  async runCycle(options: { userId?: string; recover?: boolean; limit?: number } = {}): Promise<ClaimedQueueItem[]> {
     if (this.state === "stopping" || this.state === "stopped") return []
     if (options.recover) await this.recoverIfDue()
-    return this.claimAndLaunch(options.userId)
+    return this.claimAndLaunch(options.userId, options.limit)
   }
 
-  /** Tunggu semua job berjalan selesai, dibatasi `timeoutMs`. `true` bila semuanya selesai. */
-  async drain(timeoutMs: number = Number.POSITIVE_INFINITY): Promise<boolean> {
-    const pending = Promise.allSettled([...this.jobs.values()].map((job) => job.done)).then(() => true)
-    if (!Number.isFinite(timeoutMs)) return pending
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const timeout = new Promise<boolean>((resolve) => {
-      timer = setTimeout(() => resolve(false), Math.max(0, timeoutMs))
-      unref(timer)
-    })
-    try {
-      return await Promise.race([pending, timeout])
-    } finally {
-      if (timer) clearTimeout(timer)
-    }
+  /** Selesai saat job untuk `postIds` (yang masih berjalan) selesai. */
+  async settled(postIds: readonly string[]): Promise<void> {
+    const pending = postIds.map((id) => this.jobs.get(id)?.done).filter((done): done is Promise<void> => !!done)
+    await Promise.allSettled(pending)
   }
 
   /**
-   * Graceful shutdown: berhenti mengklaim, tunggu job berjalan hingga `timeoutMs`, lalu lepas lease
-   * item yang belum selesai (dapat diklaim ulang proses lain). Idempoten.
+   * Graceful shutdown dalam satu tenggat total `timeoutMs`: berhenti mengklaim, tunggu job berjalan,
+   * cabut klaim yang belum selesai, lalu lepas lease-nya (sebagian tenggat dicadangkan untuk pelepasan).
+   * Job yang belum memulai request WordPress dikembalikan ke antrean; yang sudah memulai menjadi
+   * "mungkin terkirim". Idempoten.
    */
   async stop(options: { timeoutMs?: number } = {}): Promise<QueueRunnerStopReport> {
     if (this.state === "stopped") return { unfinished: 0 }
     this.state = "stopping"
     this.nudge()
-    await this.loopPromise?.catch(() => {})
 
-    const finished = await this.drain(options.timeoutMs ?? Number.POSITIVE_INFINITY)
-    const unfinished = [...this.jobs.values()].map((job) => job.item)
+    const timeoutMs = options.timeoutMs ?? Number.POSITIVE_INFINITY
+    const deadline = Date.now() + timeoutMs
+    const releaseReserve = Number.isFinite(timeoutMs) ? Math.min(RELEASE_RESERVE_MS, timeoutMs / 5) : 0
+    const drainDeadline = deadline - releaseReserve
+
+    if (this.loopPromise && !(await settlesBefore(this.loopPromise, drainDeadline))) {
+      this.logger.warn("[queue-runner] Loop antrean belum berhenti sebelum tenggat shutdown (panggilan database lambat).")
+    }
+    const pendingJobs = Promise.allSettled([...this.jobs.values()].map((job) => job.done))
+    const finished = await settlesBefore(pendingJobs, drainDeadline)
+
+    const unfinished = [...this.jobs.values()]
     if (!finished && unfinished.length > 0) {
+      // Pencabutan & pembacaan flag terjadi sinkron: worker yang belum memulai request WordPress
+      // pasti melihat `revoked` dan tidak akan mengirimnya.
+      for (const job of unfinished) job.revoked = true
+      const input: ReleaseClaimsInput = {
+        revert: unfinished.filter((job) => !job.wpRequestStarted).map((job) => job.item),
+        uncertain: unfinished.filter((job) => job.wpRequestStarted).map((job) => job.item),
+      }
       this.logger.warn(
-        `[queue-runner] Batas waktu shutdown tercapai; melepas lease ${unfinished.length} item yang belum selesai.`
+        `[queue-runner] Tenggat shutdown tercapai; melepas ${unfinished.length} klaim yang belum selesai ` +
+          `(${input.revert.length} kembali ke antrean, ${input.uncertain.length} sudah mengirim ke WordPress).`
       )
-      await this.backend
-        .releaseLeases({ workerId: this.workerId, postIds: unfinished.map((item) => item.id) })
-        .catch((err: unknown) => this.logger.error("[queue-runner] Gagal melepas lease saat shutdown:", err))
+      const release = this.backend
+        .releaseClaims(input)
+        .catch((err: unknown) => this.logger.error(`[queue-runner] Gagal melepas lease saat shutdown: ${describeError(err)}`))
+      if (!(await settlesBefore(release, deadline))) {
+        this.logger.error("[queue-runner] Pelepasan lease melewati tenggat shutdown; sisa item dipulihkan auto-healing.")
+      }
     }
     this.stopHeartbeat()
     this.state = "stopped"
@@ -211,15 +253,18 @@ export class QueueRunner {
     const now = Date.now()
     if (now - this.lastRecoveryAt < this.recoveryIntervalMs) return
     this.lastRecoveryAt = now
+    // Klaim yang masih dikerjakan proses ini tidak boleh dipulihkan walau lease-nya sempat kedaluwarsa
+    // (mis. database tidak terjangkau lebih lama dari lease sehingga heartbeat gagal).
+    const skipLeaseTokens = new Set([...this.jobs.values()].map((job) => job.item.leaseToken))
     try {
-      await this.backend.recoverExpired()
+      await this.backend.recoverExpired({ skipLeaseTokens })
     } catch (err) {
       this.logger.warn(`[queue-runner] Auto-healing lease kedaluwarsa gagal: ${describeError(err)}`)
     }
   }
 
-  private async claimAndLaunch(userId?: string): Promise<ClaimedQueueItem[]> {
-    const free = this.concurrency - this.jobs.size
+  private async claimAndLaunch(userId?: string, limit?: number): Promise<ClaimedQueueItem[]> {
+    const free = Math.min(this.concurrency - this.jobs.size, limit ?? Number.POSITIVE_INFINITY)
     if (free <= 0) return []
 
     let items: ClaimedQueueItem[]
@@ -239,12 +284,14 @@ export class QueueRunner {
       this.consecutiveClaimFailures = 0
     }
 
-    // Shutdown dimulai saat klaim berjalan: jangan mulai pekerjaan baru, kembalikan item ke antrean.
+    // Shutdown dimulai saat klaim berjalan: item belum pernah dikerjakan → kembali ke state sebelum klaim.
     if (this.state === "stopping" || this.state === "stopped") {
       if (items.length > 0) {
         await this.backend
-          .releaseLeases({ workerId: this.workerId, postIds: items.map((item) => item.id) })
-          .catch((err: unknown) => this.logger.error("[queue-runner] Gagal melepas lease klaim terakhir:", err))
+          .releaseClaims({ revert: items, uncertain: [] })
+          .catch((err: unknown) =>
+            this.logger.error(`[queue-runner] Gagal melepas lease klaim terakhir: ${describeError(err)}`)
+          )
       }
       return []
     }
@@ -254,9 +301,23 @@ export class QueueRunner {
   }
 
   private launch(item: ClaimedQueueItem): void {
-    const job: RunningJob = { item, startedAt: Date.now(), leaseLost: false, done: Promise.resolve() }
+    const job: RunningJob = {
+      item,
+      startedAt: Date.now(),
+      leaseLost: false,
+      wpRequestStarted: false,
+      revoked: false,
+      done: Promise.resolve(),
+    }
+    const context: RunClaimContext = {
+      beginWordPressRequest: () => {
+        if (job.revoked) return false
+        job.wpRequestStarted = true
+        return true
+      },
+    }
     job.done = this.backend
-      .run(item, { workerId: this.workerId })
+      .run(item, context)
       .then(
         () => undefined,
         (err: unknown) => this.logger.error(`[queue-runner] Job ${item.id} gagal tak terduga:`, err)
@@ -302,7 +363,7 @@ export class QueueRunner {
         if (job.leaseLost) continue
         beats.push(
           this.backend
-            .extendLease({ postId, workerId: this.workerId, leaseSeconds: this.leaseSeconds })
+            .extendLease({ postId, leaseToken: job.item.leaseToken, leaseSeconds: this.leaseSeconds })
             .then((extended) => {
               if (!extended) {
                 job.leaseLost = true

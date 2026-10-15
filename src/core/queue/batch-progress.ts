@@ -1,6 +1,7 @@
 import "server-only"
 import type { createAdminClient } from "@/lib/supabase/admin"
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatcher"
+import { FINAL_SUCCESS_STATES } from "@/core/queue/final-state"
 
 export type QueueDbClient = ReturnType<typeof createAdminClient>
 
@@ -11,8 +12,6 @@ export interface OwnedPostItem {
   batchId: string | null
 }
 
-/** State akhir sukses: dihitung sebagai `content_batches.completed_items`. */
-const BATCH_SUCCESS_STATES = ["published_on_wp", "scheduled_on_wp", "saved_draft_on_wp"] as const
 /** State akhir gagal: item selesai diproses namun tidak terbit (butuh retry manual). */
 const BATCH_FAILURE_STATES = ["failed_generation", "failed_sync"] as const
 
@@ -51,7 +50,8 @@ export async function refreshBatchProgress(supabase: QueueDbClient, item: OwnedP
   try {
     const [total, succeeded, failed] = await Promise.all([
       countBatchItems(supabase, batchId, userId),
-      countBatchItems(supabase, batchId, userId, BATCH_SUCCESS_STATES),
+      // State akhir sukses dihitung sebagai `content_batches.completed_items`.
+      countBatchItems(supabase, batchId, userId, FINAL_SUCCESS_STATES),
       countBatchItems(supabase, batchId, userId, BATCH_FAILURE_STATES),
     ])
     if (total === null || succeeded === null || failed === null || total === 0) return

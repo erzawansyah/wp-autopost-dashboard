@@ -15,15 +15,24 @@ import { installGracefulShutdown } from "./shutdown"
  * mencegah start ganda saat HMR di `next dev`.
  */
 
-/** Waktu tunggu job berjalan saat SIGTERM sebelum lease dilepas (di bawah `stop_grace_period` compose). */
-export const QUEUE_SHUTDOWN_TIMEOUT_MS = 25_000
+/**
+ * Tenggat TOTAL graceful shutdown saat SIGTERM (menunggu job + melepas lease), jauh di bawah
+ * `stop_grace_period: 40s` docker-compose agar handler shutdown Next.js masih sempat berjalan.
+ */
+export const QUEUE_SHUTDOWN_TIMEOUT_MS = 30_000
+
+/**
+ * Klaim maksimum per pemicu pada mode tanpa runner (`QUEUE_RUNNER=off`): setiap pemicu cron/serverless
+ * mengerjakan satu item agar satu invocation tidak melebihi `maxDuration` route.
+ */
+export const ON_DEMAND_CLAIMS_PER_TRIGGER = 1
 
 /** Bentuk struktural runner di `globalThis` (kelas dapat berasal dari bundel lain). */
 export interface QueueRunnerHandle {
   readonly workerId: string
   nudge(): void
-  runCycle(options?: { userId?: string; recover?: boolean }): Promise<unknown[]>
-  drain(timeoutMs?: number): Promise<boolean>
+  runCycle(options?: { userId?: string; recover?: boolean; limit?: number }): Promise<Array<{ id: string }>>
+  settled(postIds: readonly string[]): Promise<void>
 }
 
 interface QueueRegistry {
@@ -38,9 +47,12 @@ function registry(): QueueRegistry {
   return registryHost.__paniteraQueueRunners
 }
 
-/** ID worker unik per proses (hostname-pid-acak); dipakai sebagai `post_items.locked_by`. */
+/**
+ * ID worker unik per proses, tanpa hostname/pid karena menjadi awalan `post_items.locked_by` yang dapat
+ * dibaca tenant. Pemetaan ID → host/pid hanya dicatat di log server saat runner mulai.
+ */
 export function createWorkerId(): string {
-  return `${hostname()}-${process.pid}-${randomBytes(4).toString("hex")}`.slice(0, 200)
+  return `runner-${randomBytes(6).toString("hex")}`
 }
 
 function createRunner(env: ServerEnv, backend: QueueBackend): QueueRunner {
@@ -63,7 +75,10 @@ export function startEmbeddedQueueRunner(
   backend: QueueBackend = createQueueBackend()
 ): QueueRunnerHandle | null {
   if (env.QUEUE_RUNNER === "off") {
-    console.info("[queue-runner] QUEUE_RUNNER=off: runner tertanam nonaktif; antrean diproses lewat pemicu cron.")
+    console.info(
+      "[queue-runner] QUEUE_RUNNER=off: runner tertanam nonaktif; antrean diproses lewat pemicu cron " +
+        "(default di luar production — setel QUEUE_RUNNER=embedded untuk memproses antrean di proses ini)."
+    )
     return null
   }
   const store = registry()
@@ -78,6 +93,7 @@ export function startEmbeddedQueueRunner(
 
   const runner = createRunner(env, backend)
   store.embedded = runner
+  console.info(`[queue-runner] Worker ${runner.workerId} berjalan di host ${hostname()} (pid ${process.pid}).`)
   runner.start()
   installGracefulShutdown(() => runner.stop({ timeoutMs: QUEUE_SHUTDOWN_TIMEOUT_MS }))
   return runner
@@ -102,9 +118,9 @@ export type QueueTriggerOutcome =
 /**
  * Pemicu satu siklus antrean dari HTTP (`/api/queue/process`):
  * - runner tertanam aktif → cukup `nudge()` (request tidak pernah menjalankan job);
- * - tanpa runner (`QUEUE_RUNNER=off`) → klaim satu siklus dengan runner on-demand bersama per proses
- *   (konkurensi tetap dibatasi `QUEUE_CONCURRENCY`); job berjalan di latar dan `done` diserahkan ke
- *   `after()` agar platform serverless menunggu penyelesaiannya.
+ * - tanpa runner (`QUEUE_RUNNER=off`) → klaim maksimal `ON_DEMAND_CLAIMS_PER_TRIGGER` item dengan runner
+ *   on-demand bersama per proses (konkurensi tetap dibatasi `QUEUE_CONCURRENCY`); job berjalan di latar
+ *   dan `done` (hanya job siklus ini) diserahkan ke `after()` agar platform serverless menunggunya.
  * `userId` membatasi klaim ke item milik pengguna sesi; tanpa `userId` (cron) auto-healing ikut berjalan.
  */
 export async function triggerQueueCycle(
@@ -120,8 +136,12 @@ export async function triggerQueueCycle(
 
   store.onDemand ??= createRunner(env, backendFactory())
   const runner = store.onDemand
-  const claimed = await runner.runCycle({ userId: options.userId, recover: !options.userId })
-  return { mode: "on-demand", claimed: claimed.length, done: runner.drain() }
+  const claimed = await runner.runCycle({
+    userId: options.userId,
+    recover: !options.userId,
+    limit: ON_DEMAND_CLAIMS_PER_TRIGGER,
+  })
+  return { mode: "on-demand", claimed: claimed.length, done: runner.settled(claimed.map((item) => item.id)) }
 }
 
 /** Hanya untuk test: kosongkan registri runner proses ini. */

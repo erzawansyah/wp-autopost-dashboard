@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { ResponseTooLargeError, SsrfBlockedError } from "@/lib/net/safe-fetch"
+import { describeWpNetworkError } from "@/lib/wordpress/client"
 import {
   MAX_AUTO_ATTEMPTS,
   RETRY_BACKOFF_MS,
+  RETRY_COUNT_LIMIT,
+  clampRetryCount,
   classifyThrownError,
   classifyWordPressFailure,
   classifyWriterFailure,
@@ -63,6 +66,27 @@ describe("decideFailure", () => {
   })
 })
 
+describe("clampRetryCount", () => {
+  it("menormalkan nilai tersimpan agar +1 tetap dalam CHECK 0..1000", () => {
+    expect(clampRetryCount(null)).toBe(0)
+    expect(clampRetryCount(-5)).toBe(0)
+    expect(clampRetryCount(2.7)).toBe(2)
+    expect(clampRetryCount(Number.NaN)).toBe(0)
+    expect(clampRetryCount(2147483647)).toBe(RETRY_COUNT_LIMIT - 1)
+  })
+
+  it("decideFailure dengan retry_count ekstrem → dead-letter tanpa melewati batas", () => {
+    expect(decideFailure({ stage: "generation", failure: "transient", retryCount: 2147483647, now: NOW })).toMatchObject({
+      state: "failed_generation",
+      retryCount: RETRY_COUNT_LIMIT,
+      willRetry: false,
+    })
+    expect(decideFailure({ stage: "sync", failure: "permanent", retryCount: 99999, now: NOW }).retryCount).toBe(
+      RETRY_COUNT_LIMIT - 1
+    )
+  })
+})
+
 describe("classifyWriterFailure", () => {
   it("error non-retryable (kunci BYOK hilang, validasi) selalu permanen", () => {
     expect(classifyWriterFailure({ code: "MISSING_API_KEY", retryable: false }, "missing_api_key")).toBe("permanent")
@@ -106,7 +130,22 @@ describe("classifyWordPressFailure", () => {
     ["Sorry, you are not allowed to create posts as this user.", "permanent"],
     ["URL website WordPress tidak valid.", "permanent"],
     [undefined, "permanent"],
+    ["Kesalahan jaringan: fetch failed (UND_ERR_CONNECT_TIMEOUT)", "transient"],
   ] as const)("%s → %s", (message, expected) => {
     expect(classifyWordPressFailure(message)).toBe(expected)
+  })
+
+  it("TypeError undici asli (kode di err.cause) dari createWordPressPost dikenali sebagai sementara", () => {
+    const refused = new TypeError("fetch failed", {
+      cause: Object.assign(new Error("connect ECONNREFUSED 203.0.113.9:443"), { code: "ECONNREFUSED" }),
+    })
+    const dns = new TypeError("fetch failed", { cause: { code: "EAI_AGAIN", hostname: "blog.test" } })
+    const reset = new TypeError("fetch failed", { cause: { code: "ECONNRESET" } })
+
+    // Format pesan persis seperti catch createWordPressPost: "Kesalahan jaringan: <describeWpNetworkError>".
+    const asWpError = (err: unknown) => `Kesalahan jaringan: ${describeWpNetworkError(err, "x")}`
+    expect(classifyWordPressFailure(asWpError(refused))).toBe("transient")
+    expect(classifyWordPressFailure(asWpError(dns))).toBe("transient")
+    expect(classifyWordPressFailure(asWpError(reset))).toBe("uncertain")
   })
 })

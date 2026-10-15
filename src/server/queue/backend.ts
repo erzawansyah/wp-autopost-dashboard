@@ -1,5 +1,5 @@
 import "server-only"
-import { claimPostItems, extendPostItemLease, recoverExpiredLeases, releaseWorkerLeases } from "@/core/queue/leases"
+import { claimPostItems, extendPostItemLease, recoverExpiredLeases, releaseClaims } from "@/core/queue/leases"
 import { runClaimedPostItem } from "@/core/queue/worker"
 import type { QueueBackend } from "./runner"
 
@@ -9,7 +9,7 @@ export function createQueueBackend(): QueueBackend {
     claim: claimPostItems,
     run: runClaimedPostItem,
     extendLease: extendPostItemLease,
-    releaseLeases: releaseWorkerLeases,
-    recoverExpired: () => recoverExpiredLeases(),
+    releaseClaims,
+    recoverExpired: recoverExpiredLeases,
   }
 }

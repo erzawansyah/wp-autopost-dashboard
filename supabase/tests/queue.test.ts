@@ -13,7 +13,6 @@ import {
   createTestDb,
   createUser,
   PERMISSION_DENIED,
-  RLS_VIOLATION,
 } from "./helpers/test-db"
 
 const WORKER = "worker-test-1"
@@ -135,9 +134,11 @@ describe("claim_post_items — transisi & lease", () => {
       [ready]: "syncing_to_wp",
     })
     for (const row of rows) {
-      expect(row.locked_by).toBe(WORKER)
+      // Token lease unik per klaim: "<worker>:<32 hex acak>".
+      expect(row.locked_by).toMatch(/^worker-test-1:[0-9a-f]{32}$/)
       expect(row.next_attempt_at).toBeNull()
     }
+    expect(new Set(rows.map((row) => row.locked_by)).size).toBe(rows.length)
     const lease = await db.query<{ ok: boolean }>(
       `select bool_and(locked_until between now() + interval '899 seconds' and now() + interval '901 seconds') as ok
        from public.post_items where id = any($1::uuid[])`,
@@ -167,8 +168,9 @@ describe("claim_post_items — transisi & lease", () => {
     expect(await claim(3)).toHaveLength(1)
   })
 
-  it("menolak worker kosong dan lease terlalu pendek", async () => {
+  it("menolak worker kosong/terlalu panjang dan lease terlalu pendek", async () => {
     await expect(claim(1, null, " ")).rejects.toThrow(/p_worker wajib diisi/)
+    await expect(claim(1, null, "w".repeat(161))).rejects.toThrow(/p_worker wajib diisi/)
     await expect(
       asServiceRole(db, (tx) => tx.query("select * from public.claim_post_items('w', 1, 5)"))
     ).rejects.toThrow(/p_lease_seconds minimal 30/)
@@ -317,18 +319,18 @@ describe("claim_post_items — tenant", () => {
 })
 
 describe("extend_post_item_lease", () => {
-  async function extend(id: string, worker: string): Promise<boolean> {
+  async function extend(id: string, leaseToken: string): Promise<boolean> {
     return asServiceRole(db, async (tx) => {
       const result = await tx.query<{ ok: boolean }>("select public.extend_post_item_lease($1, $2, $3) as ok", [
         id,
-        worker,
+        leaseToken,
         LEASE_SECONDS,
       ])
       return result.rows[0].ok
     })
   }
 
-  it("hanya pemegang lease yang dapat memperpanjang item in-flight", async () => {
+  it("hanya pemegang token lease yang dapat memperpanjang item in-flight", async () => {
     const t = await createTenant("extend", 5)
     const item = await addItem(t, {
       state: "generating_content",
@@ -344,6 +346,24 @@ describe("extend_post_item_lease", () => {
       [item]
     )
     expect(lease.rows[0].ok).toBe(true)
+  })
+
+  it("ABA: token klaim lama tidak berlaku lagi setelah item dipulihkan lalu diklaim ulang worker yang sama", async () => {
+    const t = await createTenant("aba", 5)
+    const item = await addItem(t)
+    const [first] = await claim(1, t.userId)
+    // Lease kedaluwarsa → dipulihkan ke antrean (seperti auto-healing) → diklaim ulang worker yang sama.
+    await db.query(
+      `update public.post_items set state = 'queued_input', locked_until = null, locked_by = null, retry_count = 0
+       where id = $1`,
+      [item]
+    )
+    const [second] = await claim(1, t.userId)
+
+    expect(second.id).toBe(item)
+    expect(second.locked_by).not.toBe(first.locked_by)
+    expect(await extend(item, first.locked_by ?? "")).toBe(false)
+    expect(await extend(item, second.locked_by ?? "")).toBe(true)
   })
 
   it("item yang sudah dilepas atau tidak in-flight tidak dapat diperpanjang", async () => {
@@ -404,7 +424,7 @@ describe("integritas & hak akses", () => {
     )
   })
 
-  it("sesi pengguna tidak dapat mengantrekan item dengan lease/backoff terisi", async () => {
+  it("sesi pengguna tidak dapat mengantrekan item dengan lease/backoff terisi (GRANT per kolom)", async () => {
     const t = await createTenant("sesi-insert", 5)
     const insert = (columns: string, values: string) =>
       asUser(db, t.userId, (tx) =>
@@ -414,8 +434,8 @@ describe("integritas & hak akses", () => {
         )
       )
 
-    await expect(insert(", next_attempt_at", ", now() - interval '1 day'")).rejects.toThrow(RLS_VIOLATION)
-    await expect(insert(", locked_until, locked_by", ", now(), 'palsu'")).rejects.toThrow(RLS_VIOLATION)
+    await expect(insert(", next_attempt_at", ", now() - interval '1 day'")).rejects.toThrow(PERMISSION_DENIED)
+    await expect(insert(", locked_until, locked_by", ", now(), 'palsu'")).rejects.toThrow(PERMISSION_DENIED)
     await expect(insert("", "")).resolves.toBeDefined()
   })
 

@@ -167,14 +167,15 @@ describe("post_items: state machine", () => {
         tx.query(`${base}, state) values ($1, $2, 'kw', 'ready_to_sync')`, [a.userId, a.siteId])
       )
     ).rejects.toThrow(RLS_VIOLATION)
+    // Kolom naskah & wp_post_id tidak termasuk GRANT INSERT per kolom (migrasi queue_hardening).
     await expect(
       asUser(db, a.userId, (tx) =>
         tx.query(`${base}, content_html) values ($1, $2, 'kw', '<p>x</p>')`, [a.userId, a.siteId])
       )
-    ).rejects.toThrow(RLS_VIOLATION)
+    ).rejects.toThrow(PERMISSION_DENIED)
     await expect(
       asUser(db, a.userId, (tx) => tx.query(`${base}, wp_post_id) values ($1, $2, 'kw', 99)`, [a.userId, a.siteId]))
-    ).rejects.toThrow(RLS_VIOLATION)
+    ).rejects.toThrow(PERMISSION_DENIED)
 
     const queued = await asUser(db, a.userId, (tx) =>
       tx.query<{ state: string }>(
