@@ -1,37 +1,17 @@
-import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { defineRoute } from "@/server/http/route"
+import { notFound, throwIfDbError } from "@/server/http/errors"
+import { IdParamsSchema } from "@/server/validation/common"
 
-export async function DELETE(
-  _request: Request,
-  props: { params: Promise<{ id: string }> }
-) {
-  try {
-    const params = await props.params
-    const siteId = params.id
+// DELETE /api/sites/[id] - Hapus situs WordPress milik pengguna
+export const DELETE = defineRoute({ auth: "user", params: IdParamsSchema }, async ({ supabase, user, params }) => {
+  const { data, error } = await supabase
+    .from("wp_sites")
+    .delete()
+    .eq("id", params.id)
+    .eq("user_id", user.id)
+    .select("id")
+  throwIfDbError(error)
+  if (!data?.length) throw notFound("Website tidak ditemukan.")
 
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const { error } = await supabase
-      .from("wp_sites")
-      .delete()
-      .eq("id", siteId)
-      .eq("user_id", user.id)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ ok: true, message: "Website berhasil dihapus." })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
-    return NextResponse.json({ error: message }, { status: 500 })
-  }
-}
+  return { message: "Website berhasil dihapus." }
+})
