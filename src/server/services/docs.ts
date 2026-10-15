@@ -4,7 +4,7 @@ import path from "node:path"
 import type { UserGuide } from "@/types/docs"
 
 /**
- * Panduan pengguna untuk reader in-app `/docs` (RSC) dan `GET /api/docs`: hanya `docs/guides/0N-<slug>.md`.
+ * Panduan pengguna untuk reader in-app `/docs` (dibaca langsung oleh RSC): hanya `docs/guides/0N-<slug>.md`.
  * Dokumen internal developer tetap di `docs/` (di luar folder ini) sehingga tidak disajikan dan tidak
  * ikut ter-trace ke image standalone.
  */

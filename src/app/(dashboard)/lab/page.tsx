@@ -26,7 +26,7 @@ export default async function LabPage({ searchParams }: LabPageProps) {
         description="Uji Universal Tools dan Agent Profile secara terisolasi: keluaran, kegagalan terstruktur, dan telemetri run."
         icon={FlaskConical}
         badge={
-          <Badge variant="outline" className="border-ai-process/40 font-mono text-2xs tracking-wide text-ai-process-strong uppercase">
+          <Badge variant="ai" className="font-mono text-2xs tracking-wide uppercase">
             Developer Mode
           </Badge>
         }

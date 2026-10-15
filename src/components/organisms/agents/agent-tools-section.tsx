@@ -81,16 +81,12 @@ export function AgentToolsSection() {
                     </Label>
                     <HelpTooltip content={tool.description} />
                     {tool.isEligible ? (
-                      <Badge variant="outline" className="border-success/30 bg-success/10 text-2xs text-success-strong">
+                      <Badge variant="success" className="text-2xs">
                         <CheckCircle2 aria-hidden="true" />
                         Siap
                       </Badge>
                     ) : (
-                      <Badge
-                        variant="outline"
-                        className="border-warning/30 bg-warning/10 text-2xs text-warning-strong"
-                        title={tool.blockedReason ?? undefined}
-                      >
+                      <Badge variant="warning" className="text-2xs" title={tool.blockedReason ?? undefined}>
                         <AlertTriangle aria-hidden="true" />
                         Perlu konfigurasi
                         {tool.blockedReason && <span className="sr-only">: {tool.blockedReason}</span>}

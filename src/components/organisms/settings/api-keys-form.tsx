@@ -16,18 +16,11 @@ import type { UserSettings } from "@/types/settings"
 import { EMPTY_BYOK_KEYS, toApiKeysFormValues, toUserSettingsUpdate } from "./api-keys-form-values"
 import { AiProviderSection, ImageProviderSection, ObservabilitySection, SearchProviderSection } from "./api-keys-sections"
 
-/** Kunci OpenRouter plaintext yang dulu disimpan versi lama di browser — dihapus setiap kali halaman ini dibuka. */
-const LEGACY_BROWSER_KEY = "custom_openrouter_api_key"
-/** Cermin ID model (bukan rahasia) yang dibaca `getGlobalAiModel()` di `src/lib/ai/settings.ts`. */
-const MODEL_MIRROR_KEY = "custom_openrouter_model"
-
-function mirrorDefaultModel(model: string) {
-  try {
-    localStorage.setItem(MODEL_MIRROR_KEY, model)
-  } catch {
-    // localStorage tidak tersedia (mode privat); model tetap tersimpan di database.
-  }
-}
+/**
+ * Sisa versi lama di browser yang dibersihkan setiap kali halaman ini dibuka: kunci OpenRouter plaintext dan
+ * cermin ID model default. Sumber kebenaran kini hanya `user_settings` di server (kunci terenkripsi).
+ */
+const LEGACY_BROWSER_KEYS = ["custom_openrouter_api_key", "custom_openrouter_model"] as const
 
 /**
  * Form Pusat Kunci API (BYOK Hub): kunci OpenRouter/Tavily/Brave/Pexafy/LangSmith + model default, tingkat
@@ -41,7 +34,7 @@ export function ApiKeysForm({ initialSettings }: { initialSettings: UserSettings
 
   React.useEffect(() => {
     try {
-      localStorage.removeItem(LEGACY_BROWSER_KEY)
+      for (const key of LEGACY_BROWSER_KEYS) localStorage.removeItem(key)
     } catch {
       // localStorage tidak tersedia (mode privat / diblokir)
     }
@@ -52,7 +45,6 @@ export function ApiKeysForm({ initialSettings }: { initialSettings: UserSettings
       apiFetch<{ message: string }>("/api/settings/user", { method: "PUT", body: toUserSettingsUpdate(values) }),
     onSuccess: async ({ message }, values) => {
       notify.success(message)
-      mirrorDefaultModel(values.defaultAiModel)
       // Kunci yang baru diketik kini tersimpan terenkripsi → kosongkan input agar tidak tertahan di memori form.
       form.reset({ ...values, ...EMPTY_BYOK_KEYS })
       await queryClient.invalidateQueries({ queryKey: queryKeys.settings.all })

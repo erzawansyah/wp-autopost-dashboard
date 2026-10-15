@@ -4,6 +4,7 @@ import {
   isAbortError,
   linkApplyErrorTitle,
   matchesQuery,
+  preselectedSiteId,
   rateLimitRetrySeconds,
   siteHost,
   slugify,
@@ -11,14 +12,20 @@ import {
 } from "./tool-helpers"
 
 describe("rateLimitRetrySeconds", () => {
-  it("membaca detik tunggu dari pesan 429 server", () => {
-    const error = new ApiClientError(429, "rate_limited", "Terlalu banyak permintaan. Coba lagi dalam 42 detik.")
-    expect(rateLimitRetrySeconds(error)).toBe(42)
+  const rateLimited = (retryAfterSeconds?: number) =>
+    new ApiClientError(429, "rate_limited", "Terlalu banyak permintaan. Coba lagi dalam 42 detik.", { retryAfterSeconds })
+
+  it("memakai detik dari header Retry-After, bukan angka di pesan", () => {
+    expect(rateLimitRetrySeconds(rateLimited(7))).toBe(7)
   })
 
-  it("429 tanpa angka → fallback; bukan 429 → null", () => {
-    expect(rateLimitRetrySeconds(new ApiClientError(429, "rate_limited", "Terlalu banyak permintaan."), 15)).toBe(15)
-    expect(rateLimitRetrySeconds(new ApiClientError(502, "upstream_failed", "Coba lagi dalam 5 detik."))).toBeNull()
+  it("429 tanpa Retry-After → fallback; Retry-After 0 → minimal 1 detik", () => {
+    expect(rateLimitRetrySeconds(rateLimited(), 15)).toBe(15)
+    expect(rateLimitRetrySeconds(rateLimited(0))).toBe(1)
+  })
+
+  it("bukan 429 → null", () => {
+    expect(rateLimitRetrySeconds(new ApiClientError(503, "internal_error", "x", { retryAfterSeconds: 5 }))).toBeNull()
     expect(rateLimitRetrySeconds(new Error("Coba lagi dalam 5 detik."))).toBeNull()
   })
 })
@@ -73,5 +80,21 @@ describe("linkApplyErrorTitle", () => {
 
   it("error non-API → judul umum", () => {
     expect(linkApplyErrorTitle(new Error("boom"))).toBe("Gagal menyisipkan tautan")
+  })
+})
+
+describe("preselectedSiteId", () => {
+  const connected = [{ id: "11111111-1111-4111-8111-111111111111" }, { id: "22222222-2222-4222-8222-222222222222" }]
+
+  it("memakai ?site= bila menunjuk website terhubung milik pengguna", () => {
+    expect(preselectedSiteId(connected, "22222222-2222-4222-8222-222222222222")).toBe("22222222-2222-4222-8222-222222222222")
+  })
+
+  it("mengabaikan ID asing, kosong, atau tidak ada", () => {
+    expect(preselectedSiteId(connected, "33333333-3333-4333-8333-333333333333")).toBeNull()
+    expect(preselectedSiteId(connected, "bukan-uuid")).toBeNull()
+    expect(preselectedSiteId(connected, "")).toBeNull()
+    expect(preselectedSiteId(connected, undefined)).toBeNull()
+    expect(preselectedSiteId([], "11111111-1111-4111-8111-111111111111")).toBeNull()
   })
 })

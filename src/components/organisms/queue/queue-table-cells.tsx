@@ -67,11 +67,8 @@ export function QueueTitleCell({ item, showBatch }: { item: QueueTableItem; show
         <span className="rounded bg-muted/60 px-1 font-mono">Topik: {item.targetKeyword}</span>
         {showBatch && (
           <Badge
-            variant="outline"
-            className={cn(
-              "h-5 gap-1 px-1.5 text-xs font-normal",
-              isQuick ? "border-warning/30 bg-warning/10 text-warning-strong" : "border-primary/20 bg-primary/5 text-primary"
-            )}
+            variant={isQuick ? "warning" : "outline"}
+            className={cn("h-5 gap-1 px-1.5 text-xs font-normal", !isQuick && "border-primary/20 bg-primary/5 text-primary")}
           >
             {isQuick && <Zap aria-hidden="true" className="size-3" />}
             {isQuick ? "Tulis Cepat" : item.batchName}

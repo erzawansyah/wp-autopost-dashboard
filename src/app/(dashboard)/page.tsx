@@ -10,6 +10,7 @@ import { QuickLinks } from "@/components/organisms/dashboard/quick-links"
 import { RecentPosts } from "@/components/organisms/dashboard/recent-posts"
 import { PageContainer } from "@/components/templates/page-container"
 import { requireSession } from "@/lib/auth/session"
+import { firstParam, type SearchParamValue } from "@/lib/search-params"
 import { UuidSchema } from "@/lib/validation/common"
 import { getDashboardStats } from "@/server/services/dashboard"
 import { listPosts } from "@/server/services/posts"
@@ -23,11 +24,7 @@ const RECENT_POSTS_LIMIT = 50
 const QUEUED_PARAMS = ["queued", "postId", "keyword"] as const
 const MAX_KEYWORD_LENGTH = 120
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>
-
-function firstParam(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value
-}
+type SearchParams = Promise<Record<string, SearchParamValue>>
 
 export default async function DashboardPage({ searchParams }: { searchParams: SearchParams }) {
   const [{ supabase, user }, params] = await Promise.all([requireSession(), searchParams])

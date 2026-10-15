@@ -184,7 +184,7 @@ function KeyStatusBadge({ configured }: { configured: boolean }) {
     )
   }
   return (
-    <Badge variant="outline" className="border-success/30 bg-success/10 text-success-strong">
+    <Badge variant="success">
       <ShieldCheck aria-hidden="true" />
       Tersimpan terenkripsi
     </Badge>

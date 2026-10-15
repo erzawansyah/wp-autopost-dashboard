@@ -143,7 +143,7 @@ export function SuggestionItem({ index, children }: SuggestionItemProps) {
               <CheckCircle2 aria-hidden="true" className="size-4" />
               {approvedLabel}
               {entry.wpId !== undefined && (
-                <Badge variant="outline" className="border-success/30 font-mono text-success-strong">
+                <Badge variant="success" className="font-mono">
                   #{entry.wpId}
                 </Badge>
               )}

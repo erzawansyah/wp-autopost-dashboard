@@ -237,14 +237,7 @@ export function LabAgentProfileRunner({ profiles, sites }: LabAgentProfileRunner
               </Badge>
             )}
             {agentRun && (
-              <Badge
-                variant="outline"
-                className={
-                  agentRun.ok
-                    ? "border-success/30 bg-success/10 text-success-strong"
-                    : "border-destructive/30 bg-destructive/10 text-destructive-strong"
-                }
-              >
+              <Badge variant={agentRun.ok ? "success" : "destructive"}>
                 {agentRun.ok ? "Selesai" : "Gagal"}
               </Badge>
             )}

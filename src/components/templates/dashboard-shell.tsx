@@ -5,6 +5,8 @@ import { TopNavbar, type ShellUser } from "@/components/organisms/top-navbar"
 interface DashboardShellProps {
   /** Ringkasan pengguna sesi dari `(dashboard)/layout.tsx` (hanya field yang aman dikirim ke browser). */
   user: ShellUser
+  /** Developer Mode dari pengaturan pengguna (dibaca di server) — menentukan menu Lab sejak render pertama. */
+  developerMode: boolean
   children: React.ReactNode
 }
 
@@ -15,7 +17,7 @@ interface DashboardShellProps {
  * saat berpindah halaman. Halaman cukup merender `PageContainer` + `PageHeader` (lihat
  * `.claude/rules/page-layout-standard.md`). Server Component: hanya `SidebarNav`/`TopNavbar` yang client.
  */
-export function DashboardShell({ user, children }: DashboardShellProps) {
+export function DashboardShell({ user, developerMode, children }: DashboardShellProps) {
   return (
     <div className="relative flex min-h-screen bg-background text-foreground">
       <a
@@ -25,7 +27,7 @@ export function DashboardShell({ user, children }: DashboardShellProps) {
         Lewati ke konten utama
       </a>
       <div aria-hidden="true" className="dashboard-grid pointer-events-none absolute inset-x-0 top-0 h-96 opacity-40" />
-      <SidebarNav />
+      <SidebarNav developerMode={developerMode} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <TopNavbar user={user} />

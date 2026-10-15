@@ -1,10 +1,12 @@
 "use client"
 
+import * as React from "react"
 import { useController, useFormContext } from "react-hook-form"
 import { Bot, BrainCircuit, Sparkles } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/atoms/card"
 import { FieldGroup, FieldLegend, FieldSet } from "@/components/atoms/field"
 import { Input } from "@/components/atoms/input"
+import { RadioGroup, RadioGroupItem } from "@/components/atoms/radio-group"
 import { Switch } from "@/components/atoms/switch"
 import { Textarea } from "@/components/atoms/textarea"
 import { ControlledField } from "@/components/molecules/controlled-field"
@@ -25,9 +27,11 @@ const MODE_OPTIONS: ReadonlyArray<{ value: AgentMode; label: string; description
 function ModeRadioGroup() {
   const { control, getValues, setValue } = useFormContext<AgentProfileFormValues, unknown, AgentProfileFormOutput>()
   const { field } = useController({ control, name: "mode" })
+  const idPrefix = React.useId()
 
-  function selectMode(next: AgentMode) {
-    if (next === field.value) return
+  function selectMode(value: string) {
+    const next = MODE_OPTIONS.find((option) => option.value === value)?.value
+    if (!next || next === field.value) return
     const current = getValues("limits")
     const limits = limitsForModeChange(current, field.value, next)
     if (limits !== current) setValue("limits", limits, { shouldDirty: true })
@@ -39,33 +43,31 @@ function ModeRadioGroup() {
       <FieldLegend variant="label" className="mb-1.5 text-xs font-semibold text-foreground/90">
         Arsitektur runtime
       </FieldLegend>
-      <div className="grid grid-cols-2 gap-2">
-        {MODE_OPTIONS.map((option) => (
-          <label
-            key={option.value}
-            className={cn(
-              "flex cursor-pointer flex-col gap-1 rounded-lg border bg-card p-2.5 transition-colors",
-              "has-checked:border-primary has-checked:bg-primary/5 has-focus-visible:ring-2 has-focus-visible:ring-ring",
-              "hover:border-foreground/30"
-            )}
-          >
-            <input
-              type="radio"
-              name={field.name}
-              value={option.value}
-              checked={field.value === option.value}
-              onChange={() => selectMode(option.value)}
-              onBlur={field.onBlur}
-              className="sr-only"
-            />
-            <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-              <option.icon aria-hidden="true" className="size-3.5 text-primary" />
-              {option.label}
-            </span>
-            <span className="text-2xs leading-tight text-muted-foreground">{option.description}</span>
-          </label>
-        ))}
-      </div>
+      <RadioGroup value={field.value} onValueChange={selectMode} onBlur={field.onBlur} className="grid-cols-2 gap-2">
+        {MODE_OPTIONS.map((option) => {
+          const id = `${idPrefix}-${option.value}`
+          return (
+            <label
+              key={option.value}
+              htmlFor={id}
+              className={cn(
+                "flex cursor-pointer flex-col gap-1 rounded-lg border bg-card p-2.5 transition-colors",
+                "has-data-[state=checked]:border-primary has-data-[state=checked]:bg-primary/5 has-focus-visible:ring-2 has-focus-visible:ring-ring",
+                "hover:border-foreground/30"
+              )}
+            >
+              <span className="flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                  <option.icon aria-hidden="true" className="size-3.5 text-primary" />
+                  {option.label}
+                </span>
+                <RadioGroupItem id={id} value={option.value} />
+              </span>
+              <span className="text-2xs leading-tight text-muted-foreground">{option.description}</span>
+            </label>
+          )
+        })}
+      </RadioGroup>
     </FieldSet>
   )
 }

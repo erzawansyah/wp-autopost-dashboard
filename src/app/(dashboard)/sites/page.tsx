@@ -6,15 +6,12 @@ import { CONNECT_STATUS_PARAMS, describeConnectStatus } from "@/components/organ
 import { SitesTable } from "@/components/organisms/sites/sites-table"
 import { PageContainer } from "@/components/templates/page-container"
 import { requireSession } from "@/lib/auth/session"
+import { firstParam, type SearchParamValue } from "@/lib/search-params"
 import { accountAppIdentifier, listSites } from "@/server/services/sites"
 
 export const metadata = { title: "Daftar Website" }
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>
-
-function firstParam(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value
-}
+type SearchParams = Promise<Record<string, SearchParamValue>>
 
 const NOTICE_ICONS = {
   success: <CheckCircle2 aria-hidden="true" />,

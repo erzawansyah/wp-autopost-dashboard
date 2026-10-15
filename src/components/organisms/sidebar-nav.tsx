@@ -185,7 +185,12 @@ function renderNavLink(item: NavItem, pathname: string, isCollapsed: boolean) {
 
 let cachedSidebarCollapsed: boolean | null = null
 
-export function SidebarNav() {
+interface SidebarNavProps {
+  /** Nilai awal Developer Mode dari `(dashboard)/layout.tsx`; pembaruan setelah disimpan lewat `useDeveloperMode`. */
+  developerMode: boolean
+}
+
+export function SidebarNav({ developerMode: initialDeveloperMode }: SidebarNavProps) {
   const pathname = usePathname()
   const [isCollapsed, setIsCollapsed] = React.useState<boolean>(() => {
     if (cachedSidebarCollapsed !== null) {
@@ -218,16 +223,12 @@ export function SidebarNav() {
     })
   }
 
-  const { developerMode } = useDeveloperMode()
+  const { developerMode } = useDeveloperMode(initialDeveloperMode)
 
-  const filteredBottomNavItems = React.useMemo(() => {
-    return bottomNavItems.filter((item) => {
-      if (item.href === "/lab") {
-        return Boolean(developerMode)
-      }
-      return true
-    })
-  }, [developerMode])
+  const filteredBottomNavItems = React.useMemo(
+    () => bottomNavItems.filter((item) => item.href !== "/lab" || developerMode),
+    [developerMode]
+  )
 
   return (
     <aside

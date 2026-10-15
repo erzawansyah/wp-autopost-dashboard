@@ -1,12 +1,9 @@
 import Image from "next/image"
 import { AuthCard } from "@/components/organisms/auth/auth-card"
 import { NEXT_PARAM, resolvePostLoginPath } from "@/lib/auth/routes"
+import { firstParam, type SearchParamValue } from "@/lib/search-params"
 
-type SearchParams = Promise<Record<string, string | string[] | undefined>>
-
-function firstParam(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value
-}
+type SearchParams = Promise<Record<string, SearchParamValue>>
 
 export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
   const params = await searchParams

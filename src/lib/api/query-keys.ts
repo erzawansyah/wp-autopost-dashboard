@@ -65,6 +65,8 @@ export const queryKeys = {
   settings: {
     all: settingsKey,
     user: () => [...settingsKey, "user"] as const,
+    /** Boolean Developer Mode saja (menu Lab sidebar; nilai awal dari layout server). */
+    developerMode: () => [...settingsKey, "developer-mode"] as const,
   },
   webhooks: {
     all: webhooksKey,

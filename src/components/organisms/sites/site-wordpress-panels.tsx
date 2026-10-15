@@ -125,7 +125,7 @@ export function SiteCategoriesPanel({ siteId }: { siteId: string }) {
       description="Dibaca langsung dari website (maks. 100 kategori)."
       icon={FolderTree}
       count={query.data?.length}
-      manageHref="/tools/categories"
+      manageHref={`/tools/categories?site=${siteId}`}
       manageLabel="Kelola & sarankan kategori di WP Tools"
       emptyText="Belum ada kategori di website ini."
       query={query}
@@ -155,7 +155,7 @@ export function SiteAuthorsPanel({ siteId }: { siteId: string }) {
       description="Akun penulis yang terlihat oleh Application Password ini."
       icon={UserRound}
       count={query.data?.length}
-      manageHref="/tools/authors"
+      manageHref={`/tools/authors?site=${siteId}`}
       manageLabel="Tambah persona author di WP Tools"
       emptyText="WordPress tidak mengembalikan author untuk akun ini."
       query={query}

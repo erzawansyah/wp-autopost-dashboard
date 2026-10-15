@@ -7,18 +7,26 @@ export function isAbortError(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { name?: unknown }).name === "AbortError"
 }
 
-const RETRY_SECONDS_PATTERN = /(\d+)\s*detik/i
-
 /**
- * Detik tunggu dari 429 `rate_limited`. `apiFetch` belum meneruskan header `Retry-After`, jadi angka dibaca
- * dari pesan server ("Terlalu banyak permintaan. Coba lagi dalam N detik.", `enforceRateLimit`).
- * Bukan 429 → `null`; 429 tanpa angka → `fallbackSeconds`.
+ * Detik tunggu dari 429 `rate_limited`, diambil dari header `Retry-After` (`ApiClientError.retryAfterSeconds`,
+ * selalu dikirim `enforceRateLimit`). Bukan 429 → `null`; 429 tanpa header (mis. dari reverse proxy) →
+ * `fallbackSeconds`. Minimal 1 detik agar jeda tombol selalu terlihat.
  */
 export function rateLimitRetrySeconds(error: unknown, fallbackSeconds = 30): number | null {
   if (!isApiClientError(error) || error.status !== 429) return null
-  const match = RETRY_SECONDS_PATTERN.exec(error.message)
-  const seconds = match ? Number(match[1]) : fallbackSeconds
-  return seconds > 0 ? seconds : fallbackSeconds
+  return Math.max(1, error.retryAfterSeconds ?? fallbackSeconds)
+}
+
+/**
+ * Website target awal dari `?site=<uuid>` (tautan dari detail situs): hanya dipakai bila menunjuk salah satu website
+ * terhubung milik pengguna; selain itu `null` (diabaikan → website terhubung pertama).
+ */
+export function preselectedSiteId(
+  connectedSites: ReadonlyArray<{ id: string }>,
+  requestedSiteId: string | undefined
+): string | null {
+  if (!requestedSiteId) return null
+  return connectedSites.some((site) => site.id === requestedSiteId) ? requestedSiteId : null
 }
 
 /** Host tanpa protokol & garis miring akhir, untuk label ringkas situs (`https://blogku.com/` → `blogku.com`). */

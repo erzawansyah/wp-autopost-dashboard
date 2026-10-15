@@ -11,12 +11,17 @@ const badgeVariants = cva(
         default: "bg-primary text-primary-foreground [a&]:hover:bg-primary/90",
         secondary:
           "bg-secondary text-secondary-foreground [a&]:hover:bg-secondary/90",
-        destructive:
-          "bg-destructive text-white focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/90",
         outline:
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
+        // Varian peran status (tint `bg-x/10` + teks `--x-strong`, kontras AA terang & gelap) — sama dengan atom Alert.
+        destructive:
+          "border-destructive/30 bg-destructive/10 text-destructive-strong focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 [a&]:hover:bg-destructive/15",
+        success: "border-success/30 bg-success/10 text-success-strong [a&]:hover:bg-success/15",
+        warning: "border-warning/30 bg-warning/10 text-warning-strong [a&]:hover:bg-warning/15",
+        info: "border-info/30 bg-info/10 text-info-strong [a&]:hover:bg-info/15",
+        ai: "border-ai-process/30 bg-ai-process/10 text-ai-process-strong [a&]:hover:bg-ai-process/15",
       },
     },
     defaultVariants: {

@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { EmptyState } from "@/components/molecules/empty-state"
 import { selectConnectedSites, sitesQueries } from "@/lib/api/queries/sites"
 import type { Site } from "@/types/site"
-import { siteHost } from "./tool-helpers"
+import { preselectedSiteId, siteHost } from "./tool-helpers"
 
 interface ToolSiteContextValue {
   /** Website berstatus `connected` milik pengguna (cache bersama `queryKeys.sites.list()`). */
@@ -25,20 +25,23 @@ const ToolSiteContext = React.createContext<ToolSiteContextValue | null>(null)
 interface ToolSiteProviderProps {
   /** Daftar situs dari RSC (`listSites`) sebagai `initialData` — tanpa kedip loading pada selector. */
   initialSites: Site[]
+  /** Nilai mentah `?site=` dari halaman; dipakai hanya bila menunjuk website terhubung milik pengguna. */
+  requestedSiteId?: string
   children: React.ReactNode
 }
 
 /**
  * Website target WP Tools, dibagi antara selector ringkas di `PageHeader.actions` dan isi halaman.
- * Default = situs terhubung pertama; bila situs terpilih hilang (dihapus/terputus) kembali ke yang pertama.
+ * Default = `?site=` yang valid, selain itu situs terhubung pertama; bila situs terpilih hilang
+ * (dihapus/terputus) kembali ke yang pertama.
  */
-export function ToolSiteProvider({ initialSites, children }: ToolSiteProviderProps) {
+export function ToolSiteProvider({ initialSites, requestedSiteId, children }: ToolSiteProviderProps) {
   const { data: sites = [] } = useQuery({
     ...sitesQueries.list(),
     initialData: initialSites,
     select: selectConnectedSites,
   })
-  const [selectedId, setSelectedId] = React.useState<string | null>(null)
+  const [selectedId, setSelectedId] = React.useState<string | null>(() => preselectedSiteId(sites, requestedSiteId))
   const site = sites.find((candidate) => candidate.id === selectedId) ?? sites[0] ?? null
 
   const value = React.useMemo<ToolSiteContextValue>(

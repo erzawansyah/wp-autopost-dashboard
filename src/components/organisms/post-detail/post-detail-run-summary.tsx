@@ -70,7 +70,7 @@ export function PostDetailRunSummary({ agentRun, totals, checkpoints }: PostDeta
                 {agentRun.status === "completed" ? "Selesai" : agentRun.status === "running" ? "Berjalan" : "Gagal"}
               </Badge>
               {resumed.length > 0 && (
-                <Badge variant="outline" className="gap-1 border-info/30 bg-info/10 text-xs text-info-strong">
+                <Badge variant="info">
                   <History aria-hidden="true" className="size-3" />
                   Dilanjutkan dari checkpoint: {resumed.map(checkpointStepLabel).join(", ")}
                 </Badge>

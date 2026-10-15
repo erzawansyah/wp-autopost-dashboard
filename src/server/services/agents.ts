@@ -266,16 +266,6 @@ export async function archiveAgentProfile(supabase: SupabaseClient, userId: stri
   if (!data?.length) throw notFound(PROFILE_NOT_FOUND)
 }
 
-/** Template workflow prompt dari profil bawaan (prompt `agent-*.md`). */
-export function listAgentPromptTemplates(): Array<{ name: string; prompt: string }> {
-  const prompts = getPresetPrompts()
-  return [
-    { name: "Template Quick Writer (1-Shot)", prompt: prompts.quick },
-    { name: "Template Research & Media Writer", prompt: prompts.research },
-    { name: "Template Deep Research Agent", prompt: prompts.deep },
-  ]
-}
-
 /** Workflow prompt awal editor Agent Profile baru: template "Research & Media Writer". */
 export function defaultAgentWorkflowPrompt(): string {
   return getPresetPrompts().research

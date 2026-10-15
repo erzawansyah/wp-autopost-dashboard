@@ -93,13 +93,7 @@ export function LinkRecommendationCard({ siteId, recommendation: rec }: LinkReco
             <span className="sr-only">(buka di tab baru)</span>
           </a>
         </div>
-        <Badge
-          variant="outline"
-          className={cn(
-            "shrink-0",
-            isStrong ? "border-success/30 bg-success/10 text-success-strong" : "border-warning/30 bg-warning/10 text-warning-strong"
-          )}
-        >
+        <Badge variant={isStrong ? "success" : "warning"} className="shrink-0">
           {rec.relevanceScore}% relevan
         </Badge>
       </CardHeader>

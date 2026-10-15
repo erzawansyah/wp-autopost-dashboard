@@ -15,14 +15,10 @@ export function LiveStatusBadge({ status, className }: { status: RealtimeStatus;
   const Icon = status === "live" ? Radio : RefreshCw
   return (
     <Badge
-      variant="outline"
+      variant={status === "live" ? "success" : "outline"}
       role="status"
       title={copy.hint}
-      className={cn(
-        "gap-1.5 text-xs font-medium",
-        status === "live" ? "border-success/30 bg-success/10 text-success-strong" : "text-muted-foreground",
-        className
-      )}
+      className={cn("gap-1.5 text-xs font-medium", status !== "live" && "text-muted-foreground", className)}
     >
       <Icon
         aria-hidden="true"

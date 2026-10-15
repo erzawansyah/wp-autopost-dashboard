@@ -62,7 +62,7 @@ wp-autopost-dashboard/
 │   │   │   ├── login/page.tsx             # Masuk & daftar (react-hook-form + zod), menghormati ?next=
 │   │   │   └── register/page.tsx          # Alias → /login?tab=register
 │   │   ├── (dashboard)/                   # Route group seluruh halaman dasbor (URL tidak berubah)
-│   │   │   ├── layout.tsx                 # Server Component: verifikasi sesi (getUser) + shell persisten SEKALI
+│   │   │   ├── layout.tsx                 # Server Component: verifikasi sesi (getUser) + shell persisten SEKALI (+ boolean Developer Mode untuk menu Lab)
 │   │   │   ├── loading.tsx                # Skeleton halaman (PageSkeleton) saat segmen dimuat
 │   │   │   ├── error.tsx                  # Error boundary di dalam shell (RouteErrorState, tanpa stack trace)
 │   │   │   ├── not-found.tsx              # notFound() dari page dasbor, dirender di dalam shell
@@ -77,14 +77,13 @@ wp-autopost-dashboard/
 │   │   │   ├── settings/                  # page.tsx, keys/, ai/, webhooks/, profile/
 │   │   │   ├── sites/                     # page.tsx (daftar + sambungkan + banner ?auth_status), [id]/ (pengaturan, kategori, author, hapus)
 │   │   │   ├── skills/                    # Skill Registry RSC: page.tsx, new/, [id]/ (edit; skill sistem baca-saja)
-│   │   │   ├── tools/                     # WP Tools: page.tsx, link-building/, authors/, categories/
+│   │   │   ├── tools/                     # WP Tools: page.tsx, link-building/, authors/, categories/ (?site=<uuid> = website awal)
 │   │   │   └── write/                     # page.tsx (→ redirect), structured/ (Tulis Terstruktur)
 │   │   ├── api/                           # Endpoint Internal REST API (tidak disentuh redirect proxy; JSON 401)
-│   │   │   ├── agents/                    # CRUD profil agen, templates, tools
+│   │   │   ├── agents/                    # CRUD profil agen & katalog tools (eligibilitas BYOK)
 │   │   │   ├── ai/                        # Verifikasi kunci AI & dynamic model fetcher
 │   │   │   ├── auth/                      # Session user & signout
 │   │   │   ├── batches/                   # Inisialisasi & pembatalan batch
-│   │   │   ├── docs/                      # Panduan pengguna (services/docs) untuk klien non-UI
 │   │   │   ├── health/                    # Healthcheck platform
 │   │   │   ├── lab/                       # Registry (situs, tools, Agent Profile) & run uji (dapat dibatalkan)
 │   │   │   ├── posts/                     # CRUD artikel & endpoint /api/posts/quick
@@ -131,29 +130,40 @@ wp-autopost-dashboard/
 │   ├── instrumentation.ts                 # register(): validasi env & start runner antrean (Node.js)
 │   ├── proxy.ts                           # Proxy Next 16: refresh sesi Supabase SSR, redirect /login?next= (bukan /api/**)
 │   ├── lib/                               # Utilitas Bersama & Adapter Eksternal
+│   │   ├── agents/                        # Mapper murni katalog Agent Profile & skill untuk UI (catalog.ts)
 │   │   ├── ai/                            # Pemanggilan OpenRouter, kunci platform (BYOK-only)
-│   │   ├── api/                           # Data layer client: apiFetch + ApiClientError, contract envelope, QueryClient, queryKeys, queries/<domain>.ts
+│   │   ├── api/                           # Data layer client: apiFetch + ApiClientError, contract envelope, QueryClient, queryKeys
+│   │   │   └── queries/                   # queryOptions per domain: agents, ai, batches, lab, posts, queue, settings, sites, skills, webhooks
 │   │   ├── auth/                          # routes.ts (klasifikasi rute, sanitasi ?next=), session.ts (getSession/requireSession RSC, server-only)
 │   │   ├── constants/                     # Daftar bahasa, otoritas akses
 │   │   ├── env/                           # Validasi env server/client (zod), termasuk QUEUE_*
 │   │   ├── hooks/                         # Hook client: useZodForm, useTheme, useDeveloperMode, useRealtimeChannel, useQueueLiveUpdates, usePostDetailLive
 │   │   ├── net/                           # safeFetch anti-SSRF (DNS pinning, redirect, batas ukuran)
+│   │   ├── parser/                        # Parser input massal (CSV/TSV/pipe/baris) & pemetaan kolom dinamis
 │   │   ├── queue/                         # Model UI antrean murni: state/kelompok status, baris tabel, aksi ulang, patch Realtime, backoff polling, metrik run
 │   │   ├── scheduler/                     # Kalkulator jadwal (randomized jitter & drip window)
+│   │   ├── security/                      # redactSecrets / redactSecretsInText untuk log, telemetri & respons Lab
 │   │   ├── settings/                      # Dekripsi sentral kunci BYOK (user-keys.ts)
 │   │   ├── supabase/                      # Klien Supabase (Browser, Server SSR, Admin Service, penyegar sesi proxy)
 │   │   ├── ui/                            # notify (toast Sonner) & useConfirm (dialog konfirmasi)
-│   │   ├── validation/                    # Skema zod MURNI bersama form client & route (common, sites, auth, queue, posts, batches, …)
+│   │   ├── validation/                    # Skema zod MURNI bersama form client & route: common, auth, sites, agents, skills, lab, settings, webhooks, tools, posts, batches, queue
 │   │   ├── webhooks/                      # Dispatcher webhook dengan tanda tangan HMAC SHA-256
 │   │   ├── wordpress/                     # Klien REST API WordPress & pembuat nama aplikasi
 │   │   ├── crypto.ts                      # Enkripsi & dekripsi AES-256-GCM
+│   │   ├── sanitize-html.ts               # Sanitasi HTML hasil LLM sebelum dirender (allowlist konservatif)
+│   │   ├── search-params.ts               # firstParam(): nilai pertama searchParams halaman RSC
 │   │   └── utils.ts                       # Helper class merger Tailwind (`cn`)
 │   └── types/                             # Definisi TypeScript Sistem (tipe kanonis dari bentuk respons API)
+│       ├── agents.ts                      # AgentProfileRecord/Summary/Catalog, AgentToolOption
+│       ├── dashboard.ts                   # DashboardStats (KPI dasbor)
+│       ├── docs.ts                        # UserGuide (reader /docs)
+│       ├── lab.ts                         # LabRegistry & manifest situs/tool/Agent Profile
 │       ├── posts.ts                       # PostDetailResponse (detail, log eksekusi, AgentRunInfo/Totals, checkpoint)
 │       ├── queue.ts                       # PostItemState, QueueItem, PostListItem, Batch, BatchRef
 │       ├── settings.ts                    # Tipe data kunci BYOK, search, & notifikasi
 │       ├── site.ts                        # Site, SiteStatus, SiteRef, CreatedSite
 │       ├── skills.ts                      # Tipe data modul keahlian agen
+│       ├── tools.ts                       # Respons WP Tools (saran kategori/author, rekomendasi & penerapan tautan)
 │       └── webhook.ts                     # Definisi event webhook & payload
 ├── docker-compose.yml                     # Orkestrasi Docker (Aplikasi Next.js + SearXNG)
 ├── Dockerfile                             # Konfigurasi build image kontainer produksi
@@ -641,7 +651,7 @@ Semua route di `src/app/api/` memakai `defineRoute` (`src/server/http/route.ts`,
 - **Auth:** `user` (sesi Supabase wajib), `cron` (header `Authorization: Bearer <CRON_SECRET>`), `user-or-cron`, `public` (sesi opsional), `none` (tanpa Supabase).
 - **Validasi:** body/query/params lewat skema zod — skema murni yang juga dipakai form client di `src/lib/validation/` (mis. `sites.ts`), refinement/skema khusus server di `src/server/validation/`; input tidak valid → 400 `validation_failed` + `issues`.
 - **Proxy:** `src/proxy.ts` tidak berjalan untuk `/api/**` (matcher) dan tidak pernah me-redirect API; route memverifikasi sesinya sendiri dan membalas JSON 401.
-- **Client:** UI memanggil API lewat `apiFetch` (`src/lib/api/client.ts`) yang mengurai envelope dan melempar `ApiClientError { status, code, message, issues? }`; cache & invalidasi lewat TanStack Query (`queryKeys`, `src/lib/api/queries/<domain>.ts`). Tipe envelope bersama: `src/lib/api/contract.ts`.
+- **Client:** UI memanggil API lewat `apiFetch` (`src/lib/api/client.ts`) yang mengurai envelope dan melempar `ApiClientError { status, code, message, issues?, retryAfterSeconds? }` (`Retry-After` dari 429); cache & invalidasi lewat TanStack Query (`queryKeys`, `src/lib/api/queries/<domain>.ts`). Tipe envelope bersama: `src/lib/api/contract.ts`.
 - **Respons:** sukses `{ ok: true, ...data }`; error `{ ok: false, error, code, issues? }`. Error Postgres dipetakan tanpa membocorkan detail (23505 → 409, 23503/23514/23502 → 422, 22P02 → 400, 42501 → 403); kegagalan layanan eksternal → 502 `upstream_failed`.
 - **Rate limit** (sliding window di memori, per pengguna): `llm` 20/menit, `outboundTest` 15/menit, `enqueue` 30/menit.
 - **Logika bisnis** di `src/server/services/<domain>.ts` dengan signature `(supabase, userId, …)`; route tetap tipis. Akses lintas pengguna → 404.
@@ -650,14 +660,12 @@ Semua route di `src/app/api/` memakai `defineRoute` (`src/server/http/route.ts`,
 | :--- | :--- | :--- | :--- |
 | `/api/agents` | GET, POST | user | Preset + Agent Profile kustom; POST tervalidasi zod (201) |
 | `/api/agents/[id]` | GET, PUT, DELETE | user | `[id]` = UUID atau `preset:*` (GET saja); PUT parsial; DELETE = arsip; preset → 403 |
-| `/api/agents/templates` | GET | user | Template workflow prompt profil bawaan |
 | `/api/agents/tools` | GET | user | Katalog ToolRegistry + eligibilitas; `?siteId=` opsional (milik pengguna) |
 | `/api/ai/models` | GET | user, outboundTest | Katalog model OpenRouter (`?toolsOnly=false`); kunci belum tersimpan via header `x-openrouter-key` |
 | `/api/ai/test` | POST | user, llm | Uji kunci OpenRouter (`apiKey` opsional, default kunci BYOK tersimpan); kunci ditolak → 400 |
 | `/api/auth/me` | GET | public | Status sesi pengguna saat ini |
 | `/api/auth/signout` | POST | public | Mengakhiri sesi (aman dipanggil tanpa sesi) |
 | `/api/batches` | GET, POST, DELETE | user, enqueue (POST) | Daftar batch (+ grup virtual Tulis Cepat berbentuk sama, `wp_sites` selalu objek/null), pembuatan batch (hanya mengantrekan item lalu membangunkan runner; body ≤ 10 MB, skema `lib/validation/batches`), pembatalan/hapus batch |
-| `/api/docs` | GET | none | Panduan pengguna `docs/guides/0N-*.md` saja (dokumen internal di `docs/` tidak disajikan maupun ikut ke image) |
 | `/api/health` | GET | none | Healthcheck status layanan |
 | `/api/lab/registry` | GET | user + Developer Mode | Data pendukung sandbox: `{ sites, tools, profiles }` (Agent Profile bawaan + kustom) |
 | `/api/lab/run` | POST | user + Developer Mode, llm | Uji tool / Agent Profile (`type: "tool" \| "agent"`); kegagalan eksekusi = 200 `ok:false` (+`code`, `retryable`), keluaran diredaksi; putus koneksi → run dibatalkan |

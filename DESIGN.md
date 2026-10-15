@@ -168,6 +168,8 @@ Setiap peran status (`success`, `warning`, `destructive`, `ai-process`, `info`) 
 | slate / gray / zinc / neutral | `muted`, `muted-foreground`, `secondary`, `foreground/80`, `border` |
 
 Callout berwarna memakai atom `Alert` (`variant`: `default`/`destructive`/`success`/`warning`/`info`/`ai`), bukan div ber-kelas palet.
+Badge status memakai varian peran atom `Badge` (`success`/`warning`/`info`/`destructive`/`ai`: border `/30`, tint `/10`,
+teks `-strong`), bukan `variant="outline"` + kelas token manual.
 
 ---
 

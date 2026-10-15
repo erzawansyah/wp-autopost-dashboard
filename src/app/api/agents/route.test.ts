@@ -68,7 +68,6 @@ vi.mock("@/lib/settings/user-keys", () => ({
 }))
 
 import { GET as listAgents, POST as createAgent } from "@/app/api/agents/route"
-import { GET as getTemplates } from "@/app/api/agents/templates/route"
 import { GET as getTools } from "@/app/api/agents/tools/route"
 import { AGENT_PROFILE_INPUT_BOUNDS, DEFAULT_STANDARD_LIMITS } from "@/core/writer/types/profile"
 import { resetRateLimitStore } from "@/server/http/rate-limit"
@@ -115,7 +114,6 @@ beforeEach(() => {
 describe("auth wajib", () => {
   it.each([
     ["GET /api/agents", () => listAgents(new Request("http://localhost/api/agents"), noParams)],
-    ["GET /api/agents/templates", () => getTemplates(new Request("http://localhost/api/agents/templates"), noParams)],
     ["GET /api/agents/tools", () => getTools(new Request("http://localhost/api/agents/tools"), noParams)],
     ["POST /api/agents", () => createAgent(jsonRequest("/api/agents", validProfile), noParams)],
   ])("%s tanpa sesi → 401 tanpa membocorkan prompt bawaan", async (_name, call) => {
@@ -218,15 +216,7 @@ describe("GET /api/agents", () => {
   })
 })
 
-describe("GET /api/agents/templates & /api/agents/tools", () => {
-  it("templates hanya untuk pengguna login dan memuat prompt bawaan", async () => {
-    const res = await getTemplates(new Request("http://localhost/api/agents/templates"), noParams)
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.templates).toHaveLength(3)
-    expect(typeof body.templates[1].prompt).toBe("string")
-  })
-
+describe("GET /api/agents/tools", () => {
   it("tools: eligibilitas dihitung dari kunci BYOK; situs milik pengguna lain → 404", async () => {
     const res = await getTools(new Request(`http://localhost/api/agents/tools?siteId=${MY_SITE}`), noParams)
     expect(res.status).toBe(200)

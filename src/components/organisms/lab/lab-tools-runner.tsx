@@ -241,14 +241,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
               </Badge>
             )}
             {outcome && (
-              <Badge
-                variant="outline"
-                className={
-                  outcome.ok
-                    ? "border-success/30 bg-success/10 text-success-strong"
-                    : "border-destructive/30 bg-destructive/10 text-destructive-strong"
-                }
-              >
+              <Badge variant={outcome.ok ? "success" : "destructive"}>
                 {outcome.ok ? "Berhasil" : "Gagal"}
               </Badge>
             )}

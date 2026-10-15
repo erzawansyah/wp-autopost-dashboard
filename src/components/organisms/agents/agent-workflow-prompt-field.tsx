@@ -173,11 +173,8 @@ export function AgentWorkflowPromptField() {
                     <div className="flex flex-wrap items-center gap-1.5">
                       <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-bold text-foreground">{item.id}</code>
                       <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-2xs",
-                          item.type === "skill" ? "border-ai-process/40 text-ai-process-strong" : "text-muted-foreground"
-                        )}
+                        variant={item.type === "skill" ? "ai" : "outline"}
+                        className={cn("text-2xs", item.type !== "skill" && "text-muted-foreground")}
                       >
                         {item.role}
                       </Badge>

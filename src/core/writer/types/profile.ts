@@ -207,7 +207,7 @@ export interface AgentProfile {
   name: string
   description?: string
   mode: AgentMode
-  /** AI Model override, misal "openai/gpt-oss-120b". Kosong = ikuti setting global /settings/ai */
+  /** AI Model override, misal "openai/gpt-oss-120b". Kosong = ikuti model default akun (Pengaturan › Kunci API). */
   model?: string
   modelName?: string
   temperature: number

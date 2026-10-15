@@ -5,13 +5,14 @@ import { queryKeys } from "../query-keys"
 
 /**
  * Query options pengaturan pengguna (`/api/settings/user`): status kunci BYOK (hanya `configured`, tidak pernah
- * nilai kunci), preferensi model/pencarian/notifikasi, dan Developer Mode. Satu cache dipakai bersama
- * `/settings/keys`, `/settings/profile`, dan `useDeveloperMode` (menu Lab di sidebar).
+ * nilai kunci), preferensi model/pencarian/notifikasi, dan Developer Mode. `user()` dipakai bersama
+ * `/settings/keys` & Lab; `developerMode()` hanya menyimpan boolean untuk menu Lab di sidebar (`useDeveloperMode`).
  *
  *   const { data: settings } = useQuery({ ...settingsQueries.user(), initialData: initialSettings })
- *   const { data: developerMode } = useQuery({ ...settingsQueries.user(), select: selectDeveloperMode })
+ *   const { data: developerMode } = useQuery({ ...settingsQueries.developerMode(), initialData: serverValue })
  *
- * Setelah PUT `/api/settings/user` → `queryClient.invalidateQueries({ queryKey: queryKeys.settings.all })`.
+ * Setelah PUT `/api/settings/user` → `queryClient.invalidateQueries({ queryKey: queryKeys.settings.all })`
+ * (memperbarui kedua cache sekaligus).
  */
 export const settingsQueries = {
   user: () =>
@@ -19,9 +20,10 @@ export const settingsQueries = {
       queryKey: queryKeys.settings.user(),
       queryFn: ({ signal }) => apiFetch<UserSettings>("/api/settings/user", { signal }),
     }),
-}
-
-/** `select` status Developer Mode (`notification_prefs.developer_mode`). */
-export function selectDeveloperMode(settings: UserSettings): boolean {
-  return settings.developerMode === true
+  developerMode: () =>
+    queryOptions({
+      queryKey: queryKeys.settings.developerMode(),
+      queryFn: async ({ signal }) =>
+        (await apiFetch<UserSettings>("/api/settings/user", { signal })).developerMode === true,
+    }),
 }

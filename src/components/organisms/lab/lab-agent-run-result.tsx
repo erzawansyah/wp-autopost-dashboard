@@ -13,7 +13,6 @@ import {
   type LabAgentRun,
 } from "@/components/organisms/lab/lab-run"
 import { useSanitizedHtml } from "@/lib/sanitize-html"
-import { cn } from "@/lib/utils"
 
 function ArticlePreview({ run }: { run: LabAgentRun }) {
   const { article, enrichment } = run
@@ -197,13 +196,7 @@ function TelemetryPanel({ run }: { run: LabAgentRun }) {
                   {step.kind}
                 </Badge>
                 {step.tool && <code className="font-mono text-2xs text-foreground">{step.tool}</code>}
-                <Badge
-                  variant="outline"
-                  className={cn(
-                    "text-2xs",
-                    step.status === "ok" ? "border-success/30 text-success-strong" : "border-warning/30 text-warning-strong"
-                  )}
-                >
+                <Badge variant={step.status === "ok" ? "success" : "warning"} className="text-2xs">
                   {step.status}
                 </Badge>
                 <span className="ml-auto font-mono text-2xs text-muted-foreground">{formatDuration(step.durationMs)}</span>
@@ -229,7 +222,7 @@ export function LabAgentRunResult({ run }: { run: LabAgentRun }) {
             <p>{run.error.message}</p>
             <div className="flex flex-wrap items-center gap-1.5">
               {run.error.code && (
-                <Badge variant="outline" className="border-destructive/30 font-mono text-2xs text-destructive-strong">
+                <Badge variant="destructive" className="font-mono text-2xs">
                   {run.error.code}
                 </Badge>
               )}

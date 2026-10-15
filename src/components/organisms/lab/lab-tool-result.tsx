@@ -214,7 +214,7 @@ export function LabToolResult({ toolId, toolName, outcome }: LabToolResultProps)
           <p>{outcome.message}</p>
           <div className="flex flex-wrap items-center gap-1.5">
             {outcome.code && (
-              <Badge variant="outline" className="border-destructive/30 font-mono text-2xs text-destructive-strong">
+              <Badge variant="destructive" className="font-mono text-2xs">
                 {outcome.code}
               </Badge>
             )}

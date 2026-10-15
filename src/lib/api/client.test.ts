@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { ApiClientError, apiFetch, buildApiPath, isApiClientError } from "./client"
+import { ApiClientError, apiFetch, buildApiPath, isApiClientError, parseRetryAfter } from "./client"
 import { shouldRetryQuery } from "./query-client"
 
 function mockFetch(impl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
@@ -115,6 +115,31 @@ describe("apiFetch", () => {
     expect((error as DOMException).name).toBe("AbortError")
   })
 
+  it("menyimpan header Retry-After (detik) pada error 429", async () => {
+    mockFetch(
+      async () =>
+        new Response(JSON.stringify({ ok: false, error: "Terlalu banyak permintaan.", code: "rate_limited" }), {
+          status: 429,
+          headers: { "Content-Type": "application/json", "Retry-After": "12" },
+        })
+    )
+    const error = (await apiFetch("/api/tools/categories/suggest", { method: "POST", body: {} }).catch(
+      (e: unknown) => e
+    )) as ApiClientError
+    expect(error.code).toBe("rate_limited")
+    expect(error.retryAfterSeconds).toBe(12)
+  })
+
+  it("Retry-After juga terbaca pada respons non-JSON; tanpa header → undefined", async () => {
+    mockFetch(async () => new Response("Too Many Requests", { status: 429, headers: { "Retry-After": "3" } }))
+    const withHeader = (await apiFetch("/api/sites").catch((e: unknown) => e)) as ApiClientError
+    expect(withHeader.retryAfterSeconds).toBe(3)
+
+    mockFetch(async () => json({ ok: false, error: "Data tidak ditemukan.", code: "not_found" }, 404))
+    const withoutHeader = (await apiFetch("/api/sites/x").catch((e: unknown) => e)) as ApiClientError
+    expect(withoutHeader.retryAfterSeconds).toBeUndefined()
+  })
+
   it("mengembalikan objek kosong untuk 204", async () => {
     mockFetch(async () => new Response(null, { status: 204 }))
     await expect(apiFetch("/api/webhooks/1", { method: "DELETE" })).resolves.toEqual({})
@@ -136,5 +161,24 @@ describe("shouldRetryQuery", () => {
 
   it("tidak mencoba ulang error non-API (bug client)", () => {
     expect(shouldRetryQuery(0, new Error("bug"))).toBe(false)
+  })
+})
+
+describe("parseRetryAfter", () => {
+  const now = Date.parse("2026-10-15T10:00:00Z")
+
+  it("membaca delay-seconds", () => {
+    expect(parseRetryAfter("30", now)).toBe(30)
+    expect(parseRetryAfter(" 0 ", now)).toBe(0)
+  })
+
+  it("membaca HTTP-date relatif terhadap waktu sekarang (dibulatkan ke atas, tidak negatif)", () => {
+    expect(parseRetryAfter("Thu, 15 Oct 2026 10:00:42 GMT", now)).toBe(42)
+    expect(parseRetryAfter(new Date(now + 1500).toUTCString(), now)).toBe(1)
+    expect(parseRetryAfter("Thu, 15 Oct 2026 09:59:00 GMT", now)).toBe(0)
+  })
+
+  it.each([null, "", "   ", "-5", "1.5", "segera"])("nilai tidak valid %j → undefined", (value) => {
+    expect(parseRetryAfter(value, now)).toBeUndefined()
   })
 })

@@ -29,12 +29,14 @@ export class ApiClientError extends Error {
   readonly issues?: ApiIssue[]
   /** Body JSON mentah (sudah diredaksi server), mis. hasil parsial `/api/lab/run` yang 200 `ok: false`. */
   readonly payload?: unknown
+  /** Detik tunggu dari header `Retry-After` (mis. 429 `rate_limited`); `undefined` bila header tidak ada/tidak valid. */
+  readonly retryAfterSeconds?: number
 
   constructor(
     status: number,
     code: ApiClientErrorCode,
     message: string,
-    options: { issues?: ApiIssue[]; payload?: unknown; cause?: unknown } = {}
+    options: { issues?: ApiIssue[]; payload?: unknown; retryAfterSeconds?: number; cause?: unknown } = {}
   ) {
     super(message, { cause: options.cause })
     this.name = "ApiClientError"
@@ -42,6 +44,7 @@ export class ApiClientError extends Error {
     this.code = code
     this.issues = options.issues
     this.payload = options.payload
+    this.retryAfterSeconds = options.retryAfterSeconds
   }
 
   /** Layak dicoba ulang otomatis: jaringan putus atau kegagalan server (5xx). 4xx tidak pernah di-retry. */
@@ -125,15 +128,35 @@ function toIssues(value: unknown): ApiIssue[] | undefined {
   return issues.length > 0 ? issues : undefined
 }
 
+const DELTA_SECONDS = /^\d+$/
+/** HTTP-date selalu memuat nama hari/bulan; `Date.parse` V8 terlalu longgar untuk angka polos ("1.5", "-5"). */
+const HTTP_DATE_HINT = /[a-z]{3}/i
+
+/**
+ * Nilai header `Retry-After` dalam detik (RFC 9110 §10.2.3): `delay-seconds` atau HTTP-date (dihitung dari `now`,
+ * dibulatkan ke atas, minimal 0). Header kosong/tidak valid → `undefined`.
+ */
+export function parseRetryAfter(value: string | null, now: number = Date.now()): number | undefined {
+  const raw = value?.trim()
+  if (!raw) return undefined
+  if (DELTA_SECONDS.test(raw)) return Number(raw)
+  if (!HTTP_DATE_HINT.test(raw)) return undefined
+  const date = Date.parse(raw)
+  if (Number.isNaN(date)) return undefined
+  return Math.max(0, Math.ceil((date - now) / 1000))
+}
+
 /** Ubah respons gagal menjadi ApiClientError; pesan dari server dipakai bila ada (sudah aman & berbahasa Indonesia). */
-function errorFromBody(status: number, body: unknown): ApiClientError {
+function errorFromBody(response: Response, body: unknown): ApiClientError {
+  const { status } = response
+  const retryAfterSeconds = parseRetryAfter(response.headers.get("Retry-After"))
   const fallback = fallbackForStatus(status)
   if (isRecord(body) && body.ok === false) {
     const message = typeof body.error === "string" && body.error.trim() ? body.error : fallback.message
     const code = typeof body.code === "string" ? (body.code as ApiErrorCode) : fallback.code
-    return new ApiClientError(status, code, message, { issues: toIssues(body.issues), payload: body })
+    return new ApiClientError(status, code, message, { issues: toIssues(body.issues), payload: body, retryAfterSeconds })
   }
-  return new ApiClientError(status, fallback.code, fallback.message, { payload: body })
+  return new ApiClientError(status, fallback.code, fallback.message, { payload: body, retryAfterSeconds })
 }
 
 export async function apiFetch<T extends object = Record<string, never>>(
@@ -172,14 +195,14 @@ export async function apiFetch<T extends object = Record<string, never>>(
     parsed = await response.json()
   } catch (error) {
     if (isAbortError(error)) throw error
-    if (!response.ok) throw errorFromBody(response.status, undefined)
+    if (!response.ok) throw errorFromBody(response, undefined)
     throw new ApiClientError(response.status, "invalid_response", "Respons server tidak dapat dibaca. Coba lagi.", {
       cause: error,
     })
   }
 
   if (!response.ok || (isRecord(parsed) && parsed.ok === false)) {
-    throw errorFromBody(response.status, parsed)
+    throw errorFromBody(response, parsed)
   }
   if (!isRecord(parsed)) {
     throw new ApiClientError(response.status, "invalid_response", "Format respons server tidak dikenali.", {
