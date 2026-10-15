@@ -18,6 +18,13 @@
  * - arbitrary-color  : nilai warna mentah di komponen/halaman (text-[#…], bg-[rgb(…)], style color "#…").
  * - raw-fetch        : fetch() di kode server ke URL non-relatif yang bukan host tetap terdaftar;
  *                      URL dari pengguna/LLM wajib lewat safeFetch()/wpFetch.
+ * - raw-palette-color: kelas warna palet Tailwind mentah (`text-emerald-600`, `dark:bg-sky-950/40`,
+ *                      `border-t-rose-500`, …) — gunakan token peran (`text-success-strong`, `bg-info/10`, …;
+ *                      DESIGN.md §4). Dihitung per kemunculan (ratchet per berkas).
+ * - arbitrary-text-size: ukuran font arbitrer `text-[11px]`/`text-[0.7rem]` — gunakan skala resmi
+ *                      (`text-2xs`, `text-xs`, `text-sm`, …; DESIGN.md §5).
+ * - browser-dialog   : `alert()`/`confirm()`/`prompt()` (termasuk `window.*`) — gunakan `notify`
+ *                      (`@/lib/ui/notify`) dan `useConfirm()` (`@/lib/ui/confirm`).
  *
  * Allowlist: scripts/audit-allowlist.json
  * - `externalHosts`: host tetap yang boleh dipanggil dengan fetch() biasa, beserta alasannya.
@@ -57,6 +64,9 @@ const CHECK_IDS = [
   "legacy-term",
   "arbitrary-color",
   "raw-fetch",
+  "raw-palette-color",
+  "arbitrary-text-size",
+  "browser-dialog",
 ] as const
 type CheckId = (typeof CHECK_IDS)[number]
 
@@ -68,6 +78,9 @@ const CHECK_TITLES: Record<CheckId, string> = {
   "legacy-term": "Istilah legacy \"engine\" (gunakan Agent Profile)",
   "arbitrary-color": "Warna mentah/arbitrary di UI (gunakan token globals.css)",
   "raw-fetch": "fetch() mentah ke URL non-relatif (gunakan safeFetch/wpFetch)",
+  "raw-palette-color": "Kelas palet Tailwind mentah (gunakan token peran globals.css)",
+  "arbitrary-text-size": "Ukuran font arbitrer text-[Npx] (gunakan skala tipografi resmi)",
+  "browser-dialog": "alert()/confirm()/prompt() bawaan browser (gunakan notify & useConfirm)",
 }
 
 interface Finding {
@@ -509,7 +522,52 @@ for (const sf of srcSources) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. raw-fetch
+// 6. raw-palette-color, arbitrary-text-size & browser-dialog (ratchet Fase 4 frontend)
+// ---------------------------------------------------------------------------
+
+const PALETTE_HUES =
+  "slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose|mauve|olive|mist|taupe"
+const PALETTE_UTILITIES =
+  "text|bg|border(?:-[xytrblse])?|ring(?:-offset)?|outline|decoration|divide|from|via|to|fill|stroke|inset-shadow|shadow|placeholder|caret|accent"
+// Prefiks varian (`dark:`, `hover:`, `[&>svg]:`) dan modifier opasitas (`/40`) otomatis tercakup.
+const RAW_PALETTE_CLASS = new RegExp(`(?<![\\w-])(?:${PALETTE_UTILITIES})-(?:${PALETTE_HUES})-\\d{2,3}(?![\\w-])`, "g")
+const ARBITRARY_TEXT_SIZE = /(?<![\w-])text-\[\d*\.?\d+(?:px|rem|em)\]/g
+const BROWSER_DIALOG = /(?<![\w$.])(?:window\.)?(?:alert|confirm|prompt)\s*\(/g
+
+/** Kode dengan komentar DAN isi literal string dikosongkan (untuk mencari pemanggilan, bukan teks). */
+function codeWithoutLiterals(sf: SourceFile): string {
+  const out = sf.code.split("")
+  for (const lit of sf.literals) {
+    for (let k = lit.start; k < lit.end; k++) if (out[k] !== "\n") out[k] = " "
+  }
+  return out.join("")
+}
+
+function reportMatches(check: CheckId, sf: SourceFile, text: string, pattern: RegExp, hint: string): void {
+  for (const m of text.matchAll(pattern)) {
+    report(check, sf.file, lineAt(sf, m.index ?? 0), `${m[0]} — ${hint}`)
+  }
+}
+
+/** Nama yang dideklarasikan ulang di berkas (mis. `const confirm = useConfirm()`) bukan dialog browser. */
+const LOCAL_DIALOG_BINDING = /\b(?:const|let|var|function)\s+(alert|confirm|prompt)\b/g
+
+for (const sf of srcSources) {
+  if (sf.isTest) continue
+  reportMatches("raw-palette-color", sf, sf.code, RAW_PALETTE_CLASS, "pakai token peran (DESIGN.md §4)")
+  reportMatches("arbitrary-text-size", sf, sf.code, ARBITRARY_TEXT_SIZE, "pakai text-2xs/xs/sm (DESIGN.md §5)")
+
+  const code = codeWithoutLiterals(sf)
+  const localBindings = new Set([...code.matchAll(LOCAL_DIALOG_BINDING)].map((m) => m[1]))
+  for (const m of code.matchAll(BROWSER_DIALOG)) {
+    const call = m[0].replace(/\s*\($/, "")
+    if (!call.startsWith("window.") && localBindings.has(call)) continue
+    report("browser-dialog", sf.file, lineAt(sf, m.index ?? 0), `${call}() — pakai notify (@/lib/ui/notify) / useConfirm (@/lib/ui/confirm)`)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 7. raw-fetch
 // ---------------------------------------------------------------------------
 
 const RAW_FETCH = /(?:^|[^\w$])fetch\s*\(/g

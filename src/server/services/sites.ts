@@ -19,13 +19,14 @@ import {
 import { checkCallbackSession, resolveCallbackReturnBase } from "@/lib/wordpress/connect-callback"
 import { badRequest, conflict, notFound, throwIfDbError, unprocessable, upstreamFailed } from "@/server/http/errors"
 import type {
-  ConnectCallbackQuery,
   ConnectSiteInput,
   CreateAuthorInput,
   CreateCategoryInput,
   CreateSiteInput,
   TestSiteInput,
-} from "@/server/validation/sites"
+} from "@/lib/validation/sites"
+import type { ConnectCallbackQuery } from "@/server/validation/sites"
+import type { CreatedSite, Site } from "@/types/site"
 
 /**
  * Service situs WordPress milik tenant: daftar/registrasi situs, alur otorisasi Application Password,
@@ -35,25 +36,10 @@ import type {
 
 export const DUPLICATE_SITE_MESSAGE = "Website dengan alamat ini sudah terhubung ke akun Anda."
 
-/** Kolom aman untuk client (tanpa `encrypted_app_password`). */
+/** Kolom aman untuk client (tanpa `encrypted_app_password`) — bentuk tipe `Site` di `@/types/site`. */
 const SITE_LIST_COLUMNS =
   "id, site_name, base_url, wp_username, status, default_author_id, default_category_id, max_concurrency, last_checked_at, created_at"
 const SITE_CREATED_COLUMNS = "id, site_name, base_url, wp_username, status, created_at"
-
-export interface SiteSummary {
-  id: string
-  site_name: string
-  base_url: string
-  wp_username: string
-  status: string
-  default_author_id: number | null
-  default_category_id: number | null
-  max_concurrency: number
-  last_checked_at: string | null
-  created_at: string
-}
-
-export type CreatedSite = Pick<SiteSummary, "id" | "site_name" | "base_url" | "wp_username" | "status" | "created_at">
 
 interface SiteCredentials {
   baseUrl: string
@@ -71,14 +57,14 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "23505"
 }
 
-export async function listSites(supabase: SupabaseClient, userId: string): Promise<SiteSummary[]> {
+export async function listSites(supabase: SupabaseClient, userId: string): Promise<Site[]> {
   const { data, error } = await supabase
     .from("wp_sites")
     .select(SITE_LIST_COLUMNS)
     .eq("user_id", userId)
     .order("created_at", { ascending: false })
   throwIfDbError(error)
-  return (data ?? []) as SiteSummary[]
+  return (data ?? []) as Site[]
 }
 
 async function assertSiteNotRegistered(supabase: SupabaseClient, userId: string, baseUrl: string): Promise<void> {
@@ -222,7 +208,7 @@ export interface ConnectionCallbackContext {
 
 /**
  * Selesaikan callback otorisasi WordPress dan kembalikan URL redirect ke halaman /sites
- * (`auth_status` dibaca oleh `src/app/sites/page.tsx`). Tidak pernah melempar untuk kegagalan
+ * (`auth_status` dibaca oleh `src/app/(dashboard)/sites/page.tsx`). Tidak pernah melempar untuk kegagalan
  * yang diketahui agar pengguna selalu kembali ke aplikasi.
  */
 export async function completeSiteConnection(

@@ -1,6 +1,6 @@
 import { defineRoute } from "@/server/http/route"
 import { notFound, throwIfDbError } from "@/server/http/errors"
-import { IdParamsSchema } from "@/server/validation/common"
+import { IdParamsSchema } from "@/lib/validation/common"
 
 // DELETE /api/sites/[id] - Hapus situs WordPress milik pengguna
 export const DELETE = defineRoute({ auth: "user", params: IdParamsSchema }, async ({ supabase, user, params }) => {

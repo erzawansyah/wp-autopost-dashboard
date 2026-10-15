@@ -21,6 +21,7 @@ Skill proyek ada di `.claude/skills/`. Muat skill yang sesuai **sebelum** mulai 
 | Request/respons WordPress REST API, Application Passwords | `wp-rest-api` |
 | Uji posting ke WordPress lokal yang aman (sandbox) | `wp-playground` |
 | Menulis/meninjau Blueprint JSON WordPress Playground (fixture uji) | `blueprint` |
+| Membuat/merombak halaman dasbor (`src/app/(dashboard)/**`, `(auth)`), organism halaman, form RHF + zod, TanStack Query | `panitera-page` + `vercel-react-best-practices` (+ `shadcn` untuk atom baru) |
 | Menambah/mengubah API route (`src/app/api/**`), validasi zod, service layer | `panitera-api-route` |
 | Verifikasi sebelum menyatakan selesai / sebelum minta izin commit | `panitera-verify` |
 

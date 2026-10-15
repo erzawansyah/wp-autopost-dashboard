@@ -7,7 +7,7 @@ Skrip TypeScript yang dijalankan langsung oleh Node.js 22.18+ (type stripping ba
 
 | Skrip | Perintah | Fungsi | Di CI |
 | :--- | :--- | :--- | :--- |
-| `audit-codebase.ts` (+ `audit-allowlist.json`) | `npm run audit:hygiene` | Audit kebersihan: berkas yatim, prompt (memakai validasi `build-prompts.ts`), prompt hardcode, istilah legacy, warna arbitrer, raw fetch. | Ya |
+| `audit-codebase.ts` (+ `audit-allowlist.json`) | `npm run audit:hygiene` | Audit kebersihan: berkas yatim, prompt (memakai validasi `build-prompts.ts`), prompt hardcode, istilah legacy, warna arbitrer, raw fetch, palet Tailwind mentah, ukuran font `text-[Npx]`, `alert()`/`confirm()` (tiga terakhir: ratchet per berkas Fase 4). | Ya |
 | `build-prompts.ts` | `npm run prompts:build` (otomatis `prebuild`) | Validasi `src/core/shared/prompts/*.md` lalu generate `registry.generated.ts` yang dibundel Next.js. `-- --check`: gagal bila registry basi tanpa menulis. | Tidak langsung: `registry.test.ts` (di `npm test`) gagal bila registry basi/invalid |
 | `eval-writer.ts` | `npm run eval:writer` | Eval live `writer.run()` atas `evals/cases/*.json` dengan penilaian deterministik; laporan ke `.workspaces/evals/<timestamp>/`. | Tidak (memanggil LLM berbayar) |
 

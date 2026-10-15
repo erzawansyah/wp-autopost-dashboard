@@ -1,7 +1,7 @@
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
 import { testWebhook } from "@/server/services/webhooks"
-import { IdParamsSchema } from "@/server/validation/common"
+import { IdParamsSchema } from "@/lib/validation/common"
 
 // POST /api/webhooks/[id]/test — kirim event test.ping bertanda tangan HMAC; penerima gagal → 502
 export const POST = defineRoute(

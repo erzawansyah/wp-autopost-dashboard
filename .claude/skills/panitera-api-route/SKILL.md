@@ -14,7 +14,7 @@ import { z } from "zod"
 import { defineRoute } from "@/server/http/route"
 import { notFound, throwIfDbError } from "@/server/http/errors"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
-import { IdParamsSchema } from "@/server/validation/common"
+import { IdParamsSchema } from "@/lib/validation/common"
 import { updateSite } from "@/server/services/sites"
 
 const UpdateSiteBody = z.object({
@@ -34,7 +34,7 @@ export const PATCH = defineRoute(
 ## Aturan
 
 1. **Auth**: `"user"` (default untuk semua fitur pengguna), `"cron"` (header `Authorization: Bearer <CRON_SECRET>`), `"user-or-cron"`, `"public"` (sesi opsional, mis. `auth/me`, callback OAuth), `"none"` (tanpa client Supabase sama sekali: health, panduan statis).
-2. **Validasi**: setiap body/query/params lewat skema zod. Skema bersama di `src/server/validation/`. Query string selalu string → pakai `z.coerce.number()` dsb. Batasi panjang string & ukuran array. Body dibatasi `maxBodyBytes` (default 1 MB → 413 `payload_too_large`); naikkan hanya bila batas skema memang lebih besar (mis. batch 500 item).
+2. **Validasi**: setiap body/query/params lewat skema zod. Skema body yang juga dipakai form client ditulis MURNI di `src/lib/validation/<domain>.ts` (hanya `zod` + modul `lib/validation`; contoh `sites.ts`, blok bangunan `common.ts`); refinement yang butuh modul server (ToolRegistry, klien WordPress, validasi anti-SSRF) dan skema khusus route (callback, query internal) tetap di `src/server/validation/<domain>.ts`, mengimpor & `.extend()` skema dari `lib/validation`. Jangan menduplikasi skema yang sama di dua tempat. Query string selalu string → pakai `z.coerce.number()` dsb. Batasi panjang string & ukuran array. Body dibatasi `maxBodyBytes` (default 1 MB → 413 `payload_too_large`); naikkan hanya bila batas skema memang lebih besar (mis. batch 500 item).
 3. **Client DB**: `supabase` dari context = sesi pengguna (RLS aktif). Tetap filter `.eq("user_id", user.id)` (defense in depth). `createAdminClient()` hanya untuk proses sistem dan wajib filter `user_id` eksplisit.
 4. **Error**: lempar `ApiError` (`badRequest`, `notFound`, `conflict`, `unprocessable`, `forbidden`, `payloadTooLarge`, `upstreamFailed`) atau `throwIfDbError(error)` setelah query Supabase. Pemetaan otomatis: 23505→409, 23503/23514/23502→422, 22P02→400, 42501→403, ZodError→400, `SsrfBlockedError`→400. Jangan pernah mengirim `error.message` dari DB/library ke client.
 5. **Respons**: kembalikan objek (dibungkus `{ ok: true, ... }`). Error selalu `{ ok: false, error, code, issues? }`. Saat memigrasikan route lama, **pertahankan nama field sukses** yang dibaca client (cari pemanggil dengan `grep -rn "/api/<path>" src/app src/components src/lib`).

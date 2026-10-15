@@ -2,7 +2,7 @@ import { serverEnv } from "@/lib/env/server"
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
 import { resolveRequestOrigin, startSiteConnection } from "@/server/services/sites"
-import { ConnectSiteBodySchema } from "@/server/validation/sites"
+import { ConnectSiteBodySchema } from "@/lib/validation/sites"
 
 // POST /api/sites/connect — preflight REST API lalu buat URL otorisasi Application Password WordPress
 export const POST = defineRoute(

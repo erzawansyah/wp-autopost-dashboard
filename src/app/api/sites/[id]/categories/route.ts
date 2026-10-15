@@ -1,7 +1,7 @@
 import { defineRoute } from "@/server/http/route"
 import { createSiteCategory, listSiteCategories } from "@/server/services/sites"
-import { IdParamsSchema } from "@/server/validation/common"
-import { CreateCategoryBodySchema } from "@/server/validation/sites"
+import { IdParamsSchema } from "@/lib/validation/common"
+import { CreateCategoryBodySchema } from "@/lib/validation/sites"
 
 // GET /api/sites/[id]/categories — kategori dari situs WordPress milik pengguna
 export const GET = defineRoute({ auth: "user", params: IdParamsSchema }, async ({ supabase, user, params }) => {

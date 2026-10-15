@@ -27,7 +27,7 @@ npm run build                      # next build
 
 - Perbaiki **akar masalah**. Dilarang `@ts-ignore`, `any` tanpa alasan, `eslint-disable` tanpa komentar alasan, `.skip`/`.only` di test, atau melemahkan assertion agar hijau.
 - Test gagal di area yang tidak Anda sentuh: jalankan ulang sekali untuk memastikan bukan flaky, lalu laporkan ke pengguna — jangan "memperbaiki" kode orang lain diam-diam.
-- `audit:hygiene` gagal: hapus kode mati, pindahkan prompt ke `src/core/shared/prompts/*.md`, pakai istilah **Agent Profile**, token warna `globals.css`, dan `safeFetch()`/`wpFetch` untuk URL dari pengguna/LLM. Entri baru di `scripts/audit-allowlist.json` hanya bila memang disengaja, wajib `reason` jelas dan disetujui pengguna. Jika temuan berkurang, turunkan `max` entri terkait.
+- `audit:hygiene` gagal: hapus kode mati, pindahkan prompt ke `src/core/shared/prompts/*.md`, pakai istilah **Agent Profile**, token warna `globals.css` (bukan palet mentah `text-emerald-600`; DESIGN.md §4), skala tipografi resmi (bukan `text-[11px]`; DESIGN.md §5), `notify`/`useConfirm` (bukan `alert()`/`confirm()`), dan `safeFetch()`/`wpFetch` untuk URL dari pengguna/LLM. Entri baru di `scripts/audit-allowlist.json` hanya bila memang disengaja, wajib `reason` jelas dan disetujui pengguna. Jika temuan berkurang, turunkan `max` entri terkait.
 - Build gagal karena API Next.js: baca panduan di `node_modules/next/dist/docs/` (Next 16 berbeda dari data latih).
 
 ## Kapan Menambah Test

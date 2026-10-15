@@ -3,7 +3,7 @@ import { requestPostItemSyncRetry } from "@/core/queue/manual-actions"
 import { notFound, throwIfDbError } from "@/server/http/errors"
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
-import { IdParamsSchema } from "@/server/validation/common"
+import { IdParamsSchema } from "@/lib/validation/common"
 import { nudgeQueueRunner } from "@/server/queue/embedded"
 import { queueActionError } from "@/server/queue/action-errors"
 

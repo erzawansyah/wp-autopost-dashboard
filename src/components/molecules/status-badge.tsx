@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Badge } from "@/components/atoms/badge"
 import { cn } from "@/lib/utils"
+import type { PostItemState } from "@/types/queue"
 import {
   Clock,
   Sparkles,
@@ -12,23 +13,13 @@ import {
   AlertCircle,
 } from "lucide-react"
 
-export type PostItemState =
-  | "queued_input"
-  | "generating_content"
-  | "ready_to_sync"
-  | "syncing_to_wp"
-  | "published_on_wp"
-  | "scheduled_on_wp"
-  | "saved_draft_on_wp"
-  | "failed_generation"
-  | "failed_sync"
-
 interface StatusBadgeProps extends React.HTMLAttributes<HTMLDivElement> {
   status: PostItemState
   className?: string
   showIcon?: boolean
 }
 
+/** Peta 9 state antrean → label & token warna peran (DESIGN.md §8C). */
 const statusConfig: Record<
   PostItemState,
   {
@@ -45,51 +36,44 @@ const statusConfig: Record<
   },
   generating_content: {
     label: "Sedang Ditulis",
-    className:
-      "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800/50",
+    className: "bg-ai-process/10 text-ai-process-strong border-ai-process/30",
     icon: Sparkles,
     spin: true,
   },
   ready_to_sync: {
     label: "Siap Kirim",
-    className:
-      "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800/50",
+    className: "bg-info/10 text-info-strong border-info/30",
     icon: RefreshCw,
   },
   syncing_to_wp: {
     label: "Mengirim ke Web",
-    className:
-      "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/50",
+    className: "bg-info/15 text-info-strong border-info/40",
     icon: RefreshCw,
     spin: true,
   },
   published_on_wp: {
     label: "Sudah Terbit",
-    className:
-      "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/50",
+    className: "bg-success/10 text-success-strong border-success/30",
     icon: CheckCircle2,
   },
   scheduled_on_wp: {
     label: "Dijadwalkan",
-    className:
-      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/50",
+    className: "bg-warning/10 text-warning-strong border-warning/30",
     icon: Calendar,
   },
   saved_draft_on_wp: {
     label: "Tersimpan Draf",
-    className: "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-800/60 dark:text-slate-300 dark:border-slate-700",
+    className: "bg-secondary text-secondary-foreground border-border",
     icon: FileEdit,
   },
   failed_generation: {
     label: "Gagal Tulis",
-    className:
-      "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800/50",
+    className: "bg-destructive/10 text-destructive-strong border-destructive/30",
     icon: AlertTriangle,
   },
   failed_sync: {
     label: "Gagal Kirim",
-    className:
-      "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800/50",
+    className: "bg-destructive/15 text-destructive-strong border-destructive/40",
     icon: AlertCircle,
   },
 }
@@ -108,13 +92,14 @@ export function StatusBadge({
       <Badge
         variant="outline"
         className={cn(
-          "text-[11px] h-5 px-2 font-medium gap-1.5 transition-colors shadow-none",
+          "h-5 gap-1.5 px-2 text-xs font-medium shadow-none transition-colors",
           config.className
         )}
       >
         {showIcon && (
           <Icon
-            className={cn("size-3 shrink-0", config.spin && "animate-spin")}
+            aria-hidden="true"
+            className={cn("size-3 shrink-0", config.spin && "animate-spin motion-reduce:animate-none")}
           />
         )}
         <span>{config.label}</span>

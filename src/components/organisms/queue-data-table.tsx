@@ -11,7 +11,8 @@ import {
 } from "@/components/atoms/table"
 import { Checkbox } from "@/components/atoms/checkbox"
 import { Button } from "@/components/atoms/button"
-import { StatusBadge, PostItemState } from "@/components/molecules/status-badge"
+import { StatusBadge } from "@/components/molecules/status-badge"
+import type { PostItemState } from "@/types/queue"
 import { SiteBadge } from "@/components/molecules/site-badge"
 import { SearchInput } from "@/components/molecules/search-input"
 import { EmptyState } from "@/components/molecules/empty-state"
@@ -508,9 +509,13 @@ export function QueueDataTable({
                   <EmptyState
                     title="Tidak ada artikel yang cocok"
                     description="Coba ubah kata kunci pencarian atau ganti filter status di atas."
-                    actionLabel={isFilterActive ? "Reset Semua Filter" : undefined}
-                    onAction={isFilterActive ? handleResetFilters : undefined}
-                  />
+                  >
+                    {isFilterActive && (
+                      <Button size="sm" onClick={handleResetFilters} className="cursor-pointer gap-2">
+                        Reset Semua Filter
+                      </Button>
+                    )}
+                  </EmptyState>
                 </TableCell>
               </TableRow>
             ) : (

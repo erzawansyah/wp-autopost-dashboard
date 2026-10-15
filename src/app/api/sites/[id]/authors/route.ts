@@ -1,7 +1,7 @@
 import { defineRoute } from "@/server/http/route"
 import { createSiteAuthor, listSiteAuthors } from "@/server/services/sites"
-import { IdParamsSchema } from "@/server/validation/common"
-import { CreateAuthorBodySchema } from "@/server/validation/sites"
+import { IdParamsSchema } from "@/lib/validation/common"
+import { CreateAuthorBodySchema } from "@/lib/validation/sites"
 
 // GET /api/sites/[id]/authors — daftar user (author) dari situs WordPress milik pengguna
 export const GET = defineRoute({ auth: "user", params: IdParamsSchema }, async ({ supabase, user, params }) => {

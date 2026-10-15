@@ -1,7 +1,7 @@
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
 import { testSiteConnection } from "@/server/services/sites"
-import { TestSiteBodySchema } from "@/server/validation/sites"
+import { TestSiteBodySchema } from "@/lib/validation/sites"
 
 // POST /api/sites/test — uji Application Password ke WordPress tanpa menyimpan.
 // Wajib sesi + rate limit: tanpa itu endpoint menjadi open relay uji kredensial & SSRF.

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
-import { TooltipProvider } from "@/components/atoms/tooltip";
+import { AppProviders } from "@/components/providers/app-providers";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   variable: "--font-sans",
@@ -16,7 +16,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Panitera | Publishing Desk",
+  // Halaman (Server Component) cukup `export const metadata = { title: "Daftar Website" }` → "Daftar Website | Panitera".
+  title: { default: "Panitera | Publishing Desk", template: "%s | Panitera" },
   description: "Platform penerbitan artikel multi-situs WordPress bertenaga AI dengan riset otonom dan kurasi media terintegrasi.",
   icons: {
     icon: [
@@ -60,9 +61,7 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-full flex flex-col font-sans bg-background text-foreground">
-        <TooltipProvider delayDuration={180} skipDelayDuration={120}>
-          {children}
-        </TooltipProvider>
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

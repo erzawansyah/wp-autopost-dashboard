@@ -1,50 +1,65 @@
+"use client"
+
 import * as React from "react"
-import { Label } from "@/components/atoms/label"
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/atoms/field"
 import { HelpTooltip } from "@/components/molecules/help-tooltip"
 import { cn } from "@/lib/utils"
 
-interface FormFieldProps extends React.HTMLAttributes<HTMLDivElement> {
+export interface FormFieldProps extends Omit<React.HTMLAttributes<HTMLDivElement>, "children"> {
+  /** `id` kontrol di dalamnya; dipakai `htmlFor` label serta id hint/error (`${id}-hint`, `${id}-error`). */
   id?: string
   label?: string
   required?: boolean
   error?: string
-  hint?: string
+  hint?: React.ReactNode
   tooltip?: React.ReactNode
   children: React.ReactNode
 }
 
-export function FormField({
-  id,
-  label,
-  required,
-  error,
-  hint,
-  tooltip,
-  children,
-  className,
-  ...props
-}: FormFieldProps) {
+/** id elemen hint/error untuk `aria-describedby` kontrol (pasangan dari `FormField`). */
+export function formFieldDescribedBy(id: string, { error, hint }: { error?: string; hint?: React.ReactNode }) {
+  if (error) return `${id}-error`
+  if (hint) return `${id}-hint`
+  return undefined
+}
+
+/**
+ * Kerangka satu field form (label + petunjuk + kontrol + hint/error) di atas atom shadcn `Field`.
+ * Presentasional: dipakai langsung oleh form lama, dan oleh `ControlledField` (react-hook-form + zod)
+ * yang otomatis mengisi `error`, `aria-invalid`, dan `aria-describedby`. Form baru → pakai `ControlledField`.
+ */
+export function FormField({ id, label, required, error, hint, tooltip, children, className, ...props }: FormFieldProps) {
+  const invalid = Boolean(error)
+
   return (
-    <div className={cn("flex flex-col gap-1.5 w-full", className)} {...props}>
+    <Field data-invalid={invalid || undefined} className={cn("gap-1.5", className)} {...props}>
       {label && (
-        <div className="flex h-5 items-center justify-between">
-          <Label
+        <div className="flex min-h-5 items-center gap-1.5">
+          <FieldLabel
             htmlFor={id}
-            className="text-xs font-semibold text-foreground/90 select-none flex items-center gap-1.5"
+            className="gap-1 text-xs font-semibold text-foreground/90 select-none group-data-[invalid=true]/field:text-destructive"
           >
             <span>{label}</span>
-            {required && <span className="text-destructive">*</span>}
-            {tooltip && <HelpTooltip content={tooltip} />}
-          </Label>
+            {required && (
+              <span aria-hidden="true" className="text-destructive">
+                *
+              </span>
+            )}
+          </FieldLabel>
+          {tooltip && <HelpTooltip content={tooltip} />}
         </div>
       )}
       {children}
       {hint && !error && (
-        <p className="text-[11px] text-muted-foreground leading-normal">{hint}</p>
+        <FieldDescription id={id ? `${id}-hint` : undefined} className="text-xs leading-normal">
+          {hint}
+        </FieldDescription>
       )}
       {error && (
-        <p className="text-[11px] font-medium text-destructive leading-normal">{error}</p>
+        <FieldError id={id ? `${id}-error` : undefined} className="text-xs leading-normal font-medium">
+          {error}
+        </FieldError>
       )}
-    </div>
+    </Field>
   )
 }

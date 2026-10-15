@@ -1,5 +1,5 @@
 import { defineRoute } from "@/server/http/route"
-import { IdParamsSchema } from "@/server/validation/common"
+import { IdParamsSchema } from "@/lib/validation/common"
 import { UpdateSkillBodySchema } from "@/server/validation/skills"
 import { deleteSkill, getSkill, updateSkill } from "@/server/services/skills"
 

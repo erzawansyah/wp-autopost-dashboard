@@ -1,31 +1,14 @@
 import "server-only"
 import { ZodError } from "zod"
+import type { ApiErrorCode, ApiIssue } from "@/lib/api/contract"
 import { ResponseTooLargeError, SsrfBlockedError } from "@/lib/net/safe-fetch"
 
 /**
- * Kontrak error API Panitera. Semua route mengembalikan error dengan bentuk:
+ * Kontrak error API Panitera (tipe di `@/lib/api/contract`). Semua route mengembalikan error dengan bentuk:
  *   { ok: false, error: "<pesan Indonesia untuk pengguna>", code: "<kode_mesin>", issues?: [...] }
  * `error` tetap string agar kompatibel dengan client lama yang membaca `data.error`.
  * Pesan internal (Postgres, stack, URL internal) tidak pernah dikirim ke client.
  */
-
-export type ApiErrorCode =
-  | "bad_request"
-  | "validation_failed"
-  | "unauthorized"
-  | "forbidden"
-  | "not_found"
-  | "conflict"
-  | "payload_too_large"
-  | "unprocessable"
-  | "rate_limited"
-  | "upstream_failed"
-  | "internal_error"
-
-export interface ApiIssue {
-  path: string
-  message: string
-}
 
 export class ApiError extends Error {
   readonly status: number

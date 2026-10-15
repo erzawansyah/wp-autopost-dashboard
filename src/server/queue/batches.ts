@@ -1,15 +1,10 @@
 import "server-only"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { throwIfDbError } from "@/server/http/errors"
+import type { SiteRef } from "@/types/site"
 
 const FINAL_SUCCESS_STATES = new Set(["published_on_wp", "saved_draft_on_wp", "scheduled_on_wp"])
 const ACTIVE_STATES = new Set(["queued_input", "generating_content", "ready_to_sync", "syncing_to_wp"])
-
-interface SiteSummary {
-  id: string
-  site_name: string
-  base_url: string
-}
 
 /**
  * Daftar batch milik pengguna, diawali grup virtual "Tulis Cepat" (item tanpa batch) bila ada.
@@ -56,7 +51,7 @@ export async function listBatchesWithQuickWriter(
   if (quickItems.length === 0) return batches ?? []
 
   const latestItem = quickItems[0]
-  const latestSite: SiteSummary | undefined = Array.isArray(latestItem.wp_sites)
+  const latestSite: SiteRef | undefined = Array.isArray(latestItem.wp_sites)
     ? latestItem.wp_sites[0]
     : (latestItem.wp_sites ?? undefined)
 

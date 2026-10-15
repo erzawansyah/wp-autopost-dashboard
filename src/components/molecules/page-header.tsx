@@ -1,8 +1,6 @@
-"use client"
-
 import * as React from "react"
 import Link from "next/link"
-import { LucideIcon, ChevronLeft } from "lucide-react"
+import { ChevronLeft, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/atoms/button"
 
@@ -29,6 +27,8 @@ export interface PageHeaderProps {
  * Komponen Standar Header Halaman (Atomic Molecule)
  * Memastikan hierarki visual judul, deskripsi, ikon, dan tombol aksi selalu konsisten
  * di seluruh modul aplikasi sesuai pedoman DESIGN.md.
+ * Tanpa "use client" agar page Server Component dapat mengoper `icon={IkonLucide}` (komponen tidak
+ * dapat diserialisasi melewati batas client). Isi `actions` interaktif → Client Component tersendiri.
  */
 export function PageHeader({
   title,

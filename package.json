@@ -20,11 +20,13 @@
         "db:push": "supabase db push"
     },
     "dependencies": {
+        "@hookform/resolvers": "^5.9.1",
         "@langchain/core": "^1.2.12",
         "@langchain/langgraph": "^1.4.17",
         "@langchain/openrouter": "^0.4.13",
         "@supabase/ssr": "^0.12.7",
         "@supabase/supabase-js": "^2.117.1",
+        "@tanstack/react-query": "^5.104.1",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "deepagents": "^1.14.1",
@@ -36,9 +38,11 @@
         "radix-ui": "^1.6.7",
         "react": "19.2.8",
         "react-dom": "19.2.8",
+        "react-hook-form": "^7.89.0",
         "remark-gfm": "^4.0.1",
         "remark-parse": "^11.0.0",
         "server-only": "^0.0.1",
+        "sonner": "^2.0.8",
         "tailwind-merge": "^3.7.0",
         "undici": "^8.12.1",
         "unified": "^11.0.5",
@@ -47,6 +51,7 @@
     "devDependencies": {
         "@electric-sql/pglite": "^0.5.10",
         "@tailwindcss/postcss": "^4",
+        "@tanstack/react-query-devtools": "^5.104.1",
         "@types/mdast": "^4.0.4",
         "@types/node": "^22.20.5",
         "@types/react": "^19",

@@ -3,17 +3,28 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Globe, LogOut, ChevronRight } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import { ModeToggle } from "@/components/molecules/mode-toggle"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/atoms/dropdown-menu"
+import { apiFetch } from "@/lib/api/client"
+import { sitesQueries } from "@/lib/api/queries/sites"
+import { LOGIN_PATH } from "@/lib/auth/routes"
+import { notify } from "@/lib/ui/notify"
+
+/** Data pengguna yang dikirim layout `(dashboard)` ke shell (hanya field aman untuk browser). */
+export interface ShellUser {
+  email: string
+}
 
 const ROUTE_LABELS: Record<string, string> = {
   sites: "Daftar Website",
@@ -35,10 +46,6 @@ const ROUTE_LABELS: Record<string, string> = {
 
 function getBreadcrumbs(pathname: string) {
   const parts = pathname.split("/").filter(Boolean)
-  if (parts.length === 0) {
-    return [{ label: "Dashboard", href: "/" }]
-  }
-
   const items = [{ label: "Dashboard", href: "/" }]
   let currentPath = ""
 
@@ -47,146 +54,109 @@ function getBreadcrumbs(pathname: string) {
     const isLast = index === parts.length - 1
     const label =
       ROUTE_LABELS[part] ||
-      (part.length > 20
-        ? "Detail"
-        : part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, " "))
-    items.push({
-      label,
-      href: isLast ? "" : currentPath,
-    })
+      (part.length > 20 ? "Detail" : part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, " "))
+    items.push({ label, href: isLast ? "" : currentPath })
   })
 
   return items
 }
 
-export function TopNavbar() {
+export function TopNavbar({ user }: { user: ShellUser }) {
   const router = useRouter()
   const pathname = usePathname()
-  const [currentUser, setCurrentUser] = React.useState<{ id: string; email: string } | null>(null)
-  const [sites, setSites] = React.useState<Array<{ id: string; site_name: string }>>([])
+  const queryClient = useQueryClient()
+  const [isSigningOut, setIsSigningOut] = React.useState(false)
+  const { data: sites } = useQuery(sitesQueries.list())
 
   const breadcrumbs = React.useMemo(() => getBreadcrumbs(pathname), [pathname])
-
-  React.useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.user) {
-          setCurrentUser(data.user)
-        }
-      })
-      .catch(() => {})
-
-    fetch("/api/sites")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.sites) {
-          setSites(data.sites)
-        }
-      })
-      .catch(() => {})
-  }, [])
+  const initials = user.email.slice(0, 2).toUpperCase() || "?"
 
   const handleSignOut = async () => {
+    setIsSigningOut(true)
     try {
-      await fetch("/api/auth/signout", { method: "POST" })
-      router.push("/login")
+      await apiFetch("/api/auth/signout", { method: "POST" })
+    } catch (error) {
+      // Cookie sesi lokal tetap dihapus server bila revoke global gagal; tetap arahkan ke login.
+      notify.error(error, { fallback: "Gagal mengakhiri sesi di server. Anda tetap dikeluarkan dari perangkat ini." })
+    } finally {
+      // Cache milik akun ini tidak boleh terbaca akun berikutnya di tab yang sama.
+      queryClient.clear()
+      router.replace(LOGIN_PATH)
       router.refresh()
-    } catch {
-      router.push("/login")
     }
   }
 
   return (
-    <header className="sticky top-0 z-30 flex min-h-[64px] items-center justify-between gap-4 border-b border-border/80 bg-background/85 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
-      {/* Left: Dynamic Breadcrumb */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs min-w-0">
-        {breadcrumbs.map((crumb, idx) => {
-          const isLast = idx === breadcrumbs.length - 1
-          return (
-            <React.Fragment key={idx}>
-              {idx > 0 && (
-                <ChevronRight className="size-3.5 text-muted-foreground/40 shrink-0" />
-              )}
-              {isLast ? (
-                <span className="font-semibold text-foreground truncate max-w-[200px] sm:max-w-xs">
-                  {crumb.label}
-                </span>
-              ) : (
-                <Link
-                  href={crumb.href}
-                  className="text-muted-foreground hover:text-foreground transition-colors truncate max-w-[140px]"
-                >
-                  {crumb.label}
-                </Link>
-              )}
-            </React.Fragment>
-          )
-        })}
+    <header className="sticky top-0 z-30 flex min-h-16 items-center justify-between gap-4 border-b border-border/80 bg-background/85 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 text-xs">
+        <ol className="flex min-w-0 items-center gap-1.5">
+          {breadcrumbs.map((crumb, idx) => {
+            const isLast = idx === breadcrumbs.length - 1
+            return (
+              <li key={`${crumb.label}-${idx}`} className="flex min-w-0 items-center gap-1.5">
+                {idx > 0 && <ChevronRight aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground/40" />}
+                {isLast ? (
+                  <span aria-current="page" className="max-w-52 truncate font-semibold text-foreground sm:max-w-xs">
+                    {crumb.label}
+                  </span>
+                ) : (
+                  <Link
+                    href={crumb.href}
+                    className="max-w-36 truncate rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                  >
+                    {crumb.label}
+                  </Link>
+                )}
+              </li>
+            )
+          })}
+        </ol>
       </nav>
 
-      {/* Right: Mode Toggle & User Controls */}
       <div className="flex items-center gap-2.5">
         <ModeToggle />
 
-        {/* User Auth Dropdown */}
-        {currentUser ? (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-9 rounded-full bg-primary/10 text-primary font-bold text-xs hover:bg-primary/20 cursor-pointer"
-                title={currentUser.email}
-              >
-                {currentUser.email.slice(0, 2).toUpperCase()}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56 text-xs">
-              <DropdownMenuLabel className="font-normal">
-                <div className="flex flex-col space-y-1">
-                  <p className="text-xs font-medium leading-none text-foreground">Akun</p>
-                  <p className="text-[11px] leading-none text-muted-foreground truncate font-mono">
-                    {currentUser.email}
-                  </p>
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9 cursor-pointer rounded-full bg-primary/10 text-xs font-bold text-primary hover:bg-primary/20"
+              aria-label={`Menu akun ${user.email}`}
+              title={user.email}
+            >
+              {initials}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56 text-xs">
+            <DropdownMenuLabel className="font-normal">
+              <div className="flex flex-col gap-1">
+                <p className="text-xs leading-none font-medium text-foreground">Akun</p>
+                <p className="truncate font-mono text-xs leading-none text-muted-foreground">{user.email}</p>
+              </div>
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
               <DropdownMenuItem asChild className="cursor-pointer">
                 <Link href="/sites" className="flex items-center gap-2">
-                  <Globe className="size-3.5" />
-                  <span>Kelola Website ({sites.length})</span>
+                  <Globe aria-hidden="true" className="size-3.5" />
+                  <span>Kelola Website{sites ? ` (${sites.length})` : ""}</span>
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
               <DropdownMenuItem
-                onClick={handleSignOut}
-                className="cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10 flex items-center gap-2"
+                onSelect={handleSignOut}
+                disabled={isSigningOut}
+                className="flex cursor-pointer items-center gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive"
               >
-                <LogOut className="size-3.5" />
-                <span>Keluar</span>
+                <LogOut aria-hidden="true" className="size-3.5" />
+                <span>{isSigningOut ? "Mengeluarkan…" : "Keluar"}</span>
               </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ) : (
-          <div className="flex items-center gap-1.5">
-            <Button
-              variant="outline"
-              size="xs"
-              asChild
-              className="text-xs cursor-pointer"
-            >
-              <Link href="/login">Masuk</Link>
-            </Button>
-            <Button
-              size="xs"
-              asChild
-              className="text-xs cursor-pointer bg-primary hover:bg-primary/90 text-primary-foreground"
-            >
-              <Link href="/login?tab=register">Daftar</Link>
-            </Button>
-          </div>
-        )}
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   )

@@ -1,5 +1,3 @@
-"use client"
-
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
@@ -19,6 +17,7 @@ export interface PageContainerProps extends React.HTMLAttributes<HTMLDivElement>
 /**
  * Komponen Standar Pembungkus Konten Halaman (Template Layout)
  * Menjamin lebar container dan padding selalu seragam dan konsisten di seluruh aplikasi.
+ * Tanpa "use client": dapat dirender langsung oleh page Server Component maupun Client Component.
  */
 export function PageContainer({
   children,

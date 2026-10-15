@@ -1,7 +1,7 @@
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
 import { createSite, listSites } from "@/server/services/sites"
-import { CreateSiteBodySchema } from "@/server/validation/sites"
+import { CreateSiteBodySchema } from "@/lib/validation/sites"
 
 // GET /api/sites — daftar situs WordPress milik pengguna (tanpa kredensial)
 export const GET = defineRoute({ auth: "user" }, async ({ supabase, user }) => {

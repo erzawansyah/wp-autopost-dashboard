@@ -33,7 +33,7 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 2. **Draft-first.** Uji ke WordPress nyata selalu `status: "draft"` kecuali pengguna eksplisit meminta `publish`.
 3. **Tanpa commit/push otomatis.** `git commit` dan `git push` hanya atas instruksi atau persetujuan eksplisit pengguna (`.claude/settings.json` meminta konfirmasi).
 4. **Tanpa secret di repo.** Secret hanya di `.env.local`. Hook `guard-secrets` memblokir penulisan pola secret dan akses ke `.env*`.
-5. **Komponen dulu, halaman belakangan** (Atomic Design), **zero arbitrary hex**, dan setiap halaman memakai `PageContainer` + `PageHeader`.
+5. **Komponen dulu, halaman belakangan** (Atomic Design), **zero arbitrary hex** (juga tanpa palet Tailwind mentah & `text-[Npx]`), dan setiap halaman memakai `PageContainer` + `PageHeader`. Halaman dasbor di route group `src/app/(dashboard)/` (shell & cek sesi di layout-nya), auth di `src/app/(auth)/`; resep halaman/form/data client: skill `panitera-page`.
 6. **Writer:** Agent Profile Runtime, Pre-Flight Resolver, 6 Universal Tools riset/visual, Markdown-first → Gutenberg, anti-loop guards.
 7. **Prompt LLM tidak pernah di-hardcode** — selalu berkas `.md` di `src/core/shared/prompts/` (pilar `wp-tools-*`, `system-*`, `agent-*`).
 8. **Zero dead code**, istilah konsisten **Agent Profile**, dan verifikasi sebelum menyatakan selesai:
@@ -59,7 +59,7 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 | [`.claude/rules/page-layout-standard.md`](.claude/rules/page-layout-standard.md) | `PageContainer` + `PageHeader` (aktif di `src/app/**/page.tsx`). |
 | [`.claude/rules/writer-components-standard.md`](.claude/rules/writer-components-standard.md) | Agent Profile Runtime, tools, guards, queue (aktif di `src/core/writer/**`, queue, API writer). |
 | [`.claude/rules/prompt-management.md`](.claude/rules/prompt-management.md) | 3 pilar prompt & format berkas (aktif di `src/core/**`, `src/lib/ai/**`, `src/app/api/**`). |
-| [`.claude/skills/`](.claude/skills/) | Skill teknis pihak ketiga (Next/React, shadcn, Tailwind, TanStack Table, Supabase, LangChain/LangGraph/Deep Agents, WordPress) + skill proyek `panitera-*` (migrasi DB, verifikasi). |
+| [`.claude/skills/`](.claude/skills/) | Skill teknis pihak ketiga (Next/React, shadcn, Tailwind, TanStack Table, Supabase, LangChain/LangGraph/Deep Agents, WordPress) + skill proyek `panitera-*` (migrasi DB, API route, halaman, verifikasi). |
 | [`supabase/`](supabase/) | Migrasi skema + RLS, seed, dan test DB PGlite (`npm run db:test`). |
 | [`.mcp.json`](.mcp.json) | MCP Supabase (read-only), Next DevTools, Playwright — lihat README. |
 | [`.claude/settings.json`](.claude/settings.json) + [`.claude/hooks/`](.claude/hooks/) | Izin, pengaman secret, dan `npm ci` otomatis di sesi cloud. |

@@ -4,7 +4,7 @@ import { findPostItemOwner, requestPostItemRun } from "@/core/queue/manual-actio
 import { ApiError, badRequest, notFound } from "@/server/http/errors"
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
-import { UuidSchema } from "@/server/validation/common"
+import { UuidSchema } from "@/lib/validation/common"
 import { queueActionError } from "@/server/queue/action-errors"
 import { triggerQueueCycle, type QueueTriggerOutcome } from "@/server/queue/embedded"
 

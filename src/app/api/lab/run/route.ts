@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
-import { UuidSchema } from "@/server/validation/common"
+import { UuidSchema } from "@/lib/validation/common"
 import { assertLabAccess, runLabAgentProfile, runLabTool } from "@/server/services/lab"
 
 const TargetIdSchema = z.string().trim().min(1).max(100)

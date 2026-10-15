@@ -1,20 +1,7 @@
 import { z } from "zod"
-import { UuidSchema } from "@/server/validation/common"
+import { UuidSchema } from "@/lib/validation/common"
 
-/** Skema zod bersama route antrean (`/api/posts/**`, `/api/batches`, `/api/queue/**`). */
-
-/** 9 state antrean PRD §4. */
-export const PostItemStateSchema = z.enum([
-  "queued_input",
-  "generating_content",
-  "ready_to_sync",
-  "syncing_to_wp",
-  "published_on_wp",
-  "scheduled_on_wp",
-  "saved_draft_on_wp",
-  "failed_generation",
-  "failed_sync",
-])
+/** Skema zod bersama route antrean (`/api/posts/**`, `/api/batches`, `/api/queue/**`). Enum state: `@/lib/validation/queue`. */
 
 /** Teks opsional: di-trim; kosong/null → `undefined`. */
 export const OptionalTextSchema = (max: number) =>

@@ -1,6 +1,6 @@
 import { defineRoute } from "@/server/http/route"
 import { deleteWebhook, updateWebhook } from "@/server/services/webhooks"
-import { IdParamsSchema } from "@/server/validation/common"
+import { IdParamsSchema } from "@/lib/validation/common"
 import { UpdateWebhookBodySchema } from "@/server/validation/webhooks"
 
 // PATCH /api/webhooks/[id] — ubah nama, URL, event, atau status aktif webhook milik pengguna

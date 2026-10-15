@@ -30,12 +30,23 @@
     --input: #cbd5e1;
     --ring: #881337;
 
+    /* Peran status: `--x` = isian solid (dot, progress, ikon), `--x-foreground` = teks/ikon DI ATAS isian solid,
+       `--x-strong` = teks/ikon berwarna peran di atas background/card/muted & tint `bg-x/10` (kontras AA ≥ 4.5:1). */
     --success: #059669;
+    --success-foreground: #ffffff;
+    --success-strong: #047857;
     --warning: #f59e0b;
+    --warning-foreground: #0f172a;
+    --warning-strong: #92400e;
     --destructive: #e11d48;
     --destructive-foreground: #ffffff;
+    --destructive-strong: #be123c;
     --ai-process: #8b5cf6;
+    --ai-process-foreground: #ffffff;
+    --ai-process-strong: #6d28d9;
     --info: #0ea5e9;
+    --info-foreground: #0f172a;
+    --info-strong: #0369a1;
 
     --radius: 0.5rem;
 
@@ -77,11 +88,20 @@
     --ring: #fbbf24;
 
     --success: #10b981;
+    --success-foreground: #0b0f19;
+    --success-strong: #6ee7b7;
     --warning: #fbbf24;
+    --warning-foreground: #0b0f19;
+    --warning-strong: #fcd34d;
     --destructive: #f43f5e;
     --destructive-foreground: #ffffff;
+    --destructive-strong: #fda4af;
     --ai-process: #a78bfa;
+    --ai-process-foreground: #0b0f19;
+    --ai-process-strong: #c4b5fd;
     --info: #38bdf8;
+    --info-foreground: #0b0f19;
+    --info-strong: #7dd3fc;
 
     --sidebar-background: #151c2c;
     --sidebar-foreground: #f8fafc;
@@ -167,11 +187,20 @@
   --color-ring: var(--ring);
 
   --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-strong: var(--success-strong);
   --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-strong: var(--warning-strong);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-strong: var(--destructive-strong);
   --color-ai-process: var(--ai-process);
+  --color-ai-process-foreground: var(--ai-process-foreground);
+  --color-ai-process-strong: var(--ai-process-strong);
   --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-strong: var(--info-strong);
 
   --color-sidebar: var(--sidebar-background);
   --color-sidebar-foreground: var(--sidebar-foreground);
@@ -186,6 +215,10 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* Skala tipografi mikro (DESIGN.md §5): 2xs hanya untuk label mikro (counter badge, kbd, overline mono uppercase). */
+  --text-2xs: 0.625rem;
+  --text-2xs--line-height: 0.875rem;
 
   --font-sans: var(--font-sans), "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
   --font-mono: var(--font-mono), "JetBrains Mono", monospace;

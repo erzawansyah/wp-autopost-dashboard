@@ -56,46 +56,30 @@ wp-autopost-dashboard/
 │   └── settings.yml                       # Konfigurasi engine & format JSON SearXNG
 ├── src/
 │   ├── app/                               # Next.js App Router (Halaman UI & REST API)
-│   │   ├── (auth)/
-│   │   │   ├── login/page.tsx             # Halaman autentikasi login (Supabase SSR)
-│   │   │   └── register/page.tsx          # Halaman pendaftaran pengguna
-│   │   ├── agents/                        # Agent Studio (Kelola Agent Profiles)
-│   │   │   ├── page.tsx                   # Daftar profil agen & presets
-│   │   │   ├── new/page.tsx               # Formulir perancangan agen baru
-│   │   │   └── [id]/page.tsx              # Detail & konfigurasi profil agen
-│   │   ├── batches/                       # Riwayat & pemantauan Batch Ingestion
-│   │   │   └── page.tsx                   # Daftar batch campaign
-│   │   ├── docs/                          # In-app Documentation Viewer
-│   │   │   └── page.tsx                   # Pembaca berkas Markdown panduan pengguna
-│   │   ├── lab/                           # Laboratorium Pengujian Agen
-│   │   │   └── page.tsx                   # Sandbox pengujian profil agen terisolasi
-│   │   ├── posts/                         # Manajemen Naskah Artikel
-│   │   │   ├── page.tsx                   # Daftar seluruh artikel
-│   │   │   ├── new/page.tsx               # Tulis Cepat (Quick Writer UI)
-│   │   │   └── [id]/page.tsx              # Detail artikel, Gutenberg preview, & audit log
-│   │   ├── queue/                         # Pusat Antrean Eksekusi
-│   │   │   ├── page.tsx                   # Bulk Artikel (CSV Upload & Column Mapping Wizard)
-│   │   │   └── items/page.tsx             # Tabel Antrean (Grouped by Batch, Atomic Actions)
-│   │   ├── scheduled/                     # Artikel Terjadwal
-│   │   │   └── page.tsx                   # Kalender & timeline artikel mode future
-│   │   ├── settings/                      # Pusat Pengaturan Platform
-│   │   │   ├── page.tsx                   # Index pengaturan
-│   │   │   ├── keys/page.tsx              # Unified BYOK Hub (OpenRouter, Search, Pexafy)
-│   │   │   ├── search/page.tsx            # Preferensi & konfigurasi provider pencarian
-│   │   │   ├── ai/page.tsx                # Pengaturan global model AI
-│   │   │   ├── webhooks/page.tsx          # Konfigurasi outbound webhook & event subscriptions
-│   │   │   └── profile/page.tsx           # Profil pengguna & kata sandi
-│   │   ├── sites/                         # Multi-Site WordPress Manager
-│   │   │   └── page.tsx                   # Hubungkan situs, health check, edit taksonomi
-│   │   ├── skills/                        # Skill Registry
-│   │   │   ├── page.tsx                   # Daftar modul keahlian (SKILL.md)
-│   │   │   └── new/page.tsx               # Buat modul keahlian editorial baru
-│   │   ├── tools/                         # AI-Native WordPress Tools Hub
-│   │   │   ├── page.tsx                   # Hub navigasi tools
-│   │   │   ├── link-building/page.tsx     # Retroactive Internal Link Building
-│   │   │   ├── authors/page.tsx           # Pembuat Persona Penulis E-E-A-T
-│   │   │   └── categories/page.tsx        # Perancang Taksonomi Kategori
-│   │   ├── api/                           # Endpoint Internal REST API
+│   │   ├── (auth)/                        # Route group halaman masuk/daftar (URL tanpa prefix grup)
+│   │   │   ├── layout.tsx                 # Pengguna bersesi → redirect ke dasbor
+│   │   │   ├── error.tsx                  # Error boundary halaman auth
+│   │   │   ├── login/page.tsx             # Masuk & daftar (react-hook-form + zod), menghormati ?next=
+│   │   │   └── register/page.tsx          # Alias → /login?tab=register
+│   │   ├── (dashboard)/                   # Route group seluruh halaman dasbor (URL tidak berubah)
+│   │   │   ├── layout.tsx                 # Server Component: verifikasi sesi (getUser) + shell persisten SEKALI
+│   │   │   ├── loading.tsx                # Skeleton halaman (PageSkeleton) saat segmen dimuat
+│   │   │   ├── error.tsx                  # Error boundary di dalam shell (RouteErrorState, tanpa stack trace)
+│   │   │   ├── not-found.tsx              # notFound() dari page dasbor, dirender di dalam shell
+│   │   │   ├── page.tsx                   # Dashboard Overview (KPIs, Active Sites, Quick Links)
+│   │   │   ├── agents/                    # Agent Studio: page.tsx (daftar), new/, [id]/
+│   │   │   ├── batches/page.tsx           # Riwayat & pemantauan Batch Ingestion
+│   │   │   ├── docs/page.tsx              # Pembaca panduan pengguna (docs/guides via /api/docs)
+│   │   │   ├── lab/page.tsx               # Laboratorium pengujian (gate Developer Mode)
+│   │   │   ├── posts/                     # page.tsx (→ redirect), new/ (Tulis Cepat), [id]/ (detail & audit log)
+│   │   │   ├── queue/                     # page.tsx (Tulis Massal), items/ (Tabel Antrean)
+│   │   │   ├── scheduled/page.tsx         # Artikel Terjadwal (→ redirect)
+│   │   │   ├── settings/                  # page.tsx, keys/, ai/, webhooks/, profile/
+│   │   │   ├── sites/page.tsx             # Multi-Site WordPress Manager
+│   │   │   ├── skills/                    # Skill Registry: page.tsx, new/
+│   │   │   ├── tools/                     # WP Tools: page.tsx, link-building/, authors/, categories/
+│   │   │   └── write/                     # page.tsx (→ redirect), structured/ (Tulis Terstruktur)
+│   │   ├── api/                           # Endpoint Internal REST API (tidak disentuh redirect proxy; JSON 401)
 │   │   │   ├── agents/                    # CRUD profil agen, templates, tools
 │   │   │   ├── ai/                        # Verifikasi kunci AI & dynamic model fetcher
 │   │   │   ├── auth/                      # Session user & signout
@@ -110,14 +94,15 @@ wp-autopost-dashboard/
 │   │   │   ├── skills/                    # CRUD modul keahlian agen
 │   │   │   ├── tools/                     # Endpoint asisten link, author, kategori
 │   │   │   └── webhooks/                  # CRUD webhook, pengujian trigger test
-│   │   ├── layout.tsx                     # Root App Layout (Inter font, dark/light theme)
-│   │   ├── page.tsx                       # Dashboard Overview (KPIs, Active Sites, Quick Links)
-│   │   └── globals.css                    # Tailwind CSS v4 styling & semantic design tokens
+│   │   ├── layout.tsx                     # Root layout: font, skrip tema tanpa kedip, AppProviders, title template
+│   │   ├── not-found.tsx                  # 404 global untuk URL yang tidak cocok rute mana pun
+│   │   └── globals.css                    # Tailwind CSS v4: token semantik + peran status (-foreground/-strong) & text-2xs
 │   ├── components/                        # Komponen UI Terstruktur (Atomic Design)
-│   │   ├── atoms/                         # Badge, Button, Input, Select, Table, Card, Dialog
-│   │   ├── molecules/                     # PageHeader, StatusBadge, SiteBadge, SearchInput
-│   │   ├── organisms/                     # SidebarNav, TopNavbar, QueueDataTable, BatchListTable
-│   │   └── templates/                     # DashboardLayout, PageContainer
+│   │   ├── atoms/                         # Primitive shadcn: Button, Input, Field, Alert, AlertDialog, Sonner, Dialog, …
+│   │   ├── molecules/                     # PageHeader, FormField, ControlledField, ConfirmDialog, EmptyState, StatusBadge, …
+│   │   ├── organisms/                     # Blok fitur per folder (auth/, sites/…), SidebarNav, TopNavbar, RouteErrorState
+│   │   ├── providers/                     # AppProviders (TanStack Query, Tooltip, ConfirmProvider, Toaster)
+│   │   └── templates/                     # DashboardShell, PageContainer, PageSkeleton
 │   ├── core/                              # Logika Bisnis Murni (Domain Slice Architecture)
 │   │   ├── queue/                         # Logika antrean (tanpa loop/proses)
 │   │   │   ├── worker.ts                  # Proses satu item: generasi, Cost-Saver Retry, WP sync, fencing lease
@@ -141,23 +126,31 @@ wp-autopost-dashboard/
 │   ├── server/                            # Lapisan server API (tanpa UI)
 │   │   ├── http/                          # defineRoute, ApiError & pemetaan error, respons, rate limit
 │   │   ├── services/                      # Logika bisnis per domain: (supabase, userId, ...) → data
-│   │   ├── validation/                    # Skema zod body/query/params
+│   │   ├── validation/                    # Skema zod khusus server (refinement butuh modul server, query/callback route)
 │   │   └── queue/                         # Runner antrean tertanam: loop, heartbeat, shutdown, enqueue/nudge
 │   ├── instrumentation.ts                 # register(): validasi env & start runner antrean (Node.js)
+│   ├── proxy.ts                           # Proxy Next 16: refresh sesi Supabase SSR, redirect /login?next= (bukan /api/**)
 │   ├── lib/                               # Utilitas Bersama & Adapter Eksternal
 │   │   ├── ai/                            # Pemanggilan OpenRouter, kunci platform (BYOK-only)
+│   │   ├── api/                           # Data layer client: apiFetch + ApiClientError, contract envelope, QueryClient, queryKeys, queries/<domain>.ts
+│   │   ├── auth/                          # routes.ts (klasifikasi rute, sanitasi ?next=), session.ts (getSession/requireSession RSC, server-only)
 │   │   ├── constants/                     # Daftar bahasa, otoritas akses
 │   │   ├── env/                           # Validasi env server/client (zod), termasuk QUEUE_*
+│   │   ├── hooks/                         # Hook client: useZodForm, useTheme, useConnectedSites, useDeveloperMode
 │   │   ├── net/                           # safeFetch anti-SSRF (DNS pinning, redirect, batas ukuran)
 │   │   ├── scheduler/                     # Kalkulator jadwal (randomized jitter & drip window)
 │   │   ├── settings/                      # Dekripsi sentral kunci BYOK (user-keys.ts)
-│   │   ├── supabase/                      # Klien Supabase (Browser, Server SSR, Admin Service)
+│   │   ├── supabase/                      # Klien Supabase (Browser, Server SSR, Admin Service, penyegar sesi proxy)
+│   │   ├── ui/                            # notify (toast Sonner) & useConfirm (dialog konfirmasi)
+│   │   ├── validation/                    # Skema zod MURNI bersama form client & route (common, sites, auth, queue)
 │   │   ├── webhooks/                      # Dispatcher webhook dengan tanda tangan HMAC SHA-256
 │   │   ├── wordpress/                     # Klien REST API WordPress & pembuat nama aplikasi
 │   │   ├── crypto.ts                      # Enkripsi & dekripsi AES-256-GCM
 │   │   └── utils.ts                       # Helper class merger Tailwind (`cn`)
-│   └── types/                             # Definisi TypeScript Sistem
+│   └── types/                             # Definisi TypeScript Sistem (tipe kanonis dari bentuk respons API)
+│       ├── queue.ts                       # PostItemState, QueueItem, PostListItem, Batch, BatchRef
 │       ├── settings.ts                    # Tipe data kunci BYOK, search, & notifikasi
+│       ├── site.ts                        # Site, SiteStatus, SiteRef, CreatedSite
 │       ├── skills.ts                      # Tipe data modul keahlian agen
 │       └── webhook.ts                     # Definisi event webhook & payload
 ├── docker-compose.yml                     # Orkestrasi Docker (Aplikasi Next.js + SearXNG)
@@ -637,7 +630,9 @@ Platform dilengkapi sistem webhook keluar (*outbound webhooks*) untuk mengirimka
 Semua route di `src/app/api/` memakai `defineRoute` (`src/server/http/route.ts`, skill `panitera-api-route`):
 
 - **Auth:** `user` (sesi Supabase wajib), `cron` (header `Authorization: Bearer <CRON_SECRET>`), `user-or-cron`, `public` (sesi opsional), `none` (tanpa Supabase).
-- **Validasi:** body/query/params lewat skema zod di `src/server/validation/`; input tidak valid → 400 `validation_failed` + `issues`.
+- **Validasi:** body/query/params lewat skema zod — skema murni yang juga dipakai form client di `src/lib/validation/` (mis. `sites.ts`), refinement/skema khusus server di `src/server/validation/`; input tidak valid → 400 `validation_failed` + `issues`.
+- **Proxy:** `src/proxy.ts` tidak berjalan untuk `/api/**` (matcher) dan tidak pernah me-redirect API; route memverifikasi sesinya sendiri dan membalas JSON 401.
+- **Client:** UI memanggil API lewat `apiFetch` (`src/lib/api/client.ts`) yang mengurai envelope dan melempar `ApiClientError { status, code, message, issues? }`; cache & invalidasi lewat TanStack Query (`queryKeys`, `src/lib/api/queries/<domain>.ts`). Tipe envelope bersama: `src/lib/api/contract.ts`.
 - **Respons:** sukses `{ ok: true, ...data }`; error `{ ok: false, error, code, issues? }`. Error Postgres dipetakan tanpa membocorkan detail (23505 → 409, 23503/23514/23502 → 422, 22P02 → 400, 42501 → 403); kegagalan layanan eksternal → 502 `upstream_failed`.
 - **Rate limit** (sliding window di memori, per pengguna): `llm` 20/menit, `outboundTest` 15/menit, `enqueue` 30/menit.
 - **Logika bisnis** di `src/server/services/<domain>.ts` dengan signature `(supabase, userId, …)`; route tetap tipis. Akses lintas pengguna → 404.

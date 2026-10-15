@@ -105,7 +105,7 @@ function renderNavLink(item: NavItem, pathname: string, isCollapsed: boolean) {
       href={item.href}
       aria-label={item.title}
       className={cn(
-        "group flex items-center rounded-md text-[12px] font-medium transition-all",
+        "group flex items-center rounded-md text-xs font-medium transition-all focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none",
         isCollapsed
           ? "justify-center p-2.5"
           : "justify-center px-3 py-2.5 lg:justify-between",
@@ -130,7 +130,7 @@ function renderNavLink(item: NavItem, pathname: string, isCollapsed: boolean) {
         <Badge
           variant={isActive ? "secondary" : "outline"}
           className={cn(
-            "hidden lg:inline-flex text-[10px] h-4 px-1.5 font-normal tracking-wide",
+            "hidden lg:inline-flex text-2xs h-4 px-1.5 font-normal tracking-wide",
             isActive
               ? "bg-primary-foreground/20 text-primary-foreground border-transparent"
               : "text-muted-foreground border-border/70 bg-muted/40"
@@ -153,7 +153,7 @@ function renderNavLink(item: NavItem, pathname: string, isCollapsed: boolean) {
         <TooltipContent side="right" align="center" className="flex items-center gap-2 z-50">
           <span>{item.title}</span>
           {item.badge && (
-            <Badge variant="outline" className="text-[9px] h-3.5 px-1 py-0">
+            <Badge variant="outline" className="text-2xs h-3.5 px-1 py-0">
               {item.badge}
             </Badge>
           )}
@@ -171,7 +171,7 @@ function renderNavLink(item: NavItem, pathname: string, isCollapsed: boolean) {
           <TooltipContent side="right" align="center" className="flex items-center gap-2 z-50">
             <span>{item.title}</span>
             {item.badge && (
-              <Badge variant="outline" className="text-[9px] h-3.5 px-1 py-0">
+              <Badge variant="outline" className="text-2xs h-3.5 px-1 py-0">
                 {item.badge}
               </Badge>
             )}
@@ -234,7 +234,7 @@ export function SidebarNav() {
       suppressHydrationWarning
       className={cn(
         "sticky top-0 flex h-screen max-h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-in-out z-30",
-        isCollapsed ? "w-[68px]" : "w-[68px] lg:w-[256px]"
+        isCollapsed ? "w-17" : "w-17 lg:w-64"
       )}
     >
       {/* Brand Header */}
@@ -332,7 +332,7 @@ export function SidebarNav() {
         {/* Top & Middle Menus */}
         <div className="flex flex-col gap-1">
           {!isCollapsed && (
-            <div className="hidden px-3 pb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
+            <div className="hidden px-3 pb-1 font-mono text-2xs font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
               Menu Utama
             </div>
           )}
@@ -342,7 +342,7 @@ export function SidebarNav() {
           <div className="my-2 border-t border-sidebar-border/70" />
 
           {!isCollapsed && (
-            <div className="hidden px-3 pb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
+            <div className="hidden px-3 pb-1 font-mono text-2xs font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
               Penerbitan Konten
             </div>
           )}
@@ -352,7 +352,7 @@ export function SidebarNav() {
         {/* Bottom Menus */}
         <div className="flex flex-col gap-1 border-t border-sidebar-border/70 pt-3">
           {!isCollapsed && (
-            <div className="hidden px-3 pb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
+            <div className="hidden px-3 pb-1 font-mono text-2xs font-semibold uppercase tracking-[0.18em] text-muted-foreground lg:block">
               Alat &amp; Konfigurasi
             </div>
           )}
@@ -366,9 +366,13 @@ export function SidebarNav() {
           <div className="flex flex-col items-center gap-2 py-1">
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="flex size-7 items-center justify-center cursor-default">
-                  <span className="size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
-                </div>
+                <span
+                  role="img"
+                  aria-label={`Semua sistem normal (${APP_VERSION_LABEL})`}
+                  className="flex size-7 cursor-default items-center justify-center"
+                >
+                  <span aria-hidden="true" className="size-2 rounded-full bg-success ring-2 ring-success/20" />
+                </span>
               </TooltipTrigger>
               <TooltipContent side="right">Semua sistem normal ({APP_VERSION_LABEL})</TooltipContent>
             </Tooltip>
@@ -377,9 +381,10 @@ export function SidebarNav() {
               <TooltipTrigger asChild>
                 <Link
                   href="/docs"
+                  aria-label="Help & Docs"
                   className="flex size-8 items-center justify-center rounded-lg border border-border/70 bg-card hover:bg-sidebar-accent text-primary transition-colors cursor-pointer"
                 >
-                  <BookOpen className="size-4" />
+                  <BookOpen aria-hidden="true" className="size-4" />
                 </Link>
               </TooltipTrigger>
               <TooltipContent side="right">Help &amp; Docs</TooltipContent>
@@ -404,16 +409,16 @@ export function SidebarNav() {
           <>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="size-2 rounded-full bg-emerald-500 ring-2 ring-emerald-500/20" />
-                <span className="hidden text-[11px] font-medium text-foreground/80 lg:block">
+                <span aria-hidden="true" className="size-2 rounded-full bg-success ring-2 ring-success/20" />
+                <span className="hidden text-xs font-medium text-foreground/80 lg:block">
                   Semua sistem normal
                 </span>
               </div>
-              <span className="text-[10px] font-mono text-muted-foreground">{APP_VERSION_LABEL}</span>
+              <span className="text-2xs font-mono text-muted-foreground">{APP_VERSION_LABEL}</span>
             </div>
             <Link
               href="/docs"
-              className="group flex items-center justify-between p-2.5 rounded-lg border border-border/70 bg-card hover:bg-sidebar-accent text-[11px] transition-colors cursor-pointer"
+              className="group flex items-center justify-between p-2.5 rounded-lg border border-border/70 bg-card hover:bg-sidebar-accent text-xs transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-2 min-w-0">
                 <BookOpen className="size-3.5 text-primary shrink-0" />
@@ -421,7 +426,7 @@ export function SidebarNav() {
                   <span className="font-semibold text-foreground text-xs group-hover:text-primary transition-colors truncate">
                     Help &amp; Docs
                   </span>
-                  <span className="hidden text-muted-foreground text-[10px] leading-tight lg:block truncate">
+                  <span className="hidden text-muted-foreground text-2xs lg:block truncate">
                     Panduan &amp; Dokumentasi
                   </span>
                 </div>

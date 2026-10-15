@@ -1,8 +1,9 @@
 import { z } from "zod"
 import { throwIfDbError } from "@/server/http/errors"
 import { defineRoute } from "@/server/http/route"
-import { UuidSchema } from "@/server/validation/common"
-import { ListLimitSchema, PostItemStateSchema } from "@/server/queue/schemas"
+import { UuidSchema } from "@/lib/validation/common"
+import { PostItemStateSchema } from "@/lib/validation/queue"
+import { ListLimitSchema } from "@/server/queue/schemas"
 
 const QUICK_WRITER_GROUP = { id: "quick-writer", name: "Tulis Cepat (Quick Writer)", execution_mode: "instant" }
 

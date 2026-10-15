@@ -63,11 +63,14 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
 | **Muted Text**      | `#64748B` | `#94A3B8` | `--color-muted-foreground` | —                     | Label sekunder, waktu pembuatan, slug        |
 | **Border**          | `#E2E8F0` | `#25334D` | `--color-border`           | —                     | Garis pembatas kartu 1px dan divider         |
 | **Ring**            | `#881337` | `#FBBF24` | `--color-ring`             | —                     | Outline indikator fokus keyboard (A11y)      |
-| **Success**         | `#059669` | `#10B981` | `--color-success`          | `#FFFFFF`             | Artikel Live/Published di WordPress          |
-| **Warning / Sched** | `#D97706` | `#FBBF24` | `--color-warning`          | `#FFFFFF` / `#0B0F19` | Status antrean terjadwal (_future_)          |
+| **Success**         | `#059669` | `#10B981` | `--color-success`          | `#FFFFFF` / `#0B0F19` | Artikel Live/Published di WordPress          |
+| **Warning / Sched** | `#F59E0B` | `#FBBF24` | `--color-warning`          | `#0F172A` / `#0B0F19` | Status antrean terjadwal (_future_)          |
 | **Destructive**     | `#E11D48` | `#F43F5E` | `--color-destructive`      | `#FFFFFF`             | Kegagalan sinkronisasi / error API           |
-| **AI Process**      | `#8B5CF6` | `#A78BFA` | `--color-ai-process`       | `#FFFFFF`             | Proses generasi AI / keyword research        |
-| **Sync WP**         | `#0EA5E9` | `#38BDF8` | `--color-info`             | `#FFFFFF`             | Proses upload media / posting WP REST API    |
+| **AI Process**      | `#8B5CF6` | `#A78BFA` | `--color-ai-process`       | `#FFFFFF` / `#0B0F19` | Proses generasi AI / keyword research        |
+| **Sync WP**         | `#0EA5E9` | `#38BDF8` | `--color-info`             | `#0F172A` / `#0B0F19` | Proses upload media / posting WP REST API    |
+
+> Kolom "On Role" = token `--color-<peran>-foreground` (teks/ikon DI ATAS isian solid peran). Nilai disesuaikan Fase 4
+> agar kontras teks ≥ 4.5:1 (putih di atas amber/sky/hijau terang tidak lolos AA). Sumber kebenaran nilai: `src/app/globals.css`.
 
 ### B. Kode Implementasi CSS Variables (Tailwind CSS v4)
 
@@ -132,6 +135,40 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
 }
 ```
 
+### C. Varian Peran Status (Fase 4)
+
+Setiap peran status (`success`, `warning`, `destructive`, `ai-process`, `info`) punya tiga token (terang **dan** gelap):
+
+| Token | Utility | Pakai untuk |
+| :--- | :--- | :--- |
+| `--<peran>` | `bg-success`, `text-success`, `border-success/30`, `bg-success/10` | Isian solid (dot status, progress, ikon), tint latar (`/10`, `/15`), border (`/30`) |
+| `--<peran>-foreground` | `text-success-foreground` | Teks/ikon di atas isian solid `bg-<peran>` |
+| `--<peran>-strong` | `text-success-strong` | Teks/ikon berwarna peran di atas `background`/`card`/`muted` dan tint `bg-<peran>/10` |
+
+| Peran | `-strong` terang | `-strong` gelap | Kontras min. teks di atas tint `/10` pada background/card (terang · gelap) |
+| :--- | :--- | :--- | :--- |
+| success | `#047857` | `#6EE7B7` | 4.5 · 9.6 |
+| warning | `#92400E` | `#FCD34D` | 6.1 · 9.7 |
+| destructive | `#BE123C` | `#FDA4AF` | 4.9 · 8.2 |
+| ai-process | `#6D28D9` | `#C4B5FD` | 5.8 · 7.9 |
+| info | `#0369A1` | `#7DD3FC` | 4.9 · 8.5 |
+
+**Pemetaan palet mentah → token** (palet Tailwind mentah dilarang; dicek `npm run audit:hygiene`, cek `raw-palette-color`):
+
+| Pola lama | Token |
+| :--- | :--- |
+| `text-emerald-600 dark:text-emerald-400` | `text-success-strong` |
+| `bg-emerald-50 dark:bg-emerald-950/40`, `bg-emerald-500/15` | `bg-success/10` |
+| `border-emerald-200 dark:border-emerald-800/50`, `border-emerald-500/30` | `border-success/30` |
+| `bg-emerald-500` (dot/bar) | `bg-success` |
+| amber / yellow / orange | `warning` |
+| sky / blue / cyan / teal | `info` |
+| purple / violet / indigo | `ai-process` |
+| rose / red | `destructive` |
+| slate / gray / zinc / neutral | `muted`, `muted-foreground`, `secondary`, `foreground/80`, `border` |
+
+Callout berwarna memakai atom `Alert` (`variant`: `default`/`destructive`/`success`/`warning`/`info`/`ai`), bukan div ber-kelas palet.
+
 ---
 
 ## 5. Typography (Tipografi)
@@ -150,13 +187,20 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
 
 | Token       | Ukuran          | Line Height | Penggunaan Spesifik                              |
 | :---------- | :-------------- | :---------- | :----------------------------------------------- |
-| `text-xs`   | 12px / 0.75rem  | 1rem        | Label badge status, metadata tanggal, breadcrumb |
+| `text-2xs`  | 10px / 0.625rem | 0.875rem    | Label mikro saja: counter badge, kbd, overline mono uppercase, string versi |
+| `text-xs`   | 12px / 0.75rem  | 1rem        | Label badge status, metadata tanggal, breadcrumb, hint & error form |
 | `text-sm`   | 14px / 0.875rem | 1.25rem     | Data sel tabel, teks kartu sekunder, helper form |
 | `text-base` | 16px / 1rem     | 1.5rem      | Body copy default, teks input formulir           |
 | `text-lg`   | 18px / 1.125rem | 1.75rem     | Judul sub-seksi, header modal dialog             |
 | `text-xl`   | 20px / 1.25rem  | 1.75rem     | Judul kartu ringkasan, widget stat               |
 | `text-2xl`  | 24px / 1.5rem   | 2rem        | Judul halaman dashboard utama                    |
 | `text-3xl`  | 30px / 1.875rem | 2.25rem     | Angka KPI utama (misal: Total Post Terbit)       |
+
+**Aturan ukuran mikro (Fase 4).** `text-2xs` (token `--text-2xs` di `globals.css`) adalah satu-satunya langkah di bawah
+`text-xs` dan hanya untuk label mikro non-kalimat; kalimat, hint, pesan error, dan label badge status minimal `text-xs`.
+Ukuran arbitrer `text-[Npx]` dilarang (cek audit `arbitrary-text-size`). Pemetaan saat merombak halaman:
+`text-[9px]`/`text-[10px]`/`text-[10.5px]` → `text-2xs` (label mikro) atau `text-xs` (kalimat);
+`text-[11px]`/`text-[12px]` → `text-xs`; `text-[13px]` → `text-sm`.
 
 ---
 
@@ -225,6 +269,8 @@ gsap.from(".queue-card", {
 | `saved_draft_on_wp`  | Muted Slate     | `#64748B` | Tersimpan sebagai draf WordPress                     |
 | `failed_generation`  | Ruby Red        | `#E11D48` | Gagal saat generasi AI (Opsi Retry AI)               |
 | `failed_sync`        | Amber-Red Alert | `#DC2626` | Gagal kirim WP (Retry kirim WP saja, hemat token AI) |
+
+Implementasi (`src/components/molecules/status-badge.tsx`) memakai token peran §4C: `queued_input` → `muted`; `generating_content` → `ai-process`; `ready_to_sync`/`syncing_to_wp` → `info` (syncing berputar); `published_on_wp` → `success`; `scheduled_on_wp` → `warning`; `saved_draft_on_wp` → `secondary`; `failed_generation`/`failed_sync` → `destructive` (tint lebih pekat untuk `failed_sync`).
 
 ### D. Dual-Mode Execution Bar (Bottom Action Bar)
 

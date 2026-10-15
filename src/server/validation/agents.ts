@@ -6,7 +6,7 @@ import {
   AgentModeSchema,
   ensureMandatoryToolIds,
 } from "@/core/writer/types/profile"
-import { UuidSchema } from "./common"
+import { UuidSchema } from "@/lib/validation/common"
 import { SkillSlugSchema } from "./skills"
 
 /** Validasi input Agent Profile kustom (`agent_profiles`). Rentang batas eksekusi tetap lewat `clampLimits()`. */
