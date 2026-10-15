@@ -19,19 +19,27 @@ export interface CategorySuggestResponse {
   existingCount: number
 }
 
+/**
+ * Masalah email persona AI: kosong/tidak valid, atau domainnya bukan domain website target. Persona bertanda
+ * wajib ditinjau satu per satu (tidak ikut "Setujui semua") — email menentukan siapa yang bisa mereset sandi akun.
+ */
+export type AuthorEmailIssue = "invalid" | "foreign_domain"
+
 /** Rekomendasi persona author E-E-A-T. `expertise` = daftar keahlian dipisah koma. */
 export interface AuthorSuggestion {
   name: string
   username: string
   email: string
-  /** Sama dengan `WP_AUTHOR_ROLES` (`src/lib/validation/sites.ts`), tanpa administrator. */
-  role: "author" | "editor" | "contributor"
+  /** Persona AI selalu didaftarkan sebagai author (dipaksa server); editor/contributor hanya lewat form manual. */
+  role: "author"
   bio: string
   expertise: string
   rationale: string
+  /** Terisi bila email perlu ditinjau manual (lihat `AuthorEmailIssue`). */
+  emailIssue?: AuthorEmailIssue
 }
 
-/** Respons `POST /api/tools/authors/suggest`. */
+/** Respons `POST /api/tools/authors/suggest`. `existingCount` = author WordPress yang sudah menerbitkan artikel. */
 export interface AuthorSuggestResponse {
   suggestions: AuthorSuggestion[]
   existingCount: number
@@ -49,8 +57,12 @@ export interface LinkRecommendation {
   relevanceScore: number
 }
 
-/** Respons `POST /api/tools/link-building/analyze`. `message` terisi bila tidak ada artikel kandidat. */
+/**
+ * Respons `POST /api/tools/link-building/analyze`. `message` terisi bila tidak ada artikel kandidat.
+ * `newArticleUrl` = URL artikel baru yang dianalisis; wajib dikirim ulang ke `apply` (tautan hanya boleh menuju URL ini).
+ */
 export interface InternalLinkAnalysis {
+  newArticleUrl: string
   topicSummary: string
   searchQueries: string[]
   recommendations: LinkRecommendation[]

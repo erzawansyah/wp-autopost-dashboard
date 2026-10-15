@@ -25,7 +25,7 @@ import {
 import { selectConnectedSites, sitesQueries } from "@/lib/api/queries/sites"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
 import { parseUniversalBatchInput, type ColumnRole } from "@/lib/parser/universal-batch-parser"
-import type { AgentProfileOption } from "@/lib/queue/writer-options"
+import { defaultAgentProfileRef, type AgentProfileOption } from "@/lib/queue/writer-options"
 import { notify } from "@/lib/ui/notify"
 import {
   CreateBatchBodySchema,
@@ -101,7 +101,7 @@ export function StructuredWriterForm({ initialSites, agentProfiles }: Structured
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   const [initialValues] = React.useState(
-    (): StructuredBatchFormInput => ({ ...batchSettingsDefaults(defaultSiteIdFor(sites, "single")), rawText: "" })
+    (): StructuredBatchFormInput => ({ ...batchSettingsDefaults(defaultSiteIdFor(sites, "single"), defaultAgentProfileRef(agentProfiles)), rawText: "" })
   )
   const form = useZodForm(StructuredBatchFormSchema, { defaultValues: initialValues })
   const { createBatch, isPending, created } = useCreateBatch({
@@ -347,7 +347,7 @@ export function StructuredWriterForm({ initialSites, agentProfiles }: Structured
               variant="outline"
               size="sm"
               onClick={() => {
-                form.reset({ ...batchSettingsDefaults(defaultSiteIdFor(sites, "single")), rawText: "" })
+                form.reset({ ...batchSettingsDefaults(defaultSiteIdFor(sites, "single"), defaultAgentProfileRef(agentProfiles)), rawText: "" })
                 setCustomRoles({})
                 setHasHeader(true)
                 setTab("essential")

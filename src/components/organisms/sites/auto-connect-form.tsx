@@ -9,6 +9,7 @@ import { FieldGroup } from "@/components/atoms/field"
 import { Input } from "@/components/atoms/input"
 import { ControlledField } from "@/components/molecules/controlled-field"
 import { apiFetch } from "@/lib/api/client"
+import { queryKeys } from "@/lib/api/query-keys"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
 import { errorMessage } from "@/lib/ui/notify"
 import { ConnectSiteBodySchema, type ConnectSiteInput } from "@/lib/validation/sites"
@@ -24,12 +25,15 @@ interface AutoConnectFormProps {
  * Alur otomatis: `POST /api/sites/connect` (preflight REST API + state token) → browser diarahkan ke
  * `wp-admin/authorize-application.php`. WordPress lalu memanggil `/api/sites/callback`, yang kembali ke
  * `/sites?auth_status=…` (banner di halaman). Tidak ada kredensial yang melewati form ini.
+ * Selama permintaan berjalan dialog tidak bisa ditutup (`ConnectSiteDialog` membaca mutation key yang sama), dan
+ * pengalihan dipasang per panggilan `mutate` sehingga tidak pernah terjadi setelah form unmount.
  */
 export function AutoConnectForm({ onUseManual, onCancel }: AutoConnectFormProps) {
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const form = useZodForm(ConnectSiteBodySchema, { defaultValues: { baseUrl: "", siteName: "" } })
 
   const connect = useMutation({
+    mutationKey: queryKeys.sites.connect(),
     mutationFn: async (values: ConnectSiteInput) => {
       const { authorizeUrl } = await apiFetch<{ authorizeUrl: string }>("/api/sites/connect", {
         method: "POST",
@@ -39,7 +43,6 @@ export function AutoConnectForm({ onUseManual, onCancel }: AutoConnectFormProps)
       if (!target) throw new Error("URL otorisasi tidak valid")
       return target
     },
-    onSuccess: (target) => window.location.assign(target),
     onError: (error) => {
       if (!applyApiIssues(form, error)) {
         setSubmitError(errorMessage(error, "Gagal menyiapkan otorisasi WordPress. Coba lagi."))
@@ -53,7 +56,7 @@ export function AutoConnectForm({ onUseManual, onCancel }: AutoConnectFormProps)
       noValidate
       onSubmit={form.handleSubmit((values) => {
         setSubmitError(null)
-        connect.mutate(values)
+        connect.mutate(values, { onSuccess: (target) => window.location.assign(target) })
       })}
       className="flex flex-col gap-4"
     >
@@ -106,13 +109,13 @@ export function AutoConnectForm({ onUseManual, onCancel }: AutoConnectFormProps)
       <p className="text-xs leading-relaxed text-muted-foreground">
         Anda akan diarahkan ke WordPress untuk menekan <strong className="text-foreground">Setujui</strong>, lalu
         kembali ke sini secara otomatis. WordPress lama atau otorisasi gagal?{" "}
-        <Button type="button" variant="link" onClick={onUseManual} className="h-auto cursor-pointer p-0 text-xs">
+        <Button type="button" variant="link" onClick={onUseManual} disabled={isBusy} className="h-auto cursor-pointer p-0 text-xs">
           Gunakan input manual
         </Button>
       </p>
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" size="sm" onClick={onCancel} className="cursor-pointer">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={isBusy} className="cursor-pointer">
           Batal
         </Button>
         <Button type="submit" size="sm" disabled={isBusy} className="cursor-pointer gap-1.5">

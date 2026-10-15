@@ -1,11 +1,11 @@
 import Link from "next/link"
-import { ArrowRight, CheckCircle2, Globe, LayoutDashboard, PenLine, Terminal } from "lucide-react"
+import { ArrowRight, Globe, LayoutDashboard, PenLine } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/atoms/alert"
 import { Button } from "@/components/atoms/button"
-import { DismissibleAlert } from "@/components/molecules/dismissible-alert"
 import { PageHeader } from "@/components/molecules/page-header"
 import { ActiveSitesPanel } from "@/components/organisms/dashboard/active-sites-panel"
 import { KPISummaryGrid } from "@/components/organisms/dashboard/kpi-summary-grid"
+import { QueuedPostNotice } from "@/components/organisms/dashboard/queued-post-notice"
 import { QuickLinks } from "@/components/organisms/dashboard/quick-links"
 import { RecentPosts } from "@/components/organisms/dashboard/recent-posts"
 import { PageContainer } from "@/components/templates/page-container"
@@ -20,8 +20,6 @@ export const metadata = { title: "Dashboard" }
 
 /** Artikel terbaru di tabel dasbor (data awal RSC = `postsQueries.list({ limit })` di client). */
 const RECENT_POSTS_LIMIT = 50
-/** Parameter redirect Tulis Cepat (`/?queued=true&postId=…&keyword=…`), dibersihkan setelah banner tampil. */
-const QUEUED_PARAMS = ["queued", "postId", "keyword"] as const
 const MAX_KEYWORD_LENGTH = 120
 
 type SearchParams = Promise<Record<string, SearchParamValue>>
@@ -54,27 +52,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Se
         }
       />
 
-      {isQueued && (
-        <DismissibleAlert
-          variant="success"
-          icon={<CheckCircle2 aria-hidden="true" />}
-          title="Artikel masuk antrean"
-          clearSearchParams={QUEUED_PARAMS}
-        >
-          <p>
-            {queuedKeyword ? `Topik "${queuedKeyword}" sedang` : "Naskah sedang"} ditulis AI lalu dikirim otomatis ke
-            WordPress. Status di tabel bawah diperbarui sendiri.
-          </p>
-          {queuedPostId && (
-            <Button asChild size="xs" variant="outline" className="cursor-pointer gap-1">
-              <Link href={`/posts/${queuedPostId}`}>
-                <Terminal aria-hidden="true" />
-                Pantau log eksekusi
-              </Link>
-            </Button>
-          )}
-        </DismissibleAlert>
-      )}
+      {/* Selalu dirender (posisi tetap): render ulang RSC tanpa `?queued` tidak me-unmount banner yang masih tampil. */}
+      <QueuedPostNotice queued={isQueued ? { keyword: queuedKeyword || undefined, postId: queuedPostId } : null} />
 
       {sites.length === 0 && (
         <Alert variant="info" role="note">

@@ -15,11 +15,13 @@ import {
   type WPPostSummary,
 } from "@/lib/wordpress/client"
 import { insertInternalLink, type InsertInternalLinkResult } from "@/lib/wordpress/internal-link"
+import { stripToPlainText } from "@/lib/wordpress/plain-text"
 import { ApiError, badRequest, conflict, notFound, throwIfDbError, unprocessable, upstreamFailed } from "@/server/http/errors"
-import { WP_AUTHOR_ROLES } from "@/lib/validation/sites"
+import { CreateAuthorBodySchema } from "@/lib/validation/sites"
 import type { LinkAnalyzeInput, WpToolPromptInput } from "@/lib/validation/tools"
 import type { LinkApplyInput } from "@/server/validation/tools"
 import type {
+  AuthorEmailIssue,
   AuthorSuggestion,
   AuthorSuggestResponse,
   CategorySuggestion,
@@ -149,21 +151,59 @@ export async function suggestCategories(
   })
 }
 
-/**
- * Peran dari LLM berupa teks bebas ("Author", "Penulis", "administrator"); dinormalkan ke peran yang
- * diterima `/api/sites/[id]/authors` agar tombol "Setujui" tidak gagal validasi. Tidak dikenal → author.
- */
-function normalizeAuthorSuggestion(raw: AuthorSuggestion): AuthorSuggestion {
-  const role = typeof raw.role === "string" ? raw.role.trim().toLowerCase() : ""
-  const known = WP_AUTHOR_ROLES.find((r) => r === role)
-  return { ...raw, role: known ?? "author" }
-}
-
 function domainHostOf(baseUrl: string): string {
   try {
     return new URL(baseUrl).hostname.replace(/^www\./, "")
   } catch {
     return "site.com"
+  }
+}
+
+/** Batas teks profil author WordPress yang dikirim ke LLM (cukup untuk membandingkan gaya, mempersempit ruang injeksi). */
+const PROMPT_AUTHOR_NAME_MAX = 100
+const PROMPT_AUTHOR_BIO_MAX = 300
+
+/**
+ * JSON data tidak tepercaya untuk blok bertag di prompt (`<author_terdaftar>…</author_terdaftar>`): `<` dan `>`
+ * di-escape (`\u003c`/`\u003e`, tetap JSON valid) agar isi data tidak bisa menutup tag pembungkus.
+ */
+function toUntrustedPromptJson(value: unknown): string {
+  return JSON.stringify(value, null, 2).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")
+}
+
+function textField(record: Record<string, unknown>, key: string): string {
+  const value = record[key]
+  return typeof value === "string" ? value.trim() : ""
+}
+
+/**
+ * Email persona harus valid (aturan sama dengan `POST /api/sites/[id]/authors`) dan berdomain website target;
+ * selain itu ditandai agar pengguna meninjaunya satu per satu.
+ */
+function authorEmailIssue(email: string, siteHost: string): AuthorEmailIssue | undefined {
+  if (!CreateAuthorBodySchema.shape.email.safeParse(email).success) return "invalid"
+  const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase().replace(/^www\./, "")
+  return domain === siteHost.toLowerCase() ? undefined : "foreign_domain"
+}
+
+/**
+ * Keluaran LLM tidak tepercaya (bisa dipengaruhi bio author di WordPress): hanya field teks yang dikenal yang
+ * diambil, peran SELALU author (editor/contributor hanya lewat form manual), dan email ditandai bila bermasalah.
+ */
+function normalizeAuthorSuggestion(raw: unknown, siteHost: string): AuthorSuggestion | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null
+  const record = raw as Record<string, unknown>
+  const email = textField(record, "email")
+  const emailIssue = authorEmailIssue(email, siteHost)
+  return {
+    name: textField(record, "name"),
+    username: textField(record, "username"),
+    email,
+    role: "author",
+    bio: textField(record, "bio"),
+    expertise: textField(record, "expertise"),
+    rationale: textField(record, "rationale"),
+    ...(emailIssue ? { emailIssue } : {}),
   }
 }
 
@@ -175,28 +215,34 @@ export async function suggestAuthors(
 ): Promise<AuthorSuggestResponse> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
   return withUserLlm(userId, signal, async (llm) => {
-    const existingRes = await fetchWordPressUsers({ ...site, signal })
-    const existingUsers =
+    // Hanya author yang sudah menerbitkan artikel: bio subscriber (pendaftaran terbuka) dikendalikan siapa saja.
+    const existingRes = await fetchWordPressUsers({ ...site, signal, publishedAuthorsOnly: true })
+    const existingAuthors =
       existingRes.ok && Array.isArray(existingRes.users)
-        ? existingRes.users.map((u) => ({ id: u.id, name: u.name, slug: u.slug, bio: u.description }))
+        ? existingRes.users.map((u) => ({
+            name: stripToPlainText(u.name, PROMPT_AUTHOR_NAME_MAX),
+            slug: stripToPlainText(u.slug, PROMPT_AUTHOR_NAME_MAX),
+            bio: stripToPlainText(u.description, PROMPT_AUTHOR_BIO_MAX),
+          }))
         : []
 
     const domainHost = domainHostOf(site.baseUrl)
     const promptConfig = loadSectionedPrompt("wp-tools-authors-suggest.md")
     const analysis = await callLlmJson<{ suggestions?: unknown }>(llm, {
-      systemPrompt: renderPrompt(promptConfig.systemPrompt, {
-        existingUsers: JSON.stringify(existingUsers, null, 2),
+      systemPrompt: renderPrompt(promptConfig.systemPrompt, { domainHost }),
+      userPrompt: renderPrompt(promptConfig.userPromptTemplate, {
+        existingUsers: toUntrustedPromptJson(existingAuthors),
+        userPrompt: input.prompt,
         domainHost,
       }),
-      userPrompt: renderPrompt(promptConfig.userPromptTemplate, { userPrompt: input.prompt, domainHost }),
       jsonSchema: promptConfig.outputSchema,
       runName: "Panitera WP Tools: authors/suggest",
       tags: ["wp_tools", "panitera"],
     })
 
     return {
-      suggestions: arrayOf<AuthorSuggestion>(analysis?.suggestions).map(normalizeAuthorSuggestion),
-      existingCount: existingUsers.length,
+      suggestions: arrayOf<unknown>(analysis?.suggestions).flatMap((raw) => normalizeAuthorSuggestion(raw, domainHost) ?? []),
+      existingCount: existingAuthors.length,
     }
   })
 }
@@ -283,6 +329,7 @@ async function recommendInternalLinks(
   const candidatePosts = Array.from(candidates.values()).slice(0, MAX_CANDIDATE_POSTS)
   if (candidatePosts.length === 0) {
     return {
+      newArticleUrl: articleUrl,
       topicSummary,
       searchQueries,
       recommendations: [],
@@ -319,7 +366,7 @@ async function recommendInternalLinks(
   const recommendations = arrayOf<LinkRecommendation>(analysis?.recommendations).filter(
     (r) => r && r.postId && r.sentenceOriginal && r.sentenceWithLink
   )
-  return { topicSummary, searchQueries, recommendations }
+  return { newArticleUrl: articleUrl, topicSummary, searchQueries, recommendations }
 }
 
 type InsertFailureReason = Extract<InsertInternalLinkResult, { ok: false }>["reason"]
@@ -327,6 +374,8 @@ type InsertFailureReason = Extract<InsertInternalLinkResult, { ok: false }>["rea
 const INSERT_FAILURES: Record<InsertFailureReason, () => ApiError> = {
   invalid_link: () =>
     badRequest("Rekomendasi tautan tidak valid: wajib memuat satu tautan http/https beserta teks anchor."),
+  target_mismatch: () =>
+    unprocessable("Tautan rekomendasi tidak menuju artikel baru yang dianalisis. Jalankan analisis ulang."),
   anchor_not_in_sentence: () => unprocessable("Teks anchor rekomendasi tidak ditemukan di dalam kalimat asli."),
   sentence_not_found: () =>
     conflict(
@@ -355,8 +404,14 @@ export async function applyInternalLink(
     throw unprocessable("Konten artikel lama kosong atau tidak dapat diakses.")
   }
 
-  // Tautan dibangun ulang dari URL & anchor tervalidasi (HTML rekomendasi LLM tidak disalin).
-  const inserted = insertInternalLink(current.rawContent, input.sentenceOriginal, input.sentenceWithLink)
+  // Tautan dibangun ulang dari URL & anchor tervalidasi (HTML rekomendasi LLM tidak disalin); href wajib
+  // menuju artikel baru yang dianalisis — keluaran LLM bisa dipengaruhi naskah artikel lama (prompt injection).
+  const inserted = insertInternalLink(
+    current.rawContent,
+    input.sentenceOriginal,
+    input.sentenceWithLink,
+    input.newArticleUrl
+  )
   if (!inserted.ok) throw INSERT_FAILURES[inserted.reason]()
 
   const updateRes = await updateWordPressPostContent({ ...site, postId: input.postId, content: inserted.content })

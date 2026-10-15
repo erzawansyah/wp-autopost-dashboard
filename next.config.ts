@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { SECURITY_HEADERS } from "./src/lib/security/security-headers";
 
 /** Sumber tunggal versi aplikasi: field `version` di package.json. */
 function readAppVersion(): string {
@@ -17,6 +18,8 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: readAppVersion(),
   },
+  // Header keamanan untuk semua rute (halaman, `/api/**`, aset); isi & alasan di `security-headers.ts`.
+  headers: async () => [{ source: "/:path*", headers: [...SECURITY_HEADERS] }],
 };
 
 export default nextConfig;

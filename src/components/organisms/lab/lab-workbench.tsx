@@ -35,10 +35,11 @@ export function LabWorkbench({ initialRegistry, initialTab }: LabWorkbenchProps)
           Agent Profile ({registry.profiles.length})
         </TabsTrigger>
       </TabsList>
-      <TabsContent value="tools">
+      {/* forceMount: berpindah tab tidak membatalkan uji yang sedang berjalan atau menghapus hasilnya. */}
+      <TabsContent value="tools" forceMount className="data-[state=inactive]:hidden">
         <LabToolsRunner tools={registry.tools} sites={registry.sites} />
       </TabsContent>
-      <TabsContent value="agent">
+      <TabsContent value="agent" forceMount className="data-[state=inactive]:hidden">
         <LabAgentProfileRunner profiles={registry.profiles} sites={registry.sites} />
       </TabsContent>
     </Tabs>

@@ -50,14 +50,8 @@ import {
   type QueueTableItem,
 } from "@/lib/queue/table-model"
 import { useConfirm } from "@/lib/ui/confirm"
-import { errorMessage } from "@/lib/ui/notify"
 import { cn } from "@/lib/utils"
 import type { PostItemState } from "@/types/queue"
-
-// API publik modul tabel antrean. Re-export tipe baris & helper aksi ulang dipertahankan karena dipakai
-// halaman Dasbor (`src/app/(dashboard)/page.tsx`, grup lain) — logika murninya tinggal di `@/lib/queue/*`.
-export type { QueueTableItem } from "@/lib/queue/table-model"
-export { getOptimisticRetryState, getQueueRetryAction, type QueueRetryAction } from "@/lib/queue/retry-actions"
 
 const RETRY_RESULT_STATES: readonly PostItemState[] = ["queued_input", "ready_to_sync"]
 
@@ -76,19 +70,6 @@ export async function scheduleQueueItemRetry(id: string, action: QueueRetryActio
           body: action === "run" ? { postId: id, forceNow: true } : { postId: id },
         })
   return RETRY_RESULT_STATES.find((state) => state === data.state) ?? getOptimisticRetryState(action)
-}
-
-export type QueueRetryResult = { ok: true; state: PostItemState } | { ok: false; error: string }
-
-/** Varian `scheduleQueueItemRetry` tanpa throw (hasil diskriminan) untuk pemanggil berbasis state lokal. */
-export async function requestQueueItemRetry(id: string, action: QueueRetryAction): Promise<QueueRetryResult> {
-  try {
-    return { ok: true, state: await scheduleQueueItemRetry(id, action) }
-  } catch (error) {
-    const fallback =
-      action === "resync" ? "Gagal menjadwalkan ulang pengiriman artikel ke WordPress." : "Gagal menjadwalkan ulang artikel."
-    return { ok: false, error: errorMessage(error, fallback) }
-  }
 }
 
 // ---------------------------------------------------------------------------

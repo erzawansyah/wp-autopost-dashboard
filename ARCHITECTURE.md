@@ -137,12 +137,12 @@ wp-autopost-dashboard/
 │   │   ├── auth/                          # routes.ts (klasifikasi rute, sanitasi ?next=), session.ts (getSession/requireSession RSC, server-only)
 │   │   ├── constants/                     # Daftar bahasa, otoritas akses
 │   │   ├── env/                           # Validasi env server/client (zod), termasuk QUEUE_*
-│   │   ├── hooks/                         # Hook client: useZodForm, useTheme, useDeveloperMode, useRealtimeChannel, useQueueLiveUpdates, usePostDetailLive
+│   │   ├── hooks/                         # Hook client: useZodForm, useTheme, useDeveloperMode, useRealtimeTopic (Broadcast privat), useQueueLiveUpdates, usePostDetailLive
 │   │   ├── net/                           # safeFetch anti-SSRF (DNS pinning, redirect, batas ukuran)
 │   │   ├── parser/                        # Parser input massal (CSV/TSV/pipe/baris) & pemetaan kolom dinamis
 │   │   ├── queue/                         # Model UI antrean murni: state/kelompok status, baris tabel, aksi ulang, patch Realtime, backoff polling, metrik run
 │   │   ├── scheduler/                     # Kalkulator jadwal (randomized jitter & drip window)
-│   │   ├── security/                      # redactSecrets / redactSecretsInText untuk log, telemetri & respons Lab
+│   │   ├── security/                      # redactSecrets / redactSecretsInText (log, telemetri, Lab); header keamanan HTTP (next.config.ts)
 │   │   ├── settings/                      # Dekripsi sentral kunci BYOK (user-keys.ts)
 │   │   ├── supabase/                      # Klien Supabase (Browser, Server SSR, Admin Service, penyegar sesi proxy)
 │   │   ├── ui/                            # notify (toast Sonner) & useConfirm (dialog konfirmasi)
@@ -496,8 +496,12 @@ stateDiagram-v2
    Runner memberi setiap job `AbortSignal`; sinyal dibatalkan dengan kode `lease_lost` (heartbeat mengembalikan `false`), `max_duration`, `shutdown`, atau `claim_lost` (RPC checkpoint menolak). Error jaringan heartbeat hanya dicatat, tidak membatalkan. Run yang dibatalkan berhenti tanpa menulis state, media, maupun WordPress; request publish WordPress yang sudah berjalan tidak pernah diputus. Pipeline media berhenti sebelum unggahan berikutnya hanya pada kehilangan pasti (`lease_lost`, `max_duration`, `claim_lost`); unggahan yang sedang berjalan diselesaikan dan dicatat di cache agar tidak menjadi media yatim. Baris `agent_runs` attempt yang mati ditutup `failed` dengan `stop_reason` (`lease_expired`, `shutdown`, `superseded`, atau kode di atas).
 7. **Pengelompokan Antrean Virtual (Quick Writer Batch)**:
    Artikel mandiri hasil dari *Tulis Cepat* (`batch_id: null`) dikelompokkan di halaman antrean (TanStack Table, grouping per batch) ke dalam batch virtual `id: "quick-writer"` ("Tulis Cepat (Quick Writer)") sehingga seluruh item tetap terpantau rapi. `/api/batches` mengirim grup virtual dengan bentuk yang sama seperti batch biasa (`wp_sites` objek = situs item terbaru).
-8. **Progres live (Supabase Realtime) + polling cadangan**:
-   `post_items` dan `execution_logs` terdaftar di publication `supabase_realtime` (migrasi `20261017090000_realtime_publication.sql`, hanya bila publication ada). Dasbor berlangganan `postgres_changes` INSERT/UPDATE `post_items` dengan filter `user_id=eq.<uid>` dan kolom ringkas (`select`, tanpa naskah) lalu menambal cache TanStack Query (`queue`, `posts`, detail); halaman detail juga berlangganan INSERT `execution_logs` (filter `post_item_id=eq.<id>`) untuk log live. Realtime mengotorisasi setiap event terhadap policy SELECT pemilik (RLS); event DELETE sengaja tidak dipakai (tidak melewati RLS) dan replica identity tetap default. Selama kanal tidak `SUBSCRIBED`, query memakai polling dengan backoff (5 dtk → maks 60 dtk, kembali ke awal saat data berubah, berhenti bila tidak ada item in-flight); saat kanal (kembali) tersambung, daftar disegarkan sekali.
+8. **Progres live (Supabase Realtime Broadcast privat) + polling cadangan**:
+   Postgres Changes **tidak** dipakai: event DELETE-nya tidak melewati RLS/filter (bocor ID lintas tenant) dan setiap event diotorisasi ulang per pelanggan. Migrasi `20261017100000_realtime_broadcast.sql` mengeluarkan `post_items`/`execution_logs` dari publication `supabase_realtime` lalu (hanya bila skema Realtime Supabase ada) memasang trigger `SECURITY DEFINER` (`search_path = ''`, EXECUTE dicabut dari role API) yang memanggil `realtime.send(..., private => true)` dengan payload ringkas tanpa naskah/`source_payload`/lease:
+   - topik `user:<user_id>:queue` — `post_item` (UPDATE kolom status; heartbeat `updated_at`/`locked_*` tidak dibroadcast), `post_items_inserted` & `post_items_deleted` (per statement per pemilik; ID terhapus maks 500);
+   - topik `user:<user_id>:post:<post_item_id>` — `execution_log` (log baru; `details` > 32 KiB tidak dikirim → klien refetch detail).
+   Policy `panitera_receive_own_user_topics` pada `realtime.messages` (SELECT, `to authenticated`, `extension = 'broadcast'`) hanya mengizinkan join topik berawalan `user:<auth.uid()>:`; otorisasi dievaluasi sekali saat join, bukan per pesan. Klien (`useRealtimeTopic` → `useQueueLiveUpdates`, `usePostDetailLive`) memasang token sesi (`realtime.setAuth()`), join kanal `{ config: { private: true } }` (satu kanal per topik per tab), lalu menambal cache TanStack Query (`queue`, `posts`, detail). Selama kanal tidak `SUBSCRIBED`, query memakai polling dengan backoff (5 dtk → maks 60 dtk, kembali ke awal saat data berubah, berhenti bila tidak ada item in-flight); saat kanal (kembali) tersambung, data disegarkan sekali.
+   **Deploy:** `npx supabase db push --linked`, lalu di Dashboard → Realtime → Settings matikan **"Allow public access"** (kanal privat ditegakkan; hanya kanal `private: true` yang lolos Realtime Authorization) dan pastikan tidak ada policy SELECT longgar lain (`using (true)`) pada `realtime.messages` — policy permissive digabung OR. Partisi harian `realtime.messages` dibuat saat klien pertama terhubung; sebelum itu `realtime.send` hanya mencatat peringatan `WarnSendingBroadcastMessage` (tulis antrean tidak gagal).
 
 ---
 
@@ -609,10 +613,11 @@ flowchart LR
    - Mencari artikel lama yang relevan di WordPress target via REST API.
    - AI membaca naskah artikel lama dan merancang kalimat penyisipan tautan internal secara alami dengan *anchor text* kontekstual.
    - Pengguna dapat menyalin kalimat rekomendasi atau menyisipkan tautan per rekomendasi ke WordPress via REST API (dengan konfirmasi).
+   - `apply` wajib menyertakan `newArticleUrl` hasil analisis; href rekomendasi LLM yang tidak menuju URL itu (setelah normalisasi huruf skema/host, garis miring akhir, fragmen) ditolak 422.
 2. **Pembuat Persona Penulis E-E-A-T (`/tools/authors`)**:
-   - AI menginspeksi profil penulis yang sudah ada di situs WordPress target.
+   - AI menginspeksi profil penulis yang sudah menerbitkan artikel (`has_published_posts=true&who=authors`); bio diperlakukan sebagai data tak tepercaya di pesan pengguna, bukan system prompt.
    - Merancang 2–3 profil penulis kredibel dengan biografi persuasif yang relevan dengan niche situs.
-   - Menyediakan alur persetujuan, lalu mendaftarkan akun pengguna baru ke WordPress dengan role `author` secara otomatis.
+   - Menyediakan alur persetujuan, lalu mendaftarkan akun pengguna baru ke WordPress dengan role `author` (dipaksa server; editor/contributor hanya lewat form manual). Email kosong/tidak valid/di luar domain situs ditandai, wajib disetujui satu per satu, dan tidak ikut "Setujui semua" (konfirmasinya mencantumkan email yang dibuat).
 3. **Perancang Taksonomi Kategori (`/tools/categories`)**:
    - AI membaca seluruh kategori aktif di situs target untuk mendeteksi tumpang tindih topik (*cannibalization*).
    - Menghasilkan usulan 3–6 kategori baru yang terstruktur, lengkap dengan slug ramah SEO dan deskripsi kategori.
@@ -651,6 +656,7 @@ Semua route di `src/app/api/` memakai `defineRoute` (`src/server/http/route.ts`,
 - **Auth:** `user` (sesi Supabase wajib), `cron` (header `Authorization: Bearer <CRON_SECRET>`), `user-or-cron`, `public` (sesi opsional), `none` (tanpa Supabase).
 - **Validasi:** body/query/params lewat skema zod — skema murni yang juga dipakai form client di `src/lib/validation/` (mis. `sites.ts`), refinement/skema khusus server di `src/server/validation/`; input tidak valid → 400 `validation_failed` + `issues`.
 - **Proxy:** `src/proxy.ts` tidak berjalan untuk `/api/**` (matcher) dan tidak pernah me-redirect API; route memverifikasi sesinya sendiri dan membalas JSON 401.
+- **Header keamanan:** semua rute (halaman, `/api/**`, aset) mendapat `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'` (hanya direktif itu), `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, dan `Permissions-Policy` minimal lewat `headers()` di `next.config.ts` (`src/lib/security/security-headers.ts`).
 - **Client:** UI memanggil API lewat `apiFetch` (`src/lib/api/client.ts`) yang mengurai envelope dan melempar `ApiClientError { status, code, message, issues?, retryAfterSeconds? }` (`Retry-After` dari 429); cache & invalidasi lewat TanStack Query (`queryKeys`, `src/lib/api/queries/<domain>.ts`). Tipe envelope bersama: `src/lib/api/contract.ts`.
 - **Respons:** sukses `{ ok: true, ...data }`; error `{ ok: false, error, code, issues? }`. Error Postgres dipetakan tanpa membocorkan detail (23505 → 409, 23503/23514/23502 → 422, 22P02 → 400, 42501 → 403); kegagalan layanan eksternal → 502 `upstream_failed`.
 - **Rate limit** (sliding window di memori, per pengguna): `llm` 20/menit, `outboundTest` 15/menit, `enqueue` 30/menit.

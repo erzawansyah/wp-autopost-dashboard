@@ -83,7 +83,7 @@ export function LinkBuildingWorkspace() {
 }
 
 function LinkRecommendationResults({ siteId, analysis }: { siteId: string; analysis: InternalLinkAnalysis }) {
-  const { recommendations, searchQueries, topicSummary, message } = analysis
+  const { newArticleUrl, recommendations, searchQueries, topicSummary, message } = analysis
   const headingId = React.useId()
 
   return (
@@ -119,7 +119,7 @@ function LinkRecommendationResults({ siteId, analysis }: { siteId: string; analy
         <ul className="flex flex-col gap-4">
           {recommendations.map((recommendation, index) => (
             <li key={`${recommendation.postId}-${index}`}>
-              <LinkRecommendationCard siteId={siteId} recommendation={recommendation} />
+              <LinkRecommendationCard siteId={siteId} newArticleUrl={newArticleUrl} recommendation={recommendation} />
             </li>
           ))}
         </ul>

@@ -54,11 +54,23 @@ export function suggestionReviewReducer(state: SuggestionReviewState, action: Su
   }
 }
 
-/** Indeks `0..count-1` yang masih bisa disetujui (urutan asli). */
-export function approvableIndices(state: SuggestionReviewState, count: number): number[] {
+/** Item yang wajib disetujui satu per satu (mis. email author di luar domain situs); default: tidak ada. */
+export type IndividualReviewPredicate = (index: number) => boolean
+
+const NO_INDIVIDUAL_REVIEW: IndividualReviewPredicate = () => false
+
+/**
+ * Indeks `0..count-1` yang ikut "Setujui semua" (urutan asli): masih bisa disetujui dan tidak wajib ditinjau
+ * satu per satu.
+ */
+export function bulkApprovableIndices(
+  state: SuggestionReviewState,
+  count: number,
+  needsIndividualReview: IndividualReviewPredicate = NO_INDIVIDUAL_REVIEW
+): number[] {
   const indices: number[] = []
   for (let index = 0; index < count; index++) {
-    if (canApprove(entryOf(state, index))) indices.push(index)
+    if (canApprove(entryOf(state, index)) && !needsIndividualReview(index)) indices.push(index)
   }
   return indices
 }
@@ -68,18 +80,27 @@ export interface SuggestionReviewSummary {
   approved: number
   rejected: number
   pending: number
-  /** Masih bisa disetujui (idle/error, tidak ditolak). */
+  /** Masih bisa disetujui (idle/error, tidak ditolak), termasuk yang wajib ditinjau satu per satu. */
   remaining: number
+  /** Bagian dari `remaining` yang wajib ditinjau satu per satu (tidak ikut "Setujui semua"). */
+  flagged: number
 }
 
-export function summarizeReview(state: SuggestionReviewState, count: number): SuggestionReviewSummary {
-  const summary: SuggestionReviewSummary = { total: count, approved: 0, rejected: 0, pending: 0, remaining: 0 }
+export function summarizeReview(
+  state: SuggestionReviewState,
+  count: number,
+  needsIndividualReview: IndividualReviewPredicate = NO_INDIVIDUAL_REVIEW
+): SuggestionReviewSummary {
+  const summary: SuggestionReviewSummary = { total: count, approved: 0, rejected: 0, pending: 0, remaining: 0, flagged: 0 }
   for (let index = 0; index < count; index++) {
     const entry = entryOf(state, index)
     if (entry.rejected) summary.rejected++
     else if (entry.status === "approved") summary.approved++
     else if (entry.status === "pending") summary.pending++
-    else summary.remaining++
+    else {
+      summary.remaining++
+      if (needsIndividualReview(index)) summary.flagged++
+    }
   }
   return summary
 }

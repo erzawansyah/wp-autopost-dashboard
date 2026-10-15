@@ -38,6 +38,8 @@ export const queryKeys = {
     list: () => [...sitesKey, "list"] as const,
     categories: (siteId: string) => [...sitesKey, siteId, "categories"] as const,
     authors: (siteId: string) => [...sitesKey, siteId, "authors"] as const,
+    /** Mutation key `POST /api/sites/connect` (dialog sambung terkunci selama otorisasi disiapkan). */
+    connect: () => [...sitesKey, "connect"] as const,
   },
   posts: {
     all: postsKey,

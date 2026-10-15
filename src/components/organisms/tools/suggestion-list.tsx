@@ -34,26 +34,40 @@ interface SuggestionListProps {
   approvedLabel: string
   /** Kata benda jamak untuk tombol & konfirmasi massal (mis. "kategori"). */
   noun: string
+  /** Label tiap item di daftar konfirmasi "Setujui semua" (mis. email author); default `review.describe`. */
+  bulkItemLabel?: (index: number) => string
   children: React.ReactNode
 }
 
 /**
  * Daftar rekomendasi AI yang ditinjau pengguna sebelum ditulis ke WordPress (Kategori & Author Creator).
  * Komposisi: `<SuggestionList review=…>{items.map((item, i) => <SuggestionItem index={i}>…</SuggestionItem>)}</SuggestionList>`.
+ * Konfirmasi "Setujui semua" mencantumkan setiap item yang akan dibuat; item bertanda tidak ikut massal.
  */
-export function SuggestionList({ review, title, description, approveLabel, approvedLabel, noun, children }: SuggestionListProps) {
+export function SuggestionList({
+  review,
+  title,
+  description,
+  approveLabel,
+  approvedLabel,
+  noun,
+  bulkItemLabel,
+  children,
+}: SuggestionListProps) {
   const confirm = useConfirm()
   const headingId = React.useId()
-  const { total, approved, remaining, pending, rejected } = review.summary
+  const { total, approved, remaining, pending, rejected, flagged } = review.summary
+  const bulkCount = review.bulkIndices.length
 
   async function handleApproveAll() {
+    const indices = review.bulkIndices
+    const labels = indices.map((index) => (bulkItemLabel ?? review.describe)(index))
     const ok = await confirm({
-      title: `Buat ${remaining} ${noun} di WordPress?`,
-      description:
-        "Semua rekomendasi yang belum ditolak dibuat satu per satu langsung di WordPress Anda. Data yang sudah dibuat hanya bisa dihapus manual dari WP-Admin.",
-      confirmLabel: `Buat ${remaining} ${noun}`,
+      title: `Buat ${indices.length} ${noun} di WordPress?`,
+      description: <BulkApproveDescription labels={labels} flagged={flagged} noun={noun} />,
+      confirmLabel: `Buat ${indices.length} ${noun}`,
     })
-    if (ok) review.approveAll()
+    if (ok) review.approveAll(indices)
   }
 
   return (
@@ -71,7 +85,7 @@ export function SuggestionList({ review, title, description, approveLabel, appro
             type="button"
             size="sm"
             onClick={handleApproveAll}
-            disabled={remaining === 0 || review.isBulkRunning || pending > 0}
+            disabled={bulkCount === 0 || review.isBulkRunning || pending > 0}
             className="cursor-pointer text-xs font-semibold"
           >
             {review.isBulkRunning ? (
@@ -79,18 +93,44 @@ export function SuggestionList({ review, title, description, approveLabel, appro
             ) : (
               <Check aria-hidden="true" data-icon="inline-start" />
             )}
-            {review.isBulkRunning ? "Membuat di WordPress…" : `Setujui semua (${remaining})`}
+            {review.isBulkRunning ? "Membuat di WordPress…" : `Setujui semua (${bulkCount})`}
           </Button>
         </div>
 
         <p role="status" className="px-1 text-xs text-muted-foreground">
           {approved} dibuat · {remaining} menunggu persetujuan{rejected > 0 ? ` · ${rejected} ditolak` : ""}
           {pending > 0 ? ` · ${pending} sedang diproses` : ""}
+          {flagged > 0 ? ` · ${flagged} perlu ditinjau satu per satu` : ""}
         </p>
 
         <ul className="flex flex-col gap-3">{children}</ul>
       </section>
     </SuggestionListContext>
+  )
+}
+
+/**
+ * Isi konfirmasi "Setujui semua": daftar persis item yang akan dibuat. Dirender di dalam `<p>` deskripsi dialog,
+ * jadi hanya elemen frasa (`span` blok), bukan `ul`.
+ */
+function BulkApproveDescription({ labels, flagged, noun }: { labels: string[]; flagged: number; noun: string }) {
+  return (
+    <>
+      Rekomendasi berikut dibuat satu per satu langsung di WordPress Anda. Data yang sudah dibuat hanya bisa dihapus
+      manual dari WP-Admin.
+      <span className="mt-2 block max-h-40 overflow-y-auto rounded-md border border-border/60 bg-muted/40 px-2.5 py-1.5">
+        {labels.map((label, index) => (
+          <span key={index} className="block font-mono text-xs break-all text-foreground">
+            {label}
+          </span>
+        ))}
+      </span>
+      {flagged > 0 && (
+        <span className="mt-2 block">
+          {flagged} {noun} bertanda &quot;perlu ditinjau&quot; tidak ikut dibuat — periksa dan setujui satu per satu.
+        </span>
+      )}
+    </>
   )
 }
 

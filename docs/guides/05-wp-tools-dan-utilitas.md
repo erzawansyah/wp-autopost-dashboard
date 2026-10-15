@@ -15,6 +15,7 @@ Membangun struktur tautan internal (*internal links*) secara manual antar postin
 4. Anda dapat menyetujui rekomendasi penyisipan:
    - **Terapkan Otomatis**: Panitera langsung memperbarui konten artikel lama di WordPress via REST API.
    - **Salin Manual**: Salin kalimat yang direkomendasikan untuk diedit manual.
+5. Demi keamanan, Panitera hanya menyisipkan tautan yang menuju URL artikel baru yang Anda analisis. Rekomendasi yang mengarah ke alamat lain ditolak — jalankan analisis ulang bila itu terjadi.
 
 ---
 
@@ -24,8 +25,9 @@ Google Search Quality Rater Guidelines menitikberatkan pada faktor *Experience, 
 
 ### Cara Kerja:
 1. Pilih website target dan tentukan tema atau niche situs Anda.
-2. AI membaca author yang sudah ada dan merancang 2–3 profil persona author profesional lengkap dengan latar belakang keahlian dan biografi persuasif.
-3. Anda dapat menyetujui persona yang cocok. Panitera akan mendaftarkan akun author baru tersebut ke WordPress dengan role `author` secara otomatis.
+2. AI membaca author yang sudah menerbitkan artikel dan merancang 2–3 profil persona author profesional lengkap dengan latar belakang keahlian dan biografi persuasif.
+3. Anda dapat menyetujui persona yang cocok. Panitera akan mendaftarkan akun author baru tersebut ke WordPress dengan role `author` secara otomatis (role editor/contributor hanya lewat tab Manual).
+4. Persona yang emailnya kosong, tidak valid, atau tidak memakai domain website Anda diberi tanda **Perlu ditinjau**. Persona ini tidak ikut "Setujui semua" dan harus disetujui satu per satu — pemilik email dapat mereset sandi akun tersebut, jadi setujui hanya alamat yang Anda kenal.
 
 ---
 

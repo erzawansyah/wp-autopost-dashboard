@@ -3,9 +3,9 @@
  *
  * Rekomendasi `sentenceWithLink` berasal dari LLM yang membaca naskah situs (rentan prompt injection),
  * sedangkan akun WordPress yang terhubung umumnya ber-`unfiltered_html`. Karena itu HTML rekomendasi
- * TIDAK pernah disalin ke artikel: hanya URL (wajib http/https) dan teks anchor yang diambil, lalu
- * tautan dibangun ulang dan disisipkan di sekitar teks anchor yang sudah ada di naskah. Seluruh teks
- * dan markup blok lain tetap utuh byte-per-byte.
+ * TIDAK pernah disalin ke artikel: hanya URL (wajib http/https dan wajib menuju artikel baru yang
+ * dianalisis) dan teks anchor yang diambil, lalu tautan dibangun ulang dan disisipkan di sekitar teks
+ * anchor yang sudah ada di naskah. Seluruh teks dan markup blok lain tetap utuh byte-per-byte.
  *
  * Pencocokan kalimat toleran terhadap perbedaan `content.rendered` (sumber analisis) vs `content.raw`:
  * entitas HTML, kutip/dash/ellipsis hasil `wptexturize`, dan variasi spasi.
@@ -15,7 +15,10 @@ import { decodeHtmlEntities, stripToPlainText } from "./plain-text"
 
 export type InsertInternalLinkResult =
   | { ok: true; content: string }
-  | { ok: false; reason: "invalid_link" | "anchor_not_in_sentence" | "sentence_not_found" | "already_linked" }
+  | {
+      ok: false
+      reason: "invalid_link" | "target_mismatch" | "anchor_not_in_sentence" | "sentence_not_found" | "already_linked"
+    }
 
 const MAX_SENTENCE_LENGTH = 2000
 const MAX_ANCHOR_LENGTH = 200
@@ -87,6 +90,25 @@ export function parseSuggestedLink(sentenceWithLink: string): { href: string; an
   return { href: url.href, anchorText }
 }
 
+/**
+ * Kunci pembanding tujuan tautan: skema & host huruf kecil (dinormalkan parser URL, port bawaan dibuang),
+ * tanpa fragmen, tanpa garis miring di akhir path; query dipertahankan. `null` bila bukan URL absolut.
+ */
+function linkTargetKey(value: string): string | null {
+  try {
+    const url = new URL(value.trim())
+    return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}${url.search}`
+  } catch {
+    return null
+  }
+}
+
+/** true bila `href` menuju dokumen yang sama dengan `targetUrl` (lihat `linkTargetKey`). */
+export function isSameLinkTarget(href: string, targetUrl: string): boolean {
+  const target = linkTargetKey(targetUrl)
+  return target !== null && linkTargetKey(href) === target
+}
+
 /** true bila posisi `index` berada di dalam tag, komentar blok, atau tautan yang sudah ada. */
 function isInsideMarkup(content: string, index: number): { insideTagOrComment: boolean; insideAnchor: boolean } {
   const before = content.slice(0, index).toLowerCase()
@@ -100,16 +122,21 @@ function isInsideMarkup(content: string, index: number): { insideTagOrComment: b
 /**
  * Sisipkan satu tautan internal pada kemunculan pertama `sentenceOriginal` di konten mentah.
  * Hanya menambah `<a href="…">` dan `</a>` di sekitar teks anchor; tidak ada teks lain yang berubah.
+ * `targetUrl` = URL artikel baru yang dianalisis: href rekomendasi LLM yang menuju tempat lain ditolak.
  */
 export function insertInternalLink(
   rawContent: string,
   sentenceOriginal: string,
-  sentenceWithLink: string
+  sentenceWithLink: string,
+  targetUrl: string
 ): InsertInternalLinkResult {
   const link = parseSuggestedLink(sentenceWithLink)
   const sentence = stripToPlainText(sentenceOriginal)
   if (!link || !sentence || Array.from(sentence).length > MAX_SENTENCE_LENGTH) {
     return { ok: false, reason: "invalid_link" }
+  }
+  if (!isSameLinkTarget(link.href, targetUrl)) {
+    return { ok: false, reason: "target_mismatch" }
   }
 
   const anchorPattern = buildFlexiblePattern(link.anchorText)

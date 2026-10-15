@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest"
 import { describeExecutionLog, formatLogTime } from "@/lib/queue/execution-log"
 import { getQueueRetryAction, RETRY_ACTION_COPY } from "@/lib/queue/retry-actions"
 import { checkpointStepLabel, formatDuration, formatUsd, stopReasonLabel } from "@/lib/queue/run-metrics"
-import { defaultScheduleWindow, toAgentProfileOptions, toLocalDateTimeInput } from "@/lib/queue/writer-options"
+import {
+  DEFAULT_AGENT_PROFILE_REF,
+  defaultAgentProfileRef,
+  defaultScheduleWindow,
+  toAgentProfileOptions,
+  toLocalDateTimeInput,
+  type AgentProfileOption,
+} from "@/lib/queue/writer-options"
 
 describe("run-metrics", () => {
   it("biaya null/tidak valid → 'tidak dilaporkan'; numeric string dari PostgREST diformat", () => {
@@ -77,9 +84,28 @@ describe("writer-options", () => {
         userProfiles: [{ ref: "uuid-1", name: "Saya", description: "Kustom", mode: "deep" }],
       })
     ).toEqual([
-      { ref: "preset:quick-writer", name: "Quick", description: "", mode: "standard", toolCount: 2, isPreset: true },
-      { ref: "uuid-1", name: "Saya", description: "Kustom", mode: "deep", toolCount: 0, isPreset: false },
+      { ref: "preset:quick-writer", name: "Quick", description: "", mode: "standard", toolCount: 2, isPreset: true, isDefault: false },
+      { ref: "uuid-1", name: "Saya", description: "Kustom", mode: "deep", toolCount: 0, isPreset: false, isDefault: false },
     ])
+  })
+
+  it("Agent Profile default form: profil kustom default → preset default → preset:quick-writer", () => {
+    const options = (isDefault: Partial<Record<string, boolean>>): AgentProfileOption[] =>
+      toAgentProfileOptions({
+        presets: [
+          { ref: "preset:quick-writer", name: "Quick", mode: "standard", isDefault: isDefault["preset:quick-writer"] },
+          { ref: "preset:deep-research", name: "Deep", mode: "deep" },
+        ],
+        userProfiles: [
+          { ref: "uuid-1", name: "Satu", mode: "standard", isDefault: isDefault["uuid-1"] },
+          { ref: "uuid-2", name: "Dua", mode: "standard", isDefault: isDefault["uuid-2"] },
+        ],
+      })
+
+    expect(defaultAgentProfileRef(options({ "preset:quick-writer": true, "uuid-2": true }))).toBe("uuid-2")
+    expect(defaultAgentProfileRef(options({ "preset:quick-writer": true }))).toBe("preset:quick-writer")
+    expect(defaultAgentProfileRef(options({}))).toBe(DEFAULT_AGENT_PROFILE_REF)
+    expect(defaultAgentProfileRef([])).toBe(DEFAULT_AGENT_PROFILE_REF)
   })
 
   it("nilai datetime-local & jendela default 7 hari", () => {

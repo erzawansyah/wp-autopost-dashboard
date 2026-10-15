@@ -51,6 +51,8 @@ export function ByokKeyField({ control, name, title, configured, placeholder, de
   const typedKey = useWatch({ control, name }).trim()
 
   const testKey = useMutation({
+    // Variabel = kunci API plaintext yang diuji: buang dari cache mutation begitu field unmount.
+    gcTime: 0,
     mutationFn: (key: string) => {
       if (!test) throw new Error("Pengujian tidak tersedia untuk kunci ini.")
       return test.run(key)

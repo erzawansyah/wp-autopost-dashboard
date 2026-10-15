@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
-  approvableIndices,
+  bulkApprovableIndices,
   entryOf,
   summarizeReview,
   suggestionReviewReducer,
@@ -53,16 +53,32 @@ describe("suggestionReviewReducer", () => {
   })
 })
 
-describe("approvableIndices & summarizeReview", () => {
+describe("bulkApprovableIndices & summarizeReview", () => {
+  const state = run([
+    { type: "succeed", index: 0 },
+    { type: "reject", index: 1 },
+    { type: "start", index: 2 },
+    { type: "start", index: 3 },
+    { type: "fail", index: 3, error: "x" },
+  ])
+
   it("menghitung sisa yang bisa disetujui sesuai urutan asli", () => {
-    const state = run([
-      { type: "succeed", index: 0 },
-      { type: "reject", index: 1 },
-      { type: "start", index: 2 },
-      { type: "start", index: 3 },
-      { type: "fail", index: 3, error: "x" },
-    ])
-    expect(approvableIndices(state, 5)).toEqual([3, 4])
-    expect(summarizeReview(state, 5)).toEqual({ total: 5, approved: 1, rejected: 1, pending: 1, remaining: 2 })
+    expect(bulkApprovableIndices(state, 5)).toEqual([3, 4])
+    expect(summarizeReview(state, 5)).toEqual({ total: 5, approved: 1, rejected: 1, pending: 1, remaining: 2, flagged: 0 })
+  })
+
+  it("item yang wajib ditinjau satu per satu tidak ikut massal, tetapi tetap dihitung menunggu", () => {
+    const flaggedIndices = new Set([1, 4, 5])
+    const isFlagged = (index: number) => flaggedIndices.has(index)
+    expect(bulkApprovableIndices(state, 6, isFlagged)).toEqual([3])
+    // Indeks 1 ditolak → tidak dihitung sebagai bertanda yang menunggu.
+    expect(summarizeReview(state, 6, isFlagged)).toEqual({
+      total: 6,
+      approved: 1,
+      rejected: 1,
+      pending: 1,
+      remaining: 3,
+      flagged: 2,
+    })
   })
 })

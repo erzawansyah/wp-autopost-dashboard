@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { isValidWpPostId } from "@/lib/wordpress/client"
-import { ToolSiteIdSchema } from "@/lib/validation/tools"
+import { ArticleUrlSchema, ToolSiteIdSchema } from "@/lib/validation/tools"
 
 /**
  * Validasi WP Tools yang butuh modul server (`link-building/apply`) dan endpoint AI (`/api/ai/**`).
@@ -15,10 +15,15 @@ function sentenceSchema(label: string, max: number) {
     .refine((value) => value.trim().length > 0, `${label} wajib diisi.`)
 }
 
-/** POST /api/tools/link-building/apply. ID post WordPress masuk ke path URL REST: wajib bilangan bulat positif. */
+/**
+ * POST /api/tools/link-building/apply. ID post WordPress masuk ke path URL REST: wajib bilangan bulat positif.
+ * `newArticleUrl` = URL artikel yang dianalisis (`InternalLinkAnalysis.newArticleUrl`); href tautan dari LLM
+ * wajib menuju URL ini (diperiksa `insertInternalLink`).
+ */
 export const LinkApplyBodySchema = z.object(
   {
     siteId: ToolSiteIdSchema,
+    newArticleUrl: ArticleUrlSchema,
     postId: z
       .union([z.number(), z.string().trim().regex(/^\d+$/).transform(Number)], {
         error: "ID artikel WordPress tidak valid.",

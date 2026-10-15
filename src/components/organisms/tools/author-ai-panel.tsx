@@ -1,16 +1,18 @@
 "use client"
 
 import { useQueryClient } from "@tanstack/react-query"
-import { Info, Users } from "lucide-react"
+import { AlertTriangle, Info, Users } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/atoms/alert"
 import { Badge } from "@/components/atoms/badge"
 import { CardContent, CardHeader } from "@/components/atoms/card"
 import { EmptyState } from "@/components/molecules/empty-state"
 import { apiFetch } from "@/lib/api/client"
 import { queryKeys } from "@/lib/api/query-keys"
+import { useConfirm } from "@/lib/ui/confirm"
 import { notify } from "@/lib/ui/notify"
 import { AuthorSuggestFormSchema, type WpToolPromptInput } from "@/lib/validation/tools"
 import type { SiteAuthor } from "@/types/site"
-import type { AuthorSuggestion, AuthorSuggestResponse } from "@/types/tools"
+import type { AuthorEmailIssue, AuthorSuggestion, AuthorSuggestResponse } from "@/types/tools"
 import { AuthorInitial } from "./author-initial"
 import { SuggestionItem, SuggestionList } from "./suggestion-list"
 import { splitExpertise } from "./tool-helpers"
@@ -18,6 +20,18 @@ import { ToolPromptForm } from "./tool-prompt-form"
 import { ToolRunFeedback } from "./tool-run-feedback"
 import { useSuggestionReview } from "./use-suggestion-review"
 import { useToolRun } from "./use-tool-run"
+
+/** Penjelasan email bermasalah: pemilik email dapat mereset sandi akun author yang dibuat. */
+const EMAIL_ISSUE_COPY: Record<AuthorEmailIssue, string> = {
+  invalid: "Email kosong atau formatnya tidak valid, sehingga author ini tidak dapat dibuat. Tolak persona ini atau tambahkan lewat tab Manual.",
+  foreign_domain:
+    "Domain email bukan domain website ini. Pemilik alamat tersebut dapat mereset sandi dan masuk sebagai author — setujui hanya bila Anda mengenal alamat ini.",
+}
+
+/** Persona dengan email bermasalah wajib ditinjau satu per satu (tidak ikut "Setujui semua"). */
+function hasEmailIssue(candidate: AuthorSuggestion): boolean {
+  return candidate.emailIssue !== undefined
+}
 
 const PRESET_PROMPTS = [
   "Master Barista & Roaster Kopi Spesialis Single Origin Nusantara",
@@ -46,7 +60,7 @@ export function AuthorAiPanel({ siteId }: { siteId: string }) {
       <ToolPromptForm
         schema={AuthorSuggestFormSchema}
         title="Rancang Persona Penulis dengan AI"
-        description="AI membaca author & bio yang sudah ada di WordPress Anda, lalu merancang profil author baru dengan suara unik, kredensial nyata, dan bio standar E-E-A-T."
+        description="AI membaca author yang sudah menerbitkan artikel di WordPress Anda, lalu merancang profil author baru dengan suara unik, kredensial nyata, dan bio standar E-E-A-T."
         label="Instruksi / arahan profil penulis"
         placeholder="Contoh: Rancang 2 persona: satu master barista senior dengan 10 tahun pengalaman spesialis manual brew, dan satu roaster kopi muda…"
         presetsLabel="Contoh ide:"
@@ -81,6 +95,7 @@ export function AuthorAiPanel({ siteId }: { siteId: string }) {
 
 function AuthorSuggestionReview({ siteId, suggestions }: { siteId: string; suggestions: AuthorSuggestion[] }) {
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const review = useSuggestionReview({
     items: suggestions,
     approve: (candidate: AuthorSuggestion) =>
@@ -90,7 +105,8 @@ function AuthorSuggestionReview({ siteId, suggestions }: { siteId: string; sugge
           username: candidate.username,
           name: candidate.name,
           email: candidate.email,
-          roles: [candidate.role || "author"],
+          // Persona AI selalu author (dipaksa server); peran lain hanya lewat form manual.
+          roles: [candidate.role],
           description: candidate.bio,
         },
       }),
@@ -99,16 +115,27 @@ function AuthorSuggestionReview({ siteId, suggestions }: { siteId: string; sugge
     noun: "author",
     errorFallback: "Gagal membuat author di WordPress.",
     onApproved: () => queryClient.invalidateQueries({ queryKey: queryKeys.sites.authors(siteId) }),
+    requiresIndividualReview: hasEmailIssue,
+    confirmApprove: (candidate) =>
+      candidate.emailIssue === "foreign_domain"
+        ? confirm({
+            title: `Buat author dengan email ${candidate.email}?`,
+            description: EMAIL_ISSUE_COPY.foreign_domain,
+            confirmLabel: "Tetap buat author",
+            tone: "destructive",
+          })
+        : Promise.resolve(true),
   })
 
   return (
     <SuggestionList
       review={review}
       title="Kandidat Persona Baru"
-      description="Tinjau profil, lalu setujui untuk mendaftarkannya sebagai user WordPress atau tolak bila tidak sesuai."
+      description="Tinjau profil, lalu setujui untuk mendaftarkannya sebagai user WordPress berperan author atau tolak bila tidak sesuai."
       approveLabel="Setujui & Buat di WordPress"
       approvedLabel="Aktif di WordPress sebagai author resmi"
       noun="author"
+      bulkItemLabel={(index) => `${suggestions[index]?.email ?? ""} — ${suggestions[index]?.name ?? ""}`}
     >
       {suggestions.map((candidate, index) => (
         <SuggestionItem key={index} index={index}>
@@ -132,15 +159,32 @@ function AuthorSuggestionContent({ candidate }: { candidate: AuthorSuggestion })
               <h3 className="text-sm font-bold text-foreground">{candidate.name}</h3>
               <span className="font-mono text-xs text-muted-foreground">@{candidate.username}</span>
             </div>
-            <span className="truncate font-mono text-xs text-muted-foreground">{candidate.email}</span>
+            <span className="truncate font-mono text-xs text-muted-foreground">{candidate.email || "(email kosong)"}</span>
           </div>
         </div>
-        <Badge variant="outline" className="capitalize">
-          {candidate.role}
-        </Badge>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {candidate.emailIssue && (
+            <Badge variant="warning">
+              <AlertTriangle aria-hidden="true" />
+              Perlu ditinjau
+            </Badge>
+          )}
+          <Badge variant="outline" className="capitalize">
+            {candidate.role}
+          </Badge>
+        </div>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-3 px-5 text-xs">
+        {candidate.emailIssue && (
+          <Alert variant="warning" role="note">
+            <AlertTriangle aria-hidden="true" />
+            <AlertDescription>
+              <p>{EMAIL_ISSUE_COPY[candidate.emailIssue]} Persona ini tidak ikut &quot;Setujui semua&quot;.</p>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {expertise.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="mr-1 font-semibold text-foreground">Keahlian:</span>

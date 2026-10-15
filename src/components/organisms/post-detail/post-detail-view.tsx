@@ -34,7 +34,7 @@ const RETRY_ICON: Record<QueueRetryAction, typeof Play> = { run: Play, regenerat
 export function PostDetailView({ initialData }: { initialData: PostDetailResponse }) {
   const postId = initialData.post.id
   const [backoff] = React.useState(() => new PollBackoff())
-  const live = usePostDetailLive(postId)
+  const live = usePostDetailLive(initialData.post)
   const isLive = live === "live"
 
   const { data, isFetching, isError, refetch } = useQuery({

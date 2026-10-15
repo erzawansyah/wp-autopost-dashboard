@@ -22,11 +22,13 @@ const APPLY_ERROR_HINTS: Partial<Record<number, string>> = {
 
 interface LinkRecommendationCardProps {
   siteId: string
+  /** URL artikel baru yang dianalisis; server menolak tautan yang tidak menuju URL ini. */
+  newArticleUrl: string
   recommendation: LinkRecommendation
 }
 
 /** Satu titik sisip tautan: kalimat asli vs kalimat bertautan, salin HTML, dan sisipkan ke WordPress (dengan konfirmasi). */
-export function LinkRecommendationCard({ siteId, recommendation: rec }: LinkRecommendationCardProps) {
+export function LinkRecommendationCard({ siteId, newArticleUrl, recommendation: rec }: LinkRecommendationCardProps) {
   const confirm = useConfirm()
   // Kalimat bertautan berisi HTML dari LLM: sanitasi profil inline (hanya di browser).
   const sentenceHtml = useSanitizedHtml(rec.sentenceWithLink, "inline")
@@ -38,6 +40,7 @@ export function LinkRecommendationCard({ siteId, recommendation: rec }: LinkReco
         method: "POST",
         body: {
           siteId,
+          newArticleUrl,
           postId: rec.postId,
           sentenceOriginal: rec.sentenceOriginal,
           sentenceWithLink: rec.sentenceWithLink,

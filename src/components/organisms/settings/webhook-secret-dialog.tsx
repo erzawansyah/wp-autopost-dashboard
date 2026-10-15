@@ -15,11 +15,7 @@ import {
 import { Input } from "@/components/atoms/input"
 import { FormField } from "@/components/molecules/form-field"
 import { notify } from "@/lib/ui/notify"
-
-export interface CreatedWebhookSecret {
-  name: string
-  secret: string
-}
+import type { CreatedWebhookSecret } from "./webhook-secret-state"
 
 interface WebhookSecretDialogProps {
   created: CreatedWebhookSecret | null

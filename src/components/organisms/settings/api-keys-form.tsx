@@ -41,6 +41,8 @@ export function ApiKeysForm({ initialSettings }: { initialSettings: UserSettings
   }, [])
 
   const save = useMutation({
+    // Variabel memuat kunci API plaintext yang baru diketik: buang dari cache mutation begitu form unmount.
+    gcTime: 0,
     mutationFn: (values: ApiKeysFormValues) =>
       apiFetch<{ message: string }>("/api/settings/user", { method: "PUT", body: toUserSettingsUpdate(values) }),
     onSuccess: async ({ message }, values) => {

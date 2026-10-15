@@ -54,6 +54,9 @@ function WebhookForm({ webhook, onSaved }: Pick<WebhookFormDialogProps, "webhook
   const form = useZodForm(WebhookFormSchema, { defaultValues: toWebhookFormValues(webhook) })
 
   const save = useMutation({
+    // Variabel (`customSecret`) & respons pembuatan (`webhook.secret`) memuat secret plaintext: buang dari cache
+    // mutation begitu dialog ditutup (form unmount).
+    gcTime: 0,
     mutationFn: ({ customSecret, ...values }: WebhookFormValues) =>
       webhook
         ? apiFetch<{ message: string; webhook: WebhookItem }>(`/api/webhooks/${webhook.id}`, { method: "PATCH", body: values })

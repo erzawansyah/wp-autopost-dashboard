@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import {
-  getOptimisticRetryState,
-  getQueueRetryAction,
-  requestQueueItemRetry,
-  scheduleQueueItemRetry,
-} from "@/components/organisms/queue-data-table"
+import { scheduleQueueItemRetry } from "@/components/organisms/queue-data-table"
 import { ApiClientError } from "@/lib/api/client"
+import { getOptimisticRetryState, getQueueRetryAction } from "@/lib/queue/retry-actions"
 
 const fetchMock = vi.fn()
 
@@ -87,47 +83,5 @@ describe("scheduleQueueItemRetry", () => {
     const error = await scheduleQueueItemRetry("p2", "run").catch((caught: unknown) => caught)
     expect(error).toBeInstanceOf(ApiClientError)
     expect(error).toMatchObject({ status: 409, code: "conflict", message: "Artikel sedang diproses. Tunggu hingga selesai." })
-  })
-})
-
-describe("requestQueueItemRetry (varian tanpa throw)", () => {
-  it("sukses → state baru", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ ok: true, state: "ready_to_sync" }, 202))
-
-    await expect(requestQueueItemRetry("p1", "resync")).resolves.toEqual({ ok: true, state: "ready_to_sync" })
-  })
-
-  it("meneruskan pesan galat route (mis. 422 naskah belum lengkap)", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({ ok: false, error: "Konten artikel belum lengkap untuk dikirim ke WordPress.", code: "unprocessable" }, 422)
-    )
-
-    await expect(requestQueueItemRetry("p1", "resync")).resolves.toEqual({
-      ok: false,
-      error: "Konten artikel belum lengkap untuk dikirim ke WordPress.",
-    })
-  })
-
-  it("respons 2xx dengan ok:false tetap dianggap gagal", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: "Artikel sedang diproses." }))
-
-    await expect(requestQueueItemRetry("p2", "regenerate")).resolves.toEqual({
-      ok: false,
-      error: "Artikel sedang diproses.",
-    })
-  })
-
-  it("jaringan putus & body non-JSON memakai pesan Indonesia dari klien API", async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"))
-    await expect(requestQueueItemRetry("p1", "resync")).resolves.toEqual({
-      ok: false,
-      error: "Tidak dapat terhubung ke server. Periksa koneksi internet Anda lalu coba lagi.",
-    })
-
-    fetchMock.mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }))
-    await expect(requestQueueItemRetry("p1", "resync")).resolves.toEqual({
-      ok: false,
-      error: "Layanan eksternal gagal merespons. Coba lagi beberapa saat lagi.",
-    })
   })
 })

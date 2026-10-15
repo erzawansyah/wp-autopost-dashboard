@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils"
 import { Badge } from "@/components/atoms/badge"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip"
 import { useDeveloperMode } from "@/lib/hooks/use-developer-mode"
+import { createSidebarCollapsedStore } from "./sidebar-collapsed-store"
 
 /** Versi aplikasi dari package.json, di-inline saat build via `env` di next.config.ts. */
 const APP_VERSION_LABEL = `v${process.env.NEXT_PUBLIC_APP_VERSION}`
@@ -183,7 +184,8 @@ function renderNavLink(item: NavItem, pathname: string, isCollapsed: boolean) {
   )
 }
 
-let cachedSidebarCollapsed: boolean | null = null
+/** Preferensi sidebar diciutkan (localStorage); server & hidrasi selalu "terbuka" agar HTML identik. */
+const sidebarCollapsedStore = createSidebarCollapsedStore(() => (typeof window === "undefined" ? null : window.localStorage))
 
 interface SidebarNavProps {
   /** Nilai awal Developer Mode dari `(dashboard)/layout.tsx`; pembaruan setelah disimpan lewat `useDeveloperMode`. */
@@ -192,36 +194,12 @@ interface SidebarNavProps {
 
 export function SidebarNav({ developerMode: initialDeveloperMode }: SidebarNavProps) {
   const pathname = usePathname()
-  const [isCollapsed, setIsCollapsed] = React.useState<boolean>(() => {
-    if (cachedSidebarCollapsed !== null) {
-      return cachedSidebarCollapsed
-    }
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("wp_sidebar_collapsed")
-        if (saved !== null) {
-          cachedSidebarCollapsed = saved === "true"
-          return cachedSidebarCollapsed
-        }
-      } catch {
-        // LocalStorage tidak tersedia
-      }
-    }
-    return false
-  })
-
-  const toggleCollapsed = () => {
-    setIsCollapsed((prev) => {
-      const next = !prev
-      cachedSidebarCollapsed = next
-      try {
-        localStorage.setItem("wp_sidebar_collapsed", String(next))
-      } catch {
-        // Abaikan galat penyimpanan lokal
-      }
-      return next
-    })
-  }
+  const isCollapsed = React.useSyncExternalStore(
+    sidebarCollapsedStore.subscribe,
+    sidebarCollapsedStore.getSnapshot,
+    sidebarCollapsedStore.getServerSnapshot
+  )
+  const toggleCollapsed = sidebarCollapsedStore.toggle
 
   const { developerMode } = useDeveloperMode(initialDeveloperMode)
 
@@ -232,7 +210,6 @@ export function SidebarNav({ developerMode: initialDeveloperMode }: SidebarNavPr
 
   return (
     <aside
-      suppressHydrationWarning
       className={cn(
         "sticky top-0 flex h-screen max-h-screen shrink-0 flex-col border-r border-sidebar-border bg-sidebar transition-[width] duration-200 ease-in-out z-30",
         isCollapsed ? "w-17" : "w-17 lg:w-64"

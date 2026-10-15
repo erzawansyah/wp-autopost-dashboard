@@ -11,6 +11,8 @@ export interface AgentProfileOption {
   mode: "standard" | "deep"
   toolCount: number
   isPreset: boolean
+  /** Profil kustom yang ditandai "Jadikan default" (`limits.isDefault`), atau preset default bawaan. */
+  isDefault: boolean
 }
 
 interface AgentProfileSource {
@@ -19,10 +21,20 @@ interface AgentProfileSource {
   description?: string
   mode: string
   toolIds?: string[]
+  isDefault?: boolean
 }
 
 /** Profil bawaan default form (dipakai worker juga bila `agentProfileRef` kosong). */
 export const DEFAULT_AGENT_PROFILE_REF = "preset:quick-writer"
+
+/**
+ * Agent Profile yang dipilih otomatis di form penulis (Tulis Cepat/Massal/Terstruktur): profil kustom bertanda
+ * default lebih dulu, lalu preset bertanda default, lalu `DEFAULT_AGENT_PROFILE_REF`.
+ */
+export function defaultAgentProfileRef(options: readonly AgentProfileOption[]): string {
+  const preferred = options.find((option) => option.isDefault && !option.isPreset) ?? options.find((option) => option.isDefault)
+  return preferred?.ref ?? DEFAULT_AGENT_PROFILE_REF
+}
 
 /** Hasil `listAgentProfiles` → opsi pemilih (preset dulu, lalu profil kustom). */
 export function toAgentProfileOptions(profiles: {
@@ -36,6 +48,7 @@ export function toAgentProfileOptions(profiles: {
     mode: profile.mode === "deep" ? "deep" : "standard",
     toolCount: profile.toolIds?.length ?? 0,
     isPreset,
+    isDefault: profile.isDefault === true,
   })
   return [
     ...profiles.presets.map((profile) => toOption(profile, true)),

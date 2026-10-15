@@ -4,7 +4,7 @@ import * as React from "react"
 import { Plus } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import { WebhookFormDialog } from "./webhook-form-dialog"
-import { WebhookSecretDialog, type CreatedWebhookSecret } from "./webhook-secret-dialog"
+import { useRevealWebhookSecret } from "./webhook-secret-reveal"
 
 interface CreateWebhookButtonProps {
   variant?: "default" | "outline"
@@ -12,13 +12,14 @@ interface CreateWebhookButtonProps {
 }
 
 /**
- * Tombol + dialog tambah webhook, lalu dialog secret satu kali. Mandiri (tanpa props fungsi) sehingga aman
- * dirender dari Server Component, mis. di `PageHeader.actions` dan di status kosong daftar webhook.
+ * Tombol + dialog tambah webhook. Tanpa props fungsi sehingga aman dirender dari Server Component, mis. di
+ * `PageHeader.actions` dan di status kosong daftar webhook. Secret satu kali ditampilkan oleh
+ * `WebhookSecretRevealProvider` di level halaman — bukan oleh tombol ini, yang bisa unmount begitu daftar
+ * tidak lagi kosong.
  */
 export function CreateWebhookButton({ variant = "default", children = "Tambah Webhook" }: CreateWebhookButtonProps) {
   const [formOpen, setFormOpen] = React.useState(false)
-  const [secretOpen, setSecretOpen] = React.useState(false)
-  const [created, setCreated] = React.useState<CreatedWebhookSecret | null>(null)
+  const revealSecret = useRevealWebhookSecret()
 
   return (
     <>
@@ -32,17 +33,8 @@ export function CreateWebhookButton({ variant = "default", children = "Tambah We
         onOpenChange={setFormOpen}
         onSaved={(webhook) => {
           setFormOpen(false)
-          if (webhook.secret) {
-            setCreated({ name: webhook.name, secret: webhook.secret })
-            setSecretOpen(true)
-          }
+          if (webhook.secret) revealSecret({ name: webhook.name, secret: webhook.secret })
         }}
-      />
-      <WebhookSecretDialog
-        created={created}
-        open={secretOpen}
-        onOpenChange={setSecretOpen}
-        onClosed={() => setCreated(null)}
       />
     </>
   )

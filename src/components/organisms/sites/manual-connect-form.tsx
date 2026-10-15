@@ -51,13 +51,16 @@ export function ManualConnectForm({ accountIdentifier, onConnected, onCancel }: 
   const [baseUrl, wpUsername] = useWatch({ control: form.control, name: ["base_url", "wp_username"] })
   const authorizeUrl = buildManualAuthorizeUrl(baseUrl, generateAutoWpAppName(wpUsername.trim() || accountIdentifier))
 
+  // Variabel kedua mutation memuat Application Password plaintext: buang dari cache begitu form unmount.
   const testSite = useMutation({
+    gcTime: 0,
     mutationFn: (values: TestSiteInput) =>
       apiFetch<{ message: string }>("/api/sites/test", { method: "POST", body: values }),
     onError: (error) => applyApiIssues(form, error),
   })
 
   const createSite = useMutation({
+    gcTime: 0,
     mutationFn: (values: CreateSiteInput) =>
       apiFetch<{ site: CreatedSite; message: string }>("/api/sites", { method: "POST", body: values }),
     onSuccess: async ({ message }) => {

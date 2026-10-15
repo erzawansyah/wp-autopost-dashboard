@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useIsMutating } from "@tanstack/react-query"
 import { Plus } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import {
@@ -12,6 +13,7 @@ import {
   DialogTrigger,
 } from "@/components/atoms/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/atoms/tabs"
+import { queryKeys } from "@/lib/api/query-keys"
 import { AutoConnectForm } from "./auto-connect-form"
 import { ManualConnectForm } from "./manual-connect-form"
 
@@ -26,15 +28,19 @@ interface ConnectSiteDialogProps {
 /**
  * Dialog "Sambungkan Website": tab otomatis (otorisasi Application Password, disarankan) dan input manual.
  * Zero-Friction Onboarding: hanya REST API + Application Passwords bawaan WordPress, tanpa plugin.
+ * Selama `POST /api/sites/connect` berjalan dialog dikunci (Batal/X/Esc/klik luar diabaikan) agar pembatalan
+ * tidak disusul pengalihan ke WordPress.
  */
 export function ConnectSiteDialog({ accountIdentifier, triggerLabel = "Sambungkan Website" }: ConnectSiteDialogProps) {
   const [open, setOpen] = React.useState(false)
   const [mode, setMode] = React.useState<ConnectMode>("auto")
+  const isConnecting = useIsMutating({ mutationKey: queryKeys.sites.connect() }) > 0
 
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
+        if (!next && isConnecting) return
         setOpen(next)
         if (!next) setMode("auto")
       }}
@@ -46,7 +52,7 @@ export function ConnectSiteDialog({ accountIdentifier, triggerLabel = "Sambungka
         </Button>
       </DialogTrigger>
 
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
+      <DialogContent showCloseButton={!isConnecting} className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="text-base">Sambungkan Website WordPress</DialogTitle>
           <DialogDescription className="text-xs leading-relaxed">
@@ -59,7 +65,7 @@ export function ConnectSiteDialog({ accountIdentifier, triggerLabel = "Sambungka
             <TabsTrigger value="auto" className="cursor-pointer text-xs font-semibold">
               Otomatis (disarankan)
             </TabsTrigger>
-            <TabsTrigger value="manual" className="cursor-pointer text-xs font-semibold">
+            <TabsTrigger value="manual" disabled={isConnecting} className="cursor-pointer text-xs font-semibold">
               Input Manual
             </TabsTrigger>
           </TabsList>

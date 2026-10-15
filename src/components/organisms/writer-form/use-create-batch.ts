@@ -1,11 +1,11 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { apiFetch } from "@/lib/api/client"
 import { queryKeys } from "@/lib/api/query-keys"
-import { defaultScheduleWindow, DEFAULT_AGENT_PROFILE_REF } from "@/lib/queue/writer-options"
+import { useDelayedPush } from "@/lib/hooks/use-delayed-push"
+import { defaultScheduleWindow } from "@/lib/queue/writer-options"
 import { notify } from "@/lib/ui/notify"
 import type { BatchSettingsFormInput, CreateBatchBody } from "@/lib/validation/batches"
 import type { Site } from "@/types/site"
@@ -23,13 +23,16 @@ interface CreateBatchResponse {
   batch: { id: string; name: string; totalItems: number }
 }
 
-/** Nilai awal pengaturan batch (jadwal: mulai sekarang, rentang acak 7 hari — zona waktu browser). */
-export function batchSettingsDefaults(defaultSiteId: string): BatchSettingsFormInput {
+/**
+ * Nilai awal pengaturan batch (jadwal: mulai sekarang, rentang acak 7 hari — zona waktu browser).
+ * `agentProfileRef` = Agent Profile default pengguna (`defaultAgentProfileRef`).
+ */
+export function batchSettingsDefaults(defaultSiteId: string, agentProfileRef: string): BatchSettingsFormInput {
   const range = defaultScheduleWindow()
   return {
     siteId: defaultSiteId,
     batchName: "",
-    agentProfileRef: DEFAULT_AGENT_PROFILE_REF,
+    agentProfileRef,
     language: "id",
     categoryIds: [],
     categoryNames: [],
@@ -56,10 +59,10 @@ export function defaultSiteIdFor(sites: Site[], strategy: "first" | "single"): s
 
 /**
  * `POST /api/batches` (hanya mencatat batch + item `queued_input`, runner antrean yang memproses):
- * invalidasi cache antrean/batch, toast, lalu pindah ke `/queue/items?batchId=…`.
+ * invalidasi cache antrean/batch, toast, lalu pindah ke `/queue/items?batchId=…` (dibatalkan bila form unmount).
  */
 export function useCreateBatch(options: { onError: (error: unknown) => void }) {
-  const router = useRouter()
+  const delayedPush = useDelayedPush(REDIRECT_DELAY_MS)
   const queryClient = useQueryClient()
   const [created, setCreated] = React.useState<CreatedBatchInfo | null>(null)
 
@@ -73,7 +76,7 @@ export function useCreateBatch(options: { onError: (error: unknown) => void }) {
           queryClient.invalidateQueries({ queryKey })
         )
       )
-      window.setTimeout(() => router.push(`/queue/items?batchId=${encodeURIComponent(batch.id)}`), REDIRECT_DELAY_MS)
+      delayedPush(`/queue/items?batchId=${encodeURIComponent(batch.id)}`)
     },
     onError: options.onError,
   })

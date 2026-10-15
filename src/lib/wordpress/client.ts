@@ -614,20 +614,33 @@ export interface WPUserItem {
   avatar_urls?: Record<string, string>
 }
 
-/** Mengambil daftar user/author WordPress; `signal` (pembatalan run/request) digabung dengan timeout request. */
+/**
+ * Filter `GET /wp/v2/users` untuk user yang sudah menerbitkan post: `has_published_posts` (WordPress 5.9+)
+ * plus `who=authors` (level contributor ke atas) sebagai penyaring cadangan untuk WordPress 5.6–5.8 yang
+ * mengabaikan parameter tak dikenal. Keduanya parameter REST bawaan (tanpa plugin).
+ */
+const PUBLISHED_AUTHORS_QUERY = "&has_published_posts=true&who=authors"
+
+/**
+ * Mengambil daftar user/author WordPress; `signal` (pembatalan run/request) digabung dengan timeout request.
+ * `publishedAuthorsOnly`: hanya user yang sudah menerbitkan post — wajib bila bio user dikirim ke LLM, karena
+ * bio subscriber (pendaftaran terbuka) dapat diisi siapa saja (prompt injection).
+ */
 export async function fetchWordPressUsers(params: {
   baseUrl: string
   username: string
   applicationPassword: string
   signal?: AbortSignal
+  publishedAuthorsOnly?: boolean
 }): Promise<{ ok: boolean; users?: WPUserItem[]; error?: string }> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
     return { ok: false, error: error || "Alamat website WordPress tidak valid." }
   }
 
+  const filter = params.publishedAuthorsOnly ? PUBLISHED_AUTHORS_QUERY : ""
   try {
-    const res = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/users?per_page=100&_fields=id,name,slug,description,avatar_urls`, {
+    const res = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/users?per_page=100&_fields=id,name,slug,description,avatar_urls${filter}`, {
       headers: {
         Authorization: makeAuthHeader(params.username, params.applicationPassword),
         "User-Agent": WP_USER_AGENT,

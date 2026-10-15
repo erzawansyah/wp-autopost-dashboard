@@ -55,16 +55,19 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-/** POST /api/tools/link-building/analyze. URL artikel tidak di-fetch server (hanya pembanding & konteks prompt). */
+/** URL artikel baru (target tautan internal). Tidak di-fetch server: hanya pembanding & konteks prompt. */
+export const ArticleUrlSchema = z
+  .string({ error: INVALID_ARTICLE_URL })
+  .trim()
+  .min(1, "URL artikel baru wajib diisi.")
+  .max(2048, "URL artikel terlalu panjang.")
+  .refine(isHttpUrl, INVALID_ARTICLE_URL)
+
+/** POST /api/tools/link-building/analyze */
 export const LinkAnalyzeBodySchema = z.object(
   {
     siteId: ToolSiteIdSchema,
-    newArticleUrl: z
-      .string({ error: INVALID_ARTICLE_URL })
-      .trim()
-      .min(1, "URL artikel baru wajib diisi.")
-      .max(2048, "URL artikel terlalu panjang.")
-      .refine(isHttpUrl, INVALID_ARTICLE_URL),
+    newArticleUrl: ArticleUrlSchema,
     targetKeyword: z.string().trim().max(200, "Kata kunci target maksimal 200 karakter.").optional(),
     extraInstructions: z.string().trim().max(2000, "Instruksi tambahan maksimal 2000 karakter.").optional(),
   },

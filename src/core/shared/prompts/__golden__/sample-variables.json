@@ -30,7 +30,7 @@
     "requestedCategory": "Otomatis oleh AI",
     "requestedAuthor": "Otomatis oleh AI",
     "requestedTags": "Otomatis oleh AI",
-    "existingUsers": "[\n  {\n    \"id\": 2,\n    \"name\": \"Rina Pratama\",\n    \"slug\": \"rina\",\n    \"bio\": \"Barista dan penguji kopi\"\n  }\n]",
+    "existingUsers": "[\n  {\n    \"name\": \"Rina Pratama\",\n    \"slug\": \"rina\",\n    \"bio\": \"Barista dan penguji kopi \\u003c3\"\n  }\n]",
     "domainHost": "kopinusantara.example",
     "userPrompt": "Persona ahli gizi yang menulis santai untuk pembaca awam.",
     "cleanUrl": "https://kopinusantara.example/manfaat-kopi-hitam/",

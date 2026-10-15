@@ -21,7 +21,7 @@ import {
 } from "@/components/organisms/writer-form/writer-fields"
 import { selectConnectedSites, sitesQueries } from "@/lib/api/queries/sites"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
-import type { AgentProfileOption } from "@/lib/queue/writer-options"
+import { defaultAgentProfileRef, type AgentProfileOption } from "@/lib/queue/writer-options"
 import { notify } from "@/lib/ui/notify"
 import { cn } from "@/lib/utils"
 import {
@@ -53,7 +53,7 @@ export function KeywordListForm({ initialSites, agentProfiles }: KeywordListForm
   const { data: sites } = useQuery({ ...sitesQueries.list(), initialData: initialSites, select: selectConnectedSites })
   const [tab, setTab] = React.useState<WriterFormTab>("essential")
   const [initialValues] = React.useState(
-    (): KeywordBatchFormInput => ({ ...batchSettingsDefaults(defaultSiteIdFor(sites, "first")), keywordsText: "" })
+    (): KeywordBatchFormInput => ({ ...batchSettingsDefaults(defaultSiteIdFor(sites, "first"), defaultAgentProfileRef(agentProfiles)), keywordsText: "" })
   )
   const form = useZodForm(KeywordBatchFormSchema, { defaultValues: initialValues })
   const { createBatch, isPending, created } = useCreateBatch({
@@ -184,7 +184,7 @@ export function KeywordListForm({ initialSites, agentProfiles }: KeywordListForm
               variant="ghost"
               size="sm"
               onClick={() => {
-                form.reset({ ...batchSettingsDefaults(defaultSiteIdFor(sites, "first")), keywordsText: "" })
+                form.reset({ ...batchSettingsDefaults(defaultSiteIdFor(sites, "first"), defaultAgentProfileRef(agentProfiles)), keywordsText: "" })
                 setTab("essential")
               }}
               disabled={busy}

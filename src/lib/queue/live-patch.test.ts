@@ -4,7 +4,12 @@ import {
   applyPostDetailChange,
   applyPostItemChange,
   parseExecutionLog,
+  parseExecutionLogBroadcast,
   parsePostItemChange,
+  parseQueueBroadcast,
+  postTopic,
+  queueTopic,
+  removePostItems,
 } from "@/lib/queue/live-patch"
 import type { PostDetailResponse } from "@/types/posts"
 
@@ -104,5 +109,50 @@ describe("detail artikel", () => {
     expect(next?.logs.map((entry) => entry.id)).toEqual(["l2", "l1"])
     expect(appendExecutionLog(next, log!)).toBe(next)
     expect(parseExecutionLog({ id: "l3" })).toBeNull()
+  })
+})
+
+describe("pesan Broadcast (trigger realtime.send)", () => {
+  it("topik privat sama persis dengan format trigger database", () => {
+    expect(queueTopic("u1")).toBe("user:u1:queue")
+    expect(postTopic("u1", "p1")).toBe("user:u1:post:p1")
+  })
+
+  it("post_item → perubahan tervalidasi; payload/event asing ditolak", () => {
+    expect(
+      parseQueueBroadcast("post_item", { op: "UPDATE", record: { id: "a", state: "failed_sync", content_html: "<p>x</p>" } })
+    ).toEqual({ kind: "updated", change: { id: "a", state: "failed_sync" } })
+    expect(parseQueueBroadcast("post_item", { record: { id: "a", state: "bukan_state" } })).toBeNull()
+    expect(parseQueueBroadcast("lainnya", { record: { id: "a" } })).toBeNull()
+    expect(parseQueueBroadcast("post_item", null)).toBeNull()
+  })
+
+  it("post_items_inserted / post_items_deleted", () => {
+    expect(parseQueueBroadcast("post_items_inserted", { op: "INSERT", count: 3 })).toEqual({ kind: "inserted", count: 3 })
+    expect(parseQueueBroadcast("post_items_deleted", { op: "DELETE", count: 2, ids: ["a", "b"] })).toEqual({
+      kind: "deleted",
+      ids: ["a", "b"],
+    })
+    expect(parseQueueBroadcast("post_items_deleted", { op: "DELETE", count: 900, ids: null })).toEqual({
+      kind: "deleted",
+      ids: null,
+    })
+    expect(parseQueueBroadcast("post_items_inserted", { count: -1 })).toBeNull()
+  })
+
+  it("execution_log → log + penanda details tidak dikirim", () => {
+    const log = { id: "l9", step: "tool_call", level: "info", message: "ok", details: null, created_at: "2026-10-15T09:00:00Z" }
+    expect(parseExecutionLogBroadcast({ post_item_id: "a", details_truncated: true, log })).toEqual({
+      postItemId: "a",
+      detailsTruncated: true,
+      log,
+    })
+    expect(parseExecutionLogBroadcast({ post_item_id: "a", log: { id: "x" } })).toBeNull()
+  })
+
+  it("removePostItems: referensi sama bila tidak ada yang dibuang", () => {
+    expect(removePostItems(rows, new Set(["zzz"]))).toBe(rows)
+    expect(removePostItems(rows, new Set(["a"]))?.map((row) => row.id)).toEqual(["b"])
+    expect(removePostItems(undefined, new Set(["a"]))).toBeUndefined()
   })
 })

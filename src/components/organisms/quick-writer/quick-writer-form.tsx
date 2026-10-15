@@ -1,7 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { FormProvider, useWatch, type FieldErrors } from "react-hook-form"
 import { CheckCircle2, KeyRound, Loader2, RotateCcw, Send, Sparkles } from "lucide-react"
@@ -15,8 +14,9 @@ import { WriterBriefField, WriterTargetFields, WriterTaxonomyFields } from "@/co
 import { apiFetch } from "@/lib/api/client"
 import { selectConnectedSites, sitesQueries } from "@/lib/api/queries/sites"
 import { queryKeys } from "@/lib/api/query-keys"
+import { useDelayedPush } from "@/lib/hooks/use-delayed-push"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
-import { DEFAULT_AGENT_PROFILE_REF, type AgentProfileOption } from "@/lib/queue/writer-options"
+import { defaultAgentProfileRef, type AgentProfileOption } from "@/lib/queue/writer-options"
 import { notify } from "@/lib/ui/notify"
 import {
   QuickPostFormSchema,
@@ -30,11 +30,12 @@ import type { Site } from "@/types/site"
 const REDIRECT_DELAY_MS = 700
 const ADVANCED_FIELDS = ["categoryIds", "tags", "customBrief"] as const
 
-function defaultValues(sites: Site[]): QuickPostFormInput {
+/** Nilai awal form; `agentProfileRef` = Agent Profile default pengguna (`defaultAgentProfileRef`). */
+function defaultValues(sites: Site[], agentProfiles: AgentProfileOption[]): QuickPostFormInput {
   return {
     siteId: sites[0]?.id ?? "",
     keyword: "",
-    agentProfileRef: DEFAULT_AGENT_PROFILE_REF,
+    agentProfileRef: defaultAgentProfileRef(agentProfiles),
     language: "id",
     categoryIds: [],
     categoryNames: [],
@@ -55,13 +56,13 @@ interface QuickWriterFormProps {
  * yang menulis & mengirim). Sukses → konfirmasi singkat lalu ke Dashboard (`/?queued=true&postId=…`).
  */
 export function QuickWriterForm({ initialSites, agentProfiles }: QuickWriterFormProps) {
-  const router = useRouter()
+  const delayedPush = useDelayedPush(REDIRECT_DELAY_MS)
   const queryClient = useQueryClient()
   const { data: sites } = useQuery({ ...sitesQueries.list(), initialData: initialSites, select: selectConnectedSites })
   const [tab, setTab] = React.useState<WriterFormTab>("essential")
   const [queuedKeyword, setQueuedKeyword] = React.useState<string | null>(null)
 
-  const form = useZodForm(QuickPostFormSchema, { defaultValues: defaultValues(sites) })
+  const form = useZodForm(QuickPostFormSchema, { defaultValues: defaultValues(sites, agentProfiles) })
   const [actionStatus, keyword, categoryIds, tags, customBrief] = useWatch({
     control: form.control,
     name: ["actionStatus", "keyword", "categoryIds", "tags", "customBrief"],
@@ -78,9 +79,8 @@ export function QuickWriterForm({ initialSites, agentProfiles }: QuickWriterForm
           queryClient.invalidateQueries({ queryKey })
         )
       )
-      window.setTimeout(() => {
-        router.push(`/?queued=true&postId=${encodeURIComponent(postId)}&keyword=${encodeURIComponent(values.keyword)}`)
-      }, REDIRECT_DELAY_MS)
+      // Dibatalkan bila form unmount (pengguna sudah pindah halaman).
+      delayedPush(`/?queued=true&postId=${encodeURIComponent(postId)}&keyword=${encodeURIComponent(values.keyword)}`)
     },
     onError: (error) => {
       if (!applyApiIssues(form, error)) notify.error(error, { fallback: "Gagal memasukkan artikel ke antrean." })
@@ -174,7 +174,7 @@ export function QuickWriterForm({ initialSites, agentProfiles }: QuickWriterForm
               variant="ghost"
               size="sm"
               onClick={() => {
-                form.reset(defaultValues(sites))
+                form.reset(defaultValues(sites, agentProfiles))
                 setTab("essential")
               }}
               disabled={busy || (!keyword && !tags && !customBrief)}
