@@ -3,8 +3,10 @@
  * Menggunakan WP REST API bawaan (/wp-json/wp/v2/...) + Application Passwords.
  */
 
+import "server-only"
 import crypto from "crypto"
 import net from "node:net"
+import { serverEnv } from "@/lib/env/server"
 import {
   isBlockedIp,
   isPrivateNetworkAllowed,
@@ -73,7 +75,7 @@ export function normalizeAndValidateWpUrl(rawUrl: string): { valid: boolean; nor
       return { valid: false, error: "Protokol website wajib HTTP atau HTTPS." }
     }
 
-    if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") {
+    if (serverEnv().isProduction && parsed.protocol !== "https:") {
       return { valid: false, error: "Website WordPress produksi wajib menggunakan HTTPS." }
     }
 

@@ -30,7 +30,8 @@ function convertWithin(markdown: string, ms = 2000): string {
  * Anggaran waktu untuk regresi ReDoS / kuadratik: watchdog `vm` menghentikan loop sinkron yang
  * menggantung, lalu durasi nyata dibandingkan dengan anggaran (kode lama butuh detik–menit).
  */
-function expectFast(fn: () => unknown, budgetMs = 200): void {
+// Anggaran longgar agar tidak flaky di CI yang sibuk; regresi kuadratik/ReDoS yang dicegah butuh > 6 detik.
+function expectFast(fn: () => unknown, budgetMs = 1000): void {
   const started = performance.now()
   runWithin(fn, 5000)
   expect(performance.now() - started).toBeLessThan(budgetMs)

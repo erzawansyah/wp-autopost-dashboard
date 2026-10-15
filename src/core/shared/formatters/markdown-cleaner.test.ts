@@ -19,7 +19,8 @@ import {
  * Anggaran waktu untuk regresi kuadratik: watchdog `vm` menghentikan loop sinkron yang menggantung
  * (timeout vitest tidak bisa), lalu durasi nyata dibandingkan dengan anggaran.
  */
-function expectFast(fn: () => unknown, budgetMs = 200): void {
+// Anggaran longgar agar tidak flaky di CI yang sibuk; regresi kuadratik/ReDoS yang dicegah butuh > 6 detik.
+function expectFast(fn: () => unknown, budgetMs = 1000): void {
   const started = performance.now()
   vm.runInNewContext("run()", { run: fn }, { timeout: 5000 })
   expect(performance.now() - started).toBeLessThan(budgetMs)

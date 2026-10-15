@@ -192,7 +192,6 @@ export default function PostDetailPage() {
   const site = post.wp_sites
   const payload = post.source_payload || {}
   const engineUsed = (payload.engine as string) || ""
-  const modelUsed = (payload.aiModel as string) || "openrouter/auto"
 
   const canRetry = post.state === "failed_sync" || post.state === "ready_to_sync"
 
@@ -294,7 +293,6 @@ export default function PostDetailPage() {
                 logs={logs}
                 agentRun={agentRun}
                 engineUsed={engineUsed}
-                modelUsed={modelUsed}
                 state={post.state}
                 createdAt={post.created_at}
                 updatedAt={post.updated_at}

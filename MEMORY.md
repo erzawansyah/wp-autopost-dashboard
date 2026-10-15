@@ -8,7 +8,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 - **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker, Standard Writing Engine, Hybrid Scraper Tools, Dynamic OpenRouter Models, Featured Image WP, Modul 2 Batch Keyword Ingestion, Agentic Writer Engine, Multi-Language Selection, Integrasi user_settings & webhooks, Perombakan Arsitektur Total ke Agent Profile Runtime, Modul Artikel Terjadwal (/scheduled), Skill Registry (/skills), Sentralisasi Kunci API (/settings/keys), Revamp Gambar (SearxNG + Pexafy), dan Konsolidasi Sidebar WP Tools (/tools)**.
 - **Catatan Worklog**: `.workspaces/worklogs/` (lokal, di-ignore Git) — `00`–`28`, terbaru `28-rebranding-panitera-tools-config-and-docs.md`.
-- **Fase Aktif**: **Rombak v2 (branch `v2`)** — Fase 0 hotfix keamanan selesai; berikutnya Fase 1 fondasi (migrasi Supabase, CI, test). Roadmap: laporan audit 14 Okt 2026.
+- **Fase Aktif**: **Rombak v2 (branch `v2`)** — Fase 0 (keamanan) & Fase 1 (fondasi) selesai; baseline migrasi masih rekonstruksi → wajib dicek `supabase db diff` ke production. Berikutnya: Fase 2 (backend & worker antrean). Roadmap: laporan audit 14 Okt 2026.
 - **Fase Produk Berikutnya (setelah v2)**: **Modul 3 Niche Auto-Genesis & Smart Content Recycling**.
 
 ---
@@ -71,6 +71,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
     - **Anti-SSRF terpusat**: semua fetch ke URL dari pengguna/LLM lewat `safeFetch` (`src/lib/net/safe-fetch.ts`: DNS pinning, blokir IP privat, validasi ulang redirect, batas ukuran). SearXNG platform hanya dipercaya untuk `/search` & `/autocompleter` (opt-in), `image_proxy` dimatikan. Dev lokal: `ALLOW_PRIVATE_NETWORK_FETCH=true`.
     - **Antrean**: klaim selalu difilter `user_id` untuk sesi; `CRON_SECRET` wajib & hanya lewat header; `syncing_to_wp` macet → `failed_sync`; item ber-`wp_post_id` tidak dipublikasi ulang; situs wajib milik pemilik item.
     - **Konten**: serializer Gutenberg escape penuh, tanpa passthrough HTML mentah, `[` dinetralkan (anti-shortcode); preview di dashboard disanitasi DOMPurify. Webhook ditandatangani `HMAC(secret, "timestamp.body")` + `X-Panitera-Timestamp`.
+
+21. **ADR-062 (Rombak v2 · Fase 1: Fondasi)**: Skema di `supabase/migrations` (10 tabel, RLS force, GRANT eksplisit, FK komposit `(…, user_id)` anti lintas-tenant; `post_items` tanpa UPDATE oleh `authenticated`) + test PGlite `supabase/tests`. Env tervalidasi zod (`src/lib/env/*`, cek saat start via `instrumentation.ts`), `server-only` di modul kredensial. CI GitHub Actions + `npm run audit:hygiene` (allowlist ratchet). Lint wajib 0 warning. Worker hanya memakai Service Role.
 
 ---
 

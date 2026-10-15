@@ -4,7 +4,7 @@
  * dari SearXNG (jika aktif) dengan fallback multi-source ke Google & Bing Suggest.
  */
 
-import { safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
+import { getPlatformSearxngUrl, safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
 
 export interface KeywordSuggestionsParams {
   query: string
@@ -149,8 +149,7 @@ export async function getKeywordSuggestions(
 
   const limit = Math.max(1, Math.min(params.limit || 15, 30))
   const language = params.language || "id"
-  const searxngUrl =
-    params.searxngUrl || process.env.SEARXNG_URL || "http://searxng-internal:8080"
+  const searxngUrl = params.searxngUrl || getPlatformSearxngUrl()
 
   const collected: string[] = []
   const sources: string[] = []

@@ -21,10 +21,3 @@ export async function hasLabAccess(
 
   return Boolean(data?.notification_prefs?.developer_mode)
 }
-
-/**
- * @deprecated Akses Laboratorium kini sepenuhnya dikendalikan via Developer Mode di Pengaturan Profil
- */
-export function isLabAuthorizedUser(_email?: string | null): boolean {
-  return false
-}

@@ -14,12 +14,14 @@
 - Dilarang `@ts-ignore`; `@ts-expect-error` hanya dengan alasan tertulis.
 
 ## 4. Verifikasi Sebelum Menyatakan Selesai
+Ikuti skill `panitera-verify`. Ringkasnya:
 ```bash
-npx tsc --noEmit       # wajib bersih
-npm test               # Vitest; tambahkan test untuk setiap bug yang diperbaiki
-npm run lint           # bisa > 2 menit, beri timeout longgar
+npm run typecheck                  # wajib bersih
+npm run lint -- --max-warnings=0   # nol warning (dipaksa CI); bisa > 2 menit
+npm test                           # Vitest; tambahkan test untuk setiap bug yang diperbaiki
+npm run audit:hygiene              # scripts/audit-codebase.ts + scripts/audit-allowlist.json
 ```
-Jika `.workspaces/scripts/audit-codebase.ts` tersedia di mesin lokal, jalankan juga `npx tsx .workspaces/scripts/audit-codebase.ts` (orphan file, prompt hardcode, istilah legacy).
+Allowlist audit bersifat *ratchet*: jangan menaikkan `max` atau menambah entri baru tanpa alasan tertulis; turunkan saat temuan berkurang.
 
 ## 5. Sandbox `.workspaces/` (lokal, di-ignore Git)
 Dilarang menaruh skrip ad-hoc, dump, atau mock di root repo.

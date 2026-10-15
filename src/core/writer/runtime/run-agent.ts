@@ -1,3 +1,4 @@
+import "server-only";
 import { ChatOpenRouter } from "@langchain/openrouter";
 import { HumanMessage } from "@langchain/core/messages";
 import { StructuredTool } from "@langchain/core/tools";
@@ -26,6 +27,7 @@ import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleane
 import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
 import { preResolveTaxonomyAndAuthor } from "./pre-resolve";
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings";
+import { serverEnv } from "@/lib/env/server";
 import { getLanguageDisplayName } from "@/lib/constants/languages";
 import { getOpenRouterReasoningConfig, ReasoningEffort } from "@/lib/ai/reasoning";
 import {
@@ -142,11 +144,12 @@ export async function runAgentWriter(
     };
   }
 
+  const env = serverEnv();
   const selectedModel =
     request.model ||
     userKeys.defaultAiModel ||
     profile.model ||
-    process.env.OPENROUTER_DEFAULT_MODEL ||
+    env.OPENROUTER_DEFAULT_MODEL ||
     DEFAULT_AI_MODEL;
 
   // 4. Pre-Resolution: Resolusi Taksonomi & Author WordPress di latar belakang via LLM
@@ -176,8 +179,8 @@ export async function runAgentWriter(
     maxTokens: 16384,
     // Konfigurasi reasoning bertingkat (low, medium, high) OpenRouter terstandardisasi
     modelKwargs: { reasoning: getOpenRouterReasoningConfig(effectiveReasoningEffort) },
-    siteUrl: process.env.OPENROUTER_SITE_URL || "http://localhost:3000",
-    siteName: process.env.OPENROUTER_APP_NAME || "Panitera",
+    siteUrl: env.OPENROUTER_SITE_URL || "http://localhost:3000",
+    siteName: env.OPENROUTER_APP_NAME || "Panitera",
   });
 
   // 5. Prompting

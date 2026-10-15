@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { encryptCredential } from "@/lib/crypto"
+import { serverEnv } from "@/lib/env/server"
 import { assertSafeUrl, getTrustedInternalOrigins, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
 import type { WebSearchProvider } from "@/core/shared/tools/web-search"
 import {
@@ -151,7 +152,7 @@ async function validateSearxngUrl(raw: unknown): Promise<{ ok: true; value: stri
     }
   }
 
-  if (process.env.NODE_ENV === "production" && safeUrl.protocol !== "https:") {
+  if (serverEnv().isProduction && safeUrl.protocol !== "https:") {
     return { ok: false, error: "URL SearxNG wajib menggunakan HTTPS." }
   }
   return { ok: true, value: base }

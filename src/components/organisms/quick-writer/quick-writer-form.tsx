@@ -6,9 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/atoms/button"
 import { Input } from "@/components/atoms/input"
 import { Textarea } from "@/components/atoms/textarea"
-import { Badge } from "@/components/atoms/badge"
 import { FormField } from "@/components/molecules/form-field"
-import { HelpTooltip } from "@/components/molecules/help-tooltip"
 import { WPCategorySelect } from "@/components/molecules/wp-category-select"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tabs"
 import {
@@ -25,20 +23,14 @@ import {
   KeyRound,
   Send,
   Loader2,
-  FolderTree,
   Tag,
-  FileText,
   RotateCcw,
-  Check,
   AlertCircle,
   Plus,
-  Zap,
 } from "lucide-react"
 import { LanguageSelect } from "@/components/molecules/language-select"
 import { AgentProfileSelect } from "@/components/molecules/agent-profile-select"
 import { PublishStatusSwitcher } from "@/components/molecules/publish-status-switcher"
-import { cn } from "@/lib/utils"
-import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 
 export interface WpSiteOption {
   id: string
@@ -91,14 +83,9 @@ export function QuickWriterForm({
   const [tags, setTags] = React.useState<string>("")
   const [customBrief, setCustomBrief] = React.useState<string>("")
   const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">("draft")
-  const [aiModel, setAiModel] = React.useState<string>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("custom_openrouter_model") || DEFAULT_AI_MODEL
-    }
-    return DEFAULT_AI_MODEL
-  })
-  // Muat model dari server (Single Source of Truth). Kunci OpenRouter tidak pernah
-  // dibaca di browser: server me-resolve kunci BYOK terenkripsi milik pengguna.
+  // Model & kunci OpenRouter di-resolve server (Single Source of Truth; aiModel tidak dikirim).
+  // Di sini hanya menyegarkan cache model default di localStorage yang dibaca halaman lain
+  // (mis. Lab via getGlobalAiModel()). Kunci OpenRouter tidak pernah dibaca di browser.
   React.useEffect(() => {
     // Migrasi sekali jalan: hapus kunci plaintext lama yang dulu disimpan di browser.
     try {
@@ -111,7 +98,6 @@ export function QuickWriterForm({
       .then((res) => res.json())
       .then((data) => {
         if (data.ok && data.defaultAiModel) {
-          setAiModel(data.defaultAiModel)
           if (typeof window !== "undefined") {
             localStorage.setItem("custom_openrouter_model", data.defaultAiModel)
           }
@@ -128,10 +114,6 @@ export function QuickWriterForm({
     if (customBrief.trim().length > 0) count++
     return count
   }, [selectedCategoryIds, tags, customBrief])
-
-  const selectedSite = React.useMemo(() => {
-    return sites.find((s) => s.id === activeSiteId) || null
-  }, [sites, activeSiteId])
 
   const handleSiteChange = (newSiteId: string) => {
     setSiteId(newSiteId)

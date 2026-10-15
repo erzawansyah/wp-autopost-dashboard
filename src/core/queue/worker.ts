@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server"
+import "server-only"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { decryptCredential } from "@/lib/crypto"
 import { run, publishPostToWordPress } from "@/core/writer"
@@ -8,6 +8,7 @@ import { resolveAgentProfile } from "@/core/writer/runtime/resolve-profile"
 import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import { AgentStepEvent } from "@/core/writer/runtime/telemetry"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
+import { serverEnv } from "@/lib/env/server"
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatcher"
 import { fetchWordPressCategories } from "@/lib/wordpress/client"
 import {
@@ -62,15 +63,15 @@ export interface ProcessPostItemResult {
 /**
  * Mengambil client Supabase yang paling sesuai (Admin / Service Role jika ada, fallback ke Server client)
  */
-async function getSupabaseClient() {
-  try {
-    return createAdminClient()
-  } catch {
-    return await createClient()
-  }
+/**
+ * Worker selalu memakai Service Role: client sesi pengguna tidak punya hak UPDATE `post_items`
+ * maupun INSERT `agent_runs` (lihat GRANT di migrasi baseline). Tanpa Service Role, gagal cepat.
+ */
+function getSupabaseClient() {
+  return createAdminClient()
 }
 
-type QueueDbClient = Awaited<ReturnType<typeof getSupabaseClient>>
+type QueueDbClient = ReturnType<typeof getSupabaseClient>
 
 /** Identitas item yang sedang dikerjakan worker (pemilik wajib ikut di setiap mutasi Service Role). */
 interface OwnedPostItem {
@@ -434,7 +435,7 @@ export function retryPostItemSync(params: { postId: string; userId: string }): P
 }
 
 async function runPostItem(options: RunPostItemOptions): Promise<ProcessPostItemResult> {
-  const supabase = await getSupabaseClient()
+  const supabase = getSupabaseClient()
   // Holder objek (bukan `let`) agar nilai yang diisi callback tetap bertipe benar di catch/finally.
   const claim: { item: OwnedPostItem | null; heartbeat: ClaimHeartbeat | null } = { item: null, heartbeat: null }
 
@@ -738,8 +739,7 @@ async function executePostItem(
       userKeys.defaultAiModel ||
       resolvedProfile.model ||
       resolvedProfile.modelName ||
-      process.env.OPENROUTER_DEFAULT_MODEL ||
-      undefined
+      serverEnv().OPENROUTER_DEFAULT_MODEL
 
     // Catat inisialisasi antrean ke execution_logs
     await supabase.from("execution_logs").insert({
@@ -1403,7 +1403,7 @@ export async function claimNextPendingQueueItems(
   options: ClaimQueueOptions = {}
 ): Promise<ClaimedQueueItem[]> {
   const { userId } = options
-  const supabase = await getSupabaseClient()
+  const supabase = getSupabaseClient()
 
   // 0. Auto-healing item stale (dibatasi ke pengguna bila dipicu dari sesi)
   try {
@@ -1522,7 +1522,7 @@ export async function claimNextPendingQueueItems(
  * dan tidak terkena pemutusan timeout Vercel (60 detik).
  */
 export async function processClaimedItems(items: ClaimedQueueItem[]): Promise<ProcessPostItemResult[]> {
-  const supabase = await getSupabaseClient()
+  const supabase = getSupabaseClient()
 
   const promises = items.map(async (item) => {
     try {

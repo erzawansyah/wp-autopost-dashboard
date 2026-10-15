@@ -12,7 +12,7 @@
  * 6. Open Knowledge Base Wikipedia (Fallback Ensiklopedis Cepat & Bebas Biaya)
  */
 
-import { safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
+import { getPlatformSearxngUrl, safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
 
 export interface WebSearchResult {
   title: string
@@ -45,11 +45,6 @@ export interface WebSearchParams {
   keys?: WebSearchKeys
   /** Instance SearXNG milik pengguna. Default: SearXNG internal platform. */
   searxngUrl?: string
-}
-
-/** SearXNG internal milik platform (docker-compose), bukan kredensial tenant. */
-function getPlatformSearxngUrl(): string {
-  return process.env.SEARXNG_URL || "http://searxng-internal:8080"
 }
 
 /**

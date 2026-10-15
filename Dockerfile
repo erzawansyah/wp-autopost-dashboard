@@ -68,4 +68,8 @@ USER nextjs
 
 EXPOSE 3000
 
+# Liveness via route /api/health. Memakai wget bawaan busybox Alpine (tanpa memasang curl).
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD wget -q -T 5 -O /dev/null "http://127.0.0.1:${PORT:-3000}/api/health" || exit 1
+
 CMD ["node", "server.js"]

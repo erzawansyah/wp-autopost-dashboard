@@ -14,21 +14,14 @@ import {
   Loader2,
   Calendar,
   Send,
-  Bot,
   Tag,
-  FolderTree,
-  FileText,
-  Clock,
-  Zap,
   Globe,
-  Brain,
   Bookmark,
   Plus,
 } from "lucide-react"
 import { FormField } from "@/components/molecules/form-field"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
-import { Badge } from "@/components/atoms/badge"
 import { Label } from "@/components/atoms/label"
 import { Textarea } from "@/components/atoms/textarea"
 import { Input } from "@/components/atoms/input"
@@ -50,7 +43,6 @@ import { LanguageSelect } from "@/components/molecules/language-select"
 import {
   ScheduleStrategyPicker,
   ScheduleStrategyState,
-  ScheduleMode,
 } from "@/components/molecules/schedule-strategy-picker"
 import { AgentProfileSelect } from "@/components/molecules/agent-profile-select"
 import {
@@ -108,19 +100,14 @@ export function KeywordListForm({
   const [tagsInput, setTagsInput] = React.useState<string>("")
   const [customBrief, setCustomBrief] = React.useState<string>("")
   const [activeTab, setActiveTab] = React.useState<string>("essential")
-  const [aiModel, setAiModel] = React.useState<string>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("custom_openrouter_model") || ""
-    }
-    return ""
-  })
 
+  // Model dipilih server (aiModel tidak dikirim); di sini hanya menyegarkan cache model
+  // default di localStorage yang dibaca halaman lain (mis. Lab via getGlobalAiModel()).
   React.useEffect(() => {
     fetch("/api/settings/user")
       .then((res) => res.json())
       .then((data) => {
         if (data.ok && data.defaultAiModel) {
-          setAiModel(data.defaultAiModel)
           if (typeof window !== "undefined") {
             localStorage.setItem("custom_openrouter_model", data.defaultAiModel)
           }
@@ -172,14 +159,13 @@ export function KeywordListForm({
   } | null>(null)
 
   // 4. Parse & Analyze Keywords (1 Baris = 1 Kata Kunci)
-  const { lines, cleanKeywords, duplicateCount } = React.useMemo(() => {
+  const { cleanKeywords, duplicateCount } = React.useMemo(() => {
     const rawLines = rawKeywordsText.split(/\r?\n/)
     const trimmed = rawLines.map((l) => l.trim()).filter((l) => l.length > 0)
     const unique = Array.from(new Set(trimmed))
     const duplicates = trimmed.length - unique.length
 
     return {
-      lines: trimmed,
       cleanKeywords: unique,
       duplicateCount: duplicates,
     }

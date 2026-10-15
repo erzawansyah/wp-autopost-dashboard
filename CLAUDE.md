@@ -38,10 +38,13 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 7. **Prompt LLM tidak pernah di-hardcode** — selalu berkas `.md` di `src/core/shared/prompts/` (pilar `wp-tools-*`, `system-*`, `agent-*`).
 8. **Zero dead code**, istilah konsisten **Agent Profile**, dan verifikasi sebelum menyatakan selesai:
    ```bash
-   npx tsc --noEmit
-   npm test        # Vitest, berkas src/**/*.test.ts
-   npm run lint
+   npm run typecheck
+   npm run lint -- --max-warnings=0
+   npm test               # Vitest: src/**/*.test.ts + test DB PGlite di supabase/tests
+   npm run audit:hygiene  # orphan file, prompt hardcode, istilah legacy, raw fetch, warna arbitrer
+   npm run build
    ```
+   Urutan lengkap & penanganan kegagalan: skill `panitera-verify`. CI (`.github/workflows/ci.yml`) menjalankan hal yang sama.
 9. **Sandbox lokal `.workspaces/`** (di-ignore Git) untuk skrip, scratch, fixture, dan worklog — jangan menaruh berkas ad-hoc di root.
 10. **Pembaruan memori:** setelah menyelesaikan fase/keputusan besar, perbarui `MEMORY.md` (tetap < 100 baris) dan tulis detail di `.workspaces/worklogs/`. Fase berikutnya disepakati dengan pengguna dulu.
 
@@ -56,7 +59,9 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 | [`.claude/rules/page-layout-standard.md`](.claude/rules/page-layout-standard.md) | `PageContainer` + `PageHeader` (aktif di `src/app/**/page.tsx`). |
 | [`.claude/rules/writer-components-standard.md`](.claude/rules/writer-components-standard.md) | Agent Profile Runtime, tools, guards, queue (aktif di `src/core/writer/**`, queue, API writer). |
 | [`.claude/rules/prompt-management.md`](.claude/rules/prompt-management.md) | 3 pilar prompt & format berkas (aktif di `src/core/**`, `src/lib/ai/**`, `src/app/api/**`). |
-| [`.claude/skills/`](.claude/skills/) | 13 skill teknis (Next/React, shadcn, Tailwind, TanStack Table, Supabase, LangChain/LangGraph, WordPress). |
+| [`.claude/skills/`](.claude/skills/) | Skill teknis pihak ketiga (Next/React, shadcn, Tailwind, TanStack Table, Supabase, LangChain/LangGraph/Deep Agents, WordPress) + skill proyek `panitera-*` (migrasi DB, verifikasi). |
+| [`supabase/`](supabase/) | Migrasi skema + RLS, seed, dan test DB PGlite (`npm run db:test`). |
+| [`.mcp.json`](.mcp.json) | MCP Supabase (read-only), Next DevTools, Playwright — lihat README. |
 | [`.claude/settings.json`](.claude/settings.json) + [`.claude/hooks/`](.claude/hooks/) | Izin, pengaman secret, dan `npm ci` otomatis di sesi cloud. |
 | [`PRD.md`](PRD.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`DESIGN.md`](DESIGN.md) · [`MEMORY.md`](MEMORY.md) | Produk, arsitektur, design system, memori & ADR. |
 | [`docs/`](docs/) | Panduan pengguna (in-app reader `/docs`) & dokumen arsitektur writer. |

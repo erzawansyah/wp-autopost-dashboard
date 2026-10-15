@@ -125,8 +125,8 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
     const saved = getStoredEngineState()
     return saved?.language ?? "id"
   })
-  const [globalModel, setGlobalModel] = React.useState(() => getGlobalAiModel())
-  const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">(() => {
+  const [globalModel] = React.useState(() => getGlobalAiModel())
+  const [actionStatus] = React.useState<"draft" | "publish">(() => {
     const saved = getStoredEngineState()
     return saved?.actionStatus === "publish" ? "publish" : "draft"
   })
@@ -477,6 +477,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
                   {enrichment?.featuredImage && (
                     <div className="relative rounded-xl overflow-hidden border border-border/80 bg-muted/30 shadow-xs">
                       <div className="relative w-full h-52 sm:h-64 bg-muted overflow-hidden">
+                        {/* eslint-disable-next-line @next/next/no-img-element -- URL eksternal dari tool/LLM; optimasi next/image ke host tak tepercaya = permukaan SSRF */}
                         <img
                           src={enrichment.featuredImage.imageUrl || enrichment.featuredImage.originalUrl}
                           alt={enrichment.featuredImage.altText || "Featured Image"}
@@ -566,6 +567,7 @@ export function LabEngineRunner({ engines, sites }: LabEngineRunnerProps) {
                           {enrichment.inContentImages.map((img, idx: number) => (
                             <div key={idx} className="flex items-start gap-2.5 p-2 rounded-lg border border-border/70 bg-muted/20 text-xs">
                               <div className="w-16 h-12 rounded overflow-hidden border border-border bg-muted shrink-0">
+                                {/* eslint-disable-next-line @next/next/no-img-element -- URL eksternal dari tool/LLM; optimasi next/image ke host tak tepercaya = permukaan SSRF */}
                                 <img
                                   src={img.imageUrl || img.originalUrl}
                                   alt={img.altText || `Media ${idx + 1}`}

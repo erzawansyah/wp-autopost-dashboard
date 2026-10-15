@@ -15,11 +15,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/atoms/dropdown-menu"
 
-interface TopNavbarProps {
-  selectedSite?: string
-  onSelectSite?: (siteId: string) => void
-}
-
 const ROUTE_LABELS: Record<string, string> = {
   sites: "Daftar Website",
   batches: "Daftar Batch",
@@ -64,10 +59,7 @@ function getBreadcrumbs(pathname: string) {
   return items
 }
 
-export function TopNavbar({
-  selectedSite = "all",
-  onSelectSite,
-}: TopNavbarProps) {
+export function TopNavbar() {
   const router = useRouter()
   const pathname = usePathname()
   const [currentUser, setCurrentUser] = React.useState<{ id: string; email: string } | null>(null)

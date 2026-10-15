@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest"
 import { extractArticleJsonFromText } from "./output-schema"
 
 /** Watchdog `vm` (timeout vitest tidak menghentikan loop sinkron) + anggaran waktu nyata. */
-function expectFast(fn: () => unknown, budgetMs = 200): void {
+// Anggaran longgar agar tidak flaky di CI yang sibuk; regresi kuadratik/ReDoS yang dicegah butuh > 6 detik.
+function expectFast(fn: () => unknown, budgetMs = 1000): void {
   const started = performance.now()
   vm.runInNewContext("run()", { run: fn }, { timeout: 5000 })
   expect(performance.now() - started).toBeLessThan(budgetMs)

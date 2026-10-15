@@ -140,7 +140,6 @@ export async function preResolveTaxonomyAndAuthor(
   }
 
   // 2. Eksekusi Resolusi Cerdas via LLM (system-resolve-taxonomy-author.md)
-  let llmSuccess = false
   const isTechnicalAdminUser = (u: WPUserItem) => {
     const slug = (u.slug || "").toLowerCase().trim()
     const name = (u.name || "").toLowerCase().trim()
@@ -263,8 +262,6 @@ export async function preResolveTaxonomyAndAuthor(
           if (llmTagNames.length > 0) {
             result.tagNames = llmTagNames
           }
-
-          llmSuccess = Boolean(result.author || result.categoryIds.length > 0)
 
           recorder?.recordEvent({
             kind: "guard",

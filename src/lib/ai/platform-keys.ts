@@ -1,3 +1,5 @@
+import { PLATFORM_KEY_ENV_NAMES, serverEnv } from "@/lib/env/server"
+
 /**
  * Kebijakan kunci API platform (milik operator) vs kunci BYOK milik pengguna.
  *
@@ -8,15 +10,12 @@
  */
 
 /**
- * Daftar tertutup env var kunci platform yang boleh menjadi cadangan kunci tenant.
+ * Daftar tertutup env var kunci platform yang boleh menjadi cadangan kunci tenant
+ * (sumber tunggal: `PLATFORM_KEY_ENV_NAMES` di `@/lib/env/server`).
  * Sengaja berupa union literal agar helper di bawah tidak bisa dipakai membaca env rahasia lain
  * (mis. `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_MASTER_KEY`).
  */
-export type PlatformKeyEnvName =
-  | "OPENROUTER_API_KEY"
-  | "PEXAFY_API_KEY"
-  | "BING_SEARCH_API_KEY"
-  | "BING_API_KEY"
+export type PlatformKeyEnvName = (typeof PLATFORM_KEY_ENV_NAMES)[number]
 
 export const MISSING_OPENROUTER_KEY_MESSAGE =
   "API Key OpenRouter belum dikonfigurasi. Panitera memakai sistem BYOK (Bring Your Own Key): silakan simpan API Key OpenRouter Anda di menu Pengaturan ➔ Kunci API (/settings/keys)."
@@ -25,7 +24,7 @@ const MAX_API_KEY_LENGTH = 512
 
 /** true hanya jika operator mengizinkan kunci platform dipakai sebagai cadangan kunci pengguna. */
 export function isPlatformKeyAllowed(): boolean {
-  return process.env.PLATFORM_KEY_ALLOWED === "true"
+  return serverEnv().PLATFORM_KEY_ALLOWED
 }
 
 /**
@@ -47,8 +46,9 @@ export function sanitizeApiKey(raw: string | null | undefined): string | undefin
  */
 export function getPlatformKey(...envNames: PlatformKeyEnvName[]): string | undefined {
   if (!isPlatformKeyAllowed()) return undefined
+  const env = serverEnv()
   for (const envName of envNames) {
-    const key = sanitizeApiKey(process.env[envName])
+    const key = sanitizeApiKey(env[envName])
     if (key) return key
   }
   return undefined

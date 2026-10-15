@@ -10,10 +10,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  BookOpen,
   Sparkles,
-  ShieldCheck,
-  FileText,
   Search,
 } from "lucide-react"
 import Link from "next/link"

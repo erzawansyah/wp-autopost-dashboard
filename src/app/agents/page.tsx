@@ -17,10 +17,8 @@ import {
   Edit2,
   Trash2,
   Loader2,
-  CheckCircle2,
   Sparkles,
   Wrench,
-  Clock,
   Layers,
   AlertCircle,
 } from "lucide-react"

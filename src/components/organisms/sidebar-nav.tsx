@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -249,9 +250,11 @@ export function SidebarNav() {
                   className="group relative flex size-9 items-center justify-center rounded-lg border border-border/70 bg-card hover:bg-sidebar-accent transition-all cursor-pointer overflow-hidden p-1 shadow-2xs"
                   aria-label="Perluas Sidebar"
                 >
-                  <img
+                  <Image
                     src="/assets/panitera-favicon.png"
                     alt="Panitera"
+                    width={28}
+                    height={28}
                     className="size-7 object-contain transition-transform group-hover:scale-110"
                   />
                   {/* Overlay icon hover untuk mempertegas fungsi expand */}
@@ -274,14 +277,18 @@ export function SidebarNav() {
               className="hidden lg:flex items-center flex-1 min-w-0 py-0.5 hover:opacity-85 transition-opacity"
               title="Kembali ke Dashboard Panitera"
             >
-              <img
+              <Image
                 src="/assets/panitera-logo.png"
                 alt="Panitera - Publishing Desk"
+                width={120}
+                height={40}
                 className="h-10 w-full max-w-[195px] object-contain object-left dark:hidden"
               />
-              <img
+              <Image
                 src="/assets/panitera-logo-inverse.png"
                 alt="Panitera - Publishing Desk"
+                width={120}
+                height={40}
                 className="h-10 w-full max-w-[195px] object-contain object-left hidden dark:block"
               />
             </Link>
@@ -291,9 +298,11 @@ export function SidebarNav() {
               className="flex lg:hidden items-center justify-center mx-auto hover:opacity-80 transition-opacity"
               title="Kembali ke Dashboard Panitera"
             >
-              <img
+              <Image
                 src="/assets/panitera-favicon.png"
                 alt="Panitera Logo"
+                width={28}
+                height={28}
                 className="size-7 object-contain"
               />
             </Link>

@@ -1,4 +1,6 @@
+import "server-only"
 import crypto from "crypto"
+import { serverEnv } from "@/lib/env/server"
 
 /**
  * AES-256-GCM Encryption / Decryption Utility
@@ -6,7 +8,7 @@ import crypto from "crypto"
  */
 
 function getEncryptionKey(): Buffer {
-  const keyHex = process.env.ENCRYPTION_MASTER_KEY
+  const keyHex = serverEnv().ENCRYPTION_MASTER_KEY
   if (!keyHex) {
     throw new Error("ENCRYPTION_MASTER_KEY belum disetel di environment variables.")
   }

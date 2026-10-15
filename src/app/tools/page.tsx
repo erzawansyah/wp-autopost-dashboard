@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/molecules/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
 import { Badge } from "@/components/atoms/badge"
-import { Wrench, Link2, Users, FolderTree, ChevronRight, Sparkles, ExternalLink } from "lucide-react"
+import { Wrench, Link2, Users, FolderTree, ChevronRight } from "lucide-react"
 
 const WP_TOOLS = [
   {

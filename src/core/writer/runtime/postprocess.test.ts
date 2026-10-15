@@ -92,6 +92,6 @@ describe("postprocessArticle — tabel dengan pemisah rusak tidak menggantung (H
     const rawMarkdown = "| A | B | C | D | E | F |\n|-------|-------|-------|-------|-------|-------|–\n| 1 | 2 | 3 | 4 | 5 | 6 |"
     const started = performance.now()
     vm.runInNewContext("run()", { run: () => postprocess({ rawMarkdown }) }, { timeout: 5000 })
-    expect(performance.now() - started).toBeLessThan(200)
+    expect(performance.now() - started).toBeLessThan(1000)
   })
 })

@@ -40,7 +40,7 @@ import {
   TabsTrigger,
   TabsContent,
 } from "@/components/atoms/tabs"
-import { WPUserItem } from "@/lib/wordpress/client"
+import type { WPUserItem } from "@/lib/wordpress/client"
 
 interface SiteItem {
   id: string

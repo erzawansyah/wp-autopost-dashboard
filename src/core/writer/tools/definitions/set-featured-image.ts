@@ -59,7 +59,7 @@ export const setFeaturedImageToolDef: ToolDefinition = {
             minWidth: 1280,
             provider: "auto",
             pexafyApiKey: ctx.userKeys.pexafyKey,
-            searxngUrl: ctx.userKeys.searxngUrl || "http://searxng-internal:8080",
+            searxngUrl: ctx.userKeys.searxngUrl,
           })
 
           if (!images || images.length === 0) {

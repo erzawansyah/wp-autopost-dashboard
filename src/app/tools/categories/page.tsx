@@ -15,7 +15,6 @@ import {
   Folder,
   Check,
   Search,
-  ArrowRight,
   Info,
   CornerDownRight,
 } from "lucide-react"
@@ -41,7 +40,7 @@ import {
   TabsTrigger,
   TabsContent,
 } from "@/components/atoms/tabs"
-import { WPCategoryItem } from "@/lib/wordpress/client"
+import type { WPCategoryItem } from "@/lib/wordpress/client"
 
 interface SiteItem {
   id: string

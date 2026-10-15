@@ -1,5 +1,6 @@
 import { Client } from "langsmith"
 import { LangChainTracer } from "@langchain/core/tracers/tracer_langchain"
+import { serverEnv } from "@/lib/env/server"
 import { DecryptedUserKeys } from "@/types/settings"
 
 /**
@@ -22,10 +23,8 @@ const FLUSH_TIMEOUT_MS = 5_000
  * mematikan seluruh tracing (termasuk BYOK tenant). Hanya dibaca, tidak pernah ditulis.
  */
 function isTracingDisabledByOperator(): boolean {
-  return (
-    process.env.LANGSMITH_TRACING === "false" ||
-    process.env.LANGCHAIN_TRACING_V2 === "false"
-  )
+  const env = serverEnv()
+  return env.LANGSMITH_TRACING === "false" || env.LANGCHAIN_TRACING_V2 === "false"
 }
 
 /**

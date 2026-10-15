@@ -13,13 +13,11 @@ import {
   ChevronDown,
   ChevronUp,
   Activity,
-  Layers,
   Cpu,
   ChevronsUpDown,
   Bot,
   BrainCircuit,
   Wrench,
-  Sparkles,
 } from "lucide-react"
 
 export interface DatabaseExecutionLog {
@@ -31,31 +29,21 @@ export interface DatabaseExecutionLog {
   created_at: string
 }
 
-export interface AgentRunStepEvent {
-  step?: string
-  type?: string
-  content?: string
-  timestamp?: string
-  durationMs?: number
-  details?: Record<string, unknown>
-}
-
+/** Baris `agent_runs` (lihat migrasi baseline); mode Agent Profile ada di `profile_snapshot`. */
 export interface AgentRunInfo {
   id: string
   status: string
-  mode: string
-  total_model_calls: number
-  total_tool_calls: number
-  duration_ms: number
-  step_events: AgentRunStepEvent[] | null
-  agent_profile_ref?: string
+  profile_ref: string
+  profile_snapshot: { mode?: string } | null
+  model_calls: number
+  tool_calls: number
+  duration_ms: number | null
 }
 
 export interface PostDetailTelemetryProps {
   logs: DatabaseExecutionLog[]
   agentRun?: AgentRunInfo | null
   engineUsed?: string
-  modelUsed?: string
   state?: string
   createdAt?: string
   updatedAt?: string
@@ -191,7 +179,6 @@ export function PostDetailTelemetry({
   logs,
   agentRun,
   engineUsed = "quick",
-  modelUsed = "openrouter",
   state,
   createdAt,
   updatedAt,
@@ -267,16 +254,16 @@ export function PostDetailTelemetry({
 
   // Hitung total tool calls & model calls dari log jika agentRun belum lengkap
   const computedModelCalls = React.useMemo(() => {
-    if (typeof agentRun?.total_model_calls === "number" && agentRun.total_model_calls > 0) {
-      return agentRun.total_model_calls
+    if (typeof agentRun?.model_calls === "number" && agentRun.model_calls > 0) {
+      return agentRun.model_calls
     }
     const fromLogs = logs.filter((l) => l.step === "model_call").length
     return fromLogs > 0 ? fromLogs : 1
   }, [agentRun, logs])
 
   const computedToolCalls = React.useMemo(() => {
-    if (typeof agentRun?.total_tool_calls === "number") {
-      return agentRun.total_tool_calls
+    if (typeof agentRun?.tool_calls === "number") {
+      return agentRun.tool_calls
     }
     return logs.filter(
       (l) => l.step === "tool_call" && l.details?.status !== "blocked" && l.details?.status !== "deduped"
@@ -289,7 +276,7 @@ export function PostDetailTelemetry({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-xl border border-border/80 bg-card p-3 shadow-2xs flex flex-col gap-1">
           <div className="flex items-center gap-1.5 text-muted-foreground text-[11px]">
-            {agentRun?.mode === "deep" ? (
+            {agentRun?.profile_snapshot?.mode === "deep" ? (
               <BrainCircuit className="size-3 text-primary" />
             ) : (
               <Bot className="size-3 text-primary" />
@@ -297,7 +284,7 @@ export function PostDetailTelemetry({
             <span>Agen Runtime</span>
           </div>
           <span className="text-xs font-semibold font-mono text-foreground capitalize truncate">
-            {agentRun ? (agentRun.mode === "deep" ? "Deep Agent" : "Standard Agent") : (engineUsed || "Standard")}
+            {agentRun ? (agentRun.profile_snapshot?.mode === "deep" ? "Deep Agent" : "Standard Agent") : (engineUsed || "Standard")}
           </span>
         </div>
 

@@ -155,169 +155,241 @@ wp-autopost-dashboard/
 
 ## 3. Skema Inti Database (Supabase PostgreSQL)
 
-Database menggunakan **PostgreSQL via Supabase**. Seluruh 9 tabel berada di skema `public`, terikat dengan `user_id` yang merujuk ke `auth.users(id)`, dan **Row Level Security (RLS) WAJIB aktif** di seluruh tabel.
+Database menggunakan **PostgreSQL via Supabase** (wajib PostgreSQL ≥ 15). Seluruh **10 tabel** berada di skema `public`, setiap baris terikat ke pemilik lewat `user_id` → `auth.users(id)` (`ON DELETE CASCADE`), dan **Row Level Security (RLS) aktif + `FORCE`** di seluruh tabel. Sumber kebenaran skema adalah migrasi Supabase CLI di [`supabase/migrations/`](supabase/migrations/) — baseline `20261015090000_baseline_schema.sql` merekonstruksi skema yang dipakai kode (menggantikan skrip ad-hoc `.workspaces/scripts/migrate-*.js`). Tabel lama `prompt_templates` / `prompt_template_versions` tidak dipakai kode dan tidak termasuk baseline.
 
 ```mermaid
 erDiagram
     users ||--o{ wp_sites : owns
-    users ||--o{ user_settings : configures
+    users ||--o| user_settings : configures
     users ||--o{ agent_profiles : designs
     users ||--o{ agent_skills : registers
     users ||--o{ content_batches : launches
     users ||--o{ post_items : creates
     users ||--o{ execution_logs : tracks
-    users ||--o{ webhooks : manages
     users ||--o{ agent_runs : executes
+    users ||--o{ webhooks : manages
+    users ||--o{ uploaded_media : caches
 
     wp_sites ||--o{ content_batches : targets
     wp_sites ||--o{ post_items : publishes_to
+    wp_sites ||--o{ uploaded_media : hosts
 
     content_batches ||--o{ post_items : contains
     post_items ||--o{ execution_logs : logs
     post_items ||--o{ agent_runs : runs
+    post_items ||--o{ uploaded_media : uses
 
     wp_sites {
         uuid id PK
-        uuid user_id FK
+        uuid user_id FK "UNIQUE (user_id, base_url); UNIQUE (id, user_id)"
         text site_name
         text base_url
         text wp_username
-        text encrypted_app_password
+        text encrypted_app_password "AES-256-GCM"
         text status "connected | auth_error | rate_limited | unreachable"
         int default_author_id
         int default_category_id
-        int max_concurrency "Default: 2"
-        timestamp last_checked_at
-        timestamp created_at
-        timestamp updated_at
+        int max_concurrency "Default: 2, >= 1"
+        timestamptz last_checked_at
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     user_settings {
         uuid id PK
-        uuid user_id FK "UNIQUE"
+        uuid user_id FK "UNIQUE (target upsert)"
         text encrypted_openrouter_key
         text encrypted_tavily_key
         text encrypted_brave_key
         text encrypted_serpapi_key
         text encrypted_pexafy_key
         text searxng_url
-        jsonb search_preferences
-        jsonb notification_preferences
-        timestamp updated_at
+        jsonb search_preferences "default_provider, default_ai_model?, reasoning_effort?"
+        jsonb notification_prefs "flag boolean + langsmith_api_key (terenkripsi), langsmith_project"
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     agent_profiles {
         uuid id PK
         uuid user_id FK
-        text name
+        text name "2-100 karakter"
         text description
         text mode "standard | deep"
-        text model_name
-        float temperature "Default: 0.35"
-        text workflow_prompt
-        jsonb tool_ids "Array string tool id"
-        jsonb skills "Array slug skill"
-        jsonb limits "maxModelCalls, maxToolCalls, timeoutSeconds, minWordCount, perTool"
-        boolean is_default
-        boolean is_archived
+        text model
+        numeric temperature "numeric(3,2), Default: 0.35"
+        text workflow_prompt "<= 12000 karakter"
+        text_array tool_ids
+        text_array skills "Slug agent_skills"
+        jsonb limits "maxModelCalls, maxToolCalls, timeoutSeconds, minWordCount, perTool, isDefault"
         text based_on_preset
         int version
-        timestamp created_at
-        timestamp updated_at
+        boolean is_archived "Soft delete"
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     agent_skills {
         uuid id PK
-        uuid user_id FK "Nullable untuk skill sistem"
-        text name
-        text slug "UNIQUE per tenant"
+        uuid user_id FK "NULL hanya untuk skill sistem"
+        text name "2-120 karakter"
+        text slug "^[a-z0-9_-]+$; UNIQUE (user_id, slug); sistem: UNIQUE (slug) WHERE is_system"
         text description
-        text content "Instruksi Markdown lengkap SKILL.md"
-        boolean is_system
-        timestamp created_at
-        timestamp updated_at
+        text content "Markdown SKILL.md"
+        boolean is_system "true <=> user_id IS NULL"
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     agent_runs {
         uuid id PK
-        uuid post_item_id FK
+        uuid post_item_id FK "(post_item_id, user_id) -> post_items"
         uuid user_id FK
-        text agent_profile_id
-        text status "running | success | failed"
-        int total_model_calls
-        int total_tool_calls
+        text profile_ref
+        jsonb profile_snapshot "ref, name, mode, model, temperature, toolIds, skills"
+        text status "running | completed | failed"
+        text stop_reason
+        int model_calls
+        int tool_calls
+        int tokens_prompt
+        int tokens_completion
         int duration_ms
-        int total_tokens
+        int word_count
         text error_message
-        jsonb step_events "Array AgentStepEvent"
-        timestamp created_at
-        timestamp updated_at
+        timestamptz created_at
+        timestamptz finished_at
     }
 
     content_batches {
         uuid id PK
-        uuid user_id FK
-        uuid wp_site_id FK
+        uuid user_id FK "UNIQUE (id, user_id)"
+        uuid wp_site_id FK "(wp_site_id, user_id) -> wp_sites"
         text name
-        text source_type "csv | paste_list | niche_genesis"
-        text execution_mode "immediate | scheduled_drip"
+        text source_type "csv_keywords | niche_auto | external_url | manual"
+        text execution_mode "immediate | scheduled_drip | wp_future"
+        jsonb ai_config "agentProfileRef, engine, aiModel, language, category_ids, tags, ..."
+        jsonb schedule_config "executionMode, mode, random/interval/instantConfig"
+        text custom_instructions_override
         text status "draft | running | paused | completed | failed"
         int total_items
-        int completed_items
-        int failed_items
-        jsonb schedule_config
-        timestamp created_at
-        timestamp updated_at
+        int completed_items "Dihitung ulang dari state post_items"
+        timestamptz created_at
+        timestamptz updated_at
     }
 
     post_items {
         uuid id PK
-        uuid user_id FK
-        uuid batch_id FK "Nullable jika Tulis Cepat"
-        uuid wp_site_id FK
+        uuid user_id FK "UNIQUE (id, user_id)"
+        uuid batch_id FK "Nullable (Tulis Cepat); (batch_id, user_id) -> content_batches, ON DELETE SET NULL (batch_id)"
+        uuid wp_site_id FK "(wp_site_id, user_id) -> wp_sites"
         text target_keyword
         text title
         text slug
         text content_html "Gutenberg Block markup"
         text excerpt
         text featured_image_url
-        jsonb categories "Array string id kategori"
-        jsonb tags "Array nama tag (plain text). Baris lama bisa berisi ID numerik"
-        text state "queued_input | generating_content | ready_to_sync | syncing_to_wp | published_on_wp | scheduled_on_wp | saved_draft_on_wp | failed_generation | failed_sync"
-        text wp_target_status "draft | publish | future"
-        int wp_post_id
+        jsonb categories "Array nama kategori (baris lama: ID numerik)"
+        jsonb tags "Array nama tag (baris lama: ID numerik)"
+        text custom_instructions_override
+        text state "9 state PRD §4 (CHECK)"
+        text wp_target_status "publish | future | draft"
+        bigint wp_post_id
         text wp_post_url
+        int retry_count ">= 0"
         text last_error
-        int retry_count "Default: 0"
-        timestamp scheduled_for
-        jsonb source_payload "Custom instructions, agentProfileRef, style, options, wp_publish_meta (categoryIds, tagIds, authorId, featuredMediaId untuk retry)"
-        timestamp created_at
-        timestamp updated_at
+        timestamptz scheduled_for
+        jsonb source_payload "agentProfileRef, engine, aiModel, style, language, category_ids, batch/schedule meta, wp_publish_meta"
+        timestamptz created_at
+        timestamptz updated_at "Heartbeat klaim worker"
     }
 
     execution_logs {
         uuid id PK
-        uuid post_item_id FK
+        uuid post_item_id FK "(post_item_id, user_id) -> post_items"
         uuid user_id FK
-        text step "init_queue | generation | prepare_sync | status_sync | retry_sync_bypass | ..."
+        text step "Teks bebas: init_queue | generation | prepare_sync | wordpress_publisher | status_sync | stale_recovery | <node agen> | ..."
         text level "info | warn | error"
         text message
         jsonb details "input, output, durationMs, metadata"
-        timestamp created_at
+        timestamptz created_at
     }
 
     webhooks {
         uuid id PK
         uuid user_id FK
         text name
-        text url
-        text encrypted_secret "HMAC SHA-256 Secret"
-        jsonb events "Array of WebhookEvent"
+        text url "Divalidasi assertSafeUrl sebelum disimpan"
+        text encrypted_secret "Secret HMAC SHA-256 (AES-256-GCM)"
+        jsonb events "Array WebhookEvent"
         boolean is_active
-        timestamp created_at
-        timestamp updated_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    uploaded_media {
+        uuid id PK
+        uuid user_id FK "NOT NULL"
+        uuid site_id FK "(site_id, user_id) -> wp_sites"
+        uuid post_id FK "(post_id, user_id) -> post_items, ON DELETE SET NULL (post_id)"
+        text source_url "Indeks dedup (site_id, source_url)"
+        text site_url
+        bigint image_id "ID media WordPress"
+        jsonb metadata "alt, caption, title, mime"
+        timestamptz created_at
+        timestamptz updated_at
     }
 ```
+
+### 3.1 Model Isolasi Tenant (RLS & Hak Akses)
+
+Semua policy berlaku `TO authenticated` dengan predikat `(select auth.uid()) = user_id` (subselect agar `auth.uid()` dievaluasi sekali per query). Role `anon` tidak memiliki hak apa pun atas 10 tabel. Hak akses (`GRANT`) dinyatakan eksplisit di migrasi — tidak bergantung pada auto-grant Data API.
+
+| Tabel | `authenticated` (client sesi) | Penulis lain |
+| :--- | :--- | :--- |
+| `wp_sites`, `content_batches`, `agent_profiles`, `user_settings`, `webhooks` | CRUD baris sendiri (UPDATE: `USING` + `WITH CHECK`, `user_id` tidak dapat dipindah) | worker (`service_role`) |
+| `agent_skills` | SELECT skill sistem **atau** milik sendiri; INSERT/UPDATE/DELETE hanya skill non-sistem milik sendiri | seed (skill sistem) |
+| `post_items` | SELECT, DELETE milik sendiri; INSERT hanya item baru (`state = 'queued_input'`, tanpa `content_html`/`wp_post_id`/`wp_post_url`); **tanpa UPDATE** | transisi state, naskah, `wp_post_id`: hanya worker (`service_role`) |
+| `execution_logs` | SELECT + INSERT milik sendiri (append-only) | worker; terhapus via cascade item |
+| `agent_runs`, `uploaded_media` | SELECT milik sendiri saja | worker (`service_role`) |
+
+`service_role` (Service Role / secret key) mem-bypass RLS dan hanya dipakai proses latar belakang; kode wajib tetap memfilter `user_id` secara eksplisit (lihat `.claude/rules/security.md`).
+
+### 3.2 FK Komposit Anti Lintas-Tenant
+
+Induk memiliki `UNIQUE (id, user_id)` dan anak merujuk `(fk, user_id)`, sehingga baris anak **tidak mungkin** merujuk induk milik tenant lain — termasuk penulisan via `service_role`:
+
+| FK anak | Induk | ON DELETE |
+| :--- | :--- | :--- |
+| `content_batches (wp_site_id, user_id)` | `wp_sites (id, user_id)` | CASCADE |
+| `post_items (wp_site_id, user_id)` | `wp_sites (id, user_id)` | CASCADE |
+| `post_items (batch_id, user_id)` | `content_batches (id, user_id)` | SET NULL (`batch_id`) |
+| `execution_logs (post_item_id, user_id)` | `post_items (id, user_id)` | CASCADE |
+| `agent_runs (post_item_id, user_id)` | `post_items (id, user_id)` | CASCADE |
+| `uploaded_media (site_id, user_id)` | `wp_sites (id, user_id)` | CASCADE |
+| `uploaded_media (post_id, user_id)` | `post_items (id, user_id)` | SET NULL (`post_id`) |
+
+### 3.3 Constraint, Indeks & Trigger
+
+- **CHECK**: 9 state `post_items.state`, `wp_target_status`, `retry_count >= 0`, enum status/mode/source (`wp_sites`, `content_batches`, `agent_profiles`, `agent_runs`), `execution_logs.level` (`step` sengaja bebas), format slug & kepemilikan skill sistem, serta bentuk JSON (`jsonb_typeof` object/array) untuk kolom `jsonb`.
+- **UNIQUE**: `wp_sites (user_id, base_url)`, `agent_skills (user_id, slug)` + `agent_skills (slug) WHERE is_system`, `user_settings (user_id)`.
+- **Indeks antrean**: `post_items (state, scheduled_for)`, `(state, created_at)`, parsial `(updated_at) WHERE state IN ('generating_content','syncing_to_wp')` untuk auto-healing, `(batch_id, state)` untuk progres batch, `(user_id, created_at desc)` untuk daftar antrean. Setiap FK memiliki indeks; dedup media `uploaded_media (site_id, source_url)`.
+- **Trigger `set_updated_at`** (BEFORE UPDATE) pada tabel yang memiliki `updated_at`; heartbeat klaim worker bergantung pada kolom ini. Fungsi trigger tidak dapat dieksekusi role API.
+
+### 3.4 Workflow Migrasi
+
+```text
+supabase/
+├── config.toml                      # Konfigurasi Supabase CLI (project_id "panitera")
+├── migrations/<timestamp>_<nama>.sql # Satu-satunya jalur perubahan skema (berurutan, idempoten)
+├── seed.sql                         # Skill sistem anti-ai-editor (db reset / --include-seed)
+└── tests/                           # Test RLS & constraint berbasis PGlite (tanpa Docker)
+```
+
+1. Buat berkas: `npx supabase migration new <nama_perubahan>`; tulis SQL idempoten (`if not exists`, `drop ... if exists` lalu `create`), sertakan RLS + policy + `GRANT` untuk tabel baru di migrasi yang sama.
+2. Uji lokal tanpa Docker: `npm run db:test` (menerapkan prelude Supabase + seluruh migrasi + seed ke PGlite, termasuk uji idempotensi), lalu `npm test`.
+3. Sebelum push ke production: `npx supabase link --project-ref <ref>`, `npx supabase db diff --linked` (butuh Docker) untuk membandingkan skema, `npx supabase db push --linked --dry-run`, lalu `npx supabase db push --linked`.
+4. **Dilarang** mengubah skema lewat skrip Management API (`.workspaces/scripts/migrate-*.js`) atau SQL editor dashboard tanpa migrasi.
+5. Baseline wajib diverifikasi terhadap production (query pre-flight di header baseline + `db diff`) sebelum push pertama. Panduan lengkap: skill [`.claude/skills/panitera-db-migration/`](.claude/skills/panitera-db-migration/SKILL.md).
 
 ---
 

@@ -22,7 +22,13 @@
  */
 
 import { getPlatformKey, resolvePlatformFallbackKey } from "@/lib/ai/platform-keys"
-import { ResponseTooLargeError, safeFetch, SsrfBlockedError, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
+import {
+  getPlatformSearxngUrl,
+  ResponseTooLargeError,
+  safeFetch,
+  SsrfBlockedError,
+  toSearxngBaseUrl,
+} from "@/lib/net/safe-fetch"
 
 export interface ImageSearchResult {
   url: string
@@ -621,7 +627,7 @@ export async function searchRoyaltyFreeImages(params: ImageSearchParams): Promis
   const pexafyKey = resolvePlatformFallbackKey(params.pexafyApiKey, "PEXAFY_API_KEY")
   // Bing Official API tidak punya padanan BYOK: kunci platform hanya dipakai bila diizinkan.
   const bingApiKey = getPlatformKey("BING_SEARCH_API_KEY", "BING_API_KEY")
-  const searxngUrl = params.searxngUrl || process.env.SEARXNG_URL || "http://searxng-internal:8080"
+  const searxngUrl = params.searxngUrl || getPlatformSearxngUrl()
 
   // 1. Eksekusi jika pengguna memilih METODE SPESIFIK:
   if (provider === "pexafy") {

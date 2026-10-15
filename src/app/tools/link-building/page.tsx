@@ -11,9 +11,7 @@ import {
   Globe,
   Loader2,
   Search,
-  ArrowRight,
   Send,
-  RefreshCw,
   FileText,
   SlidersHorizontal,
 } from "lucide-react"
@@ -65,7 +63,6 @@ export default function LinkBuildingToolPage() {
   // AI Analysis state
   const [isAnalyzing, setIsAnalyzing] = React.useState(false)
   const [analysisError, setAnalysisError] = React.useState<string | null>(null)
-  const [topicSummary, setTopicSummary] = React.useState<string | null>(null)
   const [searchQueries, setSearchQueries] = React.useState<string[]>([])
   const [recommendations, setRecommendations] = React.useState<LinkRecommendation[]>([])
   const [hasAnalyzed, setHasAnalyzed] = React.useState(false)
@@ -104,9 +101,8 @@ export default function LinkBuildingToolPage() {
           setSites(list)
           if (list.length > 0) {
             setSelectedSiteId(list[0].id)
-            if (!newArticleUrl) {
-              setNewArticleUrl(`${list[0].base_url}/artikel-terbaru-anda`)
-            }
+            // Updater fungsional: isi contoh URL hanya jika pengguna belum mengetik apa pun
+            setNewArticleUrl((current) => current || `${list[0].base_url}/artikel-terbaru-anda`)
           }
         }
       } catch (err) {
@@ -152,7 +148,6 @@ export default function LinkBuildingToolPage() {
         setAnalysisError(data.error || "Gagal menganalisis artikel dengan AI.")
         setRecommendations([])
       } else {
-        setTopicSummary(data.topicSummary || null)
         setSearchQueries(data.searchQueries || [])
         setRecommendations(data.recommendations || [])
         setHasAnalyzed(true)

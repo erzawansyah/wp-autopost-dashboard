@@ -72,7 +72,7 @@ export const imageSearchToolDef: ToolDefinition = {
             minWidth: minWidth || 1280,
             provider: (provider as ImageSearchProvider) || "auto",
             pexafyApiKey: ctx.userKeys.pexafyKey,
-            searxngUrl: ctx.userKeys.searxngUrl || "http://searxng-internal:8080",
+            searxngUrl: ctx.userKeys.searxngUrl,
           })
 
           if (!images || images.length === 0) {

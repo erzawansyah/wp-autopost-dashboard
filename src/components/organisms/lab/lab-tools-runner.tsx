@@ -22,10 +22,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Wrench,
-  Globe,
   Search,
-  BookOpen,
-  Image as ImageIcon,
   ExternalLink,
   Sparkles,
 } from "lucide-react"
@@ -477,6 +474,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         {responseOutput.photos.map((photo, idx: number) => (
                           <div key={idx} className="rounded-lg border border-border/80 bg-muted/20 p-2.5 flex flex-col gap-2">
+                            {/* eslint-disable-next-line @next/next/no-img-element -- URL eksternal dari tool/LLM; optimasi next/image ke host tak tepercaya = permukaan SSRF */}
                             <img
                               src={photo.url}
                               alt={photo.alt}
@@ -635,6 +633,7 @@ export function LabToolsRunner({ tools, sites }: LabToolsRunnerProps) {
 
                       {responseOutput?.sourceUrl && (
                         <div className="rounded-lg border border-border/80 bg-muted/20 p-3 flex flex-col gap-2">
+                          {/* eslint-disable-next-line @next/next/no-img-element -- URL eksternal dari tool/LLM; optimasi next/image ke host tak tepercaya = permukaan SSRF */}
                           <img
                             src={responseOutput.sourceUrl}
                             alt={responseOutput.altText || "Media Upload"}

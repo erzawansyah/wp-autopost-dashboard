@@ -1,5 +1,7 @@
+import "server-only"
 import { createAdminClient } from "@/lib/supabase/admin"
 import { decryptCredential } from "@/lib/crypto"
+import { serverEnv } from "@/lib/env/server"
 import { DecryptedUserKeys } from "@/types/settings"
 
 /**
@@ -62,8 +64,7 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       defaultAiModel:
         (typeof searchPrefs?.default_ai_model === "string" ? searchPrefs.default_ai_model : undefined) ||
         (typeof notifPrefs?.default_ai_model === "string" ? notifPrefs.default_ai_model : undefined) ||
-        process.env.OPENROUTER_DEFAULT_MODEL ||
-        undefined,
+        serverEnv().OPENROUTER_DEFAULT_MODEL,
       reasoningEffort:
         (searchPrefs?.reasoning_effort as "low" | "medium" | "high" | undefined) ||
         (notifPrefs?.reasoning_effort as "low" | "medium" | "high" | undefined) ||

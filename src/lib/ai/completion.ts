@@ -1,6 +1,7 @@
 import { DEFAULT_AI_MODEL } from "./settings"
 import { getOpenRouterReasoningConfig, ReasoningEffort } from "./reasoning"
 import { requireOpenRouterKey } from "./platform-keys"
+import { serverEnv } from "@/lib/env/server"
 
 export interface CallAiJsonParams {
   apiKey?: string
@@ -20,7 +21,7 @@ export async function callOpenRouterJson<T = unknown>(params: CallAiJsonParams):
   // BYOK: kunci pengguna; kunci platform hanya bila PLATFORM_KEY_ALLOWED=true.
   const apiKey = requireOpenRouterKey(params.apiKey)
 
-  const model = params.model || process.env.DEFAULT_AI_MODEL || DEFAULT_AI_MODEL
+  const model = params.model || serverEnv().DEFAULT_AI_MODEL || DEFAULT_AI_MODEL
 
   const responseFormat = params.jsonSchema
     ? {

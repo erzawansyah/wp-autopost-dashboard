@@ -33,7 +33,6 @@ export default function NewPostPage() {
   // Submission state
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [isRedirecting, setIsRedirecting] = React.useState(false)
-  const [queuedPostId, setQueuedPostId] = React.useState<string | null>(null)
   const [queuedKeyword, setQueuedKeyword] = React.useState<string>("")
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
 
@@ -104,7 +103,6 @@ export default function NewPostPage() {
       }
 
       // Berhasil masuk antrean! Tampilkan kartu konfirmasi singkat lalu alihkan ke Dashboard
-      setQueuedPostId(data.postId)
       setQueuedKeyword(payload.keyword)
       setIsRedirecting(true)
 

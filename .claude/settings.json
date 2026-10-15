@@ -12,7 +12,14 @@
       "Bash(npm test)",
       "Bash(npx vitest *)",
       "Bash(npm ci *)",
-      "Bash(npm run typecheck *)"
+      "Bash(npm run typecheck *)",
+      "Bash(npm run audit:hygiene *)",
+      "Bash(npm run audit:hygiene)",
+      "Bash(npm run db:test *)",
+      "Bash(npm run db:test)",
+      "Bash(npm run check *)",
+      "Bash(npm run lint)",
+      "Bash(npm run typecheck)"
     ],
     "ask": [
       "Bash(git commit *)",

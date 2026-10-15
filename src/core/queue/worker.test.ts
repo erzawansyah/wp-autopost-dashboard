@@ -85,7 +85,6 @@ function createFakeSupabase() {
 }
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => createFakeSupabase() }))
-vi.mock("@/lib/supabase/server", () => ({ createClient: async () => createFakeSupabase() }))
 vi.mock("@/lib/crypto", () => ({ decryptCredential: mocks.decryptCredential }))
 vi.mock("@/core/writer", () => ({ run: mocks.run, publishPostToWordPress: mocks.publishPostToWordPress }))
 vi.mock("@/core/shared/media/auto-media-pipeline", () => ({

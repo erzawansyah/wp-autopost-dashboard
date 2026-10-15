@@ -40,7 +40,7 @@ export function constantTimeEqual(provided: string, expected: string): boolean {
 
 /**
  * Memverifikasi apakah request berasal dari pemicu cron berotorisasi.
- * @param configuredSecret nilai `process.env.CRON_SECRET` (dilewatkan eksplisit agar mudah diuji)
+ * @param configuredSecret nilai `serverEnv().CRON_SECRET` (dilewatkan eksplisit agar mudah diuji)
  */
 export function verifyCronRequest(headers: Headers, configuredSecret: string | undefined): CronAuthResult {
   const secret = configuredSecret?.trim()

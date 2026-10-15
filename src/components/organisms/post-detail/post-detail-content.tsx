@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
+import { Card, CardContent, CardHeader } from "@/components/atoms/card"
 import { Button } from "@/components/atoms/button"
 import { Badge } from "@/components/atoms/badge"
 import { Skeleton } from "@/components/atoms/skeleton"
@@ -13,7 +13,6 @@ import {
   Check,
   Code2,
   Clock,
-  Layers,
   Tag,
   Folder,
   Sparkles,

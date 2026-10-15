@@ -285,7 +285,7 @@ Seluruh pemrosesan artikel diatur oleh **Database-First State Machine** di tabel
 ## 6. Persyaratan Non-Fungsional (NFR)
 
 1. **Keamanan Data Multi-Tenant**:
-   - Isolasi 100% menggunakan PostgreSQL Row Level Security (RLS) pada 9 tabel Supabase.
+   - Isolasi 100% menggunakan PostgreSQL Row Level Security (RLS) pada 10 tabel Supabase.
    - Enkripsi kredensial WordPress Application Passwords dan API Keys pengguna menggunakan algoritma **AES-256-GCM**.
    - Dekripsi kredensial dilakukan *server-side only* sesaat sebelum request HTTP ke luar dan dilarang dikembalikan ke browser.
 2. **Proteksi Jaringan (Anti-SSRF)**:

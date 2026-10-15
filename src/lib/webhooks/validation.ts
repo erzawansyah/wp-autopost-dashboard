@@ -1,3 +1,4 @@
+import { serverEnv } from "@/lib/env/server"
 import { assertSafeUrl, getTrustedInternalOrigins } from "@/lib/net/safe-fetch"
 import { AVAILABLE_WEBHOOK_EVENTS, type WebhookEvent } from "@/types/webhook"
 
@@ -29,7 +30,7 @@ export function getWebhookUrlPolicyError(url: URL): string | null {
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     return "URL webhook wajib diawali https:// atau http://."
   }
-  if (process.env.NODE_ENV === "production" && url.protocol !== "https:") {
+  if (serverEnv().isProduction && url.protocol !== "https:") {
     return "URL webhook wajib menggunakan HTTPS."
   }
   if (url.username || url.password) {

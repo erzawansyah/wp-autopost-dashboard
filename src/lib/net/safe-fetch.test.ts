@@ -1,8 +1,10 @@
 import http from "node:http"
 import type { AddressInfo } from "node:net"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import {
   assertSafeUrl,
+  getPlatformSearxngUrl,
+  getTrustedInternalOrigins,
   isBlockedIp,
   isPlatformSearxngEndpoint,
   ResponseTooLargeError,
@@ -71,6 +73,31 @@ describe("isPlatformSearxngEndpoint", () => {
     "http://evil.example/search?q=a",
   ])("menolak %s", (url) => {
     expect(isPlatformSearxngEndpoint(url)).toBe(false)
+  })
+})
+
+describe("getPlatformSearxngUrl & getTrustedInternalOrigins", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("memakai default Docker bila SEARXNG_URL kosong", () => {
+    vi.stubEnv("SEARXNG_URL", "")
+    expect(getPlatformSearxngUrl()).toBe("http://searxng-internal:8080")
+    expect([...getTrustedInternalOrigins()]).toEqual(["http://searxng-internal:8080"])
+  })
+
+  it("membaca SEARXNG_URL saat dipanggil dan tetap mempercayai origin default", () => {
+    vi.stubEnv("SEARXNG_URL", "https://searx.platform.example/base")
+    expect(getPlatformSearxngUrl()).toBe("https://searx.platform.example/base")
+    expect(getTrustedInternalOrigins()).toEqual(
+      new Set(["https://searx.platform.example", "http://searxng-internal:8080"])
+    )
+  })
+
+  it("mengabaikan SEARXNG_URL yang tidak valid untuk daftar origin tepercaya", () => {
+    vi.stubEnv("SEARXNG_URL", "bukan url")
+    expect([...getTrustedInternalOrigins()]).toEqual(["http://searxng-internal:8080"])
   })
 })
 

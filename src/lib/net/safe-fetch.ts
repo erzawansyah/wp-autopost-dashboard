@@ -1,6 +1,8 @@
+import "server-only"
 import dns from "node:dns"
 import net from "node:net"
 import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from "undici"
+import { serverEnv } from "@/lib/env/server"
 
 /**
  * Safe outbound fetch untuk URL yang berasal dari pengguna atau LLM (Anti-SSRF).
@@ -105,14 +107,19 @@ export function isBlockedIp(address: string): boolean {
  * `ALLOW_PRIVATE_NETWORK_FETCH=true` (mis. uji WordPress lokal). Dipakai juga oleh validator URL WordPress.
  */
 export function isPrivateNetworkAllowed(): boolean {
-  return process.env.ALLOW_PRIVATE_NETWORK_FETCH === "true" && process.env.NODE_ENV !== "production"
+  const env = serverEnv()
+  return env.ALLOW_PRIVATE_NETWORK_FETCH && !env.isProduction
+}
+
+/** Base URL SearXNG internal platform: `SEARXNG_URL`, atau default jaringan Docker. */
+export function getPlatformSearxngUrl(): string {
+  return serverEnv().SEARXNG_URL ?? DEFAULT_SEARXNG_URL
 }
 
 /** Origin SearXNG milik platform (`SEARXNG_URL` + default Docker). Bukan daftar izin umum. */
 export function getTrustedInternalOrigins(): Set<string> {
   const origins = new Set<string>()
-  for (const raw of [process.env.SEARXNG_URL, DEFAULT_SEARXNG_URL]) {
-    if (!raw) continue
+  for (const raw of [getPlatformSearxngUrl(), DEFAULT_SEARXNG_URL]) {
     try {
       origins.add(new URL(raw).origin)
     } catch {

@@ -2,12 +2,8 @@
 
 import * as React from "react"
 import {
-  Columns,
   Table as TableIcon,
-  CheckCircle2,
-  HelpCircle,
   Eye,
-  Settings2,
   Sparkles,
 } from "lucide-react"
 import { Badge } from "@/components/atoms/badge"

@@ -47,8 +47,9 @@ export default function DocsPage() {
           const data = await res.json()
           const items: DocItem[] = data.docs || []
           setDocs(items)
-          if (items.length > 0 && !selectedSlug) {
-            setSelectedSlug(items[0].slug)
+          if (items.length > 0) {
+            // Updater fungsional: pilih dokumen pertama hanya jika belum ada pilihan
+            setSelectedSlug((current) => current || items[0].slug)
           }
         }
       } catch (err) {

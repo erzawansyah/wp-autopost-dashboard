@@ -19,7 +19,6 @@ import {
   Wrench,
   CheckCircle2,
   AlertTriangle,
-  Clock,
   Save,
   ArrowLeft,
   Loader2,
@@ -42,7 +41,6 @@ import {
   TooltipTrigger,
 } from "@/components/atoms/tooltip"
 import {
-  MANDATORY_TOOL_IDS,
   ALL_MANDATORY_TOOL_IDS,
   ensureMandatoryToolIds,
 } from "@/core/writer/types/profile"

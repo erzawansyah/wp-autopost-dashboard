@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { verifyCronRequest } from "@/core/queue/cron-auth"
+import { serverEnv } from "@/lib/env/server"
 import {
   processPostItem,
   claimNextPendingQueueItems,
@@ -35,7 +36,7 @@ let missingCronSecretLogged = false
  * Cron hanya diterima lewat header (Authorization: Bearer / x-cron-secret) dan CRON_SECRET wajib disetel.
  */
 async function authorizeRequest(request: Request): Promise<QueueAuth> {
-  const cronAuth = verifyCronRequest(request.headers, process.env.CRON_SECRET)
+  const cronAuth = verifyCronRequest(request.headers, serverEnv().CRON_SECRET)
   if (cronAuth.ok) return { kind: "cron" }
 
   try {

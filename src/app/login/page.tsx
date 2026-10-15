@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { useRouter, useSearchParams } from "next/navigation"
 import { createClient } from "@/lib/supabase/client"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/atoms/card"
@@ -8,7 +9,7 @@ import { Button } from "@/components/atoms/button"
 import { Input } from "@/components/atoms/input"
 import { Label } from "@/components/atoms/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/atoms/tabs"
-import { Sparkles, ArrowRight, Lock, Mail, AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
+import { ArrowRight, Lock, Mail, AlertCircle, CheckCircle2, Loader2 } from "lucide-react"
 
 function AuthForm() {
   const router = useRouter()
@@ -306,9 +307,11 @@ export default function LoginPage() {
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center gap-2">
           <div className="size-12 rounded-xl overflow-hidden flex items-center justify-center bg-card shadow-xs border border-border/80 p-1">
-            <img
+            <Image
               src="/assets/panitera-favicon.png"
               alt="Panitera Logo"
+              width={40}
+              height={40}
               className="w-full h-full object-contain"
             />
           </div>

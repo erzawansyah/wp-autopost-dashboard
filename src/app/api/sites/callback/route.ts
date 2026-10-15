@@ -4,6 +4,7 @@ import { testWordPressConnection } from "@/lib/wordpress/client"
 import { checkCallbackSession, resolveCallbackReturnBase } from "@/lib/wordpress/connect-callback"
 import { createClient } from "@/lib/supabase/server"
 import { createAdminClient } from "@/lib/supabase/admin"
+import { serverEnv } from "@/lib/env/server"
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -16,7 +17,8 @@ export async function GET(request: Request) {
     request.headers.get("host") ||
     "localhost:3000"
   const proto = request.headers.get("x-forwarded-proto") || "http"
-  const appOrigin = process.env.NEXT_PUBLIC_APP_URL || `${proto}://${host}`
+  const env = serverEnv()
+  const appOrigin = env.NEXT_PUBLIC_APP_URL || `${proto}://${host}`
 
   if (!state) {
     return NextResponse.redirect(`${appOrigin}/sites?auth_status=missing_state`)
@@ -29,7 +31,7 @@ export async function GET(request: Request) {
     )
   }
 
-  const isProduction = process.env.NODE_ENV === "production"
+  const isProduction = env.isProduction
   // returnOrigin hanya dipakai bila sama dengan origin aplikasi (atau loopback saat dev) → cegah open redirect
   const returnBase = resolveCallbackReturnBase(appOrigin, payload.returnOrigin, isProduction)
 

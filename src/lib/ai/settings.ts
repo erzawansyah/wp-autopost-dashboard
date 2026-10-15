@@ -31,13 +31,15 @@ export const FALLBACK_AI_MODELS: OpenRouterModelInfo[] = [
 export const AVAILABLE_AI_MODELS = FALLBACK_AI_MODELS
 
 /**
- * Mengambil nama model AI yang aktif secara global dari localStorage (client) atau default
+ * Mengambil nama model AI yang aktif secara global dari localStorage (client) atau default.
+ * Modul ini dipakai Client Component, jadi tidak membaca env server: render server (SSR/prerender)
+ * memakai `DEFAULT_AI_MODEL`, sama dengan fallback browser, agar hidrasi konsisten.
  */
 export function getGlobalAiModel(): string {
   if (typeof window !== "undefined") {
     return localStorage.getItem("custom_openrouter_model") || DEFAULT_AI_MODEL
   }
-  return process.env.OPENROUTER_DEFAULT_MODEL || DEFAULT_AI_MODEL
+  return DEFAULT_AI_MODEL
 }
 
 /**

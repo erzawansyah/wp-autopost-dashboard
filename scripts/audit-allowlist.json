@@ -1,0 +1,172 @@
+{
+  "$comment": "Allowlist untuk scripts/audit-codebase.ts. Hanya untuk temuan lama yang disengaja/terjadwal dihapus. Setiap entri wajib punya reason; max = jumlah temuan saat ini (ratchet: boleh turun, tidak boleh naik). externalHosts = host tetap yang boleh dipanggil fetch() biasa (URL dari pengguna/LLM tetap wajib safeFetch).",
+  "externalHosts": {
+    "api.bing.com": "Bing Suggest OSJSON publik (tool keyword_suggestions) — host tetap.",
+    "api.bing.microsoft.com": "Bing Image Search API resmi (BYOK) — host tetap.",
+    "api.pexafy.com": "Pexafy API (foto stok, BYOK) — host tetap.",
+    "api.search.brave.com": "Brave Search API (BYOK) — host tetap.",
+    "api.tavily.com": "Tavily Search API (BYOK) — host tetap.",
+    "openrouter.ai": "API OpenRouter (LLM, kunci BYOK pengguna) — host tetap, bukan URL dari pengguna/LLM.",
+    "serpapi.com": "SerpAPI (BYOK) — host tetap.",
+    "suggestqueries.google.com": "Google Suggest publik (tool keyword_suggestions) — host tetap.",
+    "www.bing.com": "Scraper Bing web & gambar tanpa kunci — host tetap; hanya parameter kueri yang dinamis."
+  },
+  "entries": [
+    {
+      "check": "hardcoded-prompt",
+      "file": "src/core/writer/runtime/build-agent.ts",
+      "max": 1,
+      "reason": "Pesan sistem 'write_file dinonaktifkan' dari guard runtime; pindahkan ke prompt system-*.md saat refactor writer."
+    },
+    {
+      "check": "hardcoded-prompt",
+      "file": "src/core/writer/runtime/finalize.ts",
+      "max": 2,
+      "reason": "Instruksi sintesis finalize & baris persona masih dirakit di kode; target: pindah penuh ke system-finalize.md (variabel {{...}})."
+    },
+    {
+      "check": "hardcoded-prompt",
+      "file": "src/core/writer/runtime/loop-guard.ts",
+      "max": 1,
+      "reason": "Pesan peringatan anti-loop yang disuntikkan ke LLM; pindahkan ke prompt system-*.md saat refactor guard."
+    },
+    {
+      "check": "hardcoded-prompt",
+      "file": "src/core/writer/runtime/output-schema.ts",
+      "max": 1,
+      "reason": "Deskripsi field skema structured output (.describe) yang dikirim ke LLM; pertimbangkan [OUTPUT_FORMAT] di prompt .md."
+    },
+    {
+      "check": "hardcoded-prompt",
+      "file": "src/core/writer/runtime/prompt-builder.ts",
+      "max": 1,
+      "reason": "Baris persona penulis dirakit dinamis; pindahkan ke agent-user-prompt.md sebagai variabel."
+    },
+    {
+      "check": "hardcoded-prompt",
+      "file": "src/lib/ai/completion.ts",
+      "max": 2,
+      "reason": "Sufiks paksa-raw-JSON pada system message OpenRouter (2 jalur: json_schema & fallback json_object); pindahkan ke system-*.md."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/app/api/batches/route.ts",
+      "max": 5,
+      "reason": "Kompatibilitas payload lama: field `engine` dipetakan ke Agent Profile via LEGACY_ENGINE_MAP. Hapus setelah item antrean/batch lama dimigrasi ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/app/api/lab/registry/route.ts",
+      "max": 2,
+      "reason": "UI/API Lab masih memakai penamaan engine untuk runner Agent Profile; ganti ke Agent Profile saat refactor /lab."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/app/api/lab/run/route.ts",
+      "max": 4,
+      "reason": "UI/API Lab masih memakai penamaan engine untuk runner Agent Profile; ganti ke Agent Profile saat refactor /lab."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/app/api/posts/quick/route.ts",
+      "max": 4,
+      "reason": "Kompatibilitas payload lama: field `engine` dipetakan ke Agent Profile via LEGACY_ENGINE_MAP. Hapus setelah item antrean/batch lama dimigrasi ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/app/lab/page.tsx",
+      "max": 11,
+      "reason": "UI/API Lab masih memakai penamaan engine untuk runner Agent Profile; ganti ke Agent Profile saat refactor /lab."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/app/posts/[id]/page.tsx",
+      "max": 2,
+      "reason": "Meneruskan payload.engine lama ke telemetry; ganti ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/app/posts/new/page.tsx",
+      "max": 1,
+      "reason": "Meneruskan field engine legacy dari payload form; hapus setelah form memakai agentProfileRef saja."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/app/settings/ai/page.tsx",
+      "max": 1,
+      "reason": "Teks hint UI masih menyebut 'Lab Engine'; ganti dengan istilah Agent Profile."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/components/organisms/batch-keyword/keyword-list-form.tsx",
+      "max": 6,
+      "reason": "State form bernama `engine` padahal berisi agentProfileRef dan masih ikut dikirim sebagai field legacy; rename ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/components/organisms/lab/lab-engine-runner.tsx",
+      "max": 59,
+      "reason": "UI/API Lab masih memakai penamaan engine untuk runner Agent Profile; ganti ke Agent Profile saat refactor /lab."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/components/organisms/post-detail/post-detail-telemetry.tsx",
+      "max": 3,
+      "reason": "Menampilkan payload.engine lama sebagai fallback label; ganti ke agentProfileRef/agent run."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/components/organisms/quick-writer/quick-writer-form.tsx",
+      "max": 7,
+      "reason": "State form bernama `engine` padahal berisi agentProfileRef dan masih ikut dikirim sebagai field legacy; rename ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/components/organisms/structured-writer/structured-writer-form.tsx",
+      "max": 5,
+      "reason": "State form bernama `engine` padahal berisi agentProfileRef dan masih ikut dikirim sebagai field legacy; rename ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/core/queue/worker.ts",
+      "max": 2,
+      "reason": "Kompatibilitas payload lama: field `engine` dipetakan ke Agent Profile via LEGACY_ENGINE_MAP. Hapus setelah item antrean/batch lama dimigrasi ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/core/shared/tools/image-search/index.ts",
+      "max": 1,
+      "reason": "Field `engine` milik respons JSON SearXNG (API eksternal), bukan istilah produk."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/core/shared/tools/web-search/index.ts",
+      "max": 2,
+      "reason": "Field `engine` milik respons JSON SearXNG (API eksternal), bukan istilah produk."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/core/writer/profiles/builtin.ts",
+      "max": 7,
+      "reason": "Kompatibilitas payload lama: field `engine` dipetakan ke Agent Profile via LEGACY_ENGINE_MAP. Hapus setelah item antrean/batch lama dimigrasi ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/core/writer/runtime/resolve-profile.ts",
+      "max": 2,
+      "reason": "Kompatibilitas payload lama: field `engine` dipetakan ke Agent Profile via LEGACY_ENGINE_MAP. Hapus setelah item antrean/batch lama dimigrasi ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/core/writer/types/contracts.ts",
+      "max": 3,
+      "reason": "Kompatibilitas payload lama: field `engine` dipetakan ke Agent Profile via LEGACY_ENGINE_MAP. Hapus setelah item antrean/batch lama dimigrasi ke agentProfileRef."
+    },
+    {
+      "check": "legacy-term",
+      "file": "src/core/writer/writer.ts",
+      "max": 4,
+      "reason": "Kompatibilitas payload lama: field `engine` dipetakan ke Agent Profile via LEGACY_ENGINE_MAP. Hapus setelah item antrean/batch lama dimigrasi ke agentProfileRef."
+    }
+  ]
+}

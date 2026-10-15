@@ -6,6 +6,7 @@ import {
   generateAutoWpAppName,
 } from "@/lib/wordpress/client"
 import { createAuthStateToken } from "@/lib/crypto"
+import { serverEnv } from "@/lib/env/server"
 
 export async function POST(request: Request) {
   try {
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
     const proto = request.headers.get("x-forwarded-proto") || "http"
     const originalOrigin = `${proto}://${host}`
 
-    let callbackOrigin = process.env.NEXT_PUBLIC_APP_URL || originalOrigin
+    let callbackOrigin = serverEnv().NEXT_PUBLIC_APP_URL || originalOrigin
     // WordPress wp_is_authorize_application_redirect_url_valid mewajibkan HTTPS,
     // KECUALI jika host berupa loopback address (127.0.0.1 atau [::1]).
     // WordPress secara eksplisit TIDAK menerima 'localhost'.

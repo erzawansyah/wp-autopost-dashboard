@@ -10,13 +10,11 @@ import {
   AlertCircle,
   Loader2,
   Copy,
-  ExternalLink,
   Shield,
-  Radio,
   Check,
 } from "lucide-react"
 import { Button } from "@/components/atoms/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
+import { Card, CardContent } from "@/components/atoms/card"
 import { Input } from "@/components/atoms/input"
 import { Label } from "@/components/atoms/label"
 import { Badge } from "@/components/atoms/badge"

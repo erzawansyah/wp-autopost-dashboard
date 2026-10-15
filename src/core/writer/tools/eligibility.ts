@@ -1,5 +1,5 @@
 import { DecryptedUserKeys } from "@/types/settings"
-import { ToolDefinition, ToolRegistry, ToolRequirement } from "./registry"
+import { ToolRegistry, ToolRequirement } from "./registry"
 
 export interface BlockedToolInfo {
   id: string

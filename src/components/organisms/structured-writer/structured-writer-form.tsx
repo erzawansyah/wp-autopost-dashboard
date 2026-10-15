@@ -19,9 +19,7 @@ import {
   Loader2,
   Plus,
   ChevronRight,
-  FolderTree,
   Tag,
-  FileText,
   Bookmark,
 } from "lucide-react"
 import { FormField } from "@/components/molecules/form-field"
@@ -50,7 +48,6 @@ import { AgentProfileSelect } from "@/components/molecules/agent-profile-select"
 import {
   ScheduleStrategyPicker,
   ScheduleStrategyState,
-  ScheduleMode,
 } from "@/components/molecules/schedule-strategy-picker"
 import {
   BatchColumnMapper,

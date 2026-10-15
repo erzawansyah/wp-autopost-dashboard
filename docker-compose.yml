@@ -34,6 +34,17 @@ services:
       - OPENROUTER_APP_NAME=${OPENROUTER_APP_NAME:-Panitera}
       - OPENROUTER_SITE_URL=${OPENROUTER_SITE_URL:-http://localhost:3000}
       - SEARXNG_URL=${SEARXNG_URL:-http://searxng-internal:8080}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-}
+
+      # 4. Kunci platform (opsional; default BYOK-only) & default model
+      - PLATFORM_KEY_ALLOWED=${PLATFORM_KEY_ALLOWED:-false}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - PEXAFY_API_KEY=${PEXAFY_API_KEY:-}
+      - OPENROUTER_DEFAULT_MODEL=${OPENROUTER_DEFAULT_MODEL:-}
+      - DEFAULT_AI_MODEL=${DEFAULT_AI_MODEL:-}
+
+      # 5. Kill switch tracing LangSmith global operator (opsional)
+      - LANGSMITH_TRACING=${LANGSMITH_TRACING:-}
 
     # Optional: pasang env_file jika di Portainer menggunakan file .env
     # env_file:
@@ -54,7 +65,8 @@ services:
 
   searxng-internal:
     container_name: searxng-internal
-    image: searxng/searxng:latest
+    # Tag dipin agar deploy reprodusibel; perbarui berkala (Dependabot docker-compose, bulanan).
+    image: searxng/searxng:2026.10.13-22c64b8d3
     restart: unless-stopped
     # Hanya di-expose ke internal docker network (tidak membuka port ke internet/host luar)
     expose:

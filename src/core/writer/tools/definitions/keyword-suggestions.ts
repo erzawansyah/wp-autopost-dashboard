@@ -47,7 +47,7 @@ export const keywordSuggestionsToolDef: ToolDefinition = {
 
         try {
           const lang = language || ctx.language || "id"
-          const searxngUrl = ctx.userKeys.searxngUrl || "http://searxng-internal:8080"
+          const searxngUrl = ctx.userKeys.searxngUrl
 
           const res = await getKeywordSuggestions({
             query: cleanQuery,
