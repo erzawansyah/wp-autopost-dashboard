@@ -1,199 +1,110 @@
 import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
-import { retryPostItemSync, type ProcessPostItemErrorCode } from "@/core/queue/worker"
+import { requestPostItemSyncRetry } from "@/core/queue/manual-actions"
+import { notFound, throwIfDbError } from "@/server/http/errors"
+import { defineRoute } from "@/server/http/route"
+import { RATE_LIMITS } from "@/server/http/rate-limit"
+import { IdParamsSchema } from "@/server/validation/common"
+import { nudgeQueueRunner } from "@/server/queue/embedded"
+import { queueActionError } from "@/server/queue/action-errors"
 
-/** Retry (POST) memanggil WordPress (tag, kategori, posting) dalam satu request. */
-export const maxDuration = 60
-
-export async function GET(
-  _request: Request,
-  props: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id: postId } = await props.params
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // 1. Ambil data item artikel
-    const { data: post, error: postError } = await supabase
-      .from("post_items")
-      .select(`
+// GET /api/posts/[id] — detail artikel + log eksekusi + agent run terakhir (milik pengguna).
+export const GET = defineRoute({ auth: "user", params: IdParamsSchema }, async ({ supabase, user, params }) => {
+  const { data: post, error: postError } = await supabase
+    .from("post_items")
+    .select(`
+      id,
+      user_id,
+      wp_site_id,
+      target_keyword,
+      title,
+      slug,
+      content_html,
+      excerpt,
+      featured_image_url,
+      categories,
+      tags,
+      custom_instructions_override,
+      state,
+      scheduled_for,
+      next_attempt_at,
+      wp_post_id,
+      wp_post_url,
+      wp_target_status,
+      retry_count,
+      last_error,
+      source_payload,
+      created_at,
+      updated_at,
+      wp_sites (
         id,
-        user_id,
-        wp_site_id,
-        target_keyword,
-        title,
-        slug,
-        content_html,
-        excerpt,
-        featured_image_url,
-        categories,
-        tags,
-        custom_instructions_override,
-        state,
-        scheduled_for,
-        wp_post_id,
-        wp_post_url,
-        wp_target_status,
-        retry_count,
-        last_error,
-        source_payload,
-        created_at,
-        updated_at,
-        wp_sites (
-          id,
-          site_name,
-          base_url,
-          wp_username,
-          status
-        )
-      `)
-      .eq("id", postId)
-      .eq("user_id", user.id)
-      .single()
+        site_name,
+        base_url,
+        wp_username,
+        status
+      )
+    `)
+    .eq("id", params.id)
+    .eq("user_id", user.id)
+    .maybeSingle()
+  throwIfDbError(postError)
+  if (!post) throw notFound("Artikel tidak ditemukan.")
 
-    if (postError || !post) {
-      return NextResponse.json({ error: "Artikel tidak ditemukan." }, { status: 404 })
-    }
+  const { data: logs, error: logsError } = await supabase
+    .from("execution_logs")
+    .select("id, step, level, message, details, created_at")
+    .eq("post_item_id", params.id)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: true })
+  if (logsError) console.warn("[api/posts/[id]] Gagal mengambil log eksekusi:", logsError.message)
 
-    // 2. Ambil catatan log eksekusi (execution_logs) untuk artikel ini
-    const { data: logs, error: logsError } = await supabase
-      .from("execution_logs")
-      .select("id, step, level, message, details, created_at")
-      .eq("post_item_id", postId)
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: true })
+  const { data: agentRun, error: runError } = await supabase
+    .from("agent_runs")
+    .select("*")
+    .eq("post_item_id", params.id)
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (runError) console.warn("[api/posts/[id]] Gagal mengambil agent run:", runError.message)
 
-    if (logsError) {
-      console.warn("Gagal mengambil log eksekusi:", logsError.message)
-    }
+  return { post, logs: logs ?? [], agentRun: agentRun ?? null }
+})
 
-    // 3. Ambil catatan performa agent_runs jika ada
-    const { data: agentRun } = await supabase
-      .from("agent_runs")
-      .select("*")
-      .eq("post_item_id", postId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle()
+// DELETE /api/posts/[id] — hapus artikel milik pengguna dari antrean/riwayat.
+export const DELETE = defineRoute({ auth: "user", params: IdParamsSchema }, async ({ supabase, user, params }) => {
+  const { data, error } = await supabase
+    .from("post_items")
+    .delete()
+    .eq("id", params.id)
+    .eq("user_id", user.id)
+    .select("id")
+  throwIfDbError(error)
+  if (!data?.length) throw notFound("Artikel tidak ditemukan.")
 
-    return NextResponse.json({
-      ok: true,
-      post,
-      logs: logs || [],
-      agentRun: agentRun || null,
-    })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
-    return NextResponse.json({ error: message }, { status: 500 })
-  }
-}
-
-export async function DELETE(
-  _request: Request,
-  props: { params: Promise<{ id: string }> }
-) {
-  try {
-    const params = await props.params
-    const postId = params.id
-
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    const { error } = await supabase
-      .from("post_items")
-      .delete()
-      .eq("id", postId)
-      .eq("user_id", user.id)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({ ok: true, message: "Artikel berhasil dihapus dari antrean." })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
-    return NextResponse.json({ error: message }, { status: 500 })
-  }
-}
-
-const RETRY_ERROR_STATUS: Record<ProcessPostItemErrorCode, number> = {
-  not_found: 404,
-  not_retryable: 409,
-  in_progress: 409,
-  already_on_wp: 409,
-  incomplete_content: 422,
-  site_unavailable: 422,
-  sync_failed: 502,
-}
+  return { message: "Artikel berhasil dihapus dari antrean." }
+})
 
 /**
- * Retry sinkronisasi WordPress tanpa menjalankan ulang generasi AI (Cost-Saver Retry).
- * Didelegasikan ke jalur tunggal worker (`retryPostItemSync`): atomic claim failed_sync → syncing_to_wp,
- * guard wp_post_id, dan metadata WordPress tersimpan, sehingga klik ganda tidak menggandakan posting.
+ * POST /api/posts/[id] — "Kirim ulang" (Cost-Saver Retry) tanpa generasi AI.
+ * Tidak mengirim ke WordPress di dalam request: item `failed_sync`/`ready_to_sync` dijadwalkan ulang
+ * (`ready_to_sync`, `next_attempt_at = now`) lalu runner antrean mengirim naskah tersimpan. 202 Accepted;
+ * klien memantau hasilnya lewat polling.
  */
-export async function POST(
-  _request: Request,
-  props: { params: Promise<{ id: string }> }
-) {
-  try {
-    const { id: postId } = await props.params
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+export const POST = defineRoute(
+  { auth: "user", params: IdParamsSchema, rateLimit: RATE_LIMITS.enqueue },
+  async ({ user, params }) => {
+    const result = await requestPostItemSyncRetry({ postId: params.id, userId: user.id })
+    if (!result.ok) throw queueActionError(result)
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
-
-    // Ownership diverifikasi dengan client sesi (RLS) sebelum diteruskan ke worker (Service Role).
-    const { data: ownedPost, error: ownedError } = await supabase
-      .from("post_items")
-      .select("id")
-      .eq("id", postId)
-      .eq("user_id", user.id)
-      .maybeSingle()
-
-    if (ownedError || !ownedPost) {
-      return NextResponse.json({ error: "Artikel tidak ditemukan." }, { status: 404 })
-    }
-
-    const result = await retryPostItemSync({ postId, userId: user.id })
-
-    if (!result.success) {
-      const status = result.errorCode ? RETRY_ERROR_STATUS[result.errorCode] : 500
-      const error =
-        result.errorCode === "not_found"
-          ? "Artikel tidak ditemukan."
-          : result.error || "Sinkronisasi WordPress gagal."
-      return NextResponse.json({ error, postId, state: result.state }, { status })
-    }
-
-    return NextResponse.json({
-      ok: true,
-      postId,
-      state: result.state,
-      wpPostId: result.wpPostId,
-      wpPostUrl: result.wpPostUrl,
-    })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
-    return NextResponse.json({ error: message }, { status: 500 })
+    nudgeQueueRunner()
+    return NextResponse.json(
+      {
+        ok: true,
+        postId: result.postId,
+        state: result.state,
+        message: "Pengiriman ulang dijadwalkan; artikel akan dikirim ke WordPress oleh antrean.",
+      },
+      { status: 202 }
+    )
   }
-}
+)

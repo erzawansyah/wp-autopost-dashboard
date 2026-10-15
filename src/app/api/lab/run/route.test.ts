@@ -133,7 +133,7 @@ describe("POST /api/lab/run — auth, gerbang & validasi", () => {
 
   it("rate limit bucket llm", async () => {
     const keys: string[] = []
-    setRateLimitStore({ hit: (key, now) => (keys.push(key), { count: 999, oldest: now }) })
+    setRateLimitStore({ hit: (key, now) => (keys.push(key), { allowed: false, oldest: now }) })
     expect((await POST(labRequest({ type: "agent", targetId: "preset:quick-writer" }), noParams)).status).toBe(429)
     expect(keys).toEqual([`llm:${ME}`])
     expect(mocks.run).not.toHaveBeenCalled()

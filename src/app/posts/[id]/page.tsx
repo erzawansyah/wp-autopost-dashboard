@@ -20,7 +20,9 @@ import {
   Loader2,
   ArrowLeft,
   AlertCircle,
+  CalendarClock,
 } from "lucide-react"
+import { formatIndonesianDateTime } from "@/lib/scheduler/date-calculator"
 
 interface PostDetailData {
   id: string
@@ -37,6 +39,7 @@ interface PostDetailData {
   custom_instructions_override: string | null
   state: PipelineStepState
   scheduled_for: string | null
+  next_attempt_at: string | null
   wp_post_id: number | null
   wp_post_url: string | null
   wp_target_status: string
@@ -131,22 +134,23 @@ export default function PostDetailPage() {
     return () => window.clearInterval(interval)
   }, [post, fetchPostDetails])
 
-  // Handler kirim ulang jika gagal
+  // Handler kirim ulang: hanya menjadwalkan ulang (202); runner antrean mengirim naskah tersimpan
+  // dan polling di atas memantau hasilnya.
   const handleRetrySync = async () => {
     if (!postId || isRetrying) return
     setIsRetrying(true)
 
     try {
       const res = await fetch(`/api/posts/${postId}`, { method: "POST" })
-      const resData = await res.json()
+      const resData = await res.json().catch(() => ({}))
 
       if (!res.ok) {
-        alert(resData.error || "Gagal melakukan sinkronisasi ulang.")
+        alert(resData.error || "Gagal menjadwalkan ulang pengiriman ke WordPress.")
       } else {
         await fetchPostDetails(false)
       }
     } catch {
-      alert("Terjadi gangguan jaringan saat sinkronisasi ulang.")
+      alert("Terjadi gangguan jaringan saat menjadwalkan ulang pengiriman.")
     } finally {
       setIsRetrying(false)
     }
@@ -194,6 +198,9 @@ export default function PostDetailPage() {
   const engineUsed = (payload.engine as string) || ""
 
   const canRetry = post.state === "failed_sync" || post.state === "ready_to_sync"
+  // Item yang dijadwalkan ulang (Kirim ulang/Tulis ulang manual atau backoff retry otomatis).
+  const isWaiting = post.state === "queued_input" || post.state === "ready_to_sync"
+  const nextAttemptAt = isWaiting && post.next_attempt_at ? new Date(post.next_attempt_at) : null
 
   return (
     <DashboardLayout>
@@ -255,6 +262,16 @@ export default function PostDetailPage() {
         />
 
         <div className="flex flex-col gap-6">
+          {nextAttemptAt && (
+            <p className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <CalendarClock className="size-3.5 shrink-0 text-info" />
+              <span>
+                Dijadwalkan ulang: diproses antrean paling cepat {formatIndonesianDateTime(nextAttemptAt)}. Status
+                diperbarui otomatis.
+              </span>
+            </p>
+          )}
+
           {/* 1. Alur Visual State Machine (Pipeline Stepper) */}
           <PostDetailStepper state={post.state} lastError={post.last_error} />
 

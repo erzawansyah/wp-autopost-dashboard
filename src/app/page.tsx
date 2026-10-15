@@ -347,7 +347,9 @@ function DashboardContent() {
         return
       }
 
-      await loadData()
+      // Item sudah dijadwalkan ulang; runner antrean memprosesnya dan auto-polling memantau hasilnya.
+      setPosts((prev) => prev.map((item) => (item.id === id ? { ...item, state: result.state } : item)))
+      void loadDataSilently()
     } finally {
       setProcessingItemIds((prev) => prev.filter((itemId) => itemId !== id))
     }

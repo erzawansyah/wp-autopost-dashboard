@@ -21,19 +21,22 @@ export interface UploadedMediaRecord {
 
 /**
  * Mencari apakah gambar dari `sourceUrl` sudah pernah diunggah ke website WordPress ini (`siteId`)
+ * oleh pemilik yang sama (`userId`). Service Role → filter pemilik wajib (isolasi tenant).
  */
 export async function findExistingUploadedMedia(params: {
-  siteId?: string
+  userId: string
+  siteId: string
   sourceUrl: string
 }): Promise<UploadedMediaRecord | null> {
-  const { siteId, sourceUrl } = params
-  if (!siteId || !sourceUrl) return null
+  const { userId, siteId, sourceUrl } = params
+  if (!userId || !siteId || !sourceUrl) return null
 
   try {
     const supabase = createAdminClient()
     const { data, error } = await supabase
       .from("uploaded_media")
       .select("id, user_id, site_id, post_id, source_url, site_url, image_id, metadata")
+      .eq("user_id", userId)
       .eq("site_id", siteId)
       .eq("source_url", sourceUrl)
       .limit(1)
@@ -58,11 +61,12 @@ export async function findExistingUploadedMedia(params: {
 }
 
 /**
- * Menyimpan metadata gambar yang baru saja sukses diunggah ke WordPress ke tabel `uploaded_media`
+ * Menyimpan metadata gambar yang baru saja sukses diunggah ke WordPress ke tabel `uploaded_media`.
+ * `userId` wajib: kolom `uploaded_media.user_id` NOT NULL dan menjadi kunci isolasi tenant.
  */
 export async function recordUploadedMedia(record: {
-  userId?: string
-  siteId?: string
+  userId: string
+  siteId: string
   postId?: string | null
   sourceUrl: string
   siteUrl: string
@@ -70,11 +74,12 @@ export async function recordUploadedMedia(record: {
   metadata?: Record<string, unknown>
 }): Promise<boolean> {
   const { userId, siteId, postId, sourceUrl, siteUrl, imageId, metadata } = record
-  if (!siteId || !sourceUrl || !siteUrl || !imageId) return false
+  if (!userId || !siteId || !sourceUrl || !siteUrl || !imageId) return false
 
   try {
     const supabase = createAdminClient()
     const insertPayload: Record<string, unknown> = {
+      user_id: userId,
       site_id: siteId,
       source_url: sourceUrl,
       site_url: siteUrl,
@@ -82,7 +87,6 @@ export async function recordUploadedMedia(record: {
       metadata: metadata || {},
     }
 
-    if (userId) insertPayload.user_id = userId
     if (postId) insertPayload.post_id = postId
 
     const { error } = await supabase.from("uploaded_media").insert(insertPayload)

@@ -5,7 +5,7 @@ import type { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { serverEnv } from "@/lib/env/server"
 import { verifyCronRequest } from "@/core/queue/cron-auth"
-import { ApiError, badRequest, toApiError, unauthorized } from "./errors"
+import { ApiError, badRequest, payloadTooLarge, toApiError, unauthorized } from "./errors"
 import { errorResponse } from "./response"
 import { enforceRateLimit, type RateLimitRule } from "./rate-limit"
 
@@ -23,6 +23,7 @@ import { enforceRateLimit, type RateLimitRule } from "./rate-limit"
  * - `auth`: "user" (sesi Supabase wajib), "cron" (header CRON_SECRET), "user-or-cron",
  *   "public" (sesi opsional; `user` bisa null), "none" (tanpa Supabase sama sekali, mis. health check).
  * - `body`/`query`/`params`: skema zod; input tidak valid → 400 `validation_failed`.
+ *   Body dibaca bertahap dengan batas `maxBodyBytes` (default 1 MB); melebihi batas → 413 sebelum diparse.
  * - Handler boleh mengembalikan objek (dibungkus `{ ok: true, ...obj }`), `Response`, atau `void`.
  * - Semua error dipetakan lewat `toApiError` (Postgres 23505 → 409, dst.) tanpa membocorkan detail internal.
  */
@@ -53,6 +54,8 @@ export interface RouteConfig<A extends RouteAuth, B, Q, P> {
   query?: z.ZodType<Q>
   params?: z.ZodType<P>
   rateLimit?: RateLimitRule
+  /** Batas ukuran body JSON (byte). Default `DEFAULT_MAX_BODY_BYTES`. */
+  maxBodyBytes?: number
   /** Nama untuk log server (default: method + path). */
   name?: string
 }
@@ -61,8 +64,32 @@ type HandlerResult = Response | object | void
 
 type NextRouteContext = { params: Promise<Record<string, string | string[] | undefined>> }
 
-async function readJsonBody(request: Request): Promise<unknown> {
-  const text = await request.text()
+export const DEFAULT_MAX_BODY_BYTES = 1024 * 1024
+
+/** Baca body sebagai teks dengan batas byte: tolak dini via Content-Length, lalu hitung saat streaming. */
+async function readBodyText(request: Request, maxBytes: number): Promise<string> {
+  const declared = Number(request.headers.get("content-length"))
+  if (Number.isFinite(declared) && declared > maxBytes) throw payloadTooLarge()
+  if (!request.body) return ""
+
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined)
+      throw payloadTooLarge()
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks).toString("utf-8")
+}
+
+async function readJsonBody(request: Request, maxBytes: number): Promise<unknown> {
+  const text = await readBodyText(request, maxBytes)
   if (!text.trim()) return {}
   try {
     return JSON.parse(text)
@@ -113,7 +140,9 @@ export function defineRoute<A extends RouteAuth, B = undefined, Q = undefined, P
       const query = config.query
         ? config.query.parse(Object.fromEntries(new URL(request.url).searchParams))
         : (undefined as Q)
-      const body = config.body ? config.body.parse(await readJsonBody(request)) : (undefined as B)
+      const body = config.body
+        ? config.body.parse(await readJsonBody(request, config.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES))
+        : (undefined as B)
 
       const result = await handler({
         request,

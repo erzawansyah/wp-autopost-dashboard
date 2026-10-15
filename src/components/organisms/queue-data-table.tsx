@@ -74,9 +74,10 @@ export interface QueueTableItem {
 }
 
 /**
- * Aksi ulang per state item:
- * - `run`: item masih antre → "Jalankan sekarang" (worker, abaikan jadwal antrean);
- * - `regenerate`: `failed_generation` → "Tulis ulang" (generasi AI ulang lewat worker);
+ * Aksi ulang per state item. Semua aksi hanya MENJADWALKAN ULANG item; runner antrean di server yang
+ * memprosesnya, dan status terbaru dipantau lewat polling:
+ * - `run`: item masih antre → "Jalankan sekarang" (diprioritaskan, terbit tanpa menunggu jadwal);
+ * - `regenerate`: `failed_generation` → "Tulis ulang" (kembali ke antrean untuk generasi AI ulang);
  * - `resync`: `failed_sync`/`ready_to_sync` → "Kirim ulang" naskah tersimpan tanpa AI (Cost-Saver Retry).
  */
 export type QueueRetryAction = "run" | "regenerate" | "resync"
@@ -95,12 +96,14 @@ export function getQueueRetryAction(status: PostItemState): QueueRetryAction | n
   }
 }
 
-/** State optimistis selama aksi ulang berjalan (dikembalikan bila permintaan gagal). */
+/** State optimistis setelah aksi ulang dijadwalkan (dikembalikan bila permintaan gagal). */
 export function getOptimisticRetryState(action: QueueRetryAction): PostItemState {
-  return action === "resync" ? "syncing_to_wp" : "generating_content"
+  return action === "resync" ? "ready_to_sync" : "queued_input"
 }
 
-export type QueueRetryResult = { ok: true } | { ok: false; error: string }
+export type QueueRetryResult = { ok: true; state: PostItemState } | { ok: false; error: string }
+
+const RETRY_RESULT_STATES: readonly PostItemState[] = ["queued_input", "ready_to_sync"]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -111,15 +114,18 @@ function readErrorMessage(value: unknown): string | undefined {
 }
 
 /**
- * Memicu aksi ulang lewat endpoint yang sesuai state:
- * - `resync` → `POST /api/posts/[id]` (sinkronisasi saja, menghormati jadwal tayang tersimpan);
+ * Menjadwalkan ulang item lewat endpoint yang sesuai state (respons 2xx = sudah dijadwalkan ulang,
+ * belum tentu selesai diproses):
+ * - `resync` → `POST /api/posts/[id]` (kirim ulang naskah tersimpan, menghormati jadwal tayang);
  * - `run`/`regenerate` → `POST /api/queue/process` dengan `postId`; hanya `run` yang memakai
  *   `forceNow` (tombol eksplisit "Jalankan sekarang"), "Tulis ulang" tetap mengikuti jadwal tayang.
- * Galat (HTTP 4xx/5xx atau `{ ok: false }` dari worker) dikembalikan sebagai pesan siap tampil.
+ * Galat (HTTP 4xx/5xx atau `{ ok: false }`) dikembalikan sebagai pesan siap tampil.
  */
 export async function requestQueueItemRetry(id: string, action: QueueRetryAction): Promise<QueueRetryResult> {
   const fallbackError =
-    action === "resync" ? "Gagal mengirim ulang artikel ke WordPress." : "Gagal memproses artikel."
+    action === "resync"
+      ? "Gagal menjadwalkan ulang pengiriman artikel ke WordPress."
+      : "Gagal menjadwalkan ulang artikel."
 
   try {
     const res =
@@ -133,22 +139,29 @@ export async function requestQueueItemRetry(id: string, action: QueueRetryAction
 
     const body: unknown = await res.json().catch(() => null)
     const data = isRecord(body) ? body : {}
-    if (res.ok && data.ok !== false) return { ok: true }
-
-    const workerResult = isRecord(data.result) ? data.result : {}
-    return {
-      ok: false,
-      error: readErrorMessage(data.error) ?? readErrorMessage(workerResult.error) ?? fallbackError,
+    if (res.ok && data.ok !== false) {
+      const state = RETRY_RESULT_STATES.find((candidate) => candidate === data.state)
+      return { ok: true, state: state ?? getOptimisticRetryState(action) }
     }
+
+    return { ok: false, error: readErrorMessage(data.error) ?? fallbackError }
   } catch {
-    return { ok: false, error: "Terjadi gangguan jaringan saat memproses artikel." }
+    return { ok: false, error: "Terjadi gangguan jaringan saat menjadwalkan ulang artikel." }
   }
 }
 
 const RETRY_ACTION_COPY: Record<QueueRetryAction, { idle: string; busy: string; menu: string }> = {
-  run: { idle: "Jalankan sekarang", busy: "Sedang memproses...", menu: "Jalankan Sekarang" },
-  regenerate: { idle: "Tulis ulang artikel (generasi AI ulang)", busy: "Sedang menulis ulang...", menu: "Coba Tulis Ulang" },
-  resync: { idle: "Kirim ulang ke WordPress", busy: "Sedang mengirim ulang...", menu: "Coba Kirim Ulang" },
+  run: { idle: "Jalankan sekarang", busy: "Menjadwalkan ulang...", menu: "Jalankan Sekarang" },
+  regenerate: {
+    idle: "Tulis ulang artikel (dijadwalkan ulang untuk generasi AI)",
+    busy: "Menjadwalkan ulang...",
+    menu: "Coba Tulis Ulang",
+  },
+  resync: {
+    idle: "Kirim ulang ke WordPress (dijadwalkan ulang tanpa AI)",
+    busy: "Menjadwalkan ulang...",
+    menu: "Coba Kirim Ulang",
+  },
 }
 
 interface QueueDataTableProps {

@@ -98,7 +98,7 @@ describe("GET /api/ai/models", () => {
 
   it("rate limit bucket outbound-test", async () => {
     const keys: string[] = []
-    setRateLimitStore({ hit: (key, now) => (keys.push(key), { count: 999, oldest: now }) })
+    setRateLimitStore({ hit: (key, now) => (keys.push(key), { allowed: false, oldest: now }) })
     expect((await listModels(new Request("http://localhost/api/ai/models"), noParams)).status).toBe(429)
     expect(keys).toEqual([`outbound-test:${ME}`])
     expect(fetchMock).not.toHaveBeenCalled()
@@ -153,7 +153,7 @@ describe("POST /api/ai/test", () => {
     expect((await testKey(post({ apiKey: 123 }), noParams)).status).toBe(400)
 
     const keys: string[] = []
-    setRateLimitStore({ hit: (key, now) => (keys.push(key), { count: 999, oldest: now }) })
+    setRateLimitStore({ hit: (key, now) => (keys.push(key), { allowed: false, oldest: now }) })
     expect((await testKey(post({}), noParams)).status).toBe(429)
     expect(keys).toEqual([`llm:${ME}`])
   })

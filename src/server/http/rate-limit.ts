@@ -17,21 +17,25 @@ export interface RateLimitRule {
 }
 
 export interface RateLimitStore {
-  /** Catat satu hit; kembalikan jumlah hit di jendela (termasuk hit ini) dan waktu hit tertua. */
-  hit(key: string, now: number, windowMs: number): { count: number; oldest: number }
+  /**
+   * Catat satu hit bila masih di bawah `limit`. Hit yang ditolak TIDAK dicatat, sehingga klien yang
+   * menunggu sesuai `Retry-After` pasti diterima lagi. `oldest` = hit diterima tertua di jendela.
+   */
+  hit(key: string, now: number, windowMs: number, limit: number): { allowed: boolean; oldest: number }
 }
 
 class MemoryRateLimitStore implements RateLimitStore {
   private readonly hits = new Map<string, number[]>()
   private lastSweep = 0
 
-  hit(key: string, now: number, windowMs: number): { count: number; oldest: number } {
+  hit(key: string, now: number, windowMs: number, limit: number): { allowed: boolean; oldest: number } {
     const cutoff = now - windowMs
     const list = (this.hits.get(key) ?? []).filter((t) => t > cutoff)
-    list.push(now)
+    const allowed = list.length < limit
+    if (allowed) list.push(now)
     this.hits.set(key, list)
     this.sweep(now, windowMs)
-    return { count: list.length, oldest: list[0] }
+    return { allowed, oldest: list[0] ?? now }
   }
 
   /** Bersihkan kunci kedaluwarsa sesekali agar memori tidak tumbuh tanpa batas. */
@@ -57,8 +61,8 @@ export function resetRateLimitStore(): void {
 
 /** Lempar 429 bila identitas melebihi batas bucket. */
 export function enforceRateLimit(rule: RateLimitRule, identity: string, now = Date.now()): void {
-  const { count, oldest } = store.hit(`${rule.bucket}:${identity}`, now, rule.windowMs)
-  if (count > rule.limit) {
+  const { allowed, oldest } = store.hit(`${rule.bucket}:${identity}`, now, rule.windowMs, rule.limit)
+  if (!allowed) {
     const retryAfterSec = Math.max(1, Math.ceil((oldest + rule.windowMs - now) / 1000))
     throw new ApiError(429, "rate_limited", `Terlalu banyak permintaan. Coba lagi dalam ${retryAfterSec} detik.`, {
       headers: { "Retry-After": String(retryAfterSec) },

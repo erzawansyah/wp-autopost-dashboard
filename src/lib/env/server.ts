@@ -1,7 +1,7 @@
 import "server-only"
 import { z } from "zod"
 import { publicEnvSchema, readPublicEnvSource } from "./client"
-import { envFlag, envText, httpUrlSchema, type EnvSource } from "./shared"
+import { envFlag, envIntInRange, envText, httpUrlSchema, isIntInRange, type EnvSource } from "./shared"
 
 /**
  * Lapisan env server bertipe (zod v4) — satu-satunya tempat kode server membaca `process.env`.
@@ -22,6 +22,27 @@ export const PLATFORM_KEY_ENV_NAMES = [
   "BING_API_KEY",
 ] as const
 
+/** Mode runner antrean: `embedded` (loop di proses Next.js ini) atau `off` (pemicu cron eksternal). */
+export const QUEUE_RUNNER_MODES = ["embedded", "off"] as const
+export type QueueRunnerMode = (typeof QUEUE_RUNNER_MODES)[number]
+
+/** Batas & default tuning runner antrean (nilai di luar rentang → default + peringatan startup). */
+export const QUEUE_ENV_LIMITS = {
+  QUEUE_CONCURRENCY: { min: 1, max: 10, fallback: 3 },
+  QUEUE_POLL_INTERVAL_MS: { min: 1_000, max: 600_000, fallback: 5_000 },
+  QUEUE_LEASE_SECONDS: { min: 60, max: 3_600, fallback: 900 },
+} as const
+
+const queueRunnerMode = z
+  .string()
+  .optional()
+  .transform((value): QueueRunnerMode => (value?.trim() === "off" ? "off" : "embedded"))
+
+const queueInt = (name: keyof typeof QUEUE_ENV_LIMITS) => {
+  const { min, max, fallback } = QUEUE_ENV_LIMITS[name]
+  return envIntInRange(min, max, fallback)
+}
+
 const serverEnvObject = publicEnvSchema.extend({
   NODE_ENV: envText,
   /** Secret/Service Role key Supabase (bypass RLS) — hanya untuk queue worker & proses sistem. */
@@ -30,8 +51,19 @@ const serverEnvObject = publicEnvSchema.extend({
   SUPABASE_SERVICE_ROLE_KEY: envText,
   /** 64 karakter hex (32 byte) untuk AES-256-GCM & HMAC state token. */
   ENCRYPTION_MASTER_KEY: envText,
-  /** Token pemicu cron `/api/queue/process` (header Bearer / x-cron-secret). */
+  /**
+   * Token pemicu cron `/api/queue/process` (header Bearer / x-cron-secret). Wajib di production hanya bila
+   * `QUEUE_RUNNER=off` (antrean digerakkan cron eksternal); dengan runner tertanam cron opsional.
+   */
   CRON_SECRET: envText,
+  /** `embedded` (default): runner antrean berjalan di proses server ini. `off`: nonaktif (cron eksternal). */
+  QUEUE_RUNNER: queueRunnerMode,
+  /** Maksimum job antrean berjalan bersamaan per proses (1–10, default 3). */
+  QUEUE_CONCURRENCY: queueInt("QUEUE_CONCURRENCY"),
+  /** Jeda polling runner saat idle dalam ms (≥ 1000, default 5000). */
+  QUEUE_POLL_INTERVAL_MS: queueInt("QUEUE_POLL_INTERVAL_MS"),
+  /** Durasi lease item yang sedang dikerjakan dalam detik (≥ 60, default 900); diperpanjang heartbeat. */
+  QUEUE_LEASE_SECONDS: queueInt("QUEUE_LEASE_SECONDS"),
   /** BYOK-only: kunci platform di bawah hanya dipakai bila nilainya persis `"true"`. */
   PLATFORM_KEY_ALLOWED: envFlag,
   OPENROUTER_API_KEY: envText,
@@ -76,6 +108,10 @@ export function readServerEnvSource(): EnvSource<ServerEnvName> {
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
     ENCRYPTION_MASTER_KEY: process.env.ENCRYPTION_MASTER_KEY,
     CRON_SECRET: process.env.CRON_SECRET,
+    QUEUE_RUNNER: process.env.QUEUE_RUNNER,
+    QUEUE_CONCURRENCY: process.env.QUEUE_CONCURRENCY,
+    QUEUE_POLL_INTERVAL_MS: process.env.QUEUE_POLL_INTERVAL_MS,
+    QUEUE_LEASE_SECONDS: process.env.QUEUE_LEASE_SECONDS,
     PLATFORM_KEY_ALLOWED: process.env.PLATFORM_KEY_ALLOWED,
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
     PEXAFY_API_KEY: process.env.PEXAFY_API_KEY,
@@ -121,8 +157,9 @@ export interface ServerEnvReport {
 const isHttpUrl = (value: string): boolean => httpUrlSchema.safeParse(value).success
 
 /**
- * Pemeriksaan ketat env server. Konfigurasi inti (Supabase, kunci enkripsi, CRON_SECRET, format URL)
- * menjadi `errors` di production dan `warnings` di luar production; saran lain selalu `warnings`.
+ * Pemeriksaan ketat env server. Konfigurasi inti (Supabase, kunci enkripsi, mode runner antrean,
+ * CRON_SECRET bila `QUEUE_RUNNER=off`, format URL) menjadi `errors` di production dan `warnings` di luar
+ * production; saran lain selalu `warnings`.
  */
 export function validateServerEnv(source: ServerEnvInput = readServerEnvSource()): ServerEnvReport {
   const env = serverEnv(source)
@@ -159,20 +196,37 @@ export function validateServerEnv(source: ServerEnvInput = readServerEnvSource()
     )
   }
 
-  // 2. Kriptografi & cron
+  // 2. Kriptografi
   if (!env.ENCRYPTION_MASTER_KEY) {
     required("ENCRYPTION_MASTER_KEY", "wajib diisi (64 karakter hex / 32 byte) untuk enkripsi AES-256-GCM.")
   } else if (!HEX_64.test(env.ENCRYPTION_MASTER_KEY)) {
     required("ENCRYPTION_MASTER_KEY", "harus tepat 64 karakter hex (32 byte).")
   }
+
+  // 3. Runner antrean & cron
+  const rawQueueRunner = source.QUEUE_RUNNER?.trim()
+  if (rawQueueRunner && !(QUEUE_RUNNER_MODES as readonly string[]).includes(rawQueueRunner)) {
+    required("QUEUE_RUNNER", `harus salah satu dari: ${QUEUE_RUNNER_MODES.join(", ")} (default embedded).`)
+  }
+  for (const [name, { min, max, fallback }] of Object.entries(QUEUE_ENV_LIMITS)) {
+    const raw = source[name as keyof typeof QUEUE_ENV_LIMITS]
+    if (raw && !isIntInRange(raw, min, max)) {
+      advise(name, `harus bilangan bulat ${min}–${max}; memakai default ${fallback}.`)
+    }
+  }
   const cronSecret = env.CRON_SECRET?.trim()
   if (!cronSecret) {
-    required("CRON_SECRET", "wajib diisi; tanpa nilai ini semua pemicu cron ke /api/queue/process ditolak (401).")
+    if (env.QUEUE_RUNNER === "off") {
+      required(
+        "CRON_SECRET",
+        "wajib diisi saat QUEUE_RUNNER=off; tanpa nilai ini semua pemicu cron ke /api/queue/process ditolak (401) dan antrean tidak berjalan."
+      )
+    }
   } else if (cronSecret.length < CRON_SECRET_MIN_LENGTH) {
     advise("CRON_SECRET", `disarankan minimal ${CRON_SECRET_MIN_LENGTH} karakter acak (mis. openssl rand -hex 32).`)
   }
 
-  // 3. URL platform
+  // 4. URL platform
   if (env.SEARXNG_URL && !isHttpUrl(env.SEARXNG_URL)) {
     required("SEARXNG_URL", "harus berupa URL http(s) yang valid.")
   }
@@ -188,7 +242,7 @@ export function validateServerEnv(source: ServerEnvInput = readServerEnvSource()
     advise("OPENROUTER_SITE_URL", "sebaiknya URL http(s) yang valid (dikirim sebagai HTTP-Referer ke OpenRouter).")
   }
 
-  // 4. Flag boolean
+  // 5. Flag boolean
   for (const name of FLAG_ENV_NAMES) {
     const raw = source[name]
     if (raw && raw !== "true" && raw !== "false") {
@@ -199,7 +253,7 @@ export function validateServerEnv(source: ServerEnvInput = readServerEnvSource()
     advise("ALLOW_PRIVATE_NETWORK_FETCH", "diabaikan di production (perlindungan Anti-SSRF tetap aktif).")
   }
 
-  // 5. Kunci platform (BYOK-only)
+  // 6. Kunci platform (BYOK-only)
   const configuredPlatformKeys = PLATFORM_KEY_ENV_NAMES.filter((name) => env[name])
   if (!env.PLATFORM_KEY_ALLOWED && configuredPlatformKeys.length > 0) {
     advise(configuredPlatformKeys.join(" / "), 'diabaikan karena PLATFORM_KEY_ALLOWED bukan "true" (BYOK-only).')

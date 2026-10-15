@@ -1,13 +1,20 @@
 import http from "node:http"
 import type { AddressInfo } from "node:net"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("@/core/shared/media/media-repository", () => ({
-  findExistingUploadedMedia: vi.fn(async () => null),
-  recordUploadedMedia: vi.fn(async () => true),
+const mediaCache = vi.hoisted(() => ({
+  findExistingUploadedMedia: vi.fn(),
+  recordUploadedMedia: vi.fn(),
 }))
 
+vi.mock("@/core/shared/media/media-repository", () => mediaCache)
+
 import { detectImageType, uploadMediaToWordPress } from "@/core/shared/tools/upload-media"
+
+beforeEach(() => {
+  mediaCache.findExistingUploadedMedia.mockReset().mockResolvedValue(null)
+  mediaCache.recordUploadedMedia.mockReset().mockResolvedValue(true)
+})
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64)])
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)])
@@ -91,6 +98,50 @@ describe("uploadMediaToWordPress", () => {
       const result = await uploadMediaToWordPress({ imageUrl: `${base}/img.png`, baseUrl: base, ...wpCredentials })
       expect(result).toMatchObject({ ok: true, mediaId: 77 })
       expect(uploads.at(-1)).toEqual({ contentType: "image/png", size: PNG.length })
+    })
+
+    it("cache deduplikasi hanya dipakai bila pemilik (userId) dan situs diketahui", async () => {
+      await uploadMediaToWordPress({ imageUrl: `${base}/img.png`, baseUrl: base, ...wpCredentials, siteId: "site-1" })
+      expect(mediaCache.findExistingUploadedMedia).not.toHaveBeenCalled()
+      expect(mediaCache.recordUploadedMedia).not.toHaveBeenCalled()
+
+      await uploadMediaToWordPress({
+        imageUrl: `${base}/img.png`,
+        baseUrl: base,
+        ...wpCredentials,
+        siteId: "site-1",
+        userId: "user-1",
+        postId: "post-1",
+      })
+      expect(mediaCache.findExistingUploadedMedia).toHaveBeenCalledWith({
+        userId: "user-1",
+        siteId: "site-1",
+        sourceUrl: `${base}/img.png`,
+      })
+      expect(mediaCache.recordUploadedMedia).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: "user-1", siteId: "site-1", postId: "post-1", imageId: 77 })
+      )
+    })
+
+    it("hasil cache milik pemilik yang sama dipakai tanpa mengunggah ulang", async () => {
+      uploads.length = 0
+      mediaCache.findExistingUploadedMedia.mockResolvedValue({
+        imageId: 12,
+        siteUrl: `${base}/wp-content/uploads/lama.png`,
+        sourceUrl: `${base}/img.png`,
+        metadata: { title: "Lama" },
+      })
+
+      const result = await uploadMediaToWordPress({
+        imageUrl: `${base}/img.png`,
+        baseUrl: base,
+        ...wpCredentials,
+        siteId: "site-1",
+        userId: "user-1",
+      })
+
+      expect(result).toMatchObject({ ok: true, mediaId: 12, isCached: true })
+      expect(uploads).toHaveLength(0)
     })
 
     it("menolak Content-Type non-gambar sebelum mengunggah", async () => {

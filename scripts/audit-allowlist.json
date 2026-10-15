@@ -51,7 +51,7 @@
     {
       "check": "legacy-term",
       "file": "src/app/api/batches/route.ts",
-      "max": 5,
+      "max": 4,
       "reason": "Kompatibilitas payload lama: field `engine` dipetakan ke Agent Profile via LEGACY_ENGINE_MAP. Hapus setelah item antrean/batch lama dimigrasi ke agentProfileRef."
     },
     {

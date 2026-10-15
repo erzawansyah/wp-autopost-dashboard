@@ -271,7 +271,10 @@ async function testApiKeyProvider(provider: ApiKeyProvider, apiKey: string, star
   await res.body?.cancel().catch(() => undefined)
   const latencyMs = Date.now() - startTime
 
-  if (res.status === 401 || res.status === 403) throw unprocessable(`Kunci API ${label} tidak valid atau ditolak.`)
+  // Brave membalas kunci tidak valid dengan 422 (SUBSCRIPTION_TOKEN_INVALID); provider lain 401/403.
+  if (res.status === 401 || res.status === 403 || res.status === 422) {
+    throw unprocessable(`Kunci API ${label} tidak valid atau ditolak.`)
+  }
   if (res.status === 429) throw upstreamFailed(`Batas kuota/permintaan ${label} tercapai. Coba lagi nanti.`)
   if (!res.ok) throw upstreamFailed(`Server ${label} merespons kode HTTP ${res.status}.`)
 

@@ -69,9 +69,10 @@ function QueueItemsContent() {
     }
   }, [])
 
-  // 2. Fetch queue items (termasuk hasil dari Tulis Cepat / Quick Writer)
-  const fetchQueue = React.useCallback(async () => {
-    setIsLoadingQueue(true)
+  // 2. Fetch queue items (termasuk hasil dari Tulis Cepat / Quick Writer).
+  //    `silent` dipakai polling & setelah aksi ulang agar tabel tidak berkedip ke skeleton.
+  const fetchQueue = React.useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) setIsLoadingQueue(true)
     try {
       const res = await fetch("/api/queue?limit=100")
       const data = await res.json()
@@ -116,7 +117,7 @@ function QueueItemsContent() {
     } catch (err) {
       console.error("[QueueItemsPage] Error fetching queue items:", err)
     } finally {
-      setIsLoadingQueue(false)
+      if (!options.silent) setIsLoadingQueue(false)
     }
   }, [])
 
@@ -132,6 +133,22 @@ function QueueItemsContent() {
       ignore = true
     }
   }, [fetchBatches, fetchQueue])
+
+  // Auto-polling selama ada item yang menunggu/diproses runner antrean di server.
+  const hasActiveItem = queueItems.some(
+    (item) =>
+      item.status === "queued_input" ||
+      item.status === "generating_content" ||
+      item.status === "ready_to_sync" ||
+      item.status === "syncing_to_wp"
+  )
+  React.useEffect(() => {
+    if (!hasActiveItem) return
+    const interval = window.setInterval(() => {
+      void fetchQueue({ silent: true })
+    }, 5000)
+    return () => window.clearInterval(interval)
+  }, [hasActiveItem, fetchQueue])
 
   // Hapus Batch beserta seluruh antreannya
   const handleDeleteBatch = async (batchId: string) => {
@@ -181,10 +198,13 @@ function QueueItemsContent() {
       if (!result.ok) {
         setQueueItems((prev) => prev.map((item) => (item.id === id ? { ...item, status: previousStatus } : item)))
         alert(result.error)
+      } else {
+        // Dijadwalkan ulang: runner antrean memproses item, auto-polling memantau statusnya.
+        setQueueItems((prev) => prev.map((item) => (item.id === id ? { ...item, status: result.state } : item)))
       }
     } finally {
       setProcessingItemIds((prev) => prev.filter((itemId) => itemId !== id))
-      await fetchQueue()
+      await fetchQueue({ silent: true })
       await fetchBatches()
     }
   }

@@ -16,6 +16,7 @@ export type ApiErrorCode =
   | "forbidden"
   | "not_found"
   | "conflict"
+  | "payload_too_large"
   | "unprocessable"
   | "rate_limited"
   | "upstream_failed"
@@ -54,6 +55,8 @@ export const forbidden = (message = "Anda tidak memiliki akses ke sumber daya in
   new ApiError(403, "forbidden", message)
 export const notFound = (message = "Data tidak ditemukan.") => new ApiError(404, "not_found", message)
 export const conflict = (message = "Data sudah ada atau sedang diproses.") => new ApiError(409, "conflict", message)
+export const payloadTooLarge = (message = "Ukuran permintaan terlalu besar.") =>
+  new ApiError(413, "payload_too_large", message)
 export const unprocessable = (message = "Data tidak dapat diproses.") => new ApiError(422, "unprocessable", message)
 export const upstreamFailed = (message = "Layanan eksternal gagal merespons.") =>
   new ApiError(502, "upstream_failed", message)

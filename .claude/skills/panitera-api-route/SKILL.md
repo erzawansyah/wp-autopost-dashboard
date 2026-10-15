@@ -33,15 +33,16 @@ export const PATCH = defineRoute(
 
 ## Aturan
 
-1. **Auth**: `"user"` (default untuk semua fitur pengguna), `"cron"` (header `Authorization: Bearer <CRON_SECRET>`), `"user-or-cron"`, `"public"` (hanya health/docs/template statis).
-2. **Validasi**: setiap body/query/params lewat skema zod. Skema bersama di `src/server/validation/`. Query string selalu string → pakai `z.coerce.number()` dsb. Batasi panjang string & ukuran array.
+1. **Auth**: `"user"` (default untuk semua fitur pengguna), `"cron"` (header `Authorization: Bearer <CRON_SECRET>`), `"user-or-cron"`, `"public"` (sesi opsional, mis. `auth/me`, callback OAuth), `"none"` (tanpa client Supabase sama sekali: health, panduan statis).
+2. **Validasi**: setiap body/query/params lewat skema zod. Skema bersama di `src/server/validation/`. Query string selalu string → pakai `z.coerce.number()` dsb. Batasi panjang string & ukuran array. Body dibatasi `maxBodyBytes` (default 1 MB → 413 `payload_too_large`); naikkan hanya bila batas skema memang lebih besar (mis. batch 500 item).
 3. **Client DB**: `supabase` dari context = sesi pengguna (RLS aktif). Tetap filter `.eq("user_id", user.id)` (defense in depth). `createAdminClient()` hanya untuk proses sistem dan wajib filter `user_id` eksplisit.
-4. **Error**: lempar `ApiError` (`badRequest`, `notFound`, `conflict`, `unprocessable`, `forbidden`, `upstreamFailed`) atau `throwIfDbError(error)` setelah query Supabase. Pemetaan otomatis: 23505→409, 23503/23514/23502→422, 22P02→400, 42501→403, ZodError→400, `SsrfBlockedError`→400. Jangan pernah mengirim `error.message` dari DB/library ke client.
+4. **Error**: lempar `ApiError` (`badRequest`, `notFound`, `conflict`, `unprocessable`, `forbidden`, `payloadTooLarge`, `upstreamFailed`) atau `throwIfDbError(error)` setelah query Supabase. Pemetaan otomatis: 23505→409, 23503/23514/23502→422, 22P02→400, 42501→403, ZodError→400, `SsrfBlockedError`→400. Jangan pernah mengirim `error.message` dari DB/library ke client.
 5. **Respons**: kembalikan objek (dibungkus `{ ok: true, ... }`). Error selalu `{ ok: false, error, code, issues? }`. Saat memigrasikan route lama, **pertahankan nama field sukses** yang dibaca client (cari pemanggil dengan `grep -rn "/api/<path>" src/app src/components src/lib`).
 6. **Rate limit**: `RATE_LIMITS.llm` untuk endpoint yang memanggil LLM, `RATE_LIMITS.outboundTest` untuk uji koneksi keluar, `RATE_LIMITS.enqueue` untuk pembuatan job.
 7. **Service layer**: logika bisnis (lebih dari query sederhana) di `src/server/services/<domain>.ts` dengan signature `(supabase, userId, ...)`; route tetap tipis. Service tidak mengimpor `next/server`.
 8. **Fetch keluar**: URL dari pengguna/LLM wajib `safeFetch`/`wpFetch` (lihat `.claude/rules/security.md`).
-9. **Test**: tambah `route.test.ts` di sebelah route untuk perilaku penting (auth, validasi, kepemilikan, konflik). Mock `@/lib/supabase/server` seperti `src/server/http/route.test.ts`.
-10. **Dokumentasi**: perbarui katalog API di `ARCHITECTURE.md` §9 bila method/path berubah.
+9. **Antrean**: route tidak pernah memproses job di dalam request. Catat/jadwalkan ulang item di database lalu bangunkan runner (`src/server/queue`); kembalikan state baru (mis. 202 untuk aksi ulang).
+10. **Test**: tambah `route.test.ts` di sebelah route untuk perilaku penting (auth, validasi, kepemilikan, konflik). Mock `@/lib/supabase/server` seperti `src/server/http/route.test.ts`.
+11. **Dokumentasi**: perbarui katalog API di `ARCHITECTURE.md` §9 bila method/path berubah.
 
 Contoh lengkap: `src/app/api/sites/[id]/route.ts`. Verifikasi akhir: skill `panitera-verify`.

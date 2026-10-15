@@ -303,7 +303,8 @@ export function StructuredWriterForm({
           category: it.category,
           tags: it.tags,
         })),
-        scheduleStrategy: strategy.executionMode === "immediate" ? "immediate" : strategy.mode,
+        executionMode: strategy.executionMode, // "immediate" | "scheduled_drip"
+        scheduleMode: strategy.mode,
         randomConfig:
           strategy.mode === "random"
             ? {

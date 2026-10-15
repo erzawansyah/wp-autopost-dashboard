@@ -127,7 +127,7 @@
 **Proses Sistem**:
 1. Memvalidasi berkas CSV dan menampilkan pratinjau 5 baris pertama data.
 2. Menyimpan kampanye ke tabel `content_batches` dan seluruh baris ke tabel `post_items` dengan status `queued_input`.
-3. Jika mode `immediate`, memicu worker antrean `/api/queue/process`.
+3. Membangunkan runner antrean di server; item mode `immediate` langsung jatuh tempo dan diproses tanpa menunggu permintaan HTTP lain.
 4. Jika mode `scheduled_drip`, kalkulator jadwal (`date-calculator.ts`) menghitung timestamp acak (*minute jitter*) dalam jendela jam aktif yang ditentukan.
 
 ---
@@ -242,8 +242,10 @@ Seluruh pemrosesan artikel diatur oleh **Database-First State Machine** di tabel
 | 9 | `failed_sync` | Gagal Kirim | Kegagalan koneksi WordPress (auth error, hosting down, timeout WP). |
 
 ### Aturan Keandalan:
-- **Atomic Claim Lock**: Mencegah tabrakan eksekusi worker ganda.
+- **Atomic Claim Lock dengan Lease**: Mencegah tabrakan eksekusi worker ganda; item yang workernya mati dipulihkan otomatis setelah lease kedaluwarsa.
+- **Retry Otomatis Terbatas**: Kegagalan sementara dicoba ulang dengan jeda bertahap (maks 3 percobaan), lalu berhenti di status gagal dengan pesan error terakhir.
 - **Cost-Saver Retry**: Status `failed_sync` langsung melompati tahap AI dan mengirimkan naskah yang sudah ada di database ke WordPress.
+- **Anti-Duplikasi**: Kegagalan kirim yang mungkin sudah membuat post di WordPress (timeout/5xx) tidak dikirim ulang otomatis; pengguna diminta memeriksa wp-admin sebelum "Kirim ulang".
 
 ---
 

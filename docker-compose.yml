@@ -27,8 +27,17 @@ services:
 
       # 2. Keamanan & Kriptografi (Wajib untuk Enkripsi Kunci User & Password WP)
       - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY}
-      # CRON_SECRET wajib: tanpa nilai ini semua pemicu cron ke /api/queue/process ditolak (401).
-      - CRON_SECRET=${CRON_SECRET:?CRON_SECRET wajib diisi (string acak panjang, mis. hasil openssl rand -hex 32)}
+      # CRON_SECRET opsional dengan runner tertanam; WAJIB bila QUEUE_RUNNER=off (antrean digerakkan
+      # cron eksternal ke /api/queue/process). Tanpa nilai ini semua pemicu cron ditolak (401).
+      - CRON_SECRET=${CRON_SECRET:-}
+
+      # 2b. Runner antrean tertanam: loop klaim + lease + heartbeat di proses ini (tanpa sidecar cron).
+      #     `off` hanya untuk mode pemicu cron eksternal / serverless.
+      - QUEUE_RUNNER=${QUEUE_RUNNER:-embedded}
+      # Tuning opsional (kosong = default aplikasi):
+      # - QUEUE_CONCURRENCY=${QUEUE_CONCURRENCY:-3}               # job paralel per proses (1–10)
+      # - QUEUE_POLL_INTERVAL_MS=${QUEUE_POLL_INTERVAL_MS:-5000}  # jeda polling saat idle (>= 1000)
+      # - QUEUE_LEASE_SECONDS=${QUEUE_LEASE_SECONDS:-900}         # lease item in-flight (60–3600)
 
       # 3. Pengaturan Platform & SearXNG Internal
       - OPENROUTER_APP_NAME=${OPENROUTER_APP_NAME:-Panitera}
@@ -49,6 +58,10 @@ services:
     # Optional: pasang env_file jika di Portainer menggunakan file .env
     # env_file:
     #   - .env
+
+    # Graceful shutdown runner antrean: saat SIGTERM runner berhenti mengklaim, menunggu job berjalan
+    # hingga 25 detik, lalu melepas lease item yang belum selesai sebelum Next.js menutup server.
+    stop_grace_period: 40s
 
     healthcheck:
       test:
@@ -86,43 +99,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
-
-  queue-cron:
-    container_name: panitera-cron
-    image: alpine:3.24
-    restart: unless-stopped
-    depends_on:
-      panitera:
-        condition: service_healthy
-    volumes:
-      - cron-logs:/var/log/cron
-    environment:
-      - CRON_SECRET=${CRON_SECRET:?CRON_SECRET wajib diisi (string acak panjang, mis. hasil openssl rand -hex 32)}
-      - CRON_LIMIT=${QUEUE_CRON_LIMIT:-5}
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        apk add --no-cache curl tzdata
-        mkdir -p /var/log/cron
-        echo "[Queue Cron] Service pemicu antrean aktif (Target: http://panitera:3000/api/queue/process?limit=$${CRON_LIMIT})."
-        while true; do
-          # Token hanya lewat header (query ?secret= tidak didukung). --max-time mencegah loop macet
-          # bila worker lama merespons (generasi Agent Profile mode deep bisa beberapa menit).
-          RESPONSE=$$(curl -sS --connect-timeout 10 --max-time 900 -X POST "http://panitera:3000/api/queue/process?limit=$${CRON_LIMIT}" \
-            -H "Authorization: Bearer $$CRON_SECRET" \
-            -H "Accept: text/plain" \
-            -H "Content-Type: application/json")
-
-          if [ -n "$$RESPONSE" ]; then
-            printf "%s\n" "$$RESPONSE" | tee -a /var/log/cron/queue.log
-          fi
-
-          sleep 60
-        done
-
-volumes:
-  cron-logs:
-    name: panitera_cron_logs
-
-

@@ -154,7 +154,7 @@ describe("kepemilikan situs", () => {
 describe("rate limit", () => {
   it("endpoint LLM memakai bucket llm; apply memakai bucket outbound-test", async () => {
     const keys: string[] = []
-    setRateLimitStore({ hit: (key, now) => (keys.push(key), { count: 999, oldest: now }) })
+    setRateLimitStore({ hit: (key, now) => (keys.push(key), { allowed: false, oldest: now }) })
 
     const llm = await suggestCategories(post({ siteId: MY_SITE, prompt: "x" }), noParams)
     expect(llm.status).toBe(429)
@@ -179,6 +179,21 @@ describe("POST /api/tools/categories/suggest & authors/suggest", () => {
       existingCount: 1,
     })
     expect(mocks.callOpenRouterJson.mock.calls[0][0].apiKey).toBe("sk-or-v1-test")
+  })
+
+  it("peran author dari LLM dinormalkan ke author/editor/contributor (tak dikenal → author)", async () => {
+    mocks.callOpenRouterJson.mockResolvedValue({
+      suggestions: [
+        { name: "A", username: "a", role: "Editor" },
+        { name: "B", username: "b", role: "administrator" },
+        { name: "C", username: "c", role: "Penulis" },
+        { name: "D", username: "d" },
+      ],
+    })
+    const res = await suggestAuthors(post({ siteId: MY_SITE, prompt: "Persona barista" }), noParams)
+    expect(res.status).toBe(200)
+    const roles = (await res.json()).suggestions.map((s: { role: string }) => s.role)
+    expect(roles).toEqual(["editor", "author", "author", "author"])
   })
 
   it("tanpa kunci OpenRouter BYOK → 400 dengan panduan, LLM tidak dipanggil", async () => {

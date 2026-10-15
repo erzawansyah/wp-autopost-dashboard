@@ -477,7 +477,9 @@ export function WebhookList() {
                 <Input
                   id="webhook-secret"
                   type="password"
-                  placeholder="Kunci rahasia untuk validasi HMAC-SHA256"
+                  placeholder="Minimal 16 karakter, untuk validasi HMAC-SHA256"
+                  minLength={16}
+                  maxLength={256}
                   value={formSecret}
                   onChange={(e) => setFormSecret(e.target.value)}
                   className="font-mono text-xs"

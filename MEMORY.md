@@ -8,7 +8,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 - **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker, Standard Writing Engine, Hybrid Scraper Tools, Dynamic OpenRouter Models, Featured Image WP, Modul 2 Batch Keyword Ingestion, Agentic Writer Engine, Multi-Language Selection, Integrasi user_settings & webhooks, Perombakan Arsitektur Total ke Agent Profile Runtime, Modul Artikel Terjadwal (/scheduled), Skill Registry (/skills), Sentralisasi Kunci API (/settings/keys), Revamp Gambar (SearxNG + Pexafy), dan Konsolidasi Sidebar WP Tools (/tools)**.
 - **Catatan Worklog**: `.workspaces/worklogs/` (lokal, di-ignore Git) — `00`–`28`, terbaru `28-rebranding-panitera-tools-config-and-docs.md`.
-- **Fase Aktif**: **Rombak v2 (branch `v2`)** — Fase 0 (keamanan) & Fase 1 (fondasi) selesai; baseline migrasi masih rekonstruksi → wajib dicek `supabase db diff` ke production. Berikutnya: Fase 2 (backend & worker antrean). Roadmap: laporan audit 14 Okt 2026.
+- **Fase Aktif**: **Rombak v2 (branch `v2`)** — Fase 0 (keamanan), Fase 1 (fondasi), Fase 2 (backend & runner antrean) selesai; baseline migrasi masih rekonstruksi → wajib dicek `supabase db diff` ke production sebelum `db push`. Berikutnya (disepakati dulu): Fase 3 (inti AI). Roadmap: laporan audit 14 Okt 2026.
 - **Fase Produk Berikutnya (setelah v2)**: **Modul 3 Niche Auto-Genesis & Smart Content Recycling**.
 
 ---
@@ -74,6 +74,8 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 21. **ADR-062 (Rombak v2 · Fase 1: Fondasi)**: Skema di `supabase/migrations` (10 tabel, RLS force, GRANT eksplisit, FK komposit `(…, user_id)` anti lintas-tenant; `post_items` tanpa UPDATE oleh `authenticated`) + test PGlite `supabase/tests`. Env tervalidasi zod (`src/lib/env/*`, cek saat start via `instrumentation.ts`), `server-only` di modul kredensial. CI GitHub Actions + `npm run audit:hygiene` (allowlist ratchet). Lint wajib 0 warning. Worker hanya memakai Service Role.
 
+22. **ADR-063 (Rombak v2 · Fase 2: Backend & Runner Antrean)**: Semua route lewat `defineRoute` (`src/server/http`: auth eksplisit, zod, `{ok,...}`/`{ok:false,error,code}`, pemetaan SQLSTATE, rate limit, body ≤ 1 MB default) + service layer `src/server/services`. Runner antrean tertanam (`src/server/queue`, start di `instrumentation.ts`) menggantikan `after()`/sidecar cron: RPC `claim_post_items` (lease + heartbeat, batas per situs, round-robin tenant), fencing `locked_by`+`retry_count`, backoff 1→5 mnt maks 3 percobaan, timeout/5xx WP tidak dikirim ulang otomatis. `QUEUE_RUNNER=off` + `CRON_SECRET` untuk mode cron eksternal. Panduan pengguna di `docs/guides/`.
+
 ---
 
 ## 3. Technical Gotchas & Pelajaran Lapangan
@@ -82,7 +84,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 - **Windows File Locking**: Di OS Windows, direktori kustomisasi yang sedang dipantau oleh *file watcher* IDE dapat terkunci (*EBUSY*). Jika folder kosong perlu dihapus, lakukan lewat file explorer IDE atau saat restart.
 - **Strict No-Commit Secrets**: File `.env.local` atau dump kredensial situs WP nyata tidak boleh ter-track oleh Git.
 - **User Communication Preference**: Bahasa Indonesia yang jelas, profesional, ringkas, tanpa basa-basi berlebihan (*no fluff*), tidak membuat asumsi sepihak, dan kode yang rapi sesuai konvensi.
-- **Progress Tulis Cepat Masih Estimasi**: `/api/posts/quick` hanya membalas sekali di akhir proses, jadi tahap dijalankan timer internal (3.5s/9s/13s). Jangan mengklaim ini real-time; untuk itu perlu worker + Supabase Realtime (`execution_logs` sudah siap sebagai sumbernya).
+- **Runner Antrean & HMR**: di `npm run dev` runner tetap menjalankan kode lama setelah hot reload; restart dev server setelah mengubah `src/core/queue` / `src/server/queue`. Status antrean di UI berasal dari polling, belum Realtime.
 - **`npm run lint` Kadang > 2 menit**: jalankan dengan timeout 300000ms, jangan diasumsikan gagal bila kelamaan.
 - **Test**: `npm test` (Vitest, berkas `src/**/*.test.ts`). Jalankan bersama `npx tsc --noEmit` sebelum menyatakan selesai.
 - **Author Persona vs Byline**: Data author WordPress hanya dipakai sebagai referensi persona/sudut pandang. Byline `Penulis: ...` dilarang di prompt dan disanitasi otomatis oleh `markdown-cleaner.ts`.

@@ -100,6 +100,13 @@ describe("POST /api/settings/search/test", () => {
     expect(raw).not.toContain(PROVIDER_KEY)
   })
 
+  it("Brave membalas 422 untuk token tidak valid → 422 'kunci tidak valid', bukan 502", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ type: "ErrorResponse" }), { status: 422 }))
+    const res = await testRequest({ provider: "brave", apiKey: PROVIDER_KEY })
+    expect(res.status).toBe(422)
+    expect((await res.json()).error).toContain("tidak valid")
+  })
+
   it("kuota/gangguan provider → 502 upstream_failed", async () => {
     fetchMock.mockResolvedValueOnce(new Response("", { status: 429 }))
     expect((await testRequest({ provider: "pexafy", apiKey: PROVIDER_KEY })).status).toBe(502)

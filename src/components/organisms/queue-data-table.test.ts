@@ -33,18 +33,18 @@ describe("getQueueRetryAction", () => {
     expect(getQueueRetryAction(state)).toBe(action)
   })
 
-  it("state optimistis sesuai jenis aksi", () => {
-    expect(getOptimisticRetryState("resync")).toBe("syncing_to_wp")
-    expect(getOptimisticRetryState("regenerate")).toBe("generating_content")
-    expect(getOptimisticRetryState("run")).toBe("generating_content")
+  it("state optimistis = item dijadwalkan ulang (runner yang memproses)", () => {
+    expect(getOptimisticRetryState("resync")).toBe("ready_to_sync")
+    expect(getOptimisticRetryState("regenerate")).toBe("queued_input")
+    expect(getOptimisticRetryState("run")).toBe("queued_input")
   })
 })
 
 describe("requestQueueItemRetry", () => {
-  it("kirim ulang memakai endpoint sync-only tanpa forceNow", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ ok: true, postId: "p1", state: "published_on_wp" }))
+  it("kirim ulang memakai endpoint sync-only tanpa forceNow (202: dijadwalkan ulang)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, postId: "p1", state: "ready_to_sync" }, 202))
 
-    await expect(requestQueueItemRetry("p1", "resync")).resolves.toEqual({ ok: true })
+    await expect(requestQueueItemRetry("p1", "resync")).resolves.toEqual({ ok: true, state: "ready_to_sync" })
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [url, init] = fetchMock.mock.calls[0]
@@ -53,18 +53,18 @@ describe("requestQueueItemRetry", () => {
     expect(init.body).toBeUndefined()
   })
 
-  it("tulis ulang lewat worker tanpa forceNow (jadwal tayang tetap dihormati)", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ ok: true, result: { success: true } }))
+  it("tulis ulang lewat antrean tanpa forceNow (jadwal tayang tetap dihormati)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, postId: "p2", state: "queued_input", mode: "embedded" }))
 
-    await requestQueueItemRetry("p2", "regenerate")
+    await expect(requestQueueItemRetry("p2", "regenerate")).resolves.toEqual({ ok: true, state: "queued_input" })
 
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe("/api/queue/process")
     expect(JSON.parse(init.body)).toEqual({ postId: "p2" })
   })
 
-  it("jalankan sekarang lewat worker dengan forceNow", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ ok: true, result: { success: true } }))
+  it("jalankan sekarang lewat antrean dengan forceNow", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, mode: "embedded" }))
 
     await requestQueueItemRetry("p3", "run")
 
@@ -80,12 +80,29 @@ describe("requestQueueItemRetry", () => {
     })
   })
 
-  it("respons 200 dengan ok:false dari worker tetap dianggap gagal", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ ok: false, result: { success: false, error: "Kuota OpenRouter habis" } }))
+  it("state respons tak dikenal memakai state optimistis aksi", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, state: "published_on_wp" }))
+
+    await expect(requestQueueItemRetry("p3", "run")).resolves.toEqual({ ok: true, state: "queued_input" })
+  })
+
+  it("respons 2xx dengan ok:false tetap dianggap gagal", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: "Artikel sedang diproses." }))
 
     await expect(requestQueueItemRetry("p2", "regenerate")).resolves.toEqual({
       ok: false,
-      error: "Kuota OpenRouter habis",
+      error: "Artikel sedang diproses.",
+    })
+  })
+
+  it("409 dari antrean meneruskan pesan galat route", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ ok: false, error: "Artikel sedang diproses. Tunggu hingga selesai.", code: "conflict" }, 409)
+    )
+
+    await expect(requestQueueItemRetry("p2", "run")).resolves.toEqual({
+      ok: false,
+      error: "Artikel sedang diproses. Tunggu hingga selesai.",
     })
   })
 
@@ -93,13 +110,13 @@ describe("requestQueueItemRetry", () => {
     fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"))
     await expect(requestQueueItemRetry("p1", "resync")).resolves.toEqual({
       ok: false,
-      error: "Terjadi gangguan jaringan saat memproses artikel.",
+      error: "Terjadi gangguan jaringan saat menjadwalkan ulang artikel.",
     })
 
     fetchMock.mockResolvedValueOnce(new Response("Bad Gateway", { status: 502 }))
     await expect(requestQueueItemRetry("p1", "resync")).resolves.toEqual({
       ok: false,
-      error: "Gagal mengirim ulang artikel ke WordPress.",
+      error: "Gagal menjadwalkan ulang pengiriman artikel ke WordPress.",
     })
   })
 })

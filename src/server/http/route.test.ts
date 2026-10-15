@@ -85,6 +85,32 @@ describe("defineRoute — validasi input", () => {
     expect((await res.json()).code).toBe("bad_request")
   })
 
+  it("body melebihi maxBodyBytes → 413 (Content-Length maupun stream tanpa Content-Length)", async () => {
+    const handler = defineRoute({ auth: "user", body: z.object({ name: z.string() }), maxBodyBytes: 64 }, async () => ({}))
+    const big = JSON.stringify({ name: "x".repeat(200) })
+    const declared = await handler(
+      req("http://localhost/x", { method: "POST", body: big, headers: { "content-length": String(big.length) } }),
+      ctx()
+    )
+    expect(declared.status).toBe(413)
+    expect((await declared.json()).code).toBe("payload_too_large")
+
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(big))
+        controller.close()
+      },
+    })
+    const streamed = await handler(
+      req("http://localhost/x", { method: "POST", body: stream, duplex: "half" } as RequestInit),
+      ctx()
+    )
+    expect(streamed.status).toBe(413)
+
+    const ok = await handler(req("http://localhost/x", { method: "POST", body: JSON.stringify({ name: "ok" }) }), ctx())
+    expect(ok.status).toBe(200)
+  })
+
   it("params & query divalidasi", async () => {
     const handler = defineRoute(
       { auth: "user", params: Params, query: z.object({ limit: z.coerce.number().int().max(50).default(10) }) },
@@ -176,6 +202,15 @@ describe("rate limit", () => {
     enforceRateLimit(rule, "u", 100)
     expect(() => enforceRateLimit(rule, "v", 150)).not.toThrow()
     expect(() => enforceRateLimit(rule, "u", 1200)).not.toThrow()
+  })
+
+  it("permintaan yang ditolak tidak memperpanjang jendela (klien patuh Retry-After diterima lagi)", () => {
+    enforceRateLimit(rule, "u", 0)
+    enforceRateLimit(rule, "u", 100)
+    for (let t = 200; t < 1000; t += 100) {
+      expect(() => enforceRateLimit(rule, "u", t)).toThrow(ApiError)
+    }
+    expect(() => enforceRateLimit(rule, "u", 1001)).not.toThrow()
   })
 
   it("route dengan rateLimit mengembalikan 429", async () => {

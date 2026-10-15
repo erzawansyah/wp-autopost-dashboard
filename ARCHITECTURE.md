@@ -119,8 +119,14 @@ wp-autopost-dashboard/
 │   │   ├── organisms/                     # SidebarNav, TopNavbar, QueueDataTable, BatchListTable
 │   │   └── templates/                     # DashboardLayout, PageContainer
 │   ├── core/                              # Logika Bisnis Murni (Domain Slice Architecture)
-│   │   ├── queue/                         # Background Queue Worker
-│   │   │   └── worker.ts                  # Worker pemrosesan status, claim lock, & WP sync
+│   │   ├── queue/                         # Logika antrean (tanpa loop/proses)
+│   │   │   ├── worker.ts                  # Proses satu item: generasi, Cost-Saver Retry, WP sync, fencing lease
+│   │   │   ├── leases.ts                  # Klaim RPC claim_post_items & heartbeat lease
+│   │   │   ├── retry-policy.ts            # Klasifikasi kegagalan, backoff, dead-letter (murni)
+│   │   │   ├── stale-recovery.ts          # Pemulihan item in-flight dengan lease kedaluwarsa
+│   │   │   ├── manual-actions.ts          # Kirim ulang / Tulis ulang / Jalankan sekarang (menjadwalkan ulang)
+│   │   │   ├── batch-progress.ts          # Rekalkulasi progres batch
+│   │   │   └── cron-auth.ts               # Verifikasi header CRON_SECRET
 │   │   ├── shared/                        # Utilitas & Tools Bersama
 │   │   │   ├── formatters/                # Serializer Gutenberg Blocks & pembersih Markdown
 │   │   │   ├── prompts/                   # File Markdown preset prompt bawaan
@@ -132,9 +138,17 @@ wp-autopost-dashboard/
 │   │       ├── types/                     # Contracts, schema input/output, profil agen
 │   │       ├── writer.ts                  # Pintu masuk utama facade orchestrator: run()
 │   │       └── index.ts                   # Public API barrel export (@/core/writer)
+│   ├── server/                            # Lapisan server API (tanpa UI)
+│   │   ├── http/                          # defineRoute, ApiError & pemetaan error, respons, rate limit
+│   │   ├── services/                      # Logika bisnis per domain: (supabase, userId, ...) → data
+│   │   ├── validation/                    # Skema zod body/query/params
+│   │   └── queue/                         # Runner antrean tertanam: loop, heartbeat, shutdown, enqueue/nudge
+│   ├── instrumentation.ts                 # register(): validasi env & start runner antrean (Node.js)
 │   ├── lib/                               # Utilitas Bersama & Adapter Eksternal
-│   │   ├── ai/                            # Klien OpenRouter, model list, verifikasi kunci
+│   │   ├── ai/                            # Pemanggilan OpenRouter, kunci platform (BYOK-only)
 │   │   ├── constants/                     # Daftar bahasa, otoritas akses
+│   │   ├── env/                           # Validasi env server/client (zod), termasuk QUEUE_*
+│   │   ├── net/                           # safeFetch anti-SSRF (DNS pinning, redirect, batas ukuran)
 │   │   ├── scheduler/                     # Kalkulator jadwal (randomized jitter & drip window)
 │   │   ├── settings/                      # Dekripsi sentral kunci BYOK (user-keys.ts)
 │   │   ├── supabase/                      # Klien Supabase (Browser, Server SSR, Admin Service)
@@ -299,6 +313,9 @@ erDiagram
         int retry_count ">= 0"
         text last_error
         timestamptz scheduled_for
+        timestamptz locked_until "Lease item in-flight (diperpanjang heartbeat)"
+        text locked_by "ID worker pemegang lease; berpasangan dengan locked_until (CHECK)"
+        timestamptz next_attempt_at "Backoff retry / Jalankan sekarang / Kirim ulang; menggantikan jatuh tempo jadwal"
         jsonb source_payload "agentProfileRef, engine, aiModel, style, language, category_ids, batch/schedule meta, wp_publish_meta"
         timestamptz created_at
         timestamptz updated_at "Heartbeat klaim worker"
@@ -349,7 +366,7 @@ Semua policy berlaku `TO authenticated` dengan predikat `(select auth.uid()) = u
 | :--- | :--- | :--- |
 | `wp_sites`, `content_batches`, `agent_profiles`, `user_settings`, `webhooks` | CRUD baris sendiri (UPDATE: `USING` + `WITH CHECK`, `user_id` tidak dapat dipindah) | worker (`service_role`) |
 | `agent_skills` | SELECT skill sistem **atau** milik sendiri; INSERT/UPDATE/DELETE hanya skill non-sistem milik sendiri | seed (skill sistem) |
-| `post_items` | SELECT, DELETE milik sendiri; INSERT hanya item baru (`state = 'queued_input'`, tanpa `content_html`/`wp_post_id`/`wp_post_url`); **tanpa UPDATE** | transisi state, naskah, `wp_post_id`: hanya worker (`service_role`) |
+| `post_items` | SELECT, DELETE milik sendiri; INSERT hanya item baru (`state = 'queued_input'`, tanpa `content_html`/`wp_post_id`/`wp_post_url`, kolom lease & `next_attempt_at` kosong); **tanpa UPDATE** | transisi state, naskah, `wp_post_id`, lease: hanya worker (`service_role`); RPC `claim_post_items` & `extend_post_item_lease` hanya `service_role` |
 | `execution_logs` | SELECT + INSERT milik sendiri (append-only) | worker; terhapus via cascade item |
 | `agent_runs`, `uploaded_media` | SELECT milik sendiri saja | worker (`service_role`) |
 
@@ -373,7 +390,7 @@ Induk memiliki `UNIQUE (id, user_id)` dan anak merujuk `(fk, user_id)`, sehingga
 
 - **CHECK**: 9 state `post_items.state`, `wp_target_status`, `retry_count >= 0`, enum status/mode/source (`wp_sites`, `content_batches`, `agent_profiles`, `agent_runs`), `execution_logs.level` (`step` sengaja bebas), format slug & kepemilikan skill sistem, serta bentuk JSON (`jsonb_typeof` object/array) untuk kolom `jsonb`.
 - **UNIQUE**: `wp_sites (user_id, base_url)`, `agent_skills (user_id, slug)` + `agent_skills (slug) WHERE is_system`, `user_settings (user_id)`.
-- **Indeks antrean**: `post_items (state, scheduled_for)`, `(state, created_at)`, parsial `(updated_at) WHERE state IN ('generating_content','syncing_to_wp')` untuk auto-healing, `(batch_id, state)` untuk progres batch, `(user_id, created_at desc)` untuk daftar antrean. Setiap FK memiliki indeks; dedup media `uploaded_media (site_id, source_url)`.
+- **Indeks antrean**: parsial `post_items_claimable_idx (wp_site_id, created_at)` untuk kandidat klaim (`queued_input`/`ready_to_sync`), parsial `post_items_in_flight_lease_idx` untuk hitung slot per situs & pemulihan lease kedaluwarsa, `(batch_id, state)` untuk progres batch, `(user_id, created_at desc)` untuk daftar antrean. Setiap FK memiliki indeks; dedup media `uploaded_media (site_id, source_url)`.
 - **Trigger `set_updated_at`** (BEFORE UPDATE) pada tabel yang memiliki `updated_at`; heartbeat klaim worker bergantung pada kolom ini. Fungsi trigger tidak dapat dieksekusi role API.
 
 ### 3.4 Workflow Migrasi
@@ -402,18 +419,20 @@ Setiap artikel berpindah status melalui 9 tahapan yang terukur di kolom `post_it
 stateDiagram-v2
     [*] --> queued_input: Input via Quick Post atau CSV Batch
 
-    queued_input --> generating_content: Worker Claim Lock
+    queued_input --> generating_content: claim_post_items (lease)
     generating_content --> ready_to_sync: Naskah AI Selesai & Lolos Pembersih
-    generating_content --> failed_generation: Error LLM / Timeout / Circuit Breaker
+    generating_content --> queued_input: Gagal sementara / lease kedaluwarsa (backoff)
+    generating_content --> failed_generation: Gagal permanen / batas percobaan
 
-    ready_to_sync --> syncing_to_wp: Dispatching ke WordPress REST API
+    ready_to_sync --> syncing_to_wp: claim_post_items (lease)
+    syncing_to_wp --> ready_to_sync: 429/503/DNS (pasti belum terkirim, backoff)
     syncing_to_wp --> published_on_wp: wp_target_status = publish (Live)
     syncing_to_wp --> scheduled_on_wp: wp_target_status = future (WP Cron)
     syncing_to_wp --> saved_draft_on_wp: wp_target_status = draft (Konsep)
-    syncing_to_wp --> failed_sync: WP Down / Auth Error / 5xx
+    syncing_to_wp --> failed_sync: Auth Error / Timeout / 5xx / lease kedaluwarsa
 
-    failed_generation --> generating_content: Retry Pembuatan (Generate Ulang)
-    failed_sync --> syncing_to_wp: Cost-Saver Retry (Kirim Ulang Tanpa Panggil AI)
+    failed_generation --> queued_input: Tulis Ulang (manual)
+    failed_sync --> ready_to_sync: Kirim Ulang (manual, Cost-Saver Retry tanpa AI)
 
     published_on_wp --> [*]
     scheduled_on_wp --> [*]
@@ -425,29 +444,25 @@ stateDiagram-v2
 | # | Status (`state`) | Keterangan Sistem | Tindakan Saat Retry |
 | :- | :--- | :--- | :--- |
 | 1 | `queued_input` | Artikel terdaftar di antrean, menunggu giliran alokasi worker. | - |
-| 2 | `generating_content` | Profil agen AI sedang melakukan riset dan menyusun artikel. Terkunci secara atomik. | Diulang jika waktu eksekusi telah kedaluwarsa (> 10 menit). |
+| 2 | `generating_content` | Profil agen AI sedang melakukan riset dan menyusun artikel. Memegang lease (`locked_until`/`locked_by`) yang diperpanjang heartbeat. | Lease kedaluwarsa → kembali `queued_input` dengan backoff (maks 3 percobaan). |
 | 3 | `ready_to_sync` | Naskah Markdown berhasil dikonversi ke Gutenberg Blocks dan tersimpan di database. | Siap dikirim ke WordPress. |
-| 4 | `syncing_to_wp` | Sedang melakukan request HTTP POST ke endpoint WordPress target. | - |
+| 4 | `syncing_to_wp` | Sedang melakukan request HTTP POST ke endpoint WordPress target. Memegang lease. | Lease kedaluwarsa → `failed_sync` (tidak dikirim ulang otomatis). |
 | 5 | `published_on_wp` | Sukses terbit live di WordPress (`status: 'publish'`). ID dan URL artikel tersimpan. | Selesai. |
 | 6 | `scheduled_on_wp` | Sukses dijadwalkan di WordPress (`status: 'future'`). Tanggal dan jam tayang terkunci di WP. | Selesai. |
 | 7 | `saved_draft_on_wp` | Sukses disimpan sebagai konsep di wp-admin WordPress (`status: 'draft'`). | Selesai. |
 | 8 | `failed_generation` | Gagal saat pemanggilan AI (kehabisan kuota, batas loop tercapai, timeout). | Memulai ulang siklus dari riset & drafting. |
-| 9 | `failed_sync` | Gagal saat mengirim ke WordPress (kredensial salah, koneksi putus, hosting down), atau item macet di `syncing_to_wp` > 10 menit. | **Cost-Saver Retry**: HTML Gutenberg tersimpan dikirim apa adanya bersama `wp_publish_meta` (tanpa AI, tanpa unggah ulang gambar). Item yang sudah punya `wp_post_id` tidak dipublikasi ulang. |
+| 9 | `failed_sync` | Gagal saat mengirim ke WordPress (kredensial salah, timeout/5xx yang mungkin sudah membuat post, hosting down), atau lease `syncing_to_wp` kedaluwarsa. | **Cost-Saver Retry**: HTML Gutenberg tersimpan dikirim apa adanya bersama `wp_publish_meta` (tanpa AI, tanpa unggah ulang gambar). Item yang sudah punya `wp_post_id` tidak dipublikasi ulang. |
 
 ### Prinsip Keandalan Worker:
-1. **Atomic Claim Lock**:
-   Sebelum memproses naskah, worker mengeksekusi pembaruan status bersyarat:
-   ```sql
-   UPDATE post_items 
-   SET state = 'generating_content', updated_at = NOW() 
-   WHERE id = :id AND state IN ('queued_input', 'failed_generation', 'failed_sync')  -- failed_sync hanya jika belum ada naskah tersimpan
-     AND user_id = :userId;  -- wajib untuk permintaan sesi; hanya cron yang tanpa filter user
-   ```
-   Retry sinkronisasi memakai klaim terpisah `state IN ('failed_sync', 'ready_to_sync') → 'syncing_to_wp'` (fungsi `retryPostItemSync`), sehingga klik ganda hanya menghasilkan satu publikasi. Mencegah dua proses worker paralel mengeksekusi item antrean yang sama.
-   Auto-healing: `generating_content` macet → `queued_input` dengan `retry_count + 1` (maks 3, lalu `failed_generation`); `syncing_to_wp` macet → `failed_sync` (tidak pernah generasi ulang).
-2. **Cost-Saver Retry (Nol Pemborosan Token AI)**:
-   Jika item berada di status `failed_sync` dan `post_items.content_html` sudah terisi di database, worker mendeteksi kondisi `isRetrySync`. Sistem langsung melompati tahap AI dan mengirim ulang konten yang ada ke WordPress REST API.
-3. **Pengelompokan Antrean Virtual (Quick Writer Batch)**:
+1. **Runner antrean tertanam (durable)**:
+   Tidak ada request HTTP yang menjalankan job. Route (`/api/posts/quick`, `/api/batches`, aksi ulang) hanya mencatat item di database lalu membangunkan runner (`nudge`). Runner (`src/server/queue/`) dimulai dari `register()` di `src/instrumentation.ts` (runtime Node.js, satu instance per proses via singleton `globalThis`): polling (`QUEUE_POLL_INTERVAL_MS`, default 5 dtk), klaim hingga `QUEUE_CONCURRENCY` job (default 3), heartbeat lease setiap min(60 dtk, lease/3), dan pemulihan lease kedaluwarsa setiap menit. Saat SIGTERM runner berhenti mengklaim, menunggu job berjalan hingga 25 dtk, lalu melepas item yang belum selesai (`generating_content` → `queued_input`, `syncing_to_wp` → `failed_sync` dengan pesan cek wp-admin). Mode `QUEUE_RUNNER=off` (serverless/cron eksternal): `/api/queue/process` dengan header `CRON_SECRET` mengklaim satu siklus dan memprosesnya lewat `after()`.
+2. **Atomic Claim dengan Lease (`claim_post_items`)**:
+   RPC `service_role` memindahkan item jatuh tempo `queued_input → generating_content` dan `ready_to_sync → syncing_to_wp` dengan `FOR UPDATE SKIP LOCKED` + advisory lock transaksi, mengisi `locked_by`/`locked_until`. Jatuh tempo: `next_attempt_at` bila terisi; selain itu batch `immediate`/tanpa jadwal langsung, mode bertahap `scheduled_for − 10 menit`. Slot per situs = `wp_sites.max_concurrency` − item in-flight dengan lease aktif; urutan adil round-robin antar-tenant lalu jatuh tempo terlama. Setiap penulisan state oleh worker di-*fence* dengan `locked_by` + `retry_count` sehingga run usang tidak menimpa klaim baru.
+3. **Retry otomatis & dead-letter (`src/core/queue/retry-policy.ts`)**:
+   Kegagalan sementara (LLM/WP 429, 5xx LLM, jaringan) diantrekan ulang dengan backoff `next_attempt_at` 1 mnt → 5 mnt; percobaan ke-3 berhenti di `failed_*` dengan `last_error`. Kegagalan permanen (kredensial/izin WP, kunci BYOK hilang/tidak valid, validasi) langsung `failed_*`. Tahap sinkronisasi hanya mengirim ulang otomatis kegagalan yang **pasti** belum membuat post (429/503/DNS/koneksi ditolak); timeout/5xx/putus koneksi → `failed_sync` dan pengguna diminta memeriksa wp-admin.
+4. **Cost-Saver Retry & Idempotensi WordPress**:
+   Item yang sudah punya naskah (`content_html`) tidak pernah digenerasi ulang, termasuk saat diklaim untuk generasi. "Kirim ulang" memindahkan `failed_sync`/`ready_to_sync` → `ready_to_sync` (`next_attempt_at = now`, `retry_count` direset) lalu runner mengirim HTML Gutenberg tersimpan bersama `wp_publish_meta` tanpa AI dan tanpa unggah ulang gambar. Item yang sudah memiliki `wp_post_id` tidak dipublikasi ulang. Aksi manual (`src/core/queue/manual-actions.ts`) memakai admin client dengan filter `user_id` dari sesi.
+5. **Pengelompokan Antrean Virtual (Quick Writer Batch)**:
    Artikel mandiri hasil dari *Tulis Cepat* (`batch_id: null`) dikelompokkan secara visual di halaman antrean ke dalam batch virtual `"⚡ Tulis Cepat (Quick Writer)"` sehingga seluruh item tetap terpantau rapi.
 
 ---
@@ -605,16 +620,16 @@ Semua route di `src/app/api/` memakai `defineRoute` (`src/server/http/route.ts`,
 | `/api/ai/test` | POST | user, llm | Uji kunci OpenRouter (`apiKey` opsional, default kunci BYOK tersimpan); kunci ditolak → 400 |
 | `/api/auth/me` | GET | public | Status sesi pengguna saat ini |
 | `/api/auth/signout` | POST | public | Mengakhiri sesi (aman dipanggil tanpa sesi) |
-| `/api/batches` | GET, POST, DELETE | Manajemen batch ingestion masal |
+| `/api/batches` | GET, POST, DELETE | user, enqueue (POST) | Daftar batch (+ grup virtual Tulis Cepat), pembuatan batch (hanya mengantrekan item lalu membangunkan runner; body ≤ 10 MB), pembatalan/hapus batch |
 | `/api/docs` | GET | none | Panduan pengguna `docs/guides/0N-*.md` saja (dokumen internal di `docs/` tidak disajikan maupun ikut ke image) |
 | `/api/health` | GET | none | Healthcheck status layanan |
 | `/api/lab/registry` | GET | user + Developer Mode | Data pendukung sandbox (situs, agen, tools) |
 | `/api/lab/run` | POST | user + Developer Mode, llm | Uji eksekusi tool/agen; kegagalan eksekusi = 200 `ok:false`, keluaran diredaksi |
-| `/api/posts` | GET, DELETE | Mengambil daftar artikel & bulk delete artikel |
-| `/api/posts/quick` | POST | Eksekusi pembuatan 1 artikel instan (Tulis Cepat) |
-| `/api/posts/[id]` | GET, DELETE, PATCH | Mengambil detail artikel, log audit, atau memicu retry sync |
-| `/api/queue` | GET | Mengambil item antrean berdasarkan status dan filter |
-| `/api/queue/process` | GET, POST | Memicu eksekusi antrean worker. Cron: `Authorization: Bearer <CRON_SECRET>` (atau `x-cron-secret`), tanpa batasan tenant. Sesi pengguna: hanya POST dan hanya item milik pengguna itu. GET khusus cron. |
+| `/api/posts` | GET, DELETE | user | Daftar artikel (+ `next_attempt_at`) & hapus massal |
+| `/api/posts/quick` | POST | user, enqueue | Tulis Cepat: mengantrekan 1 item lalu membangunkan runner (tidak memproses di dalam request) |
+| `/api/posts/[id]` | GET, DELETE, POST | user, enqueue (POST) | Detail artikel + log audit; POST = Kirim ulang (Cost-Saver Retry) → **202** `{ postId, state: "ready_to_sync" }`; 404/409/422 bila tidak dapat dijadwalkan ulang |
+| `/api/queue` | GET | user | Item antrean berdasarkan status dan filter (+ `next_attempt_at`) |
+| `/api/queue/process` | GET, POST | user-or-cron, enqueue (POST) | Sesi pengguna: jadwalkan ulang item miliknya (`postId`, `forceNow`) lalu bangunkan runner → `{ mode, postId?, state?, message }`. Cron (`Authorization: Bearer <CRON_SECRET>`): hanya relevan bila `QUEUE_RUNNER=off`; mengklaim satu siklus dan memprosesnya di latar (`maxDuration` 300 dtk) |
 | `/api/settings/user` | GET, PUT | user | Status kunci BYOK tersamar (`hasKey`) & penyimpanan kunci terenkripsi |
 | `/api/settings/search/test` | POST | user, outboundTest | Uji koneksi mesin pencarian (SearXNG/Tavily/Brave/SerpAPI) |
 | `/api/sites` | GET, POST | user, outboundTest (POST) | Daftar situs WordPress & pendaftaran situs baru; URL duplikat → 409 |

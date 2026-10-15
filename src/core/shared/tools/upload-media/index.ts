@@ -94,9 +94,10 @@ export async function uploadMediaToWordPress(
     }
   }
 
-  // 0. Cek Cache Deduplikasi Media di Database Supabase
-  if (params.siteId && imageUrl) {
+  // 0. Cek Cache Deduplikasi Media di Database Supabase (per pemilik + situs; tanpa keduanya cache dilewati)
+  if (params.userId && params.siteId) {
     const cached = await findExistingUploadedMedia({
+      userId: params.userId,
       siteId: params.siteId,
       sourceUrl: imageUrl,
     })
@@ -265,7 +266,7 @@ export async function uploadMediaToWordPress(
     }
 
     // 4. Rekam ke Cache Deduplikasi Media di Database Supabase
-    if (params.siteId && wpSourceUrl && mediaId) {
+    if (params.userId && params.siteId && wpSourceUrl && mediaId) {
       void recordUploadedMedia({
         userId: params.userId,
         siteId: params.siteId,

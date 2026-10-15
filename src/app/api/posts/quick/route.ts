@@ -1,152 +1,67 @@
-import { NextResponse } from "next/server"
-import { after } from "next/server"
-import { createClient } from "@/lib/supabase/server"
-import { processPostItem } from "@/core/queue/worker"
+import { z } from "zod"
 import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
+import { defineRoute } from "@/server/http/route"
+import { RATE_LIMITS } from "@/server/http/rate-limit"
+import { UuidSchema } from "@/server/validation/common"
+import { nudgeQueueRunner } from "@/server/queue/embedded"
+import { enqueueQuickPost } from "@/server/queue/enqueue"
+import { CategoryIdListSchema, OptionalTextSchema, ReasoningEffortSchema, TagListSchema } from "@/server/queue/schemas"
 
-export async function POST(request: Request) {
-  try {
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
+const QuickPostBodySchema = z.object({
+  siteId: UuidSchema,
+  keyword: z.string().trim().min(1, "Kata kunci wajib diisi.").max(300),
+  category: OptionalTextSchema(200),
+  category_ids: CategoryIdListSchema,
+  category_names: z.array(z.string().trim().max(200)).max(50).optional(),
+  tags: TagListSchema,
+  customBrief: OptionalTextSchema(10_000),
+  actionStatus: z.enum(["draft", "publish", "future"]).default("draft"),
+  aiModel: OptionalTextSchema(200),
+  reasoningEffort: ReasoningEffortSchema,
+  agentProfileRef: OptionalTextSchema(200),
+  engine: OptionalTextSchema(50),
+  style: OptionalTextSchema(50),
+  language: OptionalTextSchema(10),
+})
 
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-    }
+// POST /api/posts/quick — Tulis Cepat: catat item `queued_input` lalu bangunkan runner antrean.
+// Respons instan; kunci OpenRouter tidak pernah diterima dari browser (worker memakai BYOK tersimpan).
+export const POST = defineRoute(
+  { auth: "user", body: QuickPostBodySchema, rateLimit: RATE_LIMITS.enqueue },
+  async ({ supabase, user, body }) => {
+    const legacyRef = body.engine && Object.hasOwn(LEGACY_ENGINE_MAP, body.engine) ? LEGACY_ENGINE_MAP[body.engine] : undefined
+    const agentProfileRef = body.agentProfileRef || legacyRef || "preset:quick-writer"
+    const categoryNames = body.category_names?.filter(Boolean).length
+      ? body.category_names.filter(Boolean)
+      : body.category
+        ? [body.category]
+        : []
 
-    const body = await request.json()
-    const {
-      siteId,
-      keyword,
-      category,
-      category_ids,
-      category_names,
-      tags,
-      customBrief,
-      actionStatus = "draft",
-      aiModel,
-      reasoningEffort,
-      agentProfileRef,
-      engine = "quick",
-      style = "default",
-      language = "id",
-    } = body
-
-    if (!siteId || !keyword?.trim()) {
-      return NextResponse.json(
-        { error: "Website target dan kata kunci wajib dipilih/diisi." },
-        { status: 400 }
-      )
-    }
-
-    // 1. Verifikasi website tujuan milik pengguna
-    const { data: site, error: siteError } = await supabase
-      .from("wp_sites")
-      .select("id, site_name, base_url, wp_username")
-      .eq("id", siteId)
-      .eq("user_id", user.id)
-      .single()
-
-    if (siteError || !site) {
-      return NextResponse.json(
-        { error: "Website WordPress yang dipilih tidak ditemukan." },
-        { status: 404 }
-      )
-    }
-
-    // 2. Format taksonomi
-    const tagList: string[] = Array.isArray(tags)
-      ? tags.map((t: string) => String(t).trim()).filter(Boolean)
-      : typeof tags === "string"
-      ? tags.split(",").map((t) => t.trim()).filter(Boolean)
-      : []
-
-    const categoryList: string[] = Array.isArray(category_names) && category_names.length > 0
-      ? category_names.map((c: string) => String(c).trim()).filter(Boolean)
-      : category
-      ? [String(category).trim()]
-      : []
-
-    const selectedCategoryIds: number[] = Array.isArray(category_ids)
-      ? category_ids
-          .map((id: unknown) => Number(id))
-          .filter((id: number) => !isNaN(id) && id > 0)
-      : []
-
-    const effectiveProfileRef =
-      agentProfileRef ||
-      (engine ? LEGACY_ENGINE_MAP[engine] : undefined) ||
-      "preset:quick-writer"
-
-    // 3. Database-First State Machine: Buat entri awal di post_items (state: 'queued_input')
-    const { data: initialPost, error: insertPostError } = await supabase
-      .from("post_items")
-      .insert({
-        user_id: user.id,
-        wp_site_id: site.id,
-        target_keyword: keyword.trim(),
-        state: "queued_input",
-        wp_target_status: actionStatus,
-        custom_instructions_override: customBrief || null,
-        categories: categoryList,
-        tags: tagList,
-        source_payload: {
-          agentProfileRef: effectiveProfileRef,
-          engine,
-          aiModel,
-          reasoningEffort: reasoningEffort || undefined,
-          style,
-          language,
-          category_ids: selectedCategoryIds,
-        },
-      })
-      .select("id")
-      .single()
-
-    if (insertPostError || !initialPost) {
-      return NextResponse.json(
-        { error: `Gagal membuat antrean artikel di database: ${insertPostError?.message}` },
-        { status: 500 }
-      )
-    }
-
-    const postId = initialPost.id
-
-    // Log awal pencatatan antrean
-    await supabase.from("execution_logs").insert({
-      post_item_id: postId,
-      user_id: user.id,
-      step: "queue",
-      level: "info",
-      message: `[Queue] Artikel masuk antrean latar belakang (Agent: ${effectiveProfileRef}, Model: ${aiModel || "bawaan"}) untuk website ${site.site_name}`,
+    const { postId, siteName } = await enqueueQuickPost(supabase, user.id, {
+      siteId: body.siteId,
+      keyword: body.keyword,
+      wpTargetStatus: body.actionStatus,
+      customBrief: body.customBrief,
+      categoryNames,
+      tags: body.tags,
+      aiConfig: {
+        agentProfileRef,
+        engine: body.engine ?? "quick",
+        aiModel: body.aiModel,
+        reasoningEffort: body.reasoningEffort,
+        style: body.style ?? "default",
+        language: body.language ?? "id",
+        category_ids: body.category_ids,
+      },
     })
 
-    // 4. Jalankan Background Queue Worker via after() tanpa menahan response HTTP.
-    //    Kunci OpenRouter tidak diterima dari browser: worker me-resolve kunci BYOK
-    //    terenkripsi milik pengguna dari user_settings (getUserDecryptedKeys).
-    after(async () => {
-      try {
-        await processPostItem({
-          postId,
-          userId: user.id,
-        })
-      } catch (workerErr) {
-        console.error(`[Background Worker Error] Gagal memproses item #${postId}:`, workerErr)
-      }
-    })
+    nudgeQueueRunner()
 
-    // 5. Kembalikan respons instan (< 200 ms) ke browser pengguna
-    return NextResponse.json({
-      ok: true,
+    return {
       postId,
       state: "queued_input",
-      targetSite: site.site_name,
-      message: "Artikel berhasil masuk ke antrean latar belakang dan sedang diproses!",
-    })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Terjadi kesalahan internal server"
-    return NextResponse.json({ error: message }, { status: 500 })
+      targetSite: siteName,
+      message: "Artikel berhasil masuk ke antrean latar belakang dan akan segera diproses.",
+    }
   }
-}
+)

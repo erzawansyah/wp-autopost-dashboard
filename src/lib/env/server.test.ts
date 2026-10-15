@@ -73,26 +73,49 @@ describe("serverEnv", () => {
   })
 })
 
+describe("serverEnv — runner antrean", () => {
+  it("default: runner tertanam dengan konkurensi 3, polling 5 detik, lease 900 detik", () => {
+    expect(serverEnv({})).toMatchObject({
+      QUEUE_RUNNER: "embedded",
+      QUEUE_CONCURRENCY: 3,
+      QUEUE_POLL_INTERVAL_MS: 5000,
+      QUEUE_LEASE_SECONDS: 900,
+    })
+  })
+
+  it("membaca nilai valid dan jatuh ke default untuk nilai di luar rentang", () => {
+    expect(
+      serverEnv({ QUEUE_RUNNER: " off ", QUEUE_CONCURRENCY: "10", QUEUE_POLL_INTERVAL_MS: "1000", QUEUE_LEASE_SECONDS: "60" })
+    ).toMatchObject({ QUEUE_RUNNER: "off", QUEUE_CONCURRENCY: 10, QUEUE_POLL_INTERVAL_MS: 1000, QUEUE_LEASE_SECONDS: 60 })
+    expect(
+      serverEnv({ QUEUE_RUNNER: "OFF", QUEUE_CONCURRENCY: "11", QUEUE_POLL_INTERVAL_MS: "999", QUEUE_LEASE_SECONDS: "1.5" })
+    ).toMatchObject({ QUEUE_RUNNER: "embedded", QUEUE_CONCURRENCY: 3, QUEUE_POLL_INTERVAL_MS: 5000, QUEUE_LEASE_SECONDS: 900 })
+    expect(serverEnv({ QUEUE_CONCURRENCY: "0", QUEUE_LEASE_SECONDS: "59" })).toMatchObject({
+      QUEUE_CONCURRENCY: 3,
+      QUEUE_LEASE_SECONDS: 900,
+    })
+  })
+})
+
 describe("validateServerEnv", () => {
   it("konfigurasi production lengkap lolos tanpa error maupun peringatan", () => {
     const report = validateServerEnv(validSource())
     expect(report).toEqual({ isProduction: true, errors: [], warnings: [] })
   })
 
-  it("production: variabel inti yang hilang menjadi error", () => {
+  it("production: variabel inti yang hilang menjadi error (CRON_SECRET opsional dengan runner tertanam)", () => {
     const report = validateServerEnv({ NODE_ENV: "production" })
     expect(variables(report.errors)).toEqual([
       "NEXT_PUBLIC_SUPABASE_URL",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY / NEXT_PUBLIC_SUPABASE_ANON_KEY",
       "SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY",
       "ENCRYPTION_MASTER_KEY",
-      "CRON_SECRET",
     ])
     expect(variables(report.warnings)).toEqual(["NEXT_PUBLIC_APP_URL"])
   })
 
   it("development: masalah yang sama hanya menjadi peringatan", () => {
-    const report = validateServerEnv({ NODE_ENV: "development" })
+    const report = validateServerEnv({ NODE_ENV: "development", QUEUE_RUNNER: "off" })
     expect(report.isProduction).toBe(false)
     expect(report.errors).toEqual([])
     expect(variables(report.warnings)).toEqual([
@@ -140,8 +163,33 @@ describe("validateServerEnv", () => {
     expect(short.errors).toEqual([])
     expect(variables(short.warnings)).toEqual(["CRON_SECRET"])
 
-    const blank = validateServerEnv(validSource({ CRON_SECRET: "   " }))
+    const blank = validateServerEnv(validSource({ CRON_SECRET: "   ", QUEUE_RUNNER: "off" }))
     expect(variables(blank.errors)).toEqual(["CRON_SECRET"])
+  })
+
+  it("CRON_SECRET wajib di production hanya saat QUEUE_RUNNER=off (mode cron eksternal)", () => {
+    expect(validateServerEnv(validSource({ CRON_SECRET: undefined }))).toEqual({
+      isProduction: true,
+      errors: [],
+      warnings: [],
+    })
+    expect(variables(validateServerEnv(validSource({ CRON_SECRET: undefined, QUEUE_RUNNER: "off" })).errors)).toEqual([
+      "CRON_SECRET",
+    ])
+    expect(validateServerEnv(validSource({ QUEUE_RUNNER: "off" })).errors).toEqual([])
+  })
+
+  it("QUEUE_RUNNER tidak dikenal menjadi error; tuning antrean tidak valid hanya peringatan", () => {
+    const report = validateServerEnv(
+      validSource({ QUEUE_RUNNER: "external", QUEUE_CONCURRENCY: "50", QUEUE_POLL_INTERVAL_MS: "abc", QUEUE_LEASE_SECONDS: "30" })
+    )
+    expect(variables(report.errors)).toEqual(["QUEUE_RUNNER"])
+    expect(variables(report.warnings)).toEqual(["QUEUE_CONCURRENCY", "QUEUE_POLL_INTERVAL_MS", "QUEUE_LEASE_SECONDS"])
+
+    const valid = validateServerEnv(
+      validSource({ QUEUE_RUNNER: "embedded", QUEUE_CONCURRENCY: "5", QUEUE_POLL_INTERVAL_MS: "2000", QUEUE_LEASE_SECONDS: "600" })
+    )
+    expect(valid).toEqual({ isProduction: true, errors: [], warnings: [] })
   })
 
   it("memperingatkan flag bernilai aneh dan ALLOW_PRIVATE_NETWORK_FETCH di production", () => {
@@ -217,7 +265,7 @@ describe("pesan validasi tidak pernah memuat nilai variabel", () => {
 
 describe("checkServerEnvOnStartup", () => {
   it("production: melempar error berisi daftar variabel yang bermasalah", () => {
-    expect(() => checkServerEnvOnStartup({ NODE_ENV: "production" })).toThrow(
+    expect(() => checkServerEnvOnStartup({ NODE_ENV: "production", QUEUE_RUNNER: "off" })).toThrow(
       /tidak valid \(production\)[\s\S]*\[WAJIB\] ENCRYPTION_MASTER_KEY[\s\S]*\[WAJIB\] CRON_SECRET/
     )
   })

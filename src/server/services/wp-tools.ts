@@ -130,6 +130,18 @@ interface AuthorSuggestion {
   rationale: string
 }
 
+const AUTHOR_SUGGESTION_ROLES: readonly AuthorSuggestion["role"][] = ["author", "editor", "contributor"]
+
+/**
+ * Peran dari LLM berupa teks bebas ("Author", "Penulis", "administrator"); dinormalkan ke peran yang
+ * diterima `/api/sites/[id]/authors` agar tombol "Setujui" tidak gagal validasi. Tidak dikenal → author.
+ */
+function normalizeAuthorSuggestion(raw: AuthorSuggestion): AuthorSuggestion {
+  const role = typeof raw.role === "string" ? raw.role.trim().toLowerCase() : ""
+  const known = AUTHOR_SUGGESTION_ROLES.find((r) => r === role)
+  return { ...raw, role: known ?? "author" }
+}
+
 function domainHostOf(baseUrl: string): string {
   try {
     return new URL(baseUrl).hostname.replace(/^www\./, "")
@@ -165,7 +177,7 @@ export async function suggestAuthors(
   })
 
   return {
-    suggestions: arrayOf<AuthorSuggestion>(analysis?.suggestions),
+    suggestions: arrayOf<AuthorSuggestion>(analysis?.suggestions).map(normalizeAuthorSuggestion),
     existingCount: existingUsers.length,
   }
 }

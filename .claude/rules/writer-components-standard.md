@@ -45,7 +45,9 @@ Diimplementasikan di `runtime/loop-guard.ts` dan `runtime/guards.ts`:
 Perubahan pada guard wajib menjaga keempat jaminan ini.
 
 ## 6. Queue & Idempotensi (lihat juga CLAUDE.md §Prinsip Inti)
-- Worker (`src/core/queue/worker.ts`) mengklaim item dengan **atomic claim lock**: update bersyarat `state IN (...)` → `generating_content`.
-- `failed_sync` di-retry langsung ke `syncing_to_wp` memakai naskah tersimpan; **jangan** memicu generasi AI ulang.
+- Job tidak pernah dijalankan di dalam request HTTP: route hanya mencatat/menjadwalkan ulang item lalu `nudge` runner (`src/server/queue/`).
+- Klaim hanya lewat RPC `claim_post_items` (lease `locked_by`/`locked_until`, batas per situs, `FOR UPDATE SKIP LOCKED`); setiap penulisan state worker di-*fence* dengan `locked_by` + `retry_count`.
+- Retry otomatis & dead-letter hanya lewat `src/core/queue/retry-policy.ts`; kegagalan sinkronisasi yang mungkin sudah membuat post (timeout/5xx) tidak boleh dikirim ulang otomatis.
+- "Kirim ulang" memindahkan `failed_sync` → `ready_to_sync` dan runner mengirim naskah tersimpan; **jangan** memicu generasi AI ulang.
 - Selalu cek `wp_post_id` sebelum membuat post baru agar retry tidak menggandakan posting.
 - Uji ke WordPress nyata default `status: "draft"` kecuali pengguna meminta `publish`.

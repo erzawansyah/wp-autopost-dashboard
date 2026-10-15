@@ -118,12 +118,13 @@ Platform ini mendukung deployment satu perintah menggunakan Docker Compose denga
 docker compose up -d --build
 ```
 
-Docker Compose membaca variabel dari berkas `.env` di root proyek (bukan `.env.local`) atau dari environment shell/Portainer. Selain variabel Supabase dan `ENCRYPTION_MASTER_KEY`, `CRON_SECRET` dan `SEARXNG_SECRET` **wajib** diisi; tanpa keduanya `docker compose` menolak berjalan.
+Docker Compose membaca variabel dari berkas `.env` di root proyek (bukan `.env.local`) atau dari environment shell/Portainer. Selain variabel Supabase dan `ENCRYPTION_MASTER_KEY`, `SEARXNG_SECRET` **wajib** diisi; tanpa nilai itu `docker compose` menolak berjalan. `CRON_SECRET` hanya wajib bila runner antrean dimatikan (`QUEUE_RUNNER=off`).
 
 Setelah berjalan:
 - **Panitera Dashboard**: `http://localhost:3000` (atau port publik host yang Anda tentukan). Status kesehatan container diperiksa lewat `GET /api/health`.
 - **SearXNG**: Berjalan secara terisolasi di dalam Docker network internal (`http://searxng-internal:8080`) **tanpa membuka port ke publik luar**, menjamin keamanan dan mencegah konflik port di server Anda. Tag image dipin di `docker-compose.yml` dan diperbarui lewat Dependabot.
-- **Pemicu antrean (`panitera-cron`)**: Memanggil `POST /api/queue/process` setiap 60 detik dengan header `Authorization: Bearer $CRON_SECRET`.
+- **Runner antrean tertanam**: Proses Next.js menjalankan loop antrean sendiri (dimulai dari `src/instrumentation.ts`): klaim atomik per situs, lease + heartbeat, retry dengan backoff, dan pemulihan item macet. Tidak ada lagi sidecar `panitera-cron`; saat upgrade jalankan `docker compose up -d --remove-orphans` agar container lama ikut dihapus. Tuning lewat `QUEUE_CONCURRENCY`, `QUEUE_POLL_INTERVAL_MS`, `QUEUE_LEASE_SECONDS` (lihat `.env.example`). Untuk mode serverless/cron eksternal, set `QUEUE_RUNNER=off` dan panggil `POST /api/queue/process` berkala dengan header `Authorization: Bearer $CRON_SECRET`.
+- **Urutan upgrade**: terapkan migrasi Supabase lebih dulu (`npx supabase db push`), baru deploy image baru.
 
 ---
 
