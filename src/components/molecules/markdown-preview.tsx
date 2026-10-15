@@ -1,106 +1,134 @@
-"use client"
-
 import * as React from "react"
+import { isSafeUrl } from "@/lib/sanitize-html"
 import { cn } from "@/lib/utils"
 
 interface MarkdownPreviewProps {
   content: string
+  /** Teks saat konten kosong. */
+  emptyMessage?: string
   className?: string
 }
 
 /**
- * Komponen Molecule untuk merender pratinjau Markdown & Workflow Prompt secara elegan
- * Mendukung full heading, code blocks (```), tables, lists, links, inline code, bold, italic, dan blockquotes.
+ * Pratinjau Markdown ringan (heading, code block, tabel, daftar, tautan, inline code, tebal/miring, kutipan,
+ * garis). Aman untuk konten tak tepercaya (SKILL.md, workflow prompt, panduan): semuanya dirender sebagai
+ * elemen React (teks di-escape, tanpa `dangerouslySetInnerHTML`) dan `href` tautan disaring `isSafeUrl`
+ * (hanya http/https/mailto/tel/relatif; `javascript:` dsb. dirender sebagai teks biasa).
+ * Tanpa hook/"use client": dapat dirender dari Server Component (reader `/docs`) maupun Client Component.
  */
-export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
-  if (!content || !content.trim()) {
+export function MarkdownPreview({ content, emptyMessage = "Belum ada konten untuk dipratinjau.", className }: MarkdownPreviewProps) {
+  if (!content.trim()) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground italic text-xs border border-dashed border-border rounded-lg bg-card/40">
-        Belum ada instruksi prompt yang ditulis. Beralih ke mode &quot;Raw&quot; untuk mulai menulis prompt atau memuat preset.
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center rounded-lg border border-dashed border-border bg-card/40 py-20 text-center text-xs text-muted-foreground italic",
+          className
+        )}
+      >
+        {emptyMessage}
       </div>
     )
   }
 
+  return (
+    <div
+      className={cn(
+        "article-rendered max-w-none overflow-y-auto rounded-lg border border-border/80 bg-card p-5 text-xs leading-relaxed shadow-2xs",
+        className
+      )}
+    >
+      {renderBlocks(content)}
+    </div>
+  )
+}
+
+type ListBuffer = { type: "ul" | "ol"; items: string[] }
+
+function parseTableRow(row: string): string[] {
+  return row
+    .split("|")
+    .slice(1, -1)
+    .map((cell) => cell.trim())
+}
+
+function renderBlocks(content: string): React.ReactNode[] {
   const lines = content.split("\n")
   const elements: React.ReactNode[] = []
 
-  let listBuffer: { type: "ul" | "ol"; items: string[] } | null = null
-  let tableBuffer: string[] | null = null
+  // Holder objek (bukan `let`) agar narrowing TypeScript tetap benar walau diubah di dalam closure flush*.
+  const list: { current: ListBuffer | null } = { current: null }
+  const table: { current: string[] | null } = { current: null }
   let inCodeBlock = false
   let codeBlockLang = ""
   let codeBlockContent: string[] = []
 
   const flushList = () => {
-    if (!listBuffer) return
-    const currentBuffer = listBuffer
-    listBuffer = null
-
-    if (currentBuffer.type === "ul") {
-      elements.push(
-        <ul key={`ul-${elements.length}`} className="my-3 space-y-1.5 pl-6 list-disc text-xs text-foreground/90">
-          {currentBuffer.items.map((item, idx) => (
-            <li key={idx} className="leading-relaxed">
-              {renderInlineMarkdown(item)}
-            </li>
-          ))}
-        </ul>
-      )
-    } else {
-      elements.push(
-        <ol key={`ol-${elements.length}`} className="my-3 space-y-1.5 pl-6 list-decimal text-xs text-foreground/90">
-          {currentBuffer.items.map((item, idx) => (
-            <li key={idx} className="leading-relaxed">
-              {renderInlineMarkdown(item)}
-            </li>
-          ))}
-        </ol>
-      )
-    }
+    if (!list.current) return
+    const { type, items } = list.current
+    list.current = null
+    const ListTag = type
+    elements.push(
+      <ListTag
+        key={`${type}-${elements.length}`}
+        className={cn("my-3 flex flex-col gap-1.5 pl-6 text-xs text-foreground/90", type === "ul" ? "list-disc" : "list-decimal")}
+      >
+        {items.map((item, idx) => (
+          <li key={idx} className="leading-relaxed">
+            {renderInlineMarkdown(item)}
+          </li>
+        ))}
+      </ListTag>
+    )
   }
 
   const flushTable = () => {
-    if (!tableBuffer || tableBuffer.length === 0) return
-    const currentTable = tableBuffer
-    tableBuffer = null
+    const rows = table.current
+    table.current = null
+    if (!rows || rows.length === 0) return
 
-    const parseRow = (rowStr: string) =>
-      rowStr
-        .split("|")
-        .slice(1, -1)
-        .map((cell) => cell.trim())
-
-    const headerCells = parseRow(currentTable[0])
+    const headerCells = parseTableRow(rows[0])
     // Baris kedua biasanya pemisah: |---|---|
-    const hasSeparator = currentTable.length > 1 && currentTable[1].includes("---")
-    const bodyRows = hasSeparator ? currentTable.slice(2) : currentTable.slice(1)
+    const bodyRows = rows.length > 1 && rows[1].includes("---") ? rows.slice(2) : rows.slice(1)
 
     elements.push(
       <div key={`table-${elements.length}`} className="my-4 overflow-x-auto rounded-lg border border-border shadow-2xs">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead className="bg-muted/70 text-foreground font-semibold border-b border-border">
+        <table className="w-full border-collapse text-left text-xs">
+          <thead className="border-b border-border bg-muted/70 font-semibold text-foreground">
             <tr>
               {headerCells.map((head, idx) => (
-                <th key={idx} className="p-2.5 font-medium border-r last:border-r-0 border-border/70">
+                <th key={idx} scope="col" className="border-r border-border/70 p-2.5 font-medium last:border-r-0">
                   {renderInlineMarkdown(head)}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60 bg-card">
-            {bodyRows.map((rowStr, rIdx) => {
-              const cells = parseRow(rowStr)
-              return (
-                <tr key={rIdx} className="hover:bg-muted/30 transition-colors">
-                  {cells.map((cell, cIdx) => (
-                    <td key={cIdx} className="p-2.5 border-r last:border-r-0 border-border/50 text-foreground/90">
-                      {renderInlineMarkdown(cell)}
-                    </td>
-                  ))}
-                </tr>
-              )
-            })}
+            {bodyRows.map((row, rowIdx) => (
+              <tr key={rowIdx}>
+                {parseTableRow(row).map((cell, cellIdx) => (
+                  <td key={cellIdx} className="border-r border-border/50 p-2.5 text-foreground/90 last:border-r-0">
+                    {renderInlineMarkdown(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
           </tbody>
         </table>
+      </div>
+    )
+  }
+
+  const pushCodeBlock = (key: string) => {
+    elements.push(
+      <div key={key} className="my-3 overflow-hidden rounded-lg border border-border bg-muted/40 shadow-2xs">
+        {codeBlockLang && (
+          <div className="border-b border-border/70 bg-muted/80 px-3 py-1 font-mono text-2xs font-semibold tracking-wider text-muted-foreground uppercase">
+            {codeBlockLang}
+          </div>
+        )}
+        <pre className="overflow-x-auto p-3.5 font-mono text-xs leading-relaxed text-foreground">
+          <code>{codeBlockContent.join("\n")}</code>
+        </pre>
       </div>
     )
   }
@@ -109,261 +137,182 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
     const rawLine = lines[i]
     const trimmed = rawLine.trim()
 
-    // 1. Fenced Code Blocks (```lang ... ```)
+    // 1. Fenced code block (```lang ... ```)
     if (trimmed.startsWith("```")) {
       if (inCodeBlock) {
-        // Akhir code block
-        elements.push(
-          <div key={`codeblock-${elements.length}`} className="my-3 rounded-lg overflow-hidden border border-border bg-muted/40 shadow-2xs">
-            {codeBlockLang && (
-              <div className="bg-muted/80 px-3 py-1 text-[10px] font-mono text-muted-foreground border-b border-border/70 uppercase tracking-wider font-semibold">
-                {codeBlockLang}
-              </div>
-            )}
-            <pre className="p-3.5 text-xs font-mono overflow-x-auto text-foreground leading-relaxed">
-              <code>{codeBlockContent.join("\n")}</code>
-            </pre>
-          </div>
-        )
+        pushCodeBlock(`code-${elements.length}`)
         inCodeBlock = false
         codeBlockLang = ""
         codeBlockContent = []
-        continue
       } else {
         flushList()
         flushTable()
         inCodeBlock = true
         codeBlockLang = trimmed.slice(3).trim()
         codeBlockContent = []
-        continue
       }
+      continue
     }
-
     if (inCodeBlock) {
       codeBlockContent.push(rawLine)
       continue
     }
 
-    // 2. Tabel Markdown (| col1 | col2 |)
+    // 2. Tabel (| kolom | kolom |)
     if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
       flushList()
-      if (!tableBuffer) {
-        tableBuffer = []
-      }
-      tableBuffer.push(trimmed)
+      table.current ??= []
+      table.current.push(trimmed)
       continue
-    } else {
-      flushTable()
     }
+    flushTable()
 
-    // 3. Baris Kosong
+    // 3. Baris kosong
     if (!trimmed) {
       flushList()
       continue
     }
 
-    // 4. Headings (#, ##, ###, ####)
-    if (trimmed.startsWith("#### ")) {
+    // 4. Heading (# → h2 agar h1 tetap milik PageHeader)
+    const heading = /^(#{1,4})\s+(.*)$/.exec(trimmed)
+    if (heading) {
       flushList()
-      elements.push(
-        <h5 key={`h5-${i}`} className="text-xs font-bold text-foreground mt-3.5 mb-1.5 flex items-center gap-1.5">
-          <span className="size-1.5 rounded-full bg-primary/70 shrink-0" />
-          {renderInlineMarkdown(trimmed.slice(5))}
-        </h5>
-      )
+      const level = heading[1].length
+      const text = renderInlineMarkdown(heading[2])
+      if (level === 1) {
+        elements.push(
+          <h2 key={`h-${i}`} className="mt-6 mb-3 border-b border-border pb-2 text-base font-extrabold text-foreground">
+            {text}
+          </h2>
+        )
+      } else if (level === 2) {
+        elements.push(
+          <h3 key={`h-${i}`} className="mt-5 mb-2 border-b border-border/70 pb-1.5 text-sm font-bold text-foreground">
+            {text}
+          </h3>
+        )
+      } else {
+        const HeadingTag = level === 3 ? "h4" : "h5"
+        elements.push(
+          <HeadingTag key={`h-${i}`} className="mt-4 mb-2 flex items-center gap-1.5 text-xs font-bold text-foreground">
+            <span aria-hidden="true" className={cn("shrink-0 rounded-full bg-primary", level === 3 ? "size-2" : "size-1.5 opacity-70")} />
+            {text}
+          </HeadingTag>
+        )
+      }
       continue
     }
 
-    if (trimmed.startsWith("### ")) {
-      flushList()
-      elements.push(
-        <h4 key={`h4-${i}`} className="text-xs font-bold text-foreground mt-4 mb-2 flex items-center gap-1.5">
-          <span className="size-2 rounded-full bg-primary shrink-0" />
-          {renderInlineMarkdown(trimmed.slice(4))}
-        </h4>
-      )
-      continue
-    }
-
-    if (trimmed.startsWith("## ")) {
-      flushList()
-      elements.push(
-        <h3 key={`h3-${i}`} className="text-sm font-bold text-foreground mt-5 mb-2 pb-1.5 border-b border-border/70">
-          {renderInlineMarkdown(trimmed.slice(3))}
-        </h3>
-      )
-      continue
-    }
-
-    if (trimmed.startsWith("# ")) {
-      flushList()
-      elements.push(
-        <h2 key={`h2-${i}`} className="text-base font-extrabold text-foreground mt-6 mb-3 pb-2 border-b border-border">
-          {renderInlineMarkdown(trimmed.slice(2))}
-        </h2>
-      )
-      continue
-    }
-
-    // 5. Horizontal Rule
+    // 5. Garis horizontal
     if (trimmed === "---" || trimmed === "***") {
       flushList()
       elements.push(<hr key={`hr-${i}`} className="my-4 border-border/80" />)
       continue
     }
 
-    // 6. Blockquote
+    // 6. Kutipan
     if (trimmed.startsWith("> ")) {
       flushList()
       elements.push(
-        <blockquote key={`bq-${i}`} className="border-l-3 border-primary bg-primary/5 pl-3 py-2 my-2.5 rounded-r text-xs italic text-foreground/80">
+        <blockquote key={`bq-${i}`} className="my-2.5 rounded-r border-l-3 border-primary bg-primary/5 py-2 pl-3 text-xs text-foreground/80 italic">
           {renderInlineMarkdown(trimmed.slice(2))}
         </blockquote>
       )
       continue
     }
 
-    // 7. Unordered List (- atau *)
-    const ulMatch = rawLine.match(/^(\s*)(?:-|\*)\s+(.*)$/)
-    if (ulMatch) {
-      const indent = ulMatch[1].length
-      const itemContent = ulMatch[2]
-      if (!listBuffer || listBuffer.type !== "ul") {
-        flushList()
-        listBuffer = { type: "ul", items: [] }
-      }
-      listBuffer.items.push(indent > 0 ? `  ${itemContent}` : itemContent)
+    // 7. Daftar tak berurut (- / *) dan berurut (1.)
+    const unordered = /^(\s*)(?:-|\*)\s+(.*)$/.exec(rawLine)
+    const ordered = unordered ? null : /^(\s*)\d+\.\s+(.*)$/.exec(rawLine)
+    const listMatch = unordered ?? ordered
+    if (listMatch) {
+      const type = unordered ? "ul" : "ol"
+      if (list.current?.type !== type) flushList()
+      list.current ??= { type, items: [] }
+      list.current.items.push(unordered && listMatch[1].length > 0 ? `  ${listMatch[2]}` : listMatch[2])
       continue
     }
 
-    // 8. Ordered List (1. 2. dll.)
-    const olMatch = rawLine.match(/^(\s*)\d+\.\s+(.*)$/)
-    if (olMatch) {
-      const itemContent = olMatch[2]
-      if (!listBuffer || listBuffer.type !== "ol") {
-        flushList()
-        listBuffer = { type: "ol", items: [] }
-      }
-      listBuffer.items.push(itemContent)
-      continue
-    }
-
-    // 9. Paragraf Normal
+    // 8. Paragraf
     flushList()
     elements.push(
-      <p key={`p-${i}`} className="text-xs leading-relaxed text-foreground/85 my-2">
+      <p key={`p-${i}`} className="my-2 text-xs leading-relaxed text-foreground/85">
         {renderInlineMarkdown(trimmed)}
       </p>
     )
   }
 
-  // Bersihkan buffer sisa jika ada
   flushList()
   flushTable()
+  if (inCodeBlock && codeBlockContent.length > 0) pushCodeBlock("code-final")
 
-  if (inCodeBlock && codeBlockContent.length > 0) {
-    elements.push(
-      <div key={`codeblock-final`} className="my-3 rounded-lg overflow-hidden border border-border bg-muted/40 shadow-2xs">
-        <pre className="p-3 text-xs font-mono overflow-x-auto text-foreground">
-          <code>{codeBlockContent.join("\n")}</code>
-        </pre>
-      </div>
-    )
-  }
-
-  return (
-    <div
-      className={cn(
-        "article-rendered prose dark:prose-invert max-w-none text-xs leading-relaxed p-5 rounded-lg bg-card border border-border/80 min-h-[480px] overflow-y-auto shadow-2xs",
-        className
-      )}
-    >
-      {elements}
-    </div>
-  )
+  return elements
 }
 
-/**
- * Helper untuk merender inline formatting: code tags (`code`), links ([text](url)), bold (**bold**), italic (*italic*)
- */
-function renderInlineMarkdown(text: string): React.ReactNode {
-  // 1. Tangani inline code blocks `...`
-  const codeParts = text.split(/(`[^`]+`)/g)
+const LINK_PATTERN = /\[([^\]]+)\]\(([^)]+)\)/g
 
-  return codeParts.map((part, pIdx) => {
+/** Inline: `kode`, [tautan](url) tersaring, **tebal**, *miring*. */
+function renderInlineMarkdown(text: string): React.ReactNode {
+  return text.split(/(`[^`]+`)/g).map((part, partIdx) => {
     if (part.startsWith("`") && part.endsWith("`") && part.length > 2) {
-      const codeContent = part.slice(1, -1)
       return (
         <code
-          key={`code-${pIdx}`}
-          className="bg-primary/10 text-primary border border-primary/20 px-1.5 py-0.5 rounded font-mono text-[11px] font-semibold mx-0.5 inline-block shadow-2xs"
+          key={`code-${partIdx}`}
+          className="mx-0.5 inline-block rounded border border-primary/20 bg-primary/10 px-1.5 py-0.5 font-mono text-xs font-semibold text-primary shadow-2xs"
         >
-          {codeContent}
+          {part.slice(1, -1)}
         </code>
       )
     }
 
-    // 2. Tangani Markdown Link: [text](url)
-    const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g
-    const subParts: React.ReactNode[] = []
+    const nodes: React.ReactNode[] = []
     let lastIndex = 0
-    let match: RegExpExecArray | null
-
-    while ((match = linkRegex.exec(part)) !== null) {
-      if (match.index > lastIndex) {
-        subParts.push(renderBoldAndItalic(part.substring(lastIndex, match.index), `${pIdx}-${lastIndex}`))
-      }
-      const linkText = match[1]
-      const linkUrl = match[2]
-      subParts.push(
-        <a
-          key={`link-${pIdx}-${match.index}`}
-          href={linkUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline underline-offset-2 font-medium hover:opacity-80 transition-opacity"
-        >
-          {linkText}
-        </a>
-      )
-      lastIndex = linkRegex.lastIndex
+    for (const match of part.matchAll(LINK_PATTERN)) {
+      const index = match.index ?? 0
+      if (index > lastIndex) nodes.push(renderBoldAndItalic(part.slice(lastIndex, index), `${partIdx}-${lastIndex}`))
+      nodes.push(renderLink(match[1], match[2].trim(), `link-${partIdx}-${index}`))
+      lastIndex = index + match[0].length
     }
+    if (lastIndex < part.length) nodes.push(renderBoldAndItalic(part.slice(lastIndex), `${partIdx}-${lastIndex}`))
 
-    if (lastIndex < part.length) {
-      subParts.push(renderBoldAndItalic(part.substring(lastIndex), `${pIdx}-${lastIndex}`))
-    }
-
-    return <React.Fragment key={`sub-${pIdx}`}>{subParts}</React.Fragment>
+    return <React.Fragment key={`part-${partIdx}`}>{nodes}</React.Fragment>
   })
 }
 
-/**
- * Sub-helper untuk format bold & italic
- */
-function renderBoldAndItalic(text: string, baseKey: string): React.ReactNode {
-  // Pisahkan **bold**
-  const boldParts = text.split(/(\*\*[^*]+\*\*)/g)
+/** Tautan hanya bila URL aman; internal (`/…`, `#…`) di tab yang sama, eksternal di tab baru. */
+function renderLink(label: string, href: string, key: string): React.ReactNode {
+  if (!isSafeUrl(href, "link")) return <React.Fragment key={key}>{renderBoldAndItalic(label, key)}</React.Fragment>
+  const isInternal = (href.startsWith("/") && !href.startsWith("//")) || href.startsWith("#")
+  return (
+    <a
+      key={key}
+      href={href}
+      {...(isInternal ? {} : { target: "_blank", rel: "noopener noreferrer nofollow" })}
+      className="font-medium text-primary underline underline-offset-2 transition-opacity hover:opacity-80"
+    >
+      {renderBoldAndItalic(label, key)}
+    </a>
+  )
+}
 
-  return boldParts.map((bPart, bIdx) => {
-    if (bPart.startsWith("**") && bPart.endsWith("**") && bPart.length > 4) {
+function renderBoldAndItalic(text: string, baseKey: string): React.ReactNode {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((boldPart, boldIdx) => {
+    if (boldPart.startsWith("**") && boldPart.endsWith("**") && boldPart.length > 4) {
       return (
-        <strong key={`b-${baseKey}-${bIdx}`} className="font-bold text-foreground">
-          {bPart.slice(2, -2)}
+        <strong key={`b-${baseKey}-${boldIdx}`} className="font-bold text-foreground">
+          {boldPart.slice(2, -2)}
         </strong>
       )
     }
-
-    // Pisahkan *italic*
-    const italicParts = bPart.split(/(\*[^*]+\*)/g)
-    return italicParts.map((iPart, iIdx) => {
-      if (iPart.startsWith("*") && iPart.endsWith("*") && iPart.length > 2) {
+    return boldPart.split(/(\*[^*]+\*)/g).map((italicPart, italicIdx) => {
+      if (italicPart.startsWith("*") && italicPart.endsWith("*") && italicPart.length > 2) {
         return (
-          <em key={`i-${baseKey}-${bIdx}-${iIdx}`} className="italic text-foreground/90">
-            {iPart.slice(1, -1)}
+          <em key={`i-${baseKey}-${boldIdx}-${italicIdx}`} className="text-foreground/90 italic">
+            {italicPart.slice(1, -1)}
           </em>
         )
       }
-      return iPart
+      return italicPart
     })
   })
 }

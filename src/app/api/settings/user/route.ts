@@ -1,6 +1,6 @@
 import { defineRoute } from "@/server/http/route"
 import { getUserSettings, updateUserSettings } from "@/server/services/settings"
-import { UpdateUserSettingsBodySchema } from "@/server/validation/settings"
+import { UpdateUserSettingsBodySchema } from "@/lib/validation/settings"
 
 // GET /api/settings/user — status kunci BYOK (tersamar) & preferensi pengguna; nilai kunci tidak pernah dikirim
 export const GET = defineRoute({ auth: "user" }, async ({ supabase, user }) => getUserSettings(supabase, user.id))

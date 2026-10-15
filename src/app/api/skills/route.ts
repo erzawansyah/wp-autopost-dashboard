@@ -1,5 +1,5 @@
 import { defineRoute } from "@/server/http/route"
-import { CreateSkillBodySchema } from "@/server/validation/skills"
+import { CreateSkillBodySchema } from "@/lib/validation/skills"
 import { createSkill, listSkills } from "@/server/services/skills"
 
 // GET /api/skills - Skill sistem + skill kustom milik pengguna

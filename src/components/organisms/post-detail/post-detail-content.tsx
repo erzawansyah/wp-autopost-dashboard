@@ -1,265 +1,206 @@
 "use client"
 
 import * as React from "react"
-import { Card, CardContent, CardHeader } from "@/components/atoms/card"
-import { Button } from "@/components/atoms/button"
+import { BookOpen, Check, Clock, Code2, Copy, ExternalLink, FileText, Folder, Sparkles, Tag } from "lucide-react"
 import { Badge } from "@/components/atoms/badge"
+import { Button } from "@/components/atoms/button"
+import { Card, CardContent, CardHeader } from "@/components/atoms/card"
 import { Skeleton } from "@/components/atoms/skeleton"
-import { cn } from "@/lib/utils"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/atoms/tabs"
 import { useSanitizedHtml } from "@/lib/sanitize-html"
-import {
-  FileText,
-  Copy,
-  Check,
-  Code2,
-  Clock,
-  Tag,
-  Folder,
-  Sparkles,
-  ExternalLink,
-  BookOpen,
-} from "lucide-react"
+import { notify } from "@/lib/ui/notify"
+import type { PostDetail } from "@/types/posts"
 
-interface PostDetailContentProps {
-  title: string | null
-  targetKeyword: string
-  contentHtml: string | null
-  excerpt: string | null
-  categories?: string[] | null
-  tags?: string[] | null
-  customInstructions?: string | null
-  wpPostUrl?: string | null
-  className?: string
+type ViewMode = "preview" | "gutenberg" | "instructions"
+
+/** Teks polos dari markup Gutenberg (untuk hitung kata & salin teks). */
+function toPlainText(html: string): string {
+  return html.replace(/<!--[\s\S]*?-->/g, " ").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim()
 }
 
+function useCopyFeedback() {
+  const [copied, setCopied] = React.useState<string | null>(null)
+  async function copy(key: string, text: string) {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(key)
+      window.setTimeout(() => setCopied((current) => (current === key ? null : current)), 2000)
+    } catch {
+      notify.error("Gagal menyalin ke clipboard.")
+    }
+  }
+  return { copied, copy }
+}
+
+/**
+ * Naskah artikel: ringkasan & taksonomi, pratinjau HTML (WAJIB lewat `useSanitizedHtml` — DOMPurify,
+ * null saat SSR/hidrasi), kode Gutenberg mentah (di-escape React), dan instruksi khusus.
+ */
 export function PostDetailContent({
-  title,
-  targetKeyword,
-  contentHtml,
-  excerpt,
-  categories = [],
-  tags = [],
-  customInstructions,
-  wpPostUrl,
-  className,
-}: PostDetailContentProps) {
-  const [viewMode, setViewMode] = React.useState<"preview" | "gutenberg" | "instructions">("preview")
-  const [copiedContent, setCopiedContent] = React.useState(false)
-  const [copiedGutenberg, setCopiedGutenberg] = React.useState(false)
-  // HTML hasil LLM wajib disanitasi; null selama SSR/hidrasi (tampilkan placeholder).
+  post,
+}: {
+  post: Pick<PostDetail, "title" | "target_keyword" | "content_html" | "excerpt" | "categories" | "tags" | "custom_instructions_override" | "wp_post_url">
+}) {
+  const [viewMode, setViewMode] = React.useState<ViewMode>("preview")
+  const { copied, copy } = useCopyFeedback()
+  const contentHtml = post.content_html
   const safeContentHtml = useSanitizedHtml(contentHtml)
-
-  // Estimasi jumlah kata dan durasi baca
-  const wordCount = React.useMemo(() => {
-    if (!contentHtml) return 0
-    const plainText = contentHtml.replace(/<[^>]*>/g, " ")
-    return plainText.trim().split(/\s+/).filter(Boolean).length
-  }, [contentHtml])
-
-  const readingTimeMinutes = Math.max(1, Math.round(wordCount / 200))
-
-  const handleCopyText = () => {
-    if (!contentHtml) return
-    const plainText = contentHtml.replace(/<[^>]*>/g, " ")
-    navigator.clipboard.writeText(plainText)
-    setCopiedContent(true)
-    setTimeout(() => setCopiedContent(false), 2000)
-  }
-
-  const handleCopyGutenberg = () => {
-    if (!contentHtml) return
-    navigator.clipboard.writeText(contentHtml)
-    setCopiedGutenberg(true)
-    setTimeout(() => setCopiedGutenberg(false), 2000)
-  }
+  const plainText = React.useMemo(() => (contentHtml ? toPlainText(contentHtml) : ""), [contentHtml])
+  const wordCount = plainText ? plainText.split(" ").length : 0
+  const readingMinutes = Math.max(1, Math.round(wordCount / 200))
+  const categories = post.categories ?? []
+  const tags = post.tags ?? []
 
   return (
-    <div className={cn("flex flex-col gap-5", className)}>
-      {/* Kartu Ringkasan Naskah & Taksonomi */}
-      <Card className="border-border/80 bg-card shadow-2xs overflow-hidden">
-        <CardContent className="p-4 sm:p-5 flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border/60 pb-4">
-            <div className="flex flex-col gap-1 min-w-0">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Judul Artikel
-              </span>
-              <h1 className="text-lg sm:text-xl font-bold text-foreground leading-snug">
-                {title || targetKeyword}
-              </h1>
+    <div className="flex flex-col gap-5">
+      <Card className="overflow-hidden border-border/80 shadow-2xs">
+        <CardContent className="flex flex-col gap-4 p-4 sm:p-5">
+          <div className="flex flex-col justify-between gap-3 border-b border-border/60 pb-4 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-col gap-1">
+              <span className="font-mono text-2xs font-semibold tracking-wider text-muted-foreground uppercase">Judul artikel</span>
+              <h2 className="text-lg leading-snug font-bold text-foreground sm:text-xl">{post.title || post.target_keyword}</h2>
             </div>
+            {post.wp_post_url && (
+              <Button asChild size="xs" className="shrink-0 gap-1.5">
+                <a href={post.wp_post_url} target="_blank" rel="noopener noreferrer">
+                  Lihat di WordPress
+                  <ExternalLink aria-hidden="true" className="size-3" />
+                </a>
+              </Button>
+            )}
+          </div>
 
-            <div className="flex items-center gap-2 flex-wrap shrink-0">
-              {wpPostUrl && (
-                <Button asChild size="xs" variant="default" className="gap-1.5 cursor-pointer">
-                  <a href={wpPostUrl} target="_blank" rel="noopener noreferrer">
-                    <span>Lihat di WordPress</span>
-                    <ExternalLink className="size-3" />
-                  </a>
-                </Button>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+            <span>
+              Kata kunci: <strong className="text-foreground">{post.target_keyword}</strong>
+            </span>
+            {wordCount > 0 && (
+              <>
+                <span className="flex items-center gap-1.5 border-l border-border/60 pl-3">
+                  <BookOpen aria-hidden="true" className="size-3.5" />
+                  {wordCount.toLocaleString("id-ID")} kata
+                </span>
+                <span className="flex items-center gap-1.5 border-l border-border/60 pl-3">
+                  <Clock aria-hidden="true" className="size-3.5" />~{readingMinutes} menit baca
+                </span>
+              </>
+            )}
+          </div>
+
+          {(categories.length > 0 || tags.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/40 pt-3">
+              {categories.length > 0 && (
+                <div className="mr-2 flex flex-wrap items-center gap-1.5">
+                  <Folder aria-hidden="true" className="size-3 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Kategori:</span>
+                  {categories.map((category) => (
+                    <Badge key={category} variant="secondary" className="text-xs font-medium">
+                      {category}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              {tags.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <Tag aria-hidden="true" className="size-3 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Tag:</span>
+                  {tags.map((tag) => (
+                    <Badge key={tag} variant="outline" className="font-mono text-xs text-muted-foreground">
+                      #{tag}
+                    </Badge>
+                  ))}
+                </div>
               )}
             </div>
-          </div>
+          )}
 
-          {/* Metadata Badges */}
-          <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
-            <div className="flex items-center gap-1.5">
-              <span>
-                Kata Kunci: <strong className="text-foreground">{targetKeyword}</strong>
-              </span>
-            </div>
-
-            {wordCount > 0 && (
-              <div className="flex items-center gap-1.5 border-l border-border/60 pl-3">
-                <BookOpen className="size-3.5 text-muted-foreground" />
-                <span>{wordCount.toLocaleString("id-ID")} kata</span>
-              </div>
-            )}
-
-            {wordCount > 0 && (
-              <div className="flex items-center gap-1.5 border-l border-border/60 pl-3">
-                <Clock className="size-3.5 text-muted-foreground" />
-                <span>~{readingTimeMinutes} menit baca</span>
-              </div>
-            )}
-          </div>
-
-          {/* Kategori & Tag */}
-          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-border/40">
-            {categories && categories.length > 0 && (
-              <div className="flex items-center gap-1.5 mr-2">
-                <Folder className="size-3 text-muted-foreground" />
-                <span className="text-[11px] text-muted-foreground">Kategori:</span>
-                {categories.map((cat, i) => (
-                  <Badge key={i} variant="secondary" className="text-[10px] font-medium">
-                    {cat}
-                  </Badge>
-                ))}
-              </div>
-            )}
-
-            {tags && tags.length > 0 && (
-              <div className="flex items-center gap-1.5">
-                <Tag className="size-3 text-muted-foreground" />
-                <span className="text-[11px] text-muted-foreground">Tag:</span>
-                {tags.map((tag, i) => (
-                  <Badge key={i} variant="outline" className="text-[10px] font-mono text-muted-foreground">
-                    #{tag}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Box Excerpt / Ringkasan jika ada */}
-          {excerpt && (
-            <div className="rounded-lg border border-border/70 bg-muted/20 p-3 flex flex-col gap-1 text-xs">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                Ringkasan / Excerpt
-              </span>
-              <p className="text-foreground/90 italic leading-relaxed">{excerpt}</p>
+          {post.excerpt && (
+            <div className="flex flex-col gap-1 rounded-lg border border-border/70 bg-muted/20 p-3 text-xs">
+              <span className="font-mono text-2xs font-bold tracking-wider text-muted-foreground uppercase">Ringkasan / excerpt</span>
+              <p className="leading-relaxed text-foreground/90 italic">{post.excerpt}</p>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Konten Naskah Utama dengan Pilihan Tampilan */}
-      <Card className="border-border/80 bg-card shadow-2xs overflow-hidden">
-        <CardHeader className="py-3 px-4 border-b border-border/60 bg-muted/20">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 bg-background p-1 rounded-lg border border-border/80">
-              <Button
-                size="xs"
-                variant={viewMode === "preview" ? "default" : "ghost"}
-                onClick={() => setViewMode("preview")}
-                className="gap-1.5 text-xs h-7 cursor-pointer"
-              >
-                <FileText className="size-3.5" />
-                <span>Baca Naskah</span>
-              </Button>
-              <Button
-                size="xs"
-                variant={viewMode === "gutenberg" ? "default" : "ghost"}
-                onClick={() => setViewMode("gutenberg")}
-                className="gap-1.5 text-xs h-7 cursor-pointer"
-              >
-                <Code2 className="size-3.5" />
-                <span>Kode Gutenberg</span>
-              </Button>
-              {customInstructions && (
-                <Button
-                  size="xs"
-                  variant={viewMode === "instructions" ? "default" : "ghost"}
-                  onClick={() => setViewMode("instructions")}
-                  className="gap-1.5 text-xs h-7 cursor-pointer"
-                >
-                  <Sparkles className="size-3.5" />
-                  <span>Instruksi Khusus</span>
-                </Button>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              {viewMode === "preview" && (
+      <Card className="overflow-hidden border-border/80 shadow-2xs">
+        <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as ViewMode)}>
+          <CardHeader className="border-b border-border/60 bg-muted/20 px-4 py-3">
+            <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+              <TabsList>
+                <TabsTrigger value="preview" className="gap-1.5 text-xs">
+                  <FileText aria-hidden="true" className="size-3.5" />
+                  Baca naskah
+                </TabsTrigger>
+                <TabsTrigger value="gutenberg" className="gap-1.5 text-xs">
+                  <Code2 aria-hidden="true" className="size-3.5" />
+                  Kode Gutenberg
+                </TabsTrigger>
+                {post.custom_instructions_override && (
+                  <TabsTrigger value="instructions" className="gap-1.5 text-xs">
+                    <Sparkles aria-hidden="true" className="size-3.5" />
+                    Instruksi khusus
+                  </TabsTrigger>
+                )}
+              </TabsList>
+              {contentHtml && viewMode !== "instructions" && (
                 <Button
                   size="xs"
                   variant="outline"
-                  onClick={handleCopyText}
-                  className="gap-1.5 text-xs h-7 cursor-pointer"
+                  onClick={() => void copy(viewMode, viewMode === "preview" ? plainText : contentHtml)}
+                  className="gap-1.5 self-start sm:self-auto"
                 >
-                  {copiedContent ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
-                  <span>{copiedContent ? "Tersalin" : "Salin Teks"}</span>
-                </Button>
-              )}
-              {viewMode === "gutenberg" && (
-                <Button
-                  size="xs"
-                  variant="outline"
-                  onClick={handleCopyGutenberg}
-                  className="gap-1.5 text-xs h-7 cursor-pointer"
-                >
-                  {copiedGutenberg ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
-                  <span>{copiedGutenberg ? "Tersalin" : "Salin Kode"}</span>
+                  {copied === viewMode ? (
+                    <Check aria-hidden="true" className="size-3 text-success-strong" />
+                  ) : (
+                    <Copy aria-hidden="true" className="size-3" />
+                  )}
+                  {copied === viewMode ? "Tersalin" : viewMode === "preview" ? "Salin teks" : "Salin kode"}
                 </Button>
               )}
             </div>
-          </div>
-        </CardHeader>
+          </CardHeader>
 
-        <CardContent className="p-5">
-          {!contentHtml ? (
-            <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground text-xs gap-2">
-              <FileText className="size-8 text-primary animate-pulse" />
-              <span className="font-semibold text-foreground">Naskah sedang ditulis...</span>
-              <p className="text-[11px] max-w-sm">
-                Artikel lengkap akan tampil otomatis di sini begitu proses penulisan selesai.
-              </p>
-            </div>
-          ) : viewMode === "preview" ? (
-            safeContentHtml === null ? (
-              <div className="flex flex-col gap-2.5" aria-busy="true" aria-label="Menyiapkan pratinjau naskah">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-5/6" />
+          <CardContent className="p-5">
+            {!contentHtml ? (
+              <div role="status" className="flex flex-col items-center justify-center gap-2 p-12 text-center text-xs text-muted-foreground">
+                <FileText aria-hidden="true" className="size-8 animate-pulse text-primary motion-reduce:animate-none" />
+                <span className="font-semibold text-foreground">Naskah sedang ditulis…</span>
+                <p className="max-w-sm">Artikel lengkap tampil otomatis di sini begitu proses penulisan selesai.</p>
               </div>
             ) : (
-              <div
-                className="prose prose-neutral dark:prose-invert max-w-none text-foreground text-sm leading-relaxed"
-                dangerouslySetInnerHTML={{ __html: safeContentHtml }}
-              />
-            )
-          ) : viewMode === "gutenberg" ? (
-            <pre className="max-h-[600px] overflow-auto rounded-lg bg-muted/60 p-4 font-mono text-[11px] leading-relaxed text-foreground border border-border select-all whitespace-pre-wrap">
-              {contentHtml}
-            </pre>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-semibold text-foreground">Instruksi Khusus / Custom Brief:</span>
-              <pre className="rounded-lg bg-muted/40 p-3 font-mono text-xs leading-relaxed text-foreground border border-border/70 whitespace-pre-wrap">
-                {customInstructions}
-              </pre>
-            </div>
-          )}
-        </CardContent>
+              <>
+                <TabsContent value="preview" className="mt-0">
+                  {safeContentHtml === null ? (
+                    <div className="flex flex-col gap-2.5" aria-busy="true" aria-label="Menyiapkan pratinjau naskah">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-5/6" />
+                    </div>
+                  ) : (
+                    <div
+                      className="prose prose-neutral dark:prose-invert max-w-none text-sm leading-relaxed text-foreground"
+                      dangerouslySetInnerHTML={{ __html: safeContentHtml }}
+                    />
+                  )}
+                </TabsContent>
+                <TabsContent value="gutenberg" className="mt-0">
+                  <pre className="max-h-150 overflow-auto rounded-lg border border-border bg-muted/60 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap text-foreground select-all">
+                    {contentHtml}
+                  </pre>
+                </TabsContent>
+              </>
+            )}
+            {post.custom_instructions_override && (
+              <TabsContent value="instructions" className="mt-0 flex flex-col gap-2">
+                <span className="text-xs font-semibold text-foreground">Instruksi khusus / custom brief:</span>
+                <pre className="rounded-lg border border-border/70 bg-muted/40 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-foreground">
+                  {post.custom_instructions_override}
+                </pre>
+              </TabsContent>
+            )}
+          </CardContent>
+        </Tabs>
       </Card>
     </div>
   )

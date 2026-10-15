@@ -1,89 +1,53 @@
-"use client"
-
-import * as React from "react"
-import { useSearchParams } from "next/navigation"
-import { PageContainer } from "@/components/templates/page-container"
-import { PageHeader } from "@/components/molecules/page-header"
-import { AgentProfileEditor, type AgentProfileInitialData } from "@/components/organisms/agents/agent-profile-editor"
+import { notFound } from "next/navigation"
+import { Copy, Plus } from "lucide-react"
 import { Badge } from "@/components/atoms/badge"
-import { Plus, Loader2 } from "lucide-react"
+import { PageHeader } from "@/components/molecules/page-header"
+import { AgentProfileEditor } from "@/components/organisms/agents/agent-profile-editor"
+import { PageContainer } from "@/components/templates/page-container"
+import { toSkillSummary } from "@/lib/agents/catalog"
+import { requireSession } from "@/lib/auth/session"
+import { AgentRefParamsSchema, agentProfileFormValues, newAgentProfileFormValues } from "@/lib/validation/agents"
+import { defaultAgentWorkflowPrompt, findAgentProfile } from "@/server/services/agents"
+import { listSkills } from "@/server/services/skills"
 
-function NewAgentProfileContent() {
-  const searchParams = useSearchParams()
-  const cloneFrom = searchParams.get("cloneFrom")
+export const metadata = { title: "Profil Agen Baru" }
 
-  const [initialData, setInitialData] = React.useState<AgentProfileInitialData | null>(null)
-  const [loading, setLoading] = React.useState(Boolean(cloneFrom))
+interface NewAgentProfilePageProps {
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}
 
-  React.useEffect(() => {
-    if (!cloneFrom) return
+/** Buat Agent Profile baru, atau kloning profil bawaan/kustom lewat `?cloneFrom=<ref>`. */
+export default async function NewAgentProfilePage({ searchParams }: NewAgentProfilePageProps) {
+  const { cloneFrom } = await searchParams
+  const cloneRef = typeof cloneFrom === "string" ? AgentRefParamsSchema.safeParse({ id: cloneFrom }) : null
+  if (cloneRef && !cloneRef.success) notFound()
 
-    async function loadCloneData() {
-      try {
-        const res = await fetch(`/api/agents/${encodeURIComponent(cloneFrom as string)}`)
-        if (res.ok) {
-          const data = await res.json()
-          if (data.profile) {
-            setInitialData({
-              name: `${data.profile.name} (Salinan)`,
-              description: data.profile.description,
-              mode: data.profile.mode,
-              temperature: data.profile.temperature,
-              workflowPrompt: data.profile.workflowPrompt,
-              toolIds: data.profile.toolIds,
-              limits: data.profile.limits,
-              isDefault: false,
-            })
-          }
-        }
-      } catch (err) {
-        console.error("Gagal memuat preset untuk dikloning:", err)
-      } finally {
-        setLoading(false)
-      }
-    }
+  const { supabase, user } = await requireSession()
+  const [source, skills] = await Promise.all([
+    cloneRef?.success ? findAgentProfile(supabase, user.id, cloneRef.data.id) : null,
+    listSkills(supabase, user.id),
+  ])
+  if (cloneRef && !source) notFound()
 
-    loadCloneData()
-  }, [cloneFrom])
+  const defaultValues = source
+    ? agentProfileFormValues(source, { clone: true })
+    : newAgentProfileFormValues(defaultAgentWorkflowPrompt())
 
   return (
-    <>
+    <PageContainer>
       <PageHeader
-        title={cloneFrom ? "Kloning Profil Agen" : "Buat Profil Agen Baru"}
-        description="Konfigurasikan tools yang diizinkan, instruksi alur kerja, dan batasan komputasi untuk agen otonom."
-        icon={Plus}
+        title={source ? `Kloning: ${source.name}` : "Buat Profil Agen Baru"}
+        description="Atur tools yang diizinkan, instruksi alur kerja, dan batas komputasi untuk Agent Profile otonom."
+        icon={source ? Copy : Plus}
+        backHref="/agents"
+        backLabel="Daftar profil agen"
         badge={
-          <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider border-primary/30 text-primary">
-            {cloneFrom ? "Cloning Mode" : "New Profile"}
+          <Badge variant="outline" className="border-primary/30 font-mono text-2xs tracking-wider text-primary uppercase">
+            {source ? "Kloning" : "Profil baru"}
           </Badge>
         }
       />
-
-      {loading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
-          <Loader2 className="size-6 animate-spin text-primary" />
-          <span className="text-xs">Menyiapkan konfigurasi awal profil...</span>
-        </div>
-      ) : (
-        <AgentProfileEditor initialData={initialData || undefined} isEditing={false} />
-      )}
-    </>
-  )
-}
-
-export default function NewAgentProfilePage() {
-  return (
-    <PageContainer size="default">
-      <React.Suspense
-        fallback={
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
-            <Loader2 className="size-6 animate-spin text-primary" />
-            <span className="text-xs">Memuat formulir agen...</span>
-          </div>
-        }
-      >
-        <NewAgentProfileContent />
-      </React.Suspense>
+      <AgentProfileEditor defaultValues={defaultValues} skills={skills.map(toSkillSummary)} />
     </PageContainer>
   )
 }

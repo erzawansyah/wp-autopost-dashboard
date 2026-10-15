@@ -4,7 +4,7 @@ Sistem penulisan di Panitera tidak menggunakan alur kaku berbasis template teks 
 
 ---
 
-## 1. Jenis Engine Agen
+## 1. Mode Agent Profile
 
 Saat membuat profil agen baru di menu **Profil Agen** (`/agents`), Anda dapat memilih salah satu dari dua mode:
 

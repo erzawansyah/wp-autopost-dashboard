@@ -1,54 +1,19 @@
-import { z } from "zod"
+import type { z } from "zod"
 import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import { badRequest, throwIfDbError } from "@/server/http/errors"
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
-import { UuidSchema } from "@/lib/validation/common"
+import { CreateBatchBodySchema, MAX_BATCH_ITEMS } from "@/lib/validation/batches"
+import { OptionalTextSchema, QUICK_WRITER_BATCH_ID } from "@/lib/validation/queue"
 import { listBatchesWithQuickWriter } from "@/server/queue/batches"
 import { nudgeQueueRunner } from "@/server/queue/embedded"
 import { createBatch, type BatchItemInput } from "@/server/queue/enqueue"
-import {
-  BatchItemSchema,
-  BatchRefSchema,
-  CategoryIdListSchema,
-  InstantScheduleSchema,
-  IntervalScheduleSchema,
-  ListLimitSchema,
-  OptionalTextSchema,
-  RandomScheduleSchema,
-  ReasoningEffortSchema,
-  TagListSchema,
-} from "@/server/queue/schemas"
+import { DeleteBatchBodySchema, DeleteBatchQuerySchema, RecentListQuerySchema } from "@/server/queue/schemas"
 
-/** Batas baris per batch (sama dengan validasi form). */
-const MAX_BATCH_ITEMS = 50
+/** Kompatibilitas klien lama: field legacy dipetakan ke Agent Profile bila `agentProfileRef` kosong. */
+const CreateBatchRouteBodySchema = CreateBatchBodySchema.extend({ engine: OptionalTextSchema(50) })
 
-const CreateBatchBodySchema = z.object({
-  siteId: UuidSchema,
-  batchName: OptionalTextSchema(200),
-  keywords: z.array(z.string().max(300)).max(500).nullish(),
-  items: z.array(BatchItemSchema).max(500).nullish(),
-  executionMode: z
-    .string()
-    .nullish()
-    .transform((mode) => (mode === "scheduled_drip" ? "scheduled_drip" : "immediate")),
-  scheduleMode: z.enum(["random", "interval", "instant"]).default("interval"),
-  randomConfig: RandomScheduleSchema.nullish().transform((value) => value ?? undefined),
-  intervalConfig: IntervalScheduleSchema.nullish().transform((value) => value ?? undefined),
-  instantConfig: InstantScheduleSchema.nullish().transform((value) => value ?? undefined),
-  targetStatus: z.enum(["publish", "draft", "future"]).optional(),
-  agentProfileRef: OptionalTextSchema(200),
-  engine: OptionalTextSchema(50),
-  language: OptionalTextSchema(10),
-  aiModel: OptionalTextSchema(200),
-  reasoningEffort: ReasoningEffortSchema,
-  category_ids: CategoryIdListSchema,
-  category_names: z.array(z.string().trim().max(200)).max(50).nullish(),
-  tags: TagListSchema,
-  customBrief: OptionalTextSchema(10_000),
-})
-
-type CreateBatchBody = z.output<typeof CreateBatchBodySchema>
+type CreateBatchBody = z.output<typeof CreateBatchRouteBodySchema>
 
 /** Baris terstruktur (`items`) diutamakan; selain itu daftar `keywords` biasa. */
 function collectBatchItems(body: CreateBatchBody): BatchItemInput[] {
@@ -70,7 +35,7 @@ function collectBatchItems(body: CreateBatchBody): BatchItemInput[] {
 // POST /api/batches — buat batch + seluruh item `queued_input`, lalu bangunkan runner antrean.
 export const POST = defineRoute(
   // Batas body mengikuti batas skema: 500 item × field maksimal ≈ 9 MB (default 1 MB terlalu kecil untuk batch besar).
-  { auth: "user", body: CreateBatchBodySchema, rateLimit: RATE_LIMITS.enqueue, maxBodyBytes: 10 * 1024 * 1024 },
+  { auth: "user", body: CreateBatchRouteBodySchema, rateLimit: RATE_LIMITS.enqueue, maxBodyBytes: 10 * 1024 * 1024 },
   async ({ supabase, user, body }) => {
     const items = collectBatchItems(body)
     if (items.length === 0) {
@@ -111,12 +76,9 @@ export const POST = defineRoute(
 
 // GET /api/batches — daftar batch milik pengguna + grup virtual "Tulis Cepat" (item tanpa batch).
 export const GET = defineRoute(
-  { auth: "user", query: z.object({ limit: ListLimitSchema(20, 100) }) },
+  { auth: "user", query: RecentListQuerySchema },
   async ({ supabase, user, query }) => ({ batches: await listBatchesWithQuickWriter(supabase, user.id, query.limit) })
 )
-
-const DeleteBatchQuerySchema = z.object({ id: BatchRefSchema.optional() })
-const DeleteBatchBodySchema = z.object({ id: BatchRefSchema.optional() })
 
 // DELETE /api/batches?id=<uuid|quick-writer> — hapus batch beserta seluruh itemnya (id juga boleh di body).
 export const DELETE = defineRoute(
@@ -125,7 +87,7 @@ export const DELETE = defineRoute(
     const batchId = query.id ?? body.id
     if (!batchId) throw badRequest("ID Batch wajib disertakan.")
 
-    if (batchId === "quick-writer") {
+    if (batchId === QUICK_WRITER_BATCH_ID) {
       const { error } = await supabase.from("post_items").delete().is("batch_id", null).eq("user_id", user.id)
       throwIfDbError(error)
       return { message: "Seluruh riwayat artikel Tulis Cepat berhasil dihapus." }

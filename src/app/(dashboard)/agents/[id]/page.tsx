@@ -1,73 +1,47 @@
-"use client"
-
-import * as React from "react"
-import { useParams } from "next/navigation"
-import { PageContainer } from "@/components/templates/page-container"
-import { PageHeader } from "@/components/molecules/page-header"
-import { AgentProfileEditor, type AgentProfileInitialData } from "@/components/organisms/agents/agent-profile-editor"
+import { notFound, redirect } from "next/navigation"
+import { Pencil } from "lucide-react"
 import { Badge } from "@/components/atoms/badge"
-import { Edit2, Loader2, AlertCircle } from "lucide-react"
+import { PageHeader } from "@/components/molecules/page-header"
+import { AgentProfileEditor } from "@/components/organisms/agents/agent-profile-editor"
+import { PageContainer } from "@/components/templates/page-container"
+import { toSkillSummary } from "@/lib/agents/catalog"
+import { requireSession } from "@/lib/auth/session"
+import { AgentRefParamsSchema, agentProfileFormValues, isPresetRef } from "@/lib/validation/agents"
+import { findAgentProfile } from "@/server/services/agents"
+import { listSkills } from "@/server/services/skills"
 
-export default function EditAgentProfilePage() {
-  const params = useParams()
-  const id = params?.id as string
+export const metadata = { title: "Edit Profil Agen" }
 
-  const [profileData, setProfileData] = React.useState<AgentProfileInitialData | null>(null)
-  const [loading, setLoading] = React.useState(true)
-  const [error, setError] = React.useState<string | null>(null)
+interface EditAgentProfilePageProps {
+  params: Promise<{ id: string }>
+}
 
-  React.useEffect(() => {
-    if (!id) return
+/** Edit Agent Profile kustom. Preset bawaan baca-saja → dialihkan ke alur kloning. */
+export default async function EditAgentProfilePage({ params }: EditAgentProfilePageProps) {
+  const parsed = AgentRefParamsSchema.safeParse(await params)
+  if (!parsed.success) notFound()
+  const ref = parsed.data.id
+  if (isPresetRef(ref)) redirect(`/agents/new?cloneFrom=${encodeURIComponent(ref)}`)
 
-    async function loadProfile() {
-      try {
-        setLoading(true)
-        const res = await fetch(`/api/agents/${id}`)
-        if (!res.ok) {
-          if (res.status === 404) {
-            setError("Profil agen tidak ditemukan.")
-            return
-          }
-          throw new Error("Gagal mengambil data profil agen.")
-        }
-        const data = await res.json()
-        setProfileData(data.profile)
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Kesalahan sistem")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadProfile()
-  }, [id])
+  const { supabase, user } = await requireSession()
+  const [profile, skills] = await Promise.all([findAgentProfile(supabase, user.id, ref), listSkills(supabase, user.id)])
+  if (!profile) notFound()
 
   return (
-    <PageContainer size="default">
+    <PageContainer>
       <PageHeader
-        title={profileData ? `Edit Agen: ${profileData.name}` : "Edit Profil Agen"}
-        description="Ubah instruksi alur kerja, daftar tools yang aktif, atau batasan komputasi."
-        icon={Edit2}
+        title={`Edit Agen: ${profile.name}`}
+        description="Ubah instruksi alur kerja, daftar tools yang aktif, atau batas komputasi Agent Profile ini."
+        icon={Pencil}
+        backHref="/agents"
+        backLabel="Daftar profil agen"
         badge={
-          <Badge variant="outline" className="text-[10px] font-mono uppercase tracking-wider border-primary/30 text-primary">
-            Editing Profile
+          <Badge variant="outline" className="border-primary/30 font-mono text-2xs tracking-wider text-primary uppercase">
+            {profile.mode === "deep" ? "Deep Agent" : "Standard Agent"}
           </Badge>
         }
       />
-
-      {error ? (
-        <div className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-xs text-destructive">
-          <AlertCircle className="size-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      ) : loading ? (
-        <div className="flex flex-col items-center justify-center py-20 text-muted-foreground gap-3">
-          <Loader2 className="size-6 animate-spin text-primary" />
-          <span className="text-xs">Memuat konfigurasi profil agen...</span>
-        </div>
-      ) : (
-        <AgentProfileEditor initialData={profileData || undefined} isEditing={true} />
-      )}
+      <AgentProfileEditor profileId={profile.ref} defaultValues={agentProfileFormValues(profile)} skills={skills.map(toSkillSummary)} />
     </PageContainer>
   )
 }

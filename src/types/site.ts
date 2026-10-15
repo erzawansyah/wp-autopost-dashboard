@@ -25,3 +25,10 @@ export type CreatedSite = Pick<Site, "id" | "site_name" | "base_url" | "wp_usern
 
 /** Relasi situs yang di-embed di artikel/antrean/batch (`wp_sites ( id, site_name, base_url )`). */
 export type SiteRef = Pick<Site, "id" | "site_name" | "base_url">
+
+/**
+ * Kategori (`GET /api/sites/[id]/categories` → `{ categories }`) dan user/author WordPress
+ * (`GET /api/sites/[id]/authors` → `{ users }`). Re-export tipe saja (terhapus saat kompilasi), sehingga aman
+ * dipakai client walau sumbernya modul `server-only`.
+ */
+export type { WPCategoryItem as SiteCategory, WPUserItem as SiteAuthor } from "@/lib/wordpress/client"

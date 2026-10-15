@@ -38,6 +38,9 @@ export interface UserSettingsResponse {
   updatedAt?: string
 }
 
+/** Data `GET /api/settings/user` tanpa envelope (`apiFetch`, service `getUserSettings`). */
+export type UserSettings = Omit<UserSettingsResponse, "ok">
+
 export interface DecryptedUserKeys {
   openrouterKey?: string
   defaultAiModel?: string

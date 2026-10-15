@@ -1,51 +1,33 @@
 import { z } from "zod"
 import { parseWebhookEvents } from "@/lib/webhooks/validation"
+import {
+  CreateWebhookBodySchema as BaseCreateWebhookBodySchema,
+  WEBHOOK_EVENTS_MESSAGE,
+  WebhookNameSchema,
+  WebhookUrlInputSchema,
+} from "@/lib/validation/webhooks"
 
 /**
- * Skema input route webhook (`/api/webhooks/**`). Event divalidasi terhadap allowlist
- * `AVAILABLE_WEBHOOK_EVENTS` lewat `parseWebhookEvents`; URL (async, Anti-SSRF + DNS) divalidasi
- * di service dengan `validateWebhookUrl` karena `defineRoute` mem-parse secara sinkron.
+ * Skema KHUSUS server untuk route webhook. Skema dasar (dipakai bersama form client) ada di
+ * `@/lib/validation/webhooks`; di sini event divalidasi ulang + dideduplikasi lewat `parseWebhookEvents`.
+ * URL (async, Anti-SSRF + DNS) divalidasi di service dengan `validateWebhookUrl` karena `defineRoute`
+ * mem-parse secara sinkron.
  */
 
-const INVALID_EVENTS_MESSAGE = "Pilih minimal 1 event yang valid untuk webhook ini."
-
-const WebhookNameSchema = z
-  .string({ error: "Nama webhook wajib diisi." })
-  .trim()
-  .min(1, "Nama webhook wajib diisi.")
-  .max(100, "Nama webhook maksimal 100 karakter.")
-
-const WebhookUrlInputSchema = z
-  .string({ error: "URL webhook wajib diisi." })
-  .trim()
-  .min(1, "URL webhook wajib diisi.")
-  .max(2048, "URL webhook terlalu panjang.")
-
 const WebhookEventsSchema = z
-  .array(z.string().max(64), { error: INVALID_EVENTS_MESSAGE })
-  .max(20, INVALID_EVENTS_MESSAGE)
+  .array(z.string().max(64), { error: WEBHOOK_EVENTS_MESSAGE })
+  .max(20, WEBHOOK_EVENTS_MESSAGE)
   .transform((events, ctx) => {
     const parsed = parseWebhookEvents(events)
     if (!parsed) {
-      ctx.addIssue({ code: "custom", message: INVALID_EVENTS_MESSAGE })
+      ctx.addIssue({ code: "custom", message: WEBHOOK_EVENTS_MESSAGE })
       return z.NEVER
     }
     return parsed
   })
 
 /** POST /api/webhooks */
-export const CreateWebhookBodySchema = z.object({
-  name: WebhookNameSchema,
-  url: WebhookUrlInputSchema,
-  events: WebhookEventsSchema,
-  /** Secret HMAC kustom; kosong = dibuat acak oleh server. */
-  customSecret: z
-    .string()
-    .trim()
-    .max(256, "Secret kustom maksimal 256 karakter.")
-    .refine((value) => value === "" || value.length >= 16, "Secret kustom minimal 16 karakter.")
-    .optional(),
-})
+export const CreateWebhookBodySchema = BaseCreateWebhookBodySchema.extend({ events: WebhookEventsSchema })
 export type CreateWebhookInput = z.infer<typeof CreateWebhookBodySchema>
 
 /** PATCH /api/webhooks/[id] — minimal satu field. */

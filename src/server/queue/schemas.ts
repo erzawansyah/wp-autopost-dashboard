@@ -1,77 +1,26 @@
 import { z } from "zod"
 import { UuidSchema } from "@/lib/validation/common"
+import { BatchRefSchema, ListLimitSchema, PostItemStateSchema, QUICK_WRITER_BATCH_ID } from "@/lib/validation/queue"
 
-/** Skema zod bersama route antrean (`/api/posts/**`, `/api/batches`, `/api/queue/**`). Enum state: `@/lib/validation/queue`. */
+/**
+ * Skema khusus route antrean (query daftar & hapus batch). Skema body/form yang dipakai bersama client ada di
+ * `@/lib/validation/{queue,posts,batches}` — di sini hanya disusun ulang untuk query string route.
+ */
 
-/** Teks opsional: di-trim; kosong/null → `undefined`. */
-export const OptionalTextSchema = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .nullish()
-    .transform((value) => value || undefined)
-
-/** ID kategori WordPress (angka atau string angka positif); nilai lain diabaikan seperti perilaku lama. */
-export const CategoryIdListSchema = z
-  .array(z.union([z.number(), z.string().max(20)]))
-  .max(100)
-  .nullish()
-  .transform((ids) =>
-    Array.from(new Set((ids ?? []).map(Number).filter((id) => Number.isSafeInteger(id) && id > 0)))
-  )
-
-/** Tag: array string atau satu string dipisah koma. */
-export const TagListSchema = z
-  .union([z.array(z.string().max(100)).max(50), z.string().max(2_000)])
-  .nullish()
-  .transform((tags) =>
-    (typeof tags === "string" ? tags.split(",") : (tags ?? [])).map((tag) => tag.trim()).filter(Boolean)
-  )
-
-export const ReasoningEffortSchema = z
-  .union([z.enum(["low", "medium", "high"]), z.literal("")])
-  .nullish()
-  .transform((value) => value || undefined)
-
-/** Query `?limit=` daftar: bilangan bulat positif, dibatasi `max` (perilaku lama: clamp). */
-export const ListLimitSchema = (fallback: number, max: number) =>
-  z.coerce
-    .number()
-    .int()
-    .positive()
-    .optional()
-    .transform((value) => Math.min(value ?? fallback, max))
-
-/** ID batch: UUID atau grup virtual Tulis Cepat (`quick-writer`). */
-export const BatchRefSchema = z.union([UuidSchema, z.literal("quick-writer")])
-
-/** Satu baris batch terstruktur (CSV/Excel/paste). */
-export const BatchItemSchema = z.object({
-  keyword: OptionalTextSchema(300),
-  title: OptionalTextSchema(300),
-  lsi: z.array(z.string().trim().max(200)).max(50).nullish(),
-  focus: OptionalTextSchema(2_000),
-  category: OptionalTextSchema(200),
-  tags: z.array(z.string().trim().max(100)).max(50).nullish(),
+/** `GET /api/queue`: filter state, situs, batch (UUID / `quick-writer` / `standalone` = tanpa batch). */
+export const QueueListQuerySchema = z.object({
+  limit: ListLimitSchema(30, 100),
+  status: PostItemStateSchema.optional(),
+  siteId: UuidSchema.optional(),
+  batchId: z.union([UuidSchema, z.literal(QUICK_WRITER_BATCH_ID), z.literal("standalone")]).optional(),
+  onlyBatches: z.literal("true").optional(),
+  hasBatch: z.literal("true").optional(),
 })
+export type QueueListQuery = z.output<typeof QueueListQuerySchema>
 
-const ScheduleDateSchema = z.string().trim().max(40).default("")
-const WpSlotStatusSchema = z.enum(["publish", "draft"])
+/** `GET /api/posts` & `GET /api/batches`: `?limit=` (default 20, maks 100). */
+export const RecentListQuerySchema = z.object({ limit: ListLimitSchema(20, 100) })
 
-export const RandomScheduleSchema = z.object({
-  startDate: ScheduleDateSchema,
-  endDate: ScheduleDateSchema,
-  wpTargetStatus: WpSlotStatusSchema.optional(),
-})
-
-export const IntervalScheduleSchema = z.object({
-  startDate: ScheduleDateSchema,
-  intervalHours: z.coerce.number().min(0).max(24 * 30).default(24),
-  enableJitter: z.boolean().optional(),
-  wpTargetStatus: WpSlotStatusSchema.optional(),
-})
-
-export const InstantScheduleSchema = z.object({
-  wpTargetStatus: WpSlotStatusSchema,
-})
+/** `DELETE /api/batches?id=` — id juga boleh dikirim di body (klien lama). */
+export const DeleteBatchQuerySchema = z.object({ id: BatchRefSchema.optional() })
+export const DeleteBatchBodySchema = z.object({ id: BatchRefSchema.optional() })

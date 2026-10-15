@@ -1,41 +1,28 @@
-"use client"
-
-import * as React from "react"
-import { useRouter } from "next/navigation"
 import { TableProperties } from "lucide-react"
-import { PageContainer } from "@/components/templates/page-container"
-import { PageHeader } from "@/components/molecules/page-header"
 import { BatchModuleActions } from "@/components/molecules/batch-module-actions"
+import { PageHeader } from "@/components/molecules/page-header"
 import { StructuredWriterForm } from "@/components/organisms/structured-writer/structured-writer-form"
-import { useConnectedSites } from "@/lib/hooks/use-connected-sites"
+import { PageContainer } from "@/components/templates/page-container"
+import { requireSession } from "@/lib/auth/session"
+import { toAgentProfileOptions } from "@/lib/queue/writer-options"
+import { listAgentProfiles } from "@/server/services/agents"
+import { listSites } from "@/server/services/sites"
 
-export default function StructuredWritePage() {
-  const router = useRouter()
-  const { sites, isLoading } = useConnectedSites()
+export const metadata = { title: "Tulis Terstruktur" }
 
-  const handleCreated = (batchId: string) => {
-    window.setTimeout(() => {
-      router.push(`/queue/items?batchId=${batchId}`)
-    }, 1200)
-  }
+export default async function StructuredWritePage() {
+  const { supabase, user } = await requireSession()
+  const [sites, profiles] = await Promise.all([listSites(supabase, user.id), listAgentProfiles(supabase, user.id)])
 
   return (
-    <PageContainer size="default">
+    <PageContainer>
       <PageHeader
         title="Tulis Terstruktur"
         description="Impor dan jadwalkan banyak artikel dengan format multi-kolom bebas (kata kunci, judul spesifik, LSI, fokus, dll)."
         icon={TableProperties}
-        actions={
-          <div className="flex items-center gap-2">
-            <BatchModuleActions show={["batches", "items"]} />
-          </div>
-        }
+        actions={<BatchModuleActions show={["batches", "items"]} />}
       />
-      <StructuredWriterForm
-        sites={sites}
-        isLoadingSites={isLoading}
-        onSuccess={handleCreated}
-      />
+      <StructuredWriterForm initialSites={sites} agentProfiles={toAgentProfileOptions(profiles)} />
     </PageContainer>
   )
 }

@@ -1,77 +1,72 @@
 "use client"
 
 import * as React from "react"
-import { Copy, Check } from "lucide-react"
+import { Check, Copy } from "lucide-react"
 import { Button } from "@/components/atoms/button"
+import { notify } from "@/lib/ui/notify"
+import { cn } from "@/lib/utils"
 
 interface JsonCodeViewerProps {
   data: unknown
   title?: string
+  /** Kelas tinggi maksimum area kode (mis. `max-h-96`). */
   maxHeight?: string
-  defaultExpanded?: boolean
+  /** `true` → string ditampilkan apa adanya (Markdown/Gutenberg), bukan diparse sebagai JSON. */
   rawText?: boolean
 }
 
-export function JsonCodeViewer({
-  data,
-  title,
-  maxHeight = "max-h-96",
-  rawText = false,
-}: JsonCodeViewerProps) {
-  const [copied, setCopied] = React.useState(false)
-
-  const formattedContent = React.useMemo(() => {
-    if (typeof data === "string") {
-      if (rawText) return data
-      try {
-        const parsed = JSON.parse(data)
-        return JSON.stringify(parsed, null, 2)
-      } catch {
-        return data
-      }
-    }
+function formatContent(data: unknown, rawText: boolean): string {
+  if (typeof data === "string") {
+    if (rawText) return data
     try {
-      return JSON.stringify(data, null, 2)
+      return JSON.stringify(JSON.parse(data), null, 2)
     } catch {
-      return String(data)
+      return data
     }
-  }, [data, rawText])
+  }
+  try {
+    return JSON.stringify(data, null, 2) ?? String(data)
+  } catch {
+    return String(data)
+  }
+}
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(formattedContent)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+/** Blok kode baca-saja (JSON/teks mentah) dengan tombol salin. Konten dirender sebagai teks (di-escape React). */
+export function JsonCodeViewer({ data, title = "Output Data", maxHeight = "max-h-96", rawText = false }: JsonCodeViewerProps) {
+  const [copied, setCopied] = React.useState(false)
+  const formattedContent = React.useMemo(() => formatContent(data, rawText), [data, rawText])
+
+  React.useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+
+  function handleCopy() {
+    navigator.clipboard.writeText(formattedContent).then(
+      () => setCopied(true),
+      () => notify.error("Gagal menyalin ke clipboard. Salin teks secara manual.")
+    )
   }
 
   return (
-    <div className="flex flex-col rounded-lg border border-border bg-muted/30 overflow-hidden font-mono text-xs">
-      <div className="flex items-center justify-between border-b border-border/70 bg-muted/60 px-3 py-1.5">
-        <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-          {title || "Output Data"}
-        </span>
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-muted/30 font-mono text-xs">
+      <div className="flex items-center justify-between gap-2 border-b border-border/70 bg-muted/60 px-3 py-1.5">
+        <span className="truncate text-xs font-semibold tracking-wider text-muted-foreground uppercase">{title}</span>
         <Button
+          type="button"
           variant="ghost"
-          size="sm"
+          size="xs"
           onClick={handleCopy}
-          className="h-6 gap-1 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+          className="text-2xs text-muted-foreground hover:text-foreground"
+          aria-label={`Salin ${title}`}
         >
-          {copied ? (
-            <>
-              <Check className="size-3 text-emerald-500" />
-              <span>Tersalin</span>
-            </>
-          ) : (
-            <>
-              <Copy className="size-3" />
-              <span>Salin</span>
-            </>
-          )}
+          {copied ? <Check aria-hidden="true" className="text-success-strong" /> : <Copy aria-hidden="true" />}
+          <span aria-live="polite">{copied ? "Tersalin" : "Salin"}</span>
         </Button>
       </div>
-      <div className={`overflow-auto p-3 text-foreground ${maxHeight}`}>
-        <pre className="font-mono text-xs leading-relaxed whitespace-pre-wrap break-all">
-          {formattedContent}
-        </pre>
+      <div className={cn("overflow-auto p-3 text-foreground", maxHeight)}>
+        <pre className="font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">{formattedContent}</pre>
       </div>
     </div>
   )

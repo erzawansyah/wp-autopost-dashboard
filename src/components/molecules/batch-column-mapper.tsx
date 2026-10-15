@@ -1,34 +1,14 @@
 "use client"
 
 import * as React from "react"
-import {
-  Table as TableIcon,
-  Eye,
-  Sparkles,
-} from "lucide-react"
+import { Eye, Sparkles, Table as TableIcon } from "lucide-react"
 import { Badge } from "@/components/atoms/badge"
-import { Label } from "@/components/atoms/label"
+import { Button } from "@/components/atoms/button"
 import { Checkbox } from "@/components/atoms/checkbox"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/atoms/select"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/atoms/table"
-import {
-  ColumnDefinition,
-  ColumnRole,
-  ParsedBatchItem,
-} from "@/lib/parser/universal-batch-parser"
+import { Label } from "@/components/atoms/label"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/atoms/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/atoms/table"
+import type { ColumnDefinition, ColumnRole, ParsedBatchItem } from "@/lib/parser/universal-batch-parser"
 import { cn } from "@/lib/utils"
 
 export interface BatchColumnMapperProps {
@@ -42,58 +22,62 @@ export interface BatchColumnMapperProps {
   className?: string
 }
 
-const ROLE_OPTIONS: { value: ColumnRole; label: string; desc: string; badgeClass: string }[] = [
-  {
-    value: "keyword",
-    label: "Kata Kunci Utama (Topik)",
+/** Peran kolom → label, deskripsi, label badge singkat, dan token warna peran. */
+const ROLE_OPTIONS: Record<ColumnRole, { label: string; desc: string; short: string; badgeClass: string }> = {
+  keyword: {
+    label: "Kata kunci utama (topik)",
     desc: "Subjek utama artikel yang wajib ada",
-    badgeClass: "bg-primary/10 text-primary border-primary/20",
+    short: "Kata Kunci",
+    badgeClass: "border-primary/20 bg-primary/10 text-primary",
   },
-  {
-    value: "title",
-    label: "Judul Artikel (Title)",
+  title: {
+    label: "Judul artikel (title)",
     desc: "Judul H1 spesifik untuk artikel",
-    badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20",
+    short: "Judul",
+    badgeClass: "border-warning/30 bg-warning/10 text-warning-strong",
   },
-  {
-    value: "lsi",
-    label: "Kata Kunci Sekunder (LSI)",
+  lsi: {
+    label: "Kata kunci sekunder (LSI)",
     desc: "Variasi & istilah turunan yang wajib dibahas",
-    badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20",
+    short: "LSI",
+    badgeClass: "border-success/30 bg-success/10 text-success-strong",
   },
-  {
-    value: "focus",
-    label: "Fokus Pembahasan / Brief",
+  focus: {
+    label: "Fokus pembahasan / brief",
     desc: "Instruksi sudut pandang atau catatan unik",
-    badgeClass: "bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20",
+    short: "Fokus",
+    badgeClass: "border-info/30 bg-info/10 text-info-strong",
   },
-  {
-    value: "category",
+  category: {
     label: "Kategori WordPress",
     desc: "Nama kategori spesifik untuk artikel ini",
-    badgeClass: "bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20",
+    short: "Kategori",
+    badgeClass: "border-ai-process/30 bg-ai-process/10 text-ai-process-strong",
   },
-  {
-    value: "tags",
+  tags: {
     label: "Tag WordPress",
     desc: "Label atau tag spesifik baris ini",
-    badgeClass: "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/20",
+    short: "Tags",
+    badgeClass: "border-ai-process/30 bg-ai-process/10 text-ai-process-strong",
   },
-  {
-    value: "ignore",
-    label: "Abaikan Kolom Ini",
+  ignore: {
+    label: "Abaikan kolom ini",
     desc: "Kolom ini tidak akan diproses",
-    badgeClass: "bg-muted text-muted-foreground border-border",
+    short: "Abaikan",
+    badgeClass: "border-border bg-muted text-muted-foreground",
   },
-]
+}
 
-function getDelimiterName(d: string): string {
-  if (d === "\t") return "Tab (Spreadsheet / Excel)"
-  if (d === ";") return "Titik Koma (;)"
-  if (d === "|") return "Garis Tegak (|)"
+const ROLE_ORDER = Object.keys(ROLE_OPTIONS) as ColumnRole[]
+
+function delimiterName(delimiter: string): string {
+  if (delimiter === "\t") return "Tab (spreadsheet / Excel)"
+  if (delimiter === ";") return "Titik koma (;)"
+  if (delimiter === "|") return "Garis tegak (|)"
   return "Koma (,)"
 }
 
+/** Wizard pemetaan kolom data batch terstruktur: deteksi pemisah, baris header, peran tiap kolom, pratinjau. */
 export function BatchColumnMapper({
   columns,
   items,
@@ -104,122 +88,102 @@ export function BatchColumnMapper({
   onRoleChange,
   className,
 }: BatchColumnMapperProps) {
-  const [showPreviewTable, setShowPreviewTable] = React.useState(false)
+  const [showPreview, setShowPreview] = React.useState(false)
+  const headerCheckboxId = React.useId()
+  const previewId = React.useId()
 
-  if (columns.length <= 1) {
-    return null
-  }
+  if (columns.length <= 1) return null
 
   const sampleRows = items.slice(0, 4)
 
   return (
-    <div
-      className={cn(
-        "rounded-xl border border-primary/20 bg-primary/5 p-4 flex flex-col gap-4 text-xs transition-all",
-        className
-      )}
+    <section
+      aria-label="Pemetaan kolom data"
+      className={cn("flex flex-col gap-4 rounded-xl border border-primary/20 bg-primary/5 p-4 text-xs", className)}
     >
-      {/* Baris Status Deteksi & Toggle Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-primary/10">
+      <div className="flex flex-col justify-between gap-3 border-b border-primary/10 pb-3 sm:flex-row sm:items-center">
         <div className="flex items-center gap-2">
-          <div className="size-7 rounded-lg bg-primary/15 text-primary flex items-center justify-center shrink-0">
+          <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
             <Sparkles className="size-3.5" />
-          </div>
+          </span>
           <div>
-            <div className="font-semibold text-foreground flex items-center gap-2">
-              <span>Pemetaan Kolom Otomatis (Dynamic Column Mapping)</span>
-              <Badge variant="outline" className="text-[10px] font-normal h-4.5 px-1.5 bg-background">
-                {columns.length} Kolom • {totalRows} Baris
+            <div className="flex flex-wrap items-center gap-2 font-semibold text-foreground">
+              Pemetaan kolom otomatis
+              <Badge variant="outline" className="bg-background text-xs font-normal">
+                {columns.length} kolom • {totalRows} baris
               </Badge>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              Pemisah terdeteksi: <span className="font-mono text-foreground font-medium">{getDelimiterName(delimiter)}</span>. Sesuaikan fungsi kolom jika diperlukan.
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Pemisah terdeteksi: <span className="font-mono font-medium text-foreground">{delimiterName(delimiter)}</span>.
+              Sesuaikan fungsi kolom bila perlu.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4 shrink-0">
-          <label className="flex items-center gap-2 cursor-pointer select-none">
+        <div className="flex shrink-0 flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
             <Checkbox
+              id={headerCheckboxId}
               checked={hasHeader}
-              onCheckedChange={(checked) => onToggleHasHeader(Boolean(checked))}
+              onCheckedChange={(checked) => onToggleHasHeader(checked === true)}
             />
-            <span className="text-[11px] font-medium text-foreground">
-              Baris pertama adalah nama kolom (Header)
-            </span>
-          </label>
-
-          <button
+            <Label htmlFor={headerCheckboxId} className="cursor-pointer text-xs font-medium select-none">
+              Baris pertama adalah nama kolom (header)
+            </Label>
+          </div>
+          <Button
             type="button"
-            onClick={() => setShowPreviewTable((prev) => !prev)}
-            className="flex items-center gap-1 text-[11px] text-primary hover:underline font-medium cursor-pointer"
+            variant="link"
+            size="xs"
+            onClick={() => setShowPreview((current) => !current)}
+            aria-expanded={showPreview}
+            aria-controls={previewId}
+            className="gap-1 px-0"
           >
-            <Eye className="size-3" />
-            <span>{showPreviewTable ? "Tutup Preview" : "Lihat Preview Data"}</span>
-          </button>
+            <Eye aria-hidden="true" className="size-3" />
+            {showPreview ? "Tutup pratinjau" : "Lihat pratinjau data"}
+          </Button>
         </div>
       </div>
 
-      {/* Grid Selector Peran Kolom */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {columns.map((col) => {
-          const matchedOpt = ROLE_OPTIONS.find((r) => r.value === col.role) || ROLE_OPTIONS[0]
-
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {columns.map((column) => {
+          const role = ROLE_OPTIONS[column.role] ?? ROLE_OPTIONS.keyword
+          const selectId = `${previewId}-role-${column.index}`
           return (
-            <div
-              key={col.index}
-              className="flex flex-col gap-2 rounded-lg border border-border/80 bg-card p-3 shadow-2xs"
-            >
+            <div key={column.index} className="flex flex-col gap-2 rounded-lg border border-border/80 bg-card p-3 shadow-2xs">
               <div className="flex items-center justify-between gap-1">
-                <span className="font-medium text-foreground truncate text-xs" title={col.name}>
-                  {col.name}
+                <span className="truncate text-xs font-medium text-foreground" title={column.name}>
+                  {column.name}
                 </span>
-                <Badge
-                  variant="outline"
-                  className={cn("text-[10px] h-4.5 px-1.5 shrink-0", matchedOpt.badgeClass)}
-                >
-                  {matchedOpt.value === "keyword"
-                    ? "Kata Kunci"
-                    : matchedOpt.value === "title"
-                    ? "Judul"
-                    : matchedOpt.value === "lsi"
-                    ? "LSI"
-                    : matchedOpt.value === "focus"
-                    ? "Fokus"
-                    : matchedOpt.value === "category"
-                    ? "Kategori"
-                    : matchedOpt.value === "tags"
-                    ? "Tags"
-                    : "Abaikan"}
+                <Badge variant="outline" className={cn("shrink-0 px-1.5 text-xs", role.badgeClass)}>
+                  {role.short}
                 </Badge>
               </div>
-
-              {col.sampleValue && (
-                <div className="text-[10px] text-muted-foreground truncate bg-muted/40 px-2 py-1 rounded font-mono">
-                  Contoh: &ldquo;{col.sampleValue}&rdquo;
+              {column.sampleValue && (
+                <div className="truncate rounded bg-muted/40 px-2 py-1 font-mono text-xs text-muted-foreground">
+                  Contoh: &ldquo;{column.sampleValue}&rdquo;
                 </div>
               )}
-
-              <div className="pt-1">
-                <Label className="text-[10px] text-muted-foreground mb-1 block">
-                  Fungsi Kolom:
+              <div className="flex flex-col gap-1 pt-1">
+                <Label htmlFor={selectId} className="text-xs text-muted-foreground">
+                  Fungsi kolom
                 </Label>
-                <Select
-                  value={col.role}
-                  onValueChange={(val) => onRoleChange(col.index, val as ColumnRole)}
-                >
-                  <SelectTrigger className="h-8 text-xs bg-background">
+                <Select value={column.role} onValueChange={(value) => onRoleChange(column.index, value as ColumnRole)}>
+                  <SelectTrigger id={selectId} className="h-8 bg-background text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="text-xs">
-                    {ROLE_OPTIONS.map((opt) => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        <div className="flex flex-col text-left py-0.5">
-                          <span className="font-medium text-foreground">{opt.label}</span>
-                          <span className="text-[10px] text-muted-foreground">{opt.desc}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
+                    <SelectGroup>
+                      {ROLE_ORDER.map((value) => (
+                        <SelectItem key={value} value={value}>
+                          <span className="flex flex-col py-0.5 text-left">
+                            <span className="font-medium text-foreground">{ROLE_OPTIONS[value].label}</span>
+                            <span className="text-xs text-muted-foreground">{ROLE_OPTIONS[value].desc}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -228,73 +192,59 @@ export function BatchColumnMapper({
         })}
       </div>
 
-      {/* Tabel Preview Mini Data (Accordion / Expandable) */}
-      {showPreviewTable && (
-        <div className="rounded-lg border border-border/80 bg-card overflow-hidden mt-1 shadow-2xs">
-          <div className="px-3 py-2 bg-muted/30 border-b border-border/60 flex items-center justify-between text-[11px] font-medium text-foreground">
-            <div className="flex items-center gap-1.5">
-              <TableIcon className="size-3.5 text-primary" />
-              <span>Contoh Hasil Pemetaan (Maksimal 4 Baris Pertama)</span>
-            </div>
-            <span className="text-[10px] text-muted-foreground">
-              Total {items.length} artikel siap dibuat
+      {showPreview && (
+        <div id={previewId} className="mt-1 overflow-hidden rounded-lg border border-border/80 bg-card shadow-2xs">
+          <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-2 text-xs font-medium text-foreground">
+            <span className="flex items-center gap-1.5">
+              <TableIcon aria-hidden="true" className="size-3.5 text-primary" />
+              Contoh hasil pemetaan (maks. 4 baris pertama)
             </span>
+            <span className="text-xs text-muted-foreground">Total {items.length} artikel siap dibuat</span>
           </div>
-
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/15">
-                  <TableHead className="w-12 text-center text-[10px]">#</TableHead>
-                  <TableHead className="text-[11px]">Kata Kunci Utama</TableHead>
-                  <TableHead className="text-[11px]">Judul Artikel (H1)</TableHead>
-                  <TableHead className="text-[11px]">LSI / Sekunder</TableHead>
-                  <TableHead className="text-[11px]">Fokus / Brief</TableHead>
+                  <TableHead className="w-12 text-center text-xs">#</TableHead>
+                  <TableHead className="text-xs">Kata kunci utama</TableHead>
+                  <TableHead className="text-xs">Judul artikel (H1)</TableHead>
+                  <TableHead className="text-xs">LSI / sekunder</TableHead>
+                  <TableHead className="text-xs">Fokus / brief</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sampleRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center text-xs text-muted-foreground py-4">
+                    <TableCell colSpan={5} className="py-4 text-center text-xs text-muted-foreground">
                       Belum ada baris data valid yang terurai.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  sampleRows.map((item, idx) => (
+                  sampleRows.map((item, index) => (
                     <TableRow key={item.index} className="text-xs">
-                      <TableCell className="text-center text-[10px] text-muted-foreground font-mono">
-                        {idx + 1}
-                      </TableCell>
-                      <TableCell className="font-medium text-foreground">
-                        {item.keyword || "—"}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-center font-mono text-xs text-muted-foreground">{index + 1}</TableCell>
+                      <TableCell className="font-medium text-foreground">{item.keyword || "—"}</TableCell>
+                      <TableCell>
                         {item.title ? (
-                          <span className="text-foreground font-medium">{item.title}</span>
+                          <span className="font-medium text-foreground">{item.title}</span>
                         ) : (
-                          <span className="italic text-muted-foreground/60">(Dibuat otomatis oleh AI)</span>
+                          <span className="text-muted-foreground italic">(dibuat otomatis oleh AI)</span>
                         )}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {item.lsi && item.lsi.length > 0 ? (
-                          <div className="flex flex-wrap gap-1">
-                            {item.lsi.map((l, lIdx) => (
-                              <Badge
-                                key={lIdx}
-                                variant="secondary"
-                                className="text-[9px] h-4 px-1 font-normal"
-                              >
-                                {l}
+                          <span className="flex flex-wrap gap-1">
+                            {item.lsi.map((lsi, lsiIndex) => (
+                              <Badge key={`${lsiIndex}-${lsi}`} variant="secondary" className="px-1 text-xs font-normal">
+                                {lsi}
                               </Badge>
                             ))}
-                          </div>
+                          </span>
                         ) : (
                           "—"
                         )}
                       </TableCell>
-                      <TableCell className="text-muted-foreground max-w-xs truncate">
-                        {item.focus || "—"}
-                      </TableCell>
+                      <TableCell className="max-w-xs truncate text-muted-foreground">{item.focus || "—"}</TableCell>
                     </TableRow>
                   ))
                 )}
@@ -303,6 +253,6 @@ export function BatchColumnMapper({
           </div>
         </div>
       )}
-    </div>
+    </section>
   )
 }

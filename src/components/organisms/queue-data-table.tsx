@@ -2,874 +2,497 @@
 
 import * as React from "react"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/atoms/table"
-import { Checkbox } from "@/components/atoms/checkbox"
+  flexRender,
+  getCoreRowModel,
+  getExpandedRowModel,
+  getFilteredRowModel,
+  getGroupedRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type ColumnDef,
+  type ColumnFiltersState,
+  type ExpandedState,
+  type FilterFn,
+  type RowSelectionState,
+  type SortingState,
+  type Table as TanstackTable,
+} from "@tanstack/react-table"
+import { ArrowDown, ArrowUp, ArrowUpDown, Inbox, SearchX } from "lucide-react"
 import { Button } from "@/components/atoms/button"
-import { StatusBadge } from "@/components/molecules/status-badge"
-import type { PostItemState } from "@/types/queue"
-import { SiteBadge } from "@/components/molecules/site-badge"
-import { SearchInput } from "@/components/molecules/search-input"
+import { Checkbox } from "@/components/atoms/checkbox"
+import { Skeleton } from "@/components/atoms/skeleton"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/atoms/table"
 import { EmptyState } from "@/components/molecules/empty-state"
-import { Badge } from "@/components/atoms/badge"
+import { SiteBadge } from "@/components/molecules/site-badge"
+import { StatusBadge } from "@/components/molecules/status-badge"
+import { QueueBulkBar } from "@/components/organisms/queue/queue-bulk-bar"
+import { QueueGroupRow, type QueueBatchGroupInfo } from "@/components/organisms/queue/queue-group-row"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/atoms/select"
-import Link from "next/link"
-import { formatIndonesianDateTime } from "@/lib/scheduler/date-calculator"
+  QueueCategoryCell,
+  QueueRowActions,
+  QueueScheduleCell,
+  QueueTitleCell,
+} from "@/components/organisms/queue/queue-table-cells"
+import {
+  ALL_SITES,
+  QueueTableToolbar,
+  type SiteFilterOption,
+  type StatusFilter,
+} from "@/components/organisms/queue/queue-table-toolbar"
+import { apiFetch } from "@/lib/api/client"
+import { getOptimisticRetryState, getQueueRetryAction, type QueueRetryAction } from "@/lib/queue/retry-actions"
+import { compareStates, countStatusGroups, statusGroupOf } from "@/lib/queue/states"
+import {
+  batchIdOf,
+  matchesQueueSearch,
+  scheduleKindOf,
+  scheduleTimeOf,
+  type QueueTableItem,
+} from "@/lib/queue/table-model"
+import { useConfirm } from "@/lib/ui/confirm"
+import { errorMessage } from "@/lib/ui/notify"
 import { cn } from "@/lib/utils"
-import {
-  ExternalLink,
-  RefreshCw,
-  MoreVertical,
-  Play,
-  Terminal,
-  Trash2,
-  Globe,
-  RotateCcw,
-  Loader2,
-  CheckCircle2,
-  CalendarClock,
-  FileText,
-  AlertCircle,
-  Layers,
-  Folder,
-} from "lucide-react"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/atoms/dropdown-menu"
+import type { PostItemState } from "@/types/queue"
 
-export interface QueueTableItem {
-  id: string
-  title: string
-  targetKeyword: string
-  siteName: string
-  siteDomain: string
-  category?: string
-  categories?: string[]
-  status: PostItemState
-  wpTargetStatus?: "publish" | "draft" | "future" | string
-  wpPostId?: number | null
-  wpPostUrl?: string
-  createdAt?: string
-  updatedAt?: string
-  scheduledFor?: string
-  wordCount?: number
-  aiModel?: string
-  lastError?: string
-  batchId?: string
-  batchName?: string
-}
+// API publik modul tabel antrean. Re-export tipe baris & helper aksi ulang dipertahankan karena dipakai
+// halaman Dasbor (`src/app/(dashboard)/page.tsx`, grup lain) — logika murninya tinggal di `@/lib/queue/*`.
+export type { QueueTableItem } from "@/lib/queue/table-model"
+export { getOptimisticRetryState, getQueueRetryAction, type QueueRetryAction } from "@/lib/queue/retry-actions"
+
+const RETRY_RESULT_STATES: readonly PostItemState[] = ["queued_input", "ready_to_sync"]
 
 /**
- * Aksi ulang per state item. Semua aksi hanya MENJADWALKAN ULANG item; runner antrean di server yang
- * memprosesnya, dan status terbaru dipantau lewat polling:
- * - `run`: item masih antre → "Jalankan sekarang" (diprioritaskan, terbit tanpa menunggu jadwal);
- * - `regenerate`: `failed_generation` → "Tulis ulang" (kembali ke antrean untuk generasi AI ulang);
- * - `resync`: `failed_sync`/`ready_to_sync` → "Kirim ulang" naskah tersimpan tanpa AI (Cost-Saver Retry).
+ * Menjadwalkan ulang item lewat endpoint yang sesuai aksi (2xx = sudah dijadwalkan ulang, belum tentu selesai):
+ * - `resync` → `POST /api/posts/[id]` (202; kirim ulang naskah tersimpan, menghormati jadwal tayang);
+ * - `run`/`regenerate` → `POST /api/queue/process` dengan `postId`; hanya `run` yang memakai `forceNow`.
+ * Mengembalikan state baru; melempar `ApiClientError` (pesan Indonesia siap tampil) bila gagal.
  */
-export type QueueRetryAction = "run" | "regenerate" | "resync"
-
-export function getQueueRetryAction(status: PostItemState): QueueRetryAction | null {
-  switch (status) {
-    case "queued_input":
-      return "run"
-    case "failed_generation":
-      return "regenerate"
-    case "failed_sync":
-    case "ready_to_sync":
-      return "resync"
-    default:
-      return null
-  }
-}
-
-/** State optimistis setelah aksi ulang dijadwalkan (dikembalikan bila permintaan gagal). */
-export function getOptimisticRetryState(action: QueueRetryAction): PostItemState {
-  return action === "resync" ? "ready_to_sync" : "queued_input"
+export async function scheduleQueueItemRetry(id: string, action: QueueRetryAction): Promise<PostItemState> {
+  const data =
+    action === "resync"
+      ? await apiFetch<{ state?: unknown }>(`/api/posts/${encodeURIComponent(id)}`, { method: "POST" })
+      : await apiFetch<{ state?: unknown }>("/api/queue/process", {
+          method: "POST",
+          body: action === "run" ? { postId: id, forceNow: true } : { postId: id },
+        })
+  return RETRY_RESULT_STATES.find((state) => state === data.state) ?? getOptimisticRetryState(action)
 }
 
 export type QueueRetryResult = { ok: true; state: PostItemState } | { ok: false; error: string }
 
-const RETRY_RESULT_STATES: readonly PostItemState[] = ["queued_input", "ready_to_sync"]
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
+/** Varian `scheduleQueueItemRetry` tanpa throw (hasil diskriminan) untuk pemanggil berbasis state lokal. */
+export async function requestQueueItemRetry(id: string, action: QueueRetryAction): Promise<QueueRetryResult> {
+  try {
+    return { ok: true, state: await scheduleQueueItemRetry(id, action) }
+  } catch (error) {
+    const fallback =
+      action === "resync" ? "Gagal menjadwalkan ulang pengiriman artikel ke WordPress." : "Gagal menjadwalkan ulang artikel."
+    return { ok: false, error: errorMessage(error, fallback) }
+  }
 }
 
-function readErrorMessage(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined
+// ---------------------------------------------------------------------------
+// Definisi kolom (stabil di level modul; data dinamis lewat `meta`)
+// ---------------------------------------------------------------------------
+
+interface QueueTableMeta {
+  processingIds: ReadonlySet<string>
+  now: number
+  showBatchBadge: boolean
+  onRetryItem?: (id: string) => void
+  onDeleteItem?: (id: string) => void
+}
+
+function metaOf(table: TanstackTable<QueueTableItem>): QueueTableMeta {
+  return table.options.meta as QueueTableMeta
+}
+
+const statusGroupFilter: FilterFn<QueueTableItem> = (row, _columnId, value: StatusFilter) =>
+  value === "all" || statusGroupOf(row.original.status) === value
+
+const siteFilter: FilterFn<QueueTableItem> = (row, _columnId, value: string) =>
+  value === ALL_SITES || row.original.siteDomain === value
+
+const searchFilter: FilterFn<QueueTableItem> = (row, _columnId, value: string) => matchesQueueSearch(row.original, value)
+
+const COLUMNS: ColumnDef<QueueTableItem>[] = [
+  {
+    id: "select",
+    enableSorting: false,
+    header: ({ table }) => (
+      <Checkbox
+        checked={table.getIsAllRowsSelected() ? true : table.getIsSomeRowsSelected() ? "indeterminate" : false}
+        onCheckedChange={(checked) => table.toggleAllRowsSelected(checked === true)}
+        aria-label="Pilih semua artikel yang tampil"
+      />
+    ),
+    cell: ({ row }) => (
+      <Checkbox
+        checked={row.getIsSelected()}
+        onCheckedChange={(checked) => row.toggleSelected(checked === true)}
+        aria-label={`Pilih artikel ${row.original.title}`}
+      />
+    ),
+  },
+  {
+    id: "batch",
+    accessorFn: (item) => batchIdOf(item),
+    enableGrouping: true,
+    enableSorting: false,
+  },
+  {
+    id: "title",
+    header: "Judul & Topik",
+    accessorFn: (item) => item.title,
+    sortingFn: "text",
+    filterFn: searchFilter,
+    cell: ({ row, table }) => <QueueTitleCell item={row.original} showBatch={metaOf(table).showBatchBadge} />,
+  },
+  {
+    id: "site",
+    header: "Website Tujuan",
+    accessorFn: (item) => item.siteName,
+    sortingFn: "text",
+    filterFn: siteFilter,
+    cell: ({ row }) => <SiteBadge siteName={row.original.siteName} domain={row.original.siteDomain} />,
+  },
+  {
+    id: "status",
+    header: "Status",
+    accessorFn: (item) => item.status,
+    sortingFn: (a, b) => compareStates(a.original.status, b.original.status),
+    filterFn: statusGroupFilter,
+    cell: ({ row }) => <StatusBadge status={row.original.status} />,
+  },
+  {
+    id: "time",
+    header: "Waktu & Publikasi",
+    accessorFn: (item) => {
+      const time = scheduleTimeOf(item, scheduleKindOf(item, Date.now()))
+      return time ? Date.parse(time) : 0
+    },
+    sortingFn: "basic",
+    cell: ({ row, table }) => <QueueScheduleCell item={row.original} now={metaOf(table).now} />,
+  },
+  {
+    id: "category",
+    header: "Kategori",
+    enableSorting: false,
+    cell: ({ row }) => <QueueCategoryCell categories={row.original.categories} />,
+  },
+  {
+    id: "actions",
+    header: () => <span className="sr-only">Aksi</span>,
+    enableSorting: false,
+    cell: ({ row, table }) => {
+      const meta = metaOf(table)
+      return (
+        <QueueRowActions
+          item={row.original}
+          retryAction={getQueueRetryAction(row.original.status)}
+          isProcessing={meta.processingIds.has(row.original.id)}
+          onRetry={meta.onRetryItem}
+          onDelete={meta.onDeleteItem}
+        />
+      )
+    },
+  },
+]
+
+const VISIBLE_COLUMN_COUNT = COLUMNS.length - 1 // kolom `batch` hanya kunci pengelompokan
+
+/** Waktu sekarang yang diperbarui tiap menit (label "Rencana Tayang" berubah tanpa reload). */
+function useMinuteClock(): number {
+  const [now, setNow] = React.useState(() => Date.now())
+  React.useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  return now
+}
+
+function uniqueSites(items: QueueTableItem[]): SiteFilterOption[] {
+  const byDomain = new Map<string, string>()
+  for (const item of items) {
+    if (item.siteDomain && item.siteDomain !== "-") byDomain.set(item.siteDomain, item.siteName)
+  }
+  return Array.from(byDomain, ([domain, name]) => ({ domain, name }))
+}
+
+function groupInfoFor(batchId: string, items: QueueTableItem[], groups?: ReadonlyMap<string, QueueBatchGroupInfo>) {
+  const known = groups?.get(batchId)
+  if (known) return known
+  const first = items[0]
+  return { id: batchId, name: first?.batchName || "Batch tanpa nama", siteName: first?.siteName }
+}
+
+export interface QueueDataTableProps {
+  items: QueueTableItem[]
+  processingItemIds?: readonly string[]
+  onRetryItem?: (id: string) => void
+  onDeleteItem?: (id: string) => void
+  /** Hapus massal (setelah konfirmasi di tabel). */
+  onBulkDelete?: (ids: string[]) => Promise<unknown> | void
+  /** Proses ulang massal (jalankan/tulis ulang/kirim ulang sesuai state tiap item). */
+  onBulkRetry?: (ids: string[]) => Promise<unknown> | void
+  /** Awal tampilan dikelompokkan per batch (pengguna dapat mengubahnya di toolbar). */
+  defaultGrouped?: boolean
+  /** Info batch (nama, situs, progres) untuk kepala grup. */
+  batchGroups?: ReadonlyMap<string, QueueBatchGroupInfo>
+  /** Aksi di kepala grup (mis. fokus batch, hapus batch). */
+  renderGroupActions?: (group: QueueBatchGroupInfo) => React.ReactNode
+  /** Filter tambahan di toolbar (mis. pemilih batch). */
+  toolbarFilters?: React.ReactNode
+  /** Panel saat belum ada artikel sama sekali. */
+  emptyState?: React.ReactNode
+  /** Data awal belum tersedia (tampilkan kerangka). */
+  isLoading?: boolean
 }
 
 /**
- * Menjadwalkan ulang item lewat endpoint yang sesuai state (respons 2xx = sudah dijadwalkan ulang,
- * belum tentu selesai diproses):
- * - `resync` → `POST /api/posts/[id]` (kirim ulang naskah tersimpan, menghormati jadwal tayang);
- * - `run`/`regenerate` → `POST /api/queue/process` dengan `postId`; hanya `run` yang memakai
- *   `forceNow` (tombol eksplisit "Jalankan sekarang"), "Tulis ulang" tetap mengikuti jadwal tayang.
- * Galat (HTTP 4xx/5xx atau `{ ok: false }`) dikembalikan sebagai pesan siap tampil.
+ * Tabel antrean berbasis TanStack Table: pencarian, filter status/situs, sorting, pengelompokan per batch
+ * (termasuk grup virtual Tulis Cepat), seleksi baris untuk aksi massal, dan aksi ulang per baris.
+ * Data & mutasi dimiliki pemanggil (organism halaman); tabel hanya mengelola state tampilan.
  */
-export async function requestQueueItemRetry(id: string, action: QueueRetryAction): Promise<QueueRetryResult> {
-  const fallbackError =
-    action === "resync"
-      ? "Gagal menjadwalkan ulang pengiriman artikel ke WordPress."
-      : "Gagal menjadwalkan ulang artikel."
-
-  try {
-    const res =
-      action === "resync"
-        ? await fetch(`/api/posts/${encodeURIComponent(id)}`, { method: "POST" })
-        : await fetch("/api/queue/process", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify(action === "run" ? { postId: id, forceNow: true } : { postId: id }),
-          })
-
-    const body: unknown = await res.json().catch(() => null)
-    const data = isRecord(body) ? body : {}
-    if (res.ok && data.ok !== false) {
-      const state = RETRY_RESULT_STATES.find((candidate) => candidate === data.state)
-      return { ok: true, state: state ?? getOptimisticRetryState(action) }
-    }
-
-    return { ok: false, error: readErrorMessage(data.error) ?? fallbackError }
-  } catch {
-    return { ok: false, error: "Terjadi gangguan jaringan saat menjadwalkan ulang artikel." }
-  }
-}
-
-const RETRY_ACTION_COPY: Record<QueueRetryAction, { idle: string; busy: string; menu: string }> = {
-  run: { idle: "Jalankan sekarang", busy: "Menjadwalkan ulang...", menu: "Jalankan Sekarang" },
-  regenerate: {
-    idle: "Tulis ulang artikel (dijadwalkan ulang untuk generasi AI)",
-    busy: "Menjadwalkan ulang...",
-    menu: "Coba Tulis Ulang",
-  },
-  resync: {
-    idle: "Kirim ulang ke WordPress (dijadwalkan ulang tanpa AI)",
-    busy: "Menjadwalkan ulang...",
-    menu: "Coba Kirim Ulang",
-  },
-}
-
-interface QueueDataTableProps {
-  items: QueueTableItem[]
-  initialStatus?: string
-  processingItemIds?: string[]
-  onRetryItem?: (id: string) => void
-  onDeleteItem?: (id: string) => void
-  onBulkDelete?: (selectedIds: string[]) => Promise<void> | void
-  onBulkRun?: (selectedIds: string[]) => void
-}
-
 export function QueueDataTable({
   items,
-  initialStatus,
-  processingItemIds = [],
+  processingItemIds,
   onRetryItem,
   onDeleteItem,
   onBulkDelete,
-  onBulkRun,
+  onBulkRetry,
+  defaultGrouped = false,
+  batchGroups,
+  renderGroupActions,
+  toolbarFilters,
+  emptyState,
+  isLoading = false,
 }: QueueDataTableProps) {
-  const [searchQuery, setSearchQuery] = React.useState("")
-  const [selectedStatus, setSelectedStatus] = React.useState<string>(initialStatus || "all")
-  const [selectedSite, setSelectedSite] = React.useState<string>("all")
-  const [selectedIds, setSelectedIds] = React.useState<string[]>([])
-  const [isBulkDeleting, setIsBulkDeleting] = React.useState(false)
+  const confirm = useConfirm()
+  const now = useMinuteClock()
+  const [search, setSearch] = React.useState("")
+  const [status, setStatus] = React.useState<StatusFilter>("all")
+  const [site, setSite] = React.useState(ALL_SITES)
+  const [grouped, setGrouped] = React.useState(defaultGrouped)
+  const [sorting, setSorting] = React.useState<SortingState>([])
+  const [expanded, setExpanded] = React.useState<ExpandedState>(true)
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
+  const [isBulkBusy, setIsBulkBusy] = React.useState(false)
 
-  // Hitung jumlah item dinamis untuk setiap kategori filter
-  const statusCounts = React.useMemo(() => {
-    let processing = 0
-    let published = 0
-    let draft = 0
-    let scheduled = 0
-    let failed = 0
+  const columnFilters = React.useMemo<ColumnFiltersState>(
+    () => [
+      { id: "title", value: search },
+      { id: "status", value: status },
+      { id: "site", value: site },
+    ],
+    [search, status, site]
+  )
 
-    for (const item of items) {
-      if (
-        item.status === "queued_input" ||
-        item.status === "generating_content" ||
-        item.status === "ready_to_sync" ||
-        item.status === "syncing_to_wp"
-      ) {
-        processing++
-      } else if (item.status === "published_on_wp") {
-        published++
-      } else if (item.status === "saved_draft_on_wp") {
-        draft++
-      } else if (item.status === "scheduled_on_wp") {
-        scheduled++
-      } else if (item.status === "failed_generation" || item.status === "failed_sync") {
-        failed++
-      }
-    }
+  const processingIds = React.useMemo(() => new Set(processingItemIds), [processingItemIds])
+  const meta = React.useMemo<QueueTableMeta>(
+    () => ({ processingIds, now, showBatchBadge: !grouped, onRetryItem, onDeleteItem }),
+    [processingIds, now, grouped, onRetryItem, onDeleteItem]
+  )
 
-    return {
-      all: items.length,
-      processing,
-      published,
-      draft,
-      scheduled,
-      failed,
-    }
-  }, [items])
+  // TanStack Table v8 mengembalikan fungsi yang tidak dapat di-memo React Compiler; komponen ini memang
+  // dilewati compiler (proyek belum memakai React Compiler) dan state tabel dikelola TanStack sendiri.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const table = useReactTable({
+    data: items,
+    columns: COLUMNS,
+    meta,
+    state: {
+      sorting,
+      columnFilters,
+      rowSelection,
+      expanded,
+      grouping: grouped ? ["batch"] : [],
+      columnVisibility: { batch: false },
+    },
+    getRowId: (item) => item.id,
+    onSortingChange: setSorting,
+    onRowSelectionChange: setRowSelection,
+    onExpandedChange: setExpanded,
+    enableRowSelection: (row) => !row.getIsGrouped(),
+    groupedColumnMode: false,
+    autoResetExpanded: false,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getGroupedRowModel: getGroupedRowModel(),
+    getExpandedRowModel: getExpandedRowModel(),
+  })
 
-  // Ambil daftar unik website dari item
-  const uniqueSites = React.useMemo(() => {
-    const map = new Map<string, string>()
-    for (const item of items) {
-      if (item.siteDomain && item.siteDomain !== "-") {
-        map.set(item.siteDomain, item.siteName)
-      }
-    }
-    return Array.from(map.entries()).map(([domain, name]) => ({ domain, name }))
-  }, [items])
+  const statusCounts = React.useMemo(() => countStatusGroups(items.map((item) => item.status)), [items])
+  const sites = React.useMemo(() => uniqueSites(items), [items])
+  const isFilterActive = search.trim().length > 0 || status !== "all" || site !== ALL_SITES
 
-  // Evaluasi kecocokan status (mendukung group maupun status eksak)
-  const isStatusMatching = (itemStatus: PostItemState, filterId: string): boolean => {
-    if (filterId === "all") return true
-    if (filterId === "processing" || filterId === "generating_content") {
-      return (
-        itemStatus === "queued_input" ||
-        itemStatus === "generating_content" ||
-        itemStatus === "ready_to_sync" ||
-        itemStatus === "syncing_to_wp"
-      )
-    }
-    if (filterId === "published" || filterId === "published_on_wp") {
-      return itemStatus === "published_on_wp"
-    }
-    if (filterId === "draft" || filterId === "saved_draft_on_wp") {
-      return itemStatus === "saved_draft_on_wp"
-    }
-    if (filterId === "scheduled" || filterId === "scheduled_on_wp") {
-      return itemStatus === "scheduled_on_wp"
-    }
-    if (filterId === "failed" || filterId === "failed_sync" || filterId === "failed_generation") {
-      return itemStatus === "failed_generation" || itemStatus === "failed_sync"
-    }
-    if (filterId === "ready_to_sync") {
-      return itemStatus === "ready_to_sync"
-    }
-    return itemStatus === filterId
+  const selectedItems = table
+    .getFilteredSelectedRowModel()
+    .flatRows.filter((row) => !row.getIsGrouped())
+    .map((row) => row.original)
+  const retryableIds = selectedItems.filter((item) => getQueueRetryAction(item.status)).map((item) => item.id)
+
+  function resetFilters() {
+    setSearch("")
+    setStatus("all")
+    setSite(ALL_SITES)
   }
 
-  // Filter items berdasarkan pencarian, status, dan situs
-  const filteredItems = React.useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    return items.filter((item) => {
-      const matchSearch =
-        !q ||
-        (item.title || "").toLowerCase().includes(q) ||
-        (item.targetKeyword || "").toLowerCase().includes(q) ||
-        (item.siteName || "").toLowerCase().includes(q) ||
-        (item.siteDomain || "").toLowerCase().includes(q) ||
-        (item.batchName || "").toLowerCase().includes(q) ||
-        (item.category || "").toLowerCase().includes(q) ||
-        (Array.isArray(item.categories) &&
-          item.categories.some((cat) => cat.toLowerCase().includes(q)))
-
-      const matchStatus = isStatusMatching(item.status, selectedStatus)
-      const matchSite = selectedSite === "all" || item.siteDomain === selectedSite
-
-      return matchSearch && matchStatus && matchSite
-    })
-  }, [items, searchQuery, selectedStatus, selectedSite])
-
-  const toggleSelectAll = () => {
-    if (selectedIds.length === filteredItems.length) {
-      setSelectedIds([])
-    } else {
-      setSelectedIds(filteredItems.map((i) => i.id))
-    }
-  }
-
-  const toggleSelectItem = (id: string) => {
-    setSelectedIds((prev) =>
-      prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]
-    )
-  }
-
-  const isAllSelected =
-    filteredItems.length > 0 && selectedIds.length === filteredItems.length
-
-  const handleBulkDelete = async () => {
-    if (!onBulkDelete || selectedIds.length === 0) return
-    if (
-      !window.confirm(
-        `Hapus ${selectedIds.length} artikel yang dipilih? Tindakan ini tidak dapat dibatalkan.`
-      )
-    )
-      return
-
-    setIsBulkDeleting(true)
+  async function runBulk(action: (ids: string[]) => Promise<unknown> | void, ids: string[]) {
+    setIsBulkBusy(true)
     try {
-      await onBulkDelete(selectedIds)
-      setSelectedIds([])
+      await action(ids)
+      setRowSelection({})
     } finally {
-      setIsBulkDeleting(false)
+      setIsBulkBusy(false)
     }
   }
 
-  const isFilterActive =
-    searchQuery.trim().length > 0 || selectedStatus !== "all" || selectedSite !== "all"
-
-  const handleResetFilters = () => {
-    setSearchQuery("")
-    setSelectedStatus("all")
-    setSelectedSite("all")
+  async function handleBulkDelete() {
+    if (!onBulkDelete || selectedItems.length === 0) return
+    const ok = await confirm({
+      title: `Hapus ${selectedItems.length} artikel yang dipilih?`,
+      description: "Artikel dihapus dari antrean dan riwayat Panitera. Post yang sudah ada di WordPress tidak ikut terhapus.",
+      confirmLabel: "Hapus",
+      tone: "destructive",
+    })
+    if (ok) await runBulk(onBulkDelete, selectedItems.map((item) => item.id))
   }
 
-  // Definisi opsi filter status
-  const filterPills = [
-    { id: "all", label: "Semua", count: statusCounts.all },
-    { id: "processing", label: "Dalam Proses", count: statusCounts.processing },
-    { id: "published", label: "Terbit di Web", count: statusCounts.published },
-    { id: "draft", label: "Draf di Web", count: statusCounts.draft },
-    { id: "scheduled", label: "Terjadwal", count: statusCounts.scheduled },
-    { id: "failed", label: "Gagal", count: statusCounts.failed, isDestructive: statusCounts.failed > 0 },
-  ]
+  const rows = table.getRowModel().rows
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Table Toolbar: Pencarian, Filter Website, & Reset */}
-      <div className="flex flex-col gap-2.5 bg-card p-3 rounded-xl border border-border/80 shadow-2xs">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
-          <div className="flex-1 max-w-md">
-            <SearchInput
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onClear={() => setSearchQuery("")}
-              placeholder="Cari judul, topik, kategori, atau domain..."
-            />
-          </div>
+      <QueueTableToolbar
+        search={search}
+        onSearchChange={setSearch}
+        sites={sites}
+        site={site}
+        onSiteChange={setSite}
+        status={status}
+        onStatusChange={setStatus}
+        statusCounts={statusCounts}
+        grouped={grouped}
+        onGroupedChange={setGrouped}
+        isFilterActive={isFilterActive}
+        onReset={resetFilters}
+      >
+        {toolbarFilters}
+      </QueueTableToolbar>
 
-          <div className="flex items-center gap-2">
-            {/* Filter Dropdown Situs WordPress */}
-            {uniqueSites.length > 0 && (
-              <div className="w-[180px] sm:w-[200px]">
-                <Select value={selectedSite} onValueChange={setSelectedSite}>
-                  <SelectTrigger className="h-8 text-xs bg-background">
-                    <div className="flex items-center gap-1.5 truncate">
-                      <Globe className="size-3.5 text-primary shrink-0" />
-                      <SelectValue placeholder="Pilih Situs..." />
-                    </div>
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all" className="text-xs">
-                      Semua Website ({items.length})
-                    </SelectItem>
-                    {uniqueSites.map((site) => (
-                      <SelectItem key={site.domain} value={site.domain} className="text-xs">
-                        {site.name} ({site.domain})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {/* Tombol Reset Filter jika ada filter yang aktif */}
-            {isFilterActive && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleResetFilters}
-                className="h-8 text-xs gap-1 text-muted-foreground hover:text-foreground cursor-pointer px-2"
-                title="Reset semua filter ke tampilan default"
-              >
-                <RotateCcw className="size-3.5" />
-                <span className="hidden sm:inline">Reset</span>
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Filter Quick Pills dengan Badge Jumlah */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 pt-0.5 border-t border-border/60">
-          {filterPills.map((filter) => {
-            const isSelected = selectedStatus === filter.id
-
-            return (
-              <button
-                key={filter.id}
-                type="button"
-                onClick={() => setSelectedStatus(filter.id)}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer shrink-0 ${
-                  isSelected
-                    ? "bg-primary text-primary-foreground shadow-2xs font-semibold"
-                    : "bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground border border-border/60"
-                }`}
-              >
-                <span>{filter.label}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-semibold ${
-                    isSelected
-                      ? "bg-primary-foreground/20 text-primary-foreground"
-                      : filter.isDestructive
-                      ? "bg-destructive/15 text-destructive font-bold"
-                      : "bg-background/80 text-muted-foreground"
-                  }`}
-                >
-                  {filter.count}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Selected Batch Bulk Action Bar */}
-      {selectedIds.length > 0 && (
-        <div className="flex items-center justify-between px-4 py-2.5 rounded-lg bg-primary/10 border border-primary/20 text-xs animate-in fade-in duration-200">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-primary">
-              {selectedIds.length} artikel dipilih
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            {onBulkRun && (
-              <Button
-                size="xs"
-                variant="default"
-                onClick={() => onBulkRun(selectedIds)}
-                className="cursor-pointer gap-1.5"
-              >
-                <Play className="size-3" />
-                Kirim Sekarang
-              </Button>
-            )}
-            {onBulkDelete && (
-              <Button
-                size="xs"
-                variant="destructive"
-                onClick={handleBulkDelete}
-                disabled={isBulkDeleting}
-                className="cursor-pointer gap-1.5"
-              >
-                {isBulkDeleting ? (
-                  <RefreshCw className="size-3 animate-spin" />
-                ) : (
-                  <Trash2 className="size-3" />
-                )}
-                {isBulkDeleting ? "Menghapus..." : `Hapus ${selectedIds.length} Artikel`}
-              </Button>
-            )}
-            <Button
-              size="xs"
-              variant="outline"
-              onClick={() => setSelectedIds([])}
-              disabled={isBulkDeleting}
-              className="cursor-pointer"
-            >
-              Batal Pilih
-            </Button>
-          </div>
-        </div>
+      {selectedItems.length > 0 && (
+        <QueueBulkBar
+          selectedCount={selectedItems.length}
+          retryableCount={retryableIds.length}
+          isBusy={isBulkBusy}
+          onRetry={onBulkRetry ? () => void runBulk(onBulkRetry, retryableIds) : undefined}
+          onDelete={onBulkDelete ? () => void handleBulkDelete() : undefined}
+          onClear={() => setRowSelection({})}
+        />
       )}
 
-
-      {/* Table Container */}
-      <div className="rounded-xl border border-border/80 bg-card overflow-hidden shadow-2xs">
+      <div className="overflow-hidden rounded-xl border border-border/80 bg-card shadow-2xs">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/40 hover:bg-muted/40">
-              <TableHead className="w-10 text-center">
-                <Checkbox
-                  checked={isAllSelected}
-                  onCheckedChange={toggleSelectAll}
-                  aria-label="Pilih semua baris"
-                />
-              </TableHead>
-              <TableHead className="text-xs font-semibold">Judul &amp; Topik</TableHead>
-              <TableHead className="text-xs font-semibold">Website Tujuan</TableHead>
-              <TableHead className="text-xs font-semibold">Status</TableHead>
-              <TableHead className="text-xs font-semibold">Waktu &amp; Publikasi</TableHead>
-              <TableHead className="text-xs font-semibold">Kategori</TableHead>
-              <TableHead className="text-xs font-semibold text-right">Aksi</TableHead>
-            </TableRow>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id} className="bg-muted/40 hover:bg-muted/40">
+                {headerGroup.headers.map((header) => {
+                  const sorted = header.column.getIsSorted()
+                  const SortIcon = sorted === "asc" ? ArrowUp : sorted === "desc" ? ArrowDown : ArrowUpDown
+                  return (
+                    <TableHead
+                      key={header.id}
+                      aria-sort={sorted === "asc" ? "ascending" : sorted === "desc" ? "descending" : undefined}
+                      className={cn(
+                        "text-xs font-semibold",
+                        header.column.id === "select" && "w-10 text-center",
+                        header.column.id === "actions" && "text-right"
+                      )}
+                    >
+                      {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                        <button
+                          type="button"
+                          onClick={header.column.getToggleSortingHandler()}
+                          className="-ml-1 inline-flex items-center gap-1 rounded px-1 py-0.5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                          <SortIcon aria-hidden="true" className="size-3 text-muted-foreground" />
+                        </button>
+                      ) : (
+                        flexRender(header.column.columnDef.header, header.getContext())
+                      )}
+                    </TableHead>
+                  )
+                })}
+              </TableRow>
+            ))}
           </TableHeader>
           <TableBody>
-            {filteredItems.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-64 text-center">
-                  <EmptyState
-                    title="Tidak ada artikel yang cocok"
-                    description="Coba ubah kata kunci pencarian atau ganti filter status di atas."
-                  >
-                    {isFilterActive && (
-                      <Button size="sm" onClick={handleResetFilters} className="cursor-pointer gap-2">
-                        Reset Semua Filter
-                      </Button>
-                    )}
-                  </EmptyState>
+            {isLoading && items.length === 0 ? (
+              Array.from({ length: 4 }, (_, index) => (
+                <TableRow key={`skeleton-${index}`}>
+                  <TableCell colSpan={VISIBLE_COLUMN_COUNT}>
+                    <Skeleton className="h-10 w-full" />
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : rows.length === 0 ? (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={VISIBLE_COLUMN_COUNT} className="p-4">
+                  {items.length === 0
+                    ? (emptyState ?? (
+                        <EmptyState
+                          icon={Inbox}
+                          title="Belum ada artikel di antrean"
+                          description="Buat artikel lewat Tulis Cepat, Tulis Massal, atau Tulis Terstruktur."
+                        />
+                      ))
+                    : (
+                        <EmptyState
+                          icon={SearchX}
+                          title="Tidak ada artikel yang cocok"
+                          description="Ubah kata kunci pencarian atau filter status/website."
+                        >
+                          <Button size="sm" onClick={resetFilters}>
+                            Reset semua filter
+                          </Button>
+                        </EmptyState>
+                      )}
                 </TableCell>
               </TableRow>
             ) : (
-              filteredItems.map((item) => {
-                const isSelected = selectedIds.includes(item.id)
-                const retryAction = getQueueRetryAction(item.status)
-                const isProcessing = processingItemIds.includes(item.id)
-
+              rows.map((row) => {
+                if (row.getIsGrouped()) {
+                  const info = groupInfoFor(
+                    String(row.groupingValue),
+                    row.subRows.map((subRow) => subRow.original),
+                    batchGroups
+                  )
+                  return (
+                    <QueueGroupRow
+                      key={row.id}
+                      row={row}
+                      colSpan={VISIBLE_COLUMN_COUNT}
+                      info={info}
+                      actions={renderGroupActions?.(info)}
+                    />
+                  )
+                }
                 return (
-                  <TableRow
-                    key={item.id}
-                    data-state={isSelected ? "selected" : undefined}
-                    className="hover:bg-muted/30 transition-colors"
-                  >
-                    {/* Checkbox Col */}
-                    <TableCell className="text-center">
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={() => toggleSelectItem(item.id)}
-                        aria-label={`Pilih artikel ${item.title}`}
-                      />
-                    </TableCell>
-
-                    {/* Title & Keyword Col */}
-                    <TableCell className="max-w-md">
-                      <div className="flex flex-col gap-0.5">
-                        <Link
-                          href={`/posts/${item.id}`}
-                          className="text-xs font-bold text-foreground line-clamp-1 hover:text-primary transition-colors cursor-pointer"
-                        >
-                          {item.title}
-                        </Link>
-                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5">
-                          <span className="font-mono bg-muted/60 px-1 rounded">
-                            Topik: {item.targetKeyword}
-                          </span>
-                          {item.batchName && (
-                            <Badge
-                              variant="outline"
-                              className={`text-[9px] h-4 px-1.5 font-normal tracking-tight ${
-                                item.batchId === "quick-writer"
-                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                                  : "bg-primary/5 text-primary border-primary/20"
-                              }`}
-                            >
-                              {item.batchId === "quick-writer" ? "⚡ Tulis Cepat" : item.batchName}
-                            </Badge>
-                          )}
-                          {item.wpTargetStatus &&
-                            !["published_on_wp", "saved_draft_on_wp", "scheduled_on_wp"].includes(
-                              item.status
-                            ) && (
-                              <Badge
-                                variant="outline"
-                                className={`text-[9px] h-4 px-1.5 font-normal tracking-tight ${
-                                  item.wpTargetStatus === "publish"
-                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
-                                    : item.wpTargetStatus === "draft"
-                                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                                    : "bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20"
-                                }`}
-                              >
-                                Target: {item.wpTargetStatus === "publish" ? "Terbit" : item.wpTargetStatus === "draft" ? "Draf" : "Jadwal"}
-                              </Badge>
-                            )}
-                          {item.wordCount && (
-                            <span>{item.wordCount.toLocaleString()} kata</span>
-                          )}
-                          {item.aiModel && (
-                            <span className="text-primary/80 font-medium">
-                              {item.aiModel}
-                            </span>
-                          )}
-                        </div>
-                        {item.lastError &&
-                          !["published_on_wp", "saved_draft_on_wp", "scheduled_on_wp"].includes(
-                            item.status
-                          ) && (
-                            <span className="text-[10px] text-destructive font-medium truncate max-w-sm mt-0.5">
-                              Kendala: {item.lastError}
-                            </span>
-                          )}
-                      </div>
-                    </TableCell>
-
-                    {/* Site Col */}
-                    <TableCell>
-                      <SiteBadge
-                        siteName={item.siteName}
-                        domain={item.siteDomain}
-                      />
-                    </TableCell>
-
-                    {/* Status Col */}
-                    <TableCell>
-                      <StatusBadge status={item.status} />
-                    </TableCell>
-
-                    {/* Waktu & Jadwal Publikasi Col */}
-                    <TableCell className="text-xs whitespace-nowrap">
-                      {(() => {
-                        // 1. Kasus: Sudah Terbit di WordPress
-                        if (item.status === "published_on_wp") {
-                          const publishDate = item.updatedAt ? new Date(item.updatedAt) : null
-                          return (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                                <CheckCircle2 className="size-3 shrink-0" />
-                                <span>Terbit di Web</span>
-                              </span>
-                              <span className="text-[11px] text-muted-foreground font-mono">
-                                {publishDate ? formatIndonesianDateTime(publishDate) : "—"}
-                              </span>
-                            </div>
-                          )
-                        }
-
-                        // 2. Kasus: Terjadwal di WordPress (Future Status)
-                        if (item.status === "scheduled_on_wp") {
-                          const scheduleDate = item.scheduledFor
-                            ? new Date(item.scheduledFor)
-                            : item.updatedAt
-                            ? new Date(item.updatedAt)
-                            : null
-                          return (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-500/20">
-                                <CalendarClock className="size-3 shrink-0" />
-                                <span>Terjadwal di WP</span>
-                              </span>
-                              <span className="text-[11px] text-foreground font-medium font-mono">
-                                {scheduleDate ? formatIndonesianDateTime(scheduleDate) : "—"}
-                              </span>
-                            </div>
-                          )
-                        }
-
-                        // 3. Kasus: Draf Tersimpan di WordPress
-                        if (item.status === "saved_draft_on_wp") {
-                          const draftDate = item.updatedAt ? new Date(item.updatedAt) : null
-                          return (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                <FileText className="size-3 shrink-0" />
-                                <span>Draf di WP</span>
-                              </span>
-                              <span className="text-[11px] text-muted-foreground font-mono">
-                                {draftDate ? formatIndonesianDateTime(draftDate) : "—"}
-                              </span>
-                            </div>
-                          )
-                        }
-
-                        // 4. Kasus: Gagal (Generation atau Sync)
-                        if (item.status === "failed_generation" || item.status === "failed_sync") {
-                          const failDate = item.updatedAt ? new Date(item.updatedAt) : null
-                          return (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-destructive/10 text-destructive border border-destructive/20">
-                                <AlertCircle className="size-3 shrink-0" />
-                                <span>Gagal Diproses</span>
-                              </span>
-                              <span className="text-[11px] text-muted-foreground font-mono">
-                                {failDate ? formatIndonesianDateTime(failDate) : "—"}
-                              </span>
-                            </div>
-                          )
-                        }
-
-                        // 5. Kasus: Dalam Antrean / Sedang Diproses
-                        const isFutureSchedule =
-                          item.scheduledFor && new Date(item.scheduledFor).getTime() > Date.now()
-
-                        if (isFutureSchedule) {
-                          return (
-                            <div className="flex flex-col gap-1 items-start">
-                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
-                                <CalendarClock className="size-3 shrink-0" />
-                                <span>Rencana Tayang</span>
-                              </span>
-                              <span className="text-[11px] text-foreground font-medium font-mono">
-                                {formatIndonesianDateTime(new Date(item.scheduledFor!))}
-                              </span>
-                            </div>
-                          )
-                        }
-
-                        // Antrean Langsung (Immediate Queue)
-                        const queueDate = item.createdAt ? new Date(item.createdAt) : null
-                        return (
-                          <div className="flex flex-col gap-1 items-start">
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium bg-muted/60 text-muted-foreground border border-border/60">
-                              <Layers className="size-3 shrink-0" />
-                              <span>Masuk Antrean</span>
-                            </span>
-                            <span className="text-[11px] text-muted-foreground font-mono">
-                              {queueDate ? formatIndonesianDateTime(queueDate) : "—"}
-                            </span>
-                          </div>
-                        )
-                      })()}
-                    </TableCell>
-
-                    {/* Category Col */}
-                    <TableCell>
-                      {(() => {
-                        const rawList =
-                          Array.isArray(item.categories) && item.categories.length > 0
-                            ? item.categories
-                            : item.category
-                            ? item.category.split(",").map((c) => c.trim()).filter(Boolean)
-                            : []
-
-                        const categories = rawList.filter(Boolean)
-
-                        if (categories.length === 0) {
-                          return (
-                            <Badge
-                              variant="outline"
-                              className="text-[11px] font-normal text-muted-foreground bg-muted/40 border-dashed"
-                            >
-                              Umum
-                            </Badge>
-                          )
-                        }
-
-                        const firstCat = categories[0]
-                        const remainingCount = categories.length - 1
-
-                        return (
-                          <div className="flex items-center gap-1 flex-wrap max-w-[200px]">
-                            <Badge
-                              variant="secondary"
-                              className="text-[11px] font-medium inline-flex items-center gap-1 bg-secondary/80 text-secondary-foreground border border-border/60 max-w-[150px] truncate"
-                              title={firstCat}
-                            >
-                              <Folder className="size-3 text-muted-foreground shrink-0" />
-                              <span className="truncate">{firstCat}</span>
-                            </Badge>
-                            {remainingCount > 0 && (
-                              <Badge
-                                variant="outline"
-                                className="text-[10px] font-mono font-medium px-1.5 py-0 text-muted-foreground hover:text-foreground cursor-help"
-                                title={`Kategori lainnya: ${categories.slice(1).join(", ")}`}
-                              >
-                                +{remainingCount}
-                              </Badge>
-                            )}
-                          </div>
-                        )
-                      })()}
-                    </TableCell>
-
-                    {/* Action Col */}
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {item.wpPostUrl && (
-                          <Button
-                            asChild
-                            variant="ghost"
-                            size="icon-xs"
-                            className="size-7 text-muted-foreground hover:text-foreground"
-                          >
-                            <a
-                              href={item.wpPostUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title="Buka di WordPress"
-                            >
-                              <ExternalLink className="size-3.5" />
-                            </a>
-                          </Button>
+                  <TableRow key={row.id} data-state={row.getIsSelected() ? "selected" : undefined}>
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        className={cn(
+                          cell.column.id === "select" && "w-10 text-center",
+                          cell.column.id === "title" && "max-w-md",
+                          cell.column.id === "time" && "whitespace-nowrap"
                         )}
-
-                        {retryAction && onRetryItem && (
-                          <Button
-                            variant="outline"
-                            size="icon-xs"
-                            disabled={isProcessing}
-                            onClick={() => onRetryItem(item.id)}
-                            className={cn(
-                              "size-7 disabled:opacity-70",
-                              retryAction === "run"
-                                ? "text-primary border-primary/30 hover:bg-primary/10"
-                                : "text-destructive border-destructive/30 hover:bg-destructive/10"
-                            )}
-                            title={isProcessing ? RETRY_ACTION_COPY[retryAction].busy : RETRY_ACTION_COPY[retryAction].idle}
-                            aria-label={RETRY_ACTION_COPY[retryAction].idle}
-                          >
-                            {isProcessing ? (
-                              <Loader2 className="size-3.5 animate-spin" />
-                            ) : retryAction === "run" ? (
-                              <Play className="size-3.5" />
-                            ) : retryAction === "regenerate" ? (
-                              <RotateCcw className="size-3.5" />
-                            ) : (
-                              <RefreshCw className="size-3.5" />
-                            )}
-                          </Button>
-                        )}
-
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon-xs"
-                              className="size-7 text-muted-foreground"
-                            >
-                              <MoreVertical className="size-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="text-xs">
-                            <DropdownMenuItem asChild className="cursor-pointer">
-                              <Link
-                                href={`/posts/${item.id}`}
-                                className="flex items-center gap-1.5"
-                              >
-                                <Terminal className="size-3.5 text-primary" />
-                                <span>Lihat Detail &amp; Log</span>
-                              </Link>
-                            </DropdownMenuItem>
-                            {item.wpPostUrl && (
-                              <DropdownMenuItem asChild className="cursor-pointer">
-                                <a
-                                  href={item.wpPostUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex items-center gap-1.5"
-                                >
-                                  <ExternalLink className="size-3.5" />
-                                  <span>Buka di WordPress</span>
-                                </a>
-                              </DropdownMenuItem>
-                            )}
-                            {retryAction && onRetryItem && (
-                              <DropdownMenuItem
-                                disabled={isProcessing}
-                                onClick={() => onRetryItem(item.id)}
-                                className="cursor-pointer text-primary"
-                              >
-                                {RETRY_ACTION_COPY[retryAction].menu}
-                              </DropdownMenuItem>
-                            )}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => onDeleteItem && onDeleteItem(item.id)}
-                              className="cursor-pointer text-destructive focus:text-destructive"
-                            >
-                              Hapus dari Daftar
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </TableCell>
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 )
               })

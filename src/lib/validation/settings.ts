@@ -1,14 +1,19 @@
 import { z } from "zod"
-import type { WebSearchProvider } from "@/core/shared/tools/web-search"
-import type { NotificationPrefs } from "@/types/settings"
-
-/** Skema input route pengaturan pengguna (`/api/settings/**`). */
+import type { NotificationPrefs, SearchPreferences } from "@/types/settings"
 
 /**
- * Provider yang benar-benar ditangani `webSearch()` (`@/core/shared/tools/web-search`).
- * Bertipe `Record<WebSearchProvider, true>` agar tsc gagal bila union provider berubah tanpa memperbarui daftar ini.
+ * Skema input pengaturan pengguna (`/api/settings/**`) — dipakai bersama form client (`/settings/keys`,
+ * `/settings/profile`) dan route API. Validasi URL SearXNG kustom (anti-SSRF + DNS) tetap di service server
+ * (`src/server/services/settings.ts`); di sini cukup bentuk & batas panjang.
  */
-const SEARCH_PROVIDER_FLAGS: Record<WebSearchProvider, true> = {
+
+export type SearchProvider = NonNullable<SearchPreferences["default_provider"]>
+
+/**
+ * Provider yang ditangani `webSearch()`. Bertipe `Record<SearchProvider, true>` agar tsc gagal bila union
+ * berubah tanpa memperbarui daftar ini; kesetaraan dengan `WebSearchProvider` dijaga test tipe di `settings.test.ts`.
+ */
+const SEARCH_PROVIDER_FLAGS: Record<SearchProvider, true> = {
   auto: true,
   tavily: true,
   brave: true,
@@ -18,7 +23,7 @@ const SEARCH_PROVIDER_FLAGS: Record<WebSearchProvider, true> = {
   open_knowledge: true,
 }
 
-const SEARCH_PROVIDERS = Object.keys(SEARCH_PROVIDER_FLAGS) as [WebSearchProvider, ...WebSearchProvider[]]
+export const SEARCH_PROVIDERS = Object.keys(SEARCH_PROVIDER_FLAGS) as [SearchProvider, ...SearchProvider[]]
 
 export const SearchProviderSchema = z.enum(SEARCH_PROVIDERS, {
   error: `Provider pencarian default tidak didukung. Pilih salah satu: ${SEARCH_PROVIDERS.join(", ")}.`,
@@ -43,10 +48,12 @@ const NotificationPrefsInputSchema = z.object({
 
 export const CLIENT_NOTIFICATION_PREF_KEYS = NotificationPrefsInputSchema.keyof().options
 
-/** Kunci BYOK dari form: "" = hapus, nilai tersamar (•/*) = tidak berubah, selain itu = kunci baru. */
+/** Kunci BYOK di body PUT: "" = hapus, nilai tersamar (•/*) = tidak berubah, selain itu = kunci baru. */
 const ByokKeyInputSchema = z.string().trim().max(1000, "Kunci API terlalu panjang.").optional()
 
 const AiModelInputSchema = z.string().trim().max(200, "ID model AI terlalu panjang.").nullish()
+
+const LangsmithProjectSchema = z.string().trim().max(100, "Nama project LangSmith maksimal 100 karakter.")
 
 /** PUT /api/settings/user — hanya field yang dikirim yang diperbarui. */
 export const UpdateUserSettingsBodySchema = z.object({
@@ -56,7 +63,7 @@ export const UpdateUserSettingsBodySchema = z.object({
   serpapiKey: ByokKeyInputSchema,
   pexafyKey: ByokKeyInputSchema,
   langsmithApiKey: ByokKeyInputSchema,
-  langsmithProject: z.string().trim().max(100, "Nama project LangSmith maksimal 100 karakter.").optional(),
+  langsmithProject: LangsmithProjectSchema.optional(),
   defaultAiModel: AiModelInputSchema,
   reasoningEffort: ReasoningEffortSchema.optional(),
   /** String kosong/null = kembali ke SearXNG bawaan platform. */
@@ -99,3 +106,45 @@ export const SearchTestBodySchema = z.discriminatedUnion(
   { error: SEARCH_TEST_PROVIDER_ERROR }
 )
 export type SearchTestInput = z.infer<typeof SearchTestBodySchema>
+export type SearchTestProvider = SearchTestInput["provider"]
+
+// ---------------------------------------------------------------------------
+// Form client
+// ---------------------------------------------------------------------------
+
+/** Field kunci BYOK di form Pusat Kunci API (nama = field body PUT `/api/settings/user`). */
+export const BYOK_KEY_FIELDS = ["openrouterKey", "tavilyKey", "braveKey", "pexafyKey", "langsmithApiKey"] as const
+export type ByokKeyField = (typeof BYOK_KEY_FIELDS)[number]
+
+/**
+ * Kunci yang sedang diketik: kosong = kunci tersimpan tidak berubah (hapus kunci lewat aksi terpisah).
+ * Karakter tersamar ditolak agar tidak diam-diam diabaikan server (nilai tersamar = "tidak berubah").
+ */
+const NewByokKeySchema = z
+  .string()
+  .trim()
+  .max(1000, "Kunci API terlalu panjang.")
+  .refine((value) => !/[•*]/.test(value), "Kunci API tidak boleh memuat karakter tersamar (• atau *).")
+
+/** Form `/settings/keys` (kunci BYOK + preferensi model, pencarian, dan LangSmith). */
+export const ApiKeysFormSchema = z.object({
+  openrouterKey: NewByokKeySchema,
+  tavilyKey: NewByokKeySchema,
+  braveKey: NewByokKeySchema,
+  pexafyKey: NewByokKeySchema,
+  langsmithApiKey: NewByokKeySchema,
+  defaultAiModel: z.string().trim().min(1, "Pilih model AI default.").max(200, "ID model AI terlalu panjang."),
+  reasoningEffort: ReasoningEffortSchema,
+  defaultSearchProvider: SearchProviderSchema,
+  langsmithProject: LangsmithProjectSchema,
+})
+export type ApiKeysFormValues = z.infer<typeof ApiKeysFormSchema>
+
+/** Form `/settings/profile`: preferensi notifikasi + Developer Mode (disimpan di server). */
+export const ProfilePreferencesFormSchema = z.object({
+  email_on_failure: z.boolean(),
+  email_on_batch_complete: z.boolean(),
+  in_app_toast: z.boolean(),
+  developerMode: z.boolean(),
+})
+export type ProfilePreferencesFormValues = z.infer<typeof ProfilePreferencesFormSchema>

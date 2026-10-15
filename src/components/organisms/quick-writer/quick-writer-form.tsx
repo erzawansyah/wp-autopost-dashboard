@@ -1,415 +1,204 @@
 "use client"
 
 import * as React from "react"
-import Link from "next/link"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
+import { useRouter } from "next/navigation"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { FormProvider, useWatch, type FieldErrors } from "react-hook-form"
+import { CheckCircle2, KeyRound, Loader2, RotateCcw, Send, Sparkles } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/atoms/alert"
 import { Button } from "@/components/atoms/button"
 import { Input } from "@/components/atoms/input"
-import { Textarea } from "@/components/atoms/textarea"
-import { FormField } from "@/components/molecules/form-field"
-import { WPCategorySelect } from "@/components/molecules/wp-category-select"
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/atoms/tabs"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/atoms/select"
-import {
-  Sparkles,
-  SlidersHorizontal,
-  Globe,
-  KeyRound,
-  Send,
-  Loader2,
-  Tag,
-  RotateCcw,
-  AlertCircle,
-  Plus,
-} from "lucide-react"
-import { LanguageSelect } from "@/components/molecules/language-select"
-import { AgentProfileSelect } from "@/components/molecules/agent-profile-select"
+import { ControlledField } from "@/components/molecules/controlled-field"
 import { PublishStatusSwitcher } from "@/components/molecules/publish-status-switcher"
+import { WriterFormCard, type WriterFormTab } from "@/components/organisms/writer-form/writer-form-card"
+import { WriterBriefField, WriterTargetFields, WriterTaxonomyFields } from "@/components/organisms/writer-form/writer-fields"
+import { apiFetch } from "@/lib/api/client"
+import { selectConnectedSites, sitesQueries } from "@/lib/api/queries/sites"
+import { queryKeys } from "@/lib/api/query-keys"
+import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
+import { DEFAULT_AGENT_PROFILE_REF, type AgentProfileOption } from "@/lib/queue/writer-options"
+import { notify } from "@/lib/ui/notify"
+import {
+  QuickPostFormSchema,
+  toQuickPostBody,
+  type QuickPostFormInput,
+  type QuickPostFormValues,
+} from "@/lib/validation/posts"
+import type { Site } from "@/types/site"
 
-export interface WpSiteOption {
-  id: string
-  site_name: string
-  base_url: string
-  status?: string
-}
+/** Jeda singkat agar konfirmasi "masuk antrean" terlihat sebelum pindah ke Dashboard. */
+const REDIRECT_DELAY_MS = 700
+const ADVANCED_FIELDS = ["categoryIds", "tags", "customBrief"] as const
 
-
-export interface QuickWriterSubmitPayload {
-  siteId: string
-  keyword: string
-  agentProfileRef?: string
-  engine: string
-  language: string
-  categoryIds: number[]
-  categoryNames: string[]
-  tags: string
-  customBrief: string
-  actionStatus: "draft" | "publish"
-  aiModel?: string
+function defaultValues(sites: Site[]): QuickPostFormInput {
+  return {
+    siteId: sites[0]?.id ?? "",
+    keyword: "",
+    agentProfileRef: DEFAULT_AGENT_PROFILE_REF,
+    language: "id",
+    categoryIds: [],
+    categoryNames: [],
+    tags: "",
+    customBrief: "",
+    actionStatus: "draft",
+  }
 }
 
 interface QuickWriterFormProps {
-  sites: WpSiteOption[]
-  isLoadingSites: boolean
-  isSubmitting: boolean
-  onSubmit: (payload: QuickWriterSubmitPayload) => Promise<void>
-  initialSiteId?: string
+  /** Seluruh situs pengguna dari RSC (difilter `connected` di client, cache bersama `sitesQueries.list`). */
+  initialSites: Site[]
+  agentProfiles: AgentProfileOption[]
 }
 
-export function QuickWriterForm({
-  sites,
-  isLoadingSites,
-  isSubmitting,
-  onSubmit,
-  initialSiteId,
-}: QuickWriterFormProps) {
-  // Tab state: "essential" (wajib) vs "advanced" (opsional)
-  const [activeTab, setActiveTab] = React.useState<string>("essential")
+/**
+ * Tulis Cepat: satu artikel → `POST /api/posts/quick` (hanya mencatat item `queued_input`; runner antrean
+ * yang menulis & mengirim). Sukses → konfirmasi singkat lalu ke Dashboard (`/?queued=true&postId=…`).
+ */
+export function QuickWriterForm({ initialSites, agentProfiles }: QuickWriterFormProps) {
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const { data: sites } = useQuery({ ...sitesQueries.list(), initialData: initialSites, select: selectConnectedSites })
+  const [tab, setTab] = React.useState<WriterFormTab>("essential")
+  const [queuedKeyword, setQueuedKeyword] = React.useState<string | null>(null)
 
-  // Form states
-  const [siteId, setSiteId] = React.useState<string>(initialSiteId || (sites[0]?.id ?? ""))
-  const activeSiteId = siteId || (sites[0]?.id ?? "")
-  const [engine, setEngine] = React.useState<string>("preset:quick-writer")
-  const [language, setLanguage] = React.useState<string>("id")
-  const [keyword, setKeyword] = React.useState<string>("")
-  const [selectedCategoryIds, setSelectedCategoryIds] = React.useState<number[]>([])
-  const [selectedCategoryNames, setSelectedCategoryNames] = React.useState<string[]>([])
-  const [tags, setTags] = React.useState<string>("")
-  const [customBrief, setCustomBrief] = React.useState<string>("")
-  const [actionStatus, setActionStatus] = React.useState<"draft" | "publish">("draft")
-  // Model & kunci OpenRouter di-resolve server (Single Source of Truth; aiModel tidak dikirim).
-  // Di sini hanya menyegarkan cache model default di localStorage yang dibaca halaman lain
-  // (mis. Lab via getGlobalAiModel()). Kunci OpenRouter tidak pernah dibaca di browser.
-  React.useEffect(() => {
-    // Migrasi sekali jalan: hapus kunci plaintext lama yang dulu disimpan di browser.
-    try {
-      localStorage.removeItem("custom_openrouter_api_key")
-    } catch {
-      // localStorage tidak tersedia (mode privat / diblokir)
-    }
+  const form = useZodForm(QuickPostFormSchema, { defaultValues: defaultValues(sites) })
+  const [actionStatus, keyword, categoryIds, tags, customBrief] = useWatch({
+    control: form.control,
+    name: ["actionStatus", "keyword", "categoryIds", "tags", "customBrief"],
+  })
+  const advancedCount = [categoryIds.length > 0, tags.trim().length > 0, customBrief.trim().length > 0].filter(Boolean).length
 
-    fetch("/api/settings/user")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.ok && data.defaultAiModel) {
-          if (typeof window !== "undefined") {
-            localStorage.setItem("custom_openrouter_model", data.defaultAiModel)
-          }
-        }
-      })
-      .catch(() => {})
-  }, [])
+  const enqueue = useMutation({
+    mutationFn: (values: QuickPostFormValues) =>
+      apiFetch<{ postId: string; message: string }>("/api/posts/quick", { method: "POST", body: toQuickPostBody(values) }),
+    onSuccess: ({ postId }, values) => {
+      setQueuedKeyword(values.keyword)
+      void Promise.all(
+        [queryKeys.queue.all, queryKeys.posts.all, queryKeys.batches.all].map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey })
+        )
+      )
+      window.setTimeout(() => {
+        router.push(`/?queued=true&postId=${encodeURIComponent(postId)}&keyword=${encodeURIComponent(values.keyword)}`)
+      }, REDIRECT_DELAY_MS)
+    },
+    onError: (error) => {
+      if (!applyApiIssues(form, error)) notify.error(error, { fallback: "Gagal memasukkan artikel ke antrean." })
+    },
+  })
+  const busy = enqueue.isPending || queuedKeyword !== null
 
-  // Hitung jumlah opsi lanjutan yang aktif/diatur oleh user
-  const advancedOptionsCount = React.useMemo(() => {
-    let count = 0
-    if (selectedCategoryIds.length > 0) count++
-    if (tags.trim().length > 0) count++
-    if (customBrief.trim().length > 0) count++
-    return count
-  }, [selectedCategoryIds, tags, customBrief])
-
-  const handleSiteChange = (newSiteId: string) => {
-    setSiteId(newSiteId)
-    // Reset kategori saat berganti situs karena taksonomi tiap situs berbeda
-    setSelectedCategoryIds([])
-    setSelectedCategoryNames([])
+  function showTabWithErrors(errors: FieldErrors<QuickPostFormInput>) {
+    const keys = Object.keys(errors)
+    const onlyAdvanced = keys.length > 0 && keys.every((key) => (ADVANCED_FIELDS as readonly string[]).includes(key))
+    setTab(onlyAdvanced ? "advanced" : "essential")
   }
 
-  const handleResetForm = () => {
-    setKeyword("")
-    setEngine("preset:research-writer")
-    setLanguage("id")
-    setSelectedCategoryIds([])
-    setSelectedCategoryNames([])
-    setTags("")
-    setCustomBrief("")
-    setActionStatus("draft")
-    setActiveTab("essential")
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!keyword.trim() || !activeSiteId || isSubmitting) return
-
-    onSubmit({
-      siteId: activeSiteId,
-      keyword: keyword.trim(),
-      agentProfileRef: engine,
-      engine,
-      language,
-      categoryIds: selectedCategoryIds,
-      categoryNames: selectedCategoryNames,
-      tags: tags.trim(),
-      customBrief: customBrief.trim(),
-      actionStatus,
-      aiModel: undefined,
-    })
+  if (queuedKeyword !== null) {
+    return (
+      <Alert variant="success" role="status">
+        <CheckCircle2 aria-hidden="true" />
+        <AlertTitle>Artikel berhasil masuk antrean latar belakang</AlertTitle>
+        <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+          <span>
+            Topik <strong>&quot;{queuedKeyword}&quot;</strong> sedang ditulis Agent Profile. Mengalihkan ke Dashboard…
+          </span>
+          <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
+        </AlertDescription>
+      </Alert>
+    )
   }
 
   return (
-    <Card className="border-border bg-card shadow-xs">
-      <CardHeader className="pb-4 border-b border-border/60">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-              <Sparkles className="size-4 text-primary" />
-              <span>Tulis Cepat</span>
-            </CardTitle>
-            <CardDescription className="text-xs text-muted-foreground mt-0.5">
-              Buat dan publikasikan satu artikel langsung ke WordPress target.
-            </CardDescription>
-          </div>
-
-          {/* Tab Selector Wajib vs Advanced */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full sm:w-auto">
-            <TabsList className="grid w-full grid-cols-2 h-9 p-1 bg-muted">
-              <TabsTrigger
-                value="essential"
-                className="text-xs font-medium gap-1.5 cursor-pointer data-[state=active]:bg-card data-[state=active]:text-foreground"
-              >
-                <Sparkles className="size-3.5 text-primary" />
-                <span>Wajib (Cepat)</span>
-              </TabsTrigger>
-              <TabsTrigger
-                value="advanced"
-                className="text-xs font-medium gap-1.5 cursor-pointer data-[state=active]:bg-card data-[state=active]:text-foreground"
-              >
-                <SlidersHorizontal className="size-3.5 text-muted-foreground" />
-                <span>Lanjutan</span>
-                {advancedOptionsCount > 0 && (
-                  <span className="flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
-                    {advancedOptionsCount}
-                  </span>
-                )}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
-      </CardHeader>
-
-      <CardContent className="pt-6">
-        <form onSubmit={handleSubmit} className="flex flex-col gap-6">
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            {/* ========================================================= */}
-            {/* TAB 1: ESSENTIAL / WAJIB (Input Utama yang Ditonjolkan)  */}
-            {/* ========================================================= */}
-            <TabsContent value="essential" className="mt-0 flex flex-col gap-5">
-              {/* Baris 1: Grid 3 Kolom untuk Website Target, Engine, dan Bahasa */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-start">
-                {/* Field 1: Pilih Website Target */}
-                <FormField
-                  label="Website WordPress Target"
-                  required
-                  tooltip="Website WordPress tujuan yang akan menerima dan menerbitkan postingan artikel ini via REST API."
-                  hint="Pilih website blog tujuan penerbitan artikel."
-                >
-                  {isLoadingSites ? (
-                    <div className="flex h-10 w-full items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-xs text-muted-foreground">
-                      <Loader2 className="size-3.5 animate-spin text-primary" />
-                      <span>Memuat daftar website WordPress...</span>
-                    </div>
-                  ) : sites.length === 0 ? (
-                    <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300">
-                      <div className="flex items-center gap-2">
-                        <AlertCircle className="size-4 shrink-0" />
-                        <span>Belum ada website yang terhubung.</span>
-                      </div>
-                      <Button
-                        type="button"
-                        asChild
-                        size="xs"
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
-                      >
-                        <Link href="/sites" className="flex items-center gap-1">
-                          <Plus className="size-3" />
-                          <span>Hubungkan Web</span>
-                        </Link>
-                      </Button>
-                    </div>
-                  ) : (
-                    <Select
-                      value={activeSiteId}
-                      onValueChange={handleSiteChange}
-                      disabled={isSubmitting}
-                    >
-                      <SelectTrigger className="h-9 text-xs bg-background">
-                        <SelectValue placeholder="Pilih website WordPress..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {sites.map((site) => (
-                          <SelectItem key={site.id} value={site.id} className="text-xs">
-                            <div className="flex items-center gap-2">
-                              <Globe className="size-3.5 text-muted-foreground" />
-                              <span className="font-semibold">{site.site_name}</span>
-                              <span className="text-[11px] text-muted-foreground font-mono">
-                                ({site.base_url.replace(/^https?:\/\//, "").replace(/\/$/, "")})
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-                </FormField>
-
-                {/* Field 2: Profil Agen Kepenulisan */}
-                <AgentProfileSelect
-                  value={engine}
-                  onChange={setEngine}
-                  disabled={isSubmitting}
-                />
-
-                {/* Field 3: Bahasa Artikel */}
-                <FormField
-                  label="Bahasa Artikel"
-                  required
-                  hint="Bahasa utama penulisan artikel."
-                  tooltip="AI System Writer akan menghasilkan judul, heading, paragraf, dan meta SEO sesuai bahasa yang dipilih."
-                >
-                  <LanguageSelect
-                    value={language}
-                    onValueChange={setLanguage}
-                    disabled={isSubmitting}
-                  />
-                </FormField>
-              </div>
-
-              {/* Field 4: Kata Kunci / Topik Utama */}
-              <FormField
-                label="Topik atau Kata Kunci Utama"
-                required
-                hint="Masukkan topik utama artikel atau kata kunci fokus SEO yang ingin ditulis."
-                tooltip="AI System Writer akan merancang naskah mendalam berbasis kata kunci ini dengan sudut pandang unik, bebas klise, dan langsung diformat ke Gutenberg native blocks."
-              >
+    <FormProvider {...form}>
+      <WriterFormCard
+        title="Tulis Cepat"
+        description="Buat dan publikasikan satu artikel langsung ke WordPress target."
+        icon={Sparkles}
+        essentialLabel="Wajib (cepat)"
+        advancedCount={advancedCount}
+        tab={tab}
+        onTabChange={setTab}
+        onSubmit={form.handleSubmit((values) => enqueue.mutate(values), showTabWithErrors)}
+        essential={
+          <>
+            <WriterTargetFields sites={sites} agentProfiles={agentProfiles} disabled={busy} />
+            <ControlledField
+              control={form.control}
+              name="keyword"
+              label="Topik atau kata kunci utama"
+              required
+              hint="Topik utama artikel atau kata kunci fokus SEO yang ingin ditulis."
+              tooltip="Agent Profile merancang naskah berbasis kata kunci ini lalu diformat ke blok Gutenberg native."
+            >
+              {(field) => (
                 <div className="relative">
-                  <KeyRound className="absolute left-3 top-3 size-4 text-muted-foreground pointer-events-none" />
+                  <KeyRound aria-hidden="true" className="pointer-events-none absolute top-3 left-3 size-4 text-muted-foreground" />
                   <Input
-                    value={keyword}
-                    onChange={(e) => setKeyword(e.target.value)}
+                    {...field}
                     placeholder="Contoh: Panduan Lengkap Belajar SEO Pemula dari Nol"
-                    className="h-10 pl-9 pr-4 text-xs sm:text-sm font-medium bg-background"
-                    disabled={isSubmitting || sites.length === 0}
-                    autoFocus
+                    className="h-10 bg-background pr-4 pl-9 text-sm font-medium"
+                    disabled={busy || sites.length === 0}
+                    autoComplete="off"
                   />
                 </div>
-              </FormField>
-
-              {/* Status Publikasi WordPress (Unified Molecule) */}
-              <PublishStatusSwitcher
-                value={actionStatus}
-                onChange={setActionStatus}
-                disabled={isSubmitting}
-              />
-            </TabsContent>
-
-            {/* ========================================================= */}
-            {/* TAB 2: ADVANCED / OPSIONAL (Kategori, Tag, Status, dsb)   */}
-            {/* ========================================================= */}
-            <TabsContent value="advanced" className="mt-0 flex flex-col gap-5">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5 items-start">
-                {/* 1. Kategori WordPress (Multi-Select dari WP API) */}
-                <FormField
-                  label="Kategori WordPress (Opsional)"
-                  hint="Pilih satu atau beberapa kategori yang sudah terdaftar di blog target."
-                  tooltip="Kategori diambil langsung secara dinamis dari WordPress REST API situs target. Jika dikosongkan, AI akan memilihkan kategori yang paling sesuai."
-                >
-                  <WPCategorySelect
-                    siteId={activeSiteId}
-                    selectedCategoryIds={selectedCategoryIds}
-                    onChange={(ids, names) => {
-                      setSelectedCategoryIds(ids)
-                      setSelectedCategoryNames(names)
-                    }}
-                    disabled={isSubmitting || !activeSiteId}
-                  />
-                </FormField>
-
-                {/* 2. Tag WordPress */}
-                <FormField
-                  label="Tag WordPress (Opsional)"
-                  hint="Pisahkan tiap tag dengan tanda koma (contoh: seo, tutorial, tips)."
-                  tooltip="Tag yang diinput akan otomatis dicocokkan atau dibuatkan ID-nya di WordPress REST API saat artikel dikirim."
-                >
-                  <div className="relative">
-                    <Tag className="absolute left-3 top-2.5 size-3.5 text-muted-foreground pointer-events-none" />
-                    <Input
-                      value={tags}
-                      onChange={(e) => setTags(e.target.value)}
-                      placeholder="seo, tutorial, panduan"
-                      className="h-9 pl-8 text-xs bg-background"
-                      disabled={isSubmitting || !activeSiteId}
-                    />
-                  </div>
-                </FormField>
-              </div>
-
-              {/* 3. Catatan Khusus / Custom Brief */}
-              <FormField
-                label="Catatan Khusus atau Sudut Pandang (Opsional)"
-                hint="Beri instruksi spesifik: misal tekankan metode gratis, sertakan 3 studi kasus, gaya bahasa santai."
-                tooltip="Instruksi tambahan bagi AI untuk menyesuaikan sudut pandang atau poin spesifik yang wajib diulas di artikel."
-              >
-                <Textarea
-                  value={customBrief}
-                  onChange={(e) => setCustomBrief(e.target.value)}
-                  placeholder="Tulis sudut pandang atau arahan spesifik untuk artikel ini..."
-                  rows={3}
-                  className="text-xs resize-none bg-background"
-                  disabled={isSubmitting || !activeSiteId}
-                />
-              </FormField>
-            </TabsContent>
-          </Tabs>
-
-          {/* ========================================================= */}
-          {/* ACTION BUTTONS (Selalu terlihat di bagian bawah)          */}
-          {/* ========================================================= */}
-          <div className="pt-4 border-t border-border/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={handleResetForm}
-                disabled={isSubmitting || (!keyword && !tags && !customBrief)}
-                className="text-xs text-muted-foreground hover:text-foreground cursor-pointer gap-1.5"
-              >
-                <RotateCcw className="size-3.5" />
-                <span>Kosongkan Formulir</span>
-              </Button>
-            </div>
-
+              )}
+            </ControlledField>
+            <ControlledField control={form.control} name="actionStatus">
+              {(field) => <PublishStatusSwitcher value={field.value} onChange={field.onChange} disabled={busy} />}
+            </ControlledField>
+          </>
+        }
+        advanced={
+          <>
+            <WriterTaxonomyFields
+              disabled={busy}
+              categoryLabel="Kategori WordPress (opsional)"
+              categoryHint="Pilih satu atau beberapa kategori yang sudah terdaftar di blog target."
+              tagsLabel="Tag WordPress (opsional)"
+              tagsHint="Pisahkan tiap tag dengan koma (contoh: seo, tutorial, tips)."
+              tagsPlaceholder="seo, tutorial, panduan"
+            />
+            <WriterBriefField
+              disabled={busy}
+              label="Catatan khusus atau sudut pandang (opsional)"
+              hint="Misal: tekankan metode gratis, sertakan 3 studi kasus, gaya bahasa santai."
+              placeholder="Tulis sudut pandang atau arahan spesifik untuk artikel ini..."
+            />
+          </>
+        }
+        footer={
+          <>
             <Button
-              type="submit"
-              disabled={isSubmitting || !keyword.trim() || !activeSiteId || sites.length === 0}
-              className="h-10 px-6 cursor-pointer gap-2 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-2xs"
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                form.reset(defaultValues(sites))
+                setTab("essential")
+              }}
+              disabled={busy || (!keyword && !tags && !customBrief)}
+              className="gap-1.5 text-xs text-muted-foreground"
             >
-              {isSubmitting ? (
+              <RotateCcw aria-hidden="true" className="size-3.5" />
+              Kosongkan formulir
+            </Button>
+            <Button type="submit" disabled={busy || sites.length === 0} className="h-10 gap-2 px-6 text-xs font-semibold shadow-2xs">
+              {enqueue.isPending ? (
                 <>
-                  <Loader2 className="size-4 animate-spin" />
-                  <span>Sedang Menulis &amp; Mengirim...</span>
+                  <Loader2 aria-hidden="true" className="size-4 animate-spin motion-reduce:animate-none" />
+                  Memasukkan ke antrean…
                 </>
               ) : (
                 <>
-                  <Send className="size-4" />
-                  <span>
-                    {actionStatus === "publish"
-                      ? "Tulis & Langsung Terbitkan"
-                      : "Tulis & Simpan ke Draf"}
-                  </span>
+                  <Send aria-hidden="true" className="size-4" />
+                  {actionStatus === "publish" ? "Tulis & langsung terbitkan" : "Tulis & simpan ke draf"}
                 </>
               )}
             </Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+          </>
+        }
+      />
+    </FormProvider>
   )
 }

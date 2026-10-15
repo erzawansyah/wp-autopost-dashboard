@@ -1,6 +1,6 @@
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
-import { LinkAnalyzeBodySchema } from "@/server/validation/tools"
+import { LinkAnalyzeBodySchema } from "@/lib/validation/tools"
 import { analyzeInternalLinks } from "@/server/services/wp-tools"
 
 // POST /api/tools/link-building/analyze - Rekomendasi internal link dari artikel lama di situs milik pengguna

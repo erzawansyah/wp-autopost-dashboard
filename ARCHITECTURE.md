@@ -66,17 +66,17 @@ wp-autopost-dashboard/
 │   │   │   ├── loading.tsx                # Skeleton halaman (PageSkeleton) saat segmen dimuat
 │   │   │   ├── error.tsx                  # Error boundary di dalam shell (RouteErrorState, tanpa stack trace)
 │   │   │   ├── not-found.tsx              # notFound() dari page dasbor, dirender di dalam shell
-│   │   │   ├── page.tsx                   # Dashboard Overview (KPIs, Active Sites, Quick Links)
-│   │   │   ├── agents/                    # Agent Studio: page.tsx (daftar), new/, [id]/
+│   │   │   ├── page.tsx                   # Dashboard Overview RSC: KPI (getDashboardStats), situs, pintasan, artikel terbaru (live)
+│   │   │   ├── agents/                    # Profil Agen RSC: page.tsx (katalog), new/ (?cloneFrom=), [id]/ (edit; preset → kloning)
 │   │   │   ├── batches/page.tsx           # Riwayat & pemantauan Batch Ingestion
-│   │   │   ├── docs/page.tsx              # Pembaca panduan pengguna (docs/guides via /api/docs)
-│   │   │   ├── lab/page.tsx               # Laboratorium pengujian (gate Developer Mode)
+│   │   │   ├── docs/page.tsx              # Pembaca panduan RSC (docs/guides via services/docs, ?doc=<slug>)
+│   │   │   ├── lab/                       # Laboratorium: layout.tsx (gate server Developer Mode), page.tsx (?tab=tools|agent)
 │   │   │   ├── posts/                     # page.tsx (→ redirect), new/ (Tulis Cepat), [id]/ (detail & audit log)
 │   │   │   ├── queue/                     # page.tsx (Tulis Massal), items/ (Tabel Antrean)
 │   │   │   ├── scheduled/page.tsx         # Artikel Terjadwal (→ redirect)
 │   │   │   ├── settings/                  # page.tsx, keys/, ai/, webhooks/, profile/
-│   │   │   ├── sites/page.tsx             # Multi-Site WordPress Manager
-│   │   │   ├── skills/                    # Skill Registry: page.tsx, new/
+│   │   │   ├── sites/                     # page.tsx (daftar + sambungkan + banner ?auth_status), [id]/ (pengaturan, kategori, author, hapus)
+│   │   │   ├── skills/                    # Skill Registry RSC: page.tsx, new/, [id]/ (edit; skill sistem baca-saja)
 │   │   │   ├── tools/                     # WP Tools: page.tsx, link-building/, authors/, categories/
 │   │   │   └── write/                     # page.tsx (→ redirect), structured/ (Tulis Terstruktur)
 │   │   ├── api/                           # Endpoint Internal REST API (tidak disentuh redirect proxy; JSON 401)
@@ -84,9 +84,9 @@ wp-autopost-dashboard/
 │   │   │   ├── ai/                        # Verifikasi kunci AI & dynamic model fetcher
 │   │   │   ├── auth/                      # Session user & signout
 │   │   │   ├── batches/                   # Inisialisasi & pembatalan batch
-│   │   │   ├── docs/                      # Fetcher berkas Markdown dokumentasi
+│   │   │   ├── docs/                      # Panduan pengguna (services/docs) untuk klien non-UI
 │   │   │   ├── health/                    # Healthcheck platform
-│   │   │   ├── lab/                       # Registry runner untuk pengujian sandbox
+│   │   │   ├── lab/                       # Registry (situs, tools, Agent Profile) & run uji (dapat dibatalkan)
 │   │   │   ├── posts/                     # CRUD artikel & endpoint /api/posts/quick
 │   │   │   ├── queue/                     # Pengambilan item antrean & /api/queue/process
 │   │   │   ├── settings/                  # BYOK key updates, preferensi search
@@ -136,18 +136,20 @@ wp-autopost-dashboard/
 │   │   ├── auth/                          # routes.ts (klasifikasi rute, sanitasi ?next=), session.ts (getSession/requireSession RSC, server-only)
 │   │   ├── constants/                     # Daftar bahasa, otoritas akses
 │   │   ├── env/                           # Validasi env server/client (zod), termasuk QUEUE_*
-│   │   ├── hooks/                         # Hook client: useZodForm, useTheme, useConnectedSites, useDeveloperMode
+│   │   ├── hooks/                         # Hook client: useZodForm, useTheme, useDeveloperMode, useRealtimeChannel, useQueueLiveUpdates, usePostDetailLive
 │   │   ├── net/                           # safeFetch anti-SSRF (DNS pinning, redirect, batas ukuran)
+│   │   ├── queue/                         # Model UI antrean murni: state/kelompok status, baris tabel, aksi ulang, patch Realtime, backoff polling, metrik run
 │   │   ├── scheduler/                     # Kalkulator jadwal (randomized jitter & drip window)
 │   │   ├── settings/                      # Dekripsi sentral kunci BYOK (user-keys.ts)
 │   │   ├── supabase/                      # Klien Supabase (Browser, Server SSR, Admin Service, penyegar sesi proxy)
 │   │   ├── ui/                            # notify (toast Sonner) & useConfirm (dialog konfirmasi)
-│   │   ├── validation/                    # Skema zod MURNI bersama form client & route (common, sites, auth, queue)
+│   │   ├── validation/                    # Skema zod MURNI bersama form client & route (common, sites, auth, queue, posts, batches, …)
 │   │   ├── webhooks/                      # Dispatcher webhook dengan tanda tangan HMAC SHA-256
 │   │   ├── wordpress/                     # Klien REST API WordPress & pembuat nama aplikasi
 │   │   ├── crypto.ts                      # Enkripsi & dekripsi AES-256-GCM
 │   │   └── utils.ts                       # Helper class merger Tailwind (`cn`)
 │   └── types/                             # Definisi TypeScript Sistem (tipe kanonis dari bentuk respons API)
+│       ├── posts.ts                       # PostDetailResponse (detail, log eksekusi, AgentRunInfo/Totals, checkpoint)
 │       ├── queue.ts                       # PostItemState, QueueItem, PostListItem, Batch, BatchRef
 │       ├── settings.ts                    # Tipe data kunci BYOK, search, & notifikasi
 │       ├── site.ts                        # Site, SiteStatus, SiteRef, CreatedSite
@@ -483,7 +485,9 @@ stateDiagram-v2
 6. **Pembatalan saat lease hilang**:
    Runner memberi setiap job `AbortSignal`; sinyal dibatalkan dengan kode `lease_lost` (heartbeat mengembalikan `false`), `max_duration`, `shutdown`, atau `claim_lost` (RPC checkpoint menolak). Error jaringan heartbeat hanya dicatat, tidak membatalkan. Run yang dibatalkan berhenti tanpa menulis state, media, maupun WordPress; request publish WordPress yang sudah berjalan tidak pernah diputus. Pipeline media berhenti sebelum unggahan berikutnya hanya pada kehilangan pasti (`lease_lost`, `max_duration`, `claim_lost`); unggahan yang sedang berjalan diselesaikan dan dicatat di cache agar tidak menjadi media yatim. Baris `agent_runs` attempt yang mati ditutup `failed` dengan `stop_reason` (`lease_expired`, `shutdown`, `superseded`, atau kode di atas).
 7. **Pengelompokan Antrean Virtual (Quick Writer Batch)**:
-   Artikel mandiri hasil dari *Tulis Cepat* (`batch_id: null`) dikelompokkan secara visual di halaman antrean ke dalam batch virtual `"⚡ Tulis Cepat (Quick Writer)"` sehingga seluruh item tetap terpantau rapi.
+   Artikel mandiri hasil dari *Tulis Cepat* (`batch_id: null`) dikelompokkan di halaman antrean (TanStack Table, grouping per batch) ke dalam batch virtual `id: "quick-writer"` ("Tulis Cepat (Quick Writer)") sehingga seluruh item tetap terpantau rapi. `/api/batches` mengirim grup virtual dengan bentuk yang sama seperti batch biasa (`wp_sites` objek = situs item terbaru).
+8. **Progres live (Supabase Realtime) + polling cadangan**:
+   `post_items` dan `execution_logs` terdaftar di publication `supabase_realtime` (migrasi `20261017090000_realtime_publication.sql`, hanya bila publication ada). Dasbor berlangganan `postgres_changes` INSERT/UPDATE `post_items` dengan filter `user_id=eq.<uid>` dan kolom ringkas (`select`, tanpa naskah) lalu menambal cache TanStack Query (`queue`, `posts`, detail); halaman detail juga berlangganan INSERT `execution_logs` (filter `post_item_id=eq.<id>`) untuk log live. Realtime mengotorisasi setiap event terhadap policy SELECT pemilik (RLS); event DELETE sengaja tidak dipakai (tidak melewati RLS) dan replica identity tetap default. Selama kanal tidak `SUBSCRIBED`, query memakai polling dengan backoff (5 dtk → maks 60 dtk, kembali ke awal saat data berubah, berhenti bila tidak ada item in-flight); saat kanal (kembali) tersambung, daftar disegarkan sekali.
 
 ---
 
@@ -594,7 +598,7 @@ flowchart LR
    - Menganalisis URL artikel baru untuk mengekstrak topik dan entitas kunci.
    - Mencari artikel lama yang relevan di WordPress target via REST API.
    - AI membaca naskah artikel lama dan merancang kalimat penyisipan tautan internal secara alami dengan *anchor text* kontekstual.
-   - Pengguna dapat menyalin kalimat rekomendasi atau menerapkan penyisipan otomatis 1-klik ke WordPress via REST API.
+   - Pengguna dapat menyalin kalimat rekomendasi atau menyisipkan tautan per rekomendasi ke WordPress via REST API (dengan konfirmasi).
 2. **Pembuat Persona Penulis E-E-A-T (`/tools/authors`)**:
    - AI menginspeksi profil penulis yang sudah ada di situs WordPress target.
    - Merancang 2–3 profil penulis kredibel dengan biografi persuasif yang relevan dengan niche situs.
@@ -602,7 +606,12 @@ flowchart LR
 3. **Perancang Taksonomi Kategori (`/tools/categories`)**:
    - AI membaca seluruh kategori aktif di situs target untuk mendeteksi tumpang tindih topik (*cannibalization*).
    - Menghasilkan usulan 3–6 kategori baru yang terstruktur, lengkap dengan slug ramah SEO dan deskripsi kategori.
-   - Pengguna dapat memilih dan menerbitkan kategori baru tersebut secara masal ke WordPress.
+   - Pengguna menyetujui/menolak tiap usulan, atau menyetujui semua sisa sekaligus (dikirim berurutan) ke WordPress.
+
+Ketiga halaman berbagi alur UI di `src/components/organisms/tools/`: selector situs ringkas di `PageHeader.actions`
+(`ToolSiteProvider`, data awal dari RSC), run AI sebagai mutation dengan `AbortController` (pindah halaman/ganti situs
+membatalkan request; route meneruskan `request.signal` ke LLM & WordPress), jeda 429 dengan hitung mundur, serta daftar
+persetujuan bersama (`SuggestionList`) untuk kategori & author. Skema murni ada di `src/lib/validation/tools.ts`.
 
 ---
 
@@ -647,20 +656,20 @@ Semua route di `src/app/api/` memakai `defineRoute` (`src/server/http/route.ts`,
 | `/api/ai/test` | POST | user, llm | Uji kunci OpenRouter (`apiKey` opsional, default kunci BYOK tersimpan); kunci ditolak → 400 |
 | `/api/auth/me` | GET | public | Status sesi pengguna saat ini |
 | `/api/auth/signout` | POST | public | Mengakhiri sesi (aman dipanggil tanpa sesi) |
-| `/api/batches` | GET, POST, DELETE | user, enqueue (POST) | Daftar batch (+ grup virtual Tulis Cepat), pembuatan batch (hanya mengantrekan item lalu membangunkan runner; body ≤ 10 MB), pembatalan/hapus batch |
+| `/api/batches` | GET, POST, DELETE | user, enqueue (POST) | Daftar batch (+ grup virtual Tulis Cepat berbentuk sama, `wp_sites` selalu objek/null), pembuatan batch (hanya mengantrekan item lalu membangunkan runner; body ≤ 10 MB, skema `lib/validation/batches`), pembatalan/hapus batch |
 | `/api/docs` | GET | none | Panduan pengguna `docs/guides/0N-*.md` saja (dokumen internal di `docs/` tidak disajikan maupun ikut ke image) |
 | `/api/health` | GET | none | Healthcheck status layanan |
-| `/api/lab/registry` | GET | user + Developer Mode | Data pendukung sandbox (situs, agen, tools) |
-| `/api/lab/run` | POST | user + Developer Mode, llm | Uji eksekusi tool/agen; kegagalan eksekusi = 200 `ok:false`, keluaran diredaksi |
+| `/api/lab/registry` | GET | user + Developer Mode | Data pendukung sandbox: `{ sites, tools, profiles }` (Agent Profile bawaan + kustom) |
+| `/api/lab/run` | POST | user + Developer Mode, llm | Uji tool / Agent Profile (`type: "tool" \| "agent"`); kegagalan eksekusi = 200 `ok:false` (+`code`, `retryable`), keluaran diredaksi; putus koneksi → run dibatalkan |
 | `/api/posts` | GET, DELETE | user | Daftar artikel (+ `next_attempt_at`) & hapus massal |
 | `/api/posts/quick` | POST | user, enqueue | Tulis Cepat: mengantrekan 1 item lalu membangunkan runner (tidak memproses di dalam request) |
-| `/api/posts/[id]` | GET, DELETE, POST | user, enqueue (POST) | Detail artikel + log audit; POST = Kirim ulang (Cost-Saver Retry) → **202** `{ postId, state: "ready_to_sync" }`; 404/409/422 bila tidak dapat dijadwalkan ulang |
+| `/api/posts/[id]` | GET, DELETE, POST | user, enqueue (POST) | Detail artikel + log audit + `agentRun` terakhir, `agentRunTotals` (LLM calls, token, biaya USD; `null` = tidak dilaporkan) & ringkasan checkpoint (`services/posts`); POST = Kirim ulang (Cost-Saver Retry) → **202** `{ postId, state: "ready_to_sync" }`; 404/409/422 bila tidak dapat dijadwalkan ulang |
 | `/api/queue` | GET | user | Item antrean berdasarkan status dan filter (+ `next_attempt_at`) |
 | `/api/queue/process` | GET, POST | user-or-cron, enqueue (POST) | Sesi pengguna: jadwalkan ulang item miliknya (`postId`, `forceNow`) lalu bangunkan runner → `{ mode, postId?, state?, message }`. Cron (`Authorization: Bearer <CRON_SECRET>`): hanya relevan bila `QUEUE_RUNNER=off`; mengklaim maksimal 1 item per pemicu dan memprosesnya di latar (`maxDuration` 800 dtk) |
 | `/api/settings/user` | GET, PUT | user | Status kunci BYOK tersamar (`hasKey`) & penyimpanan kunci terenkripsi |
 | `/api/settings/search/test` | POST | user, outboundTest | Uji koneksi mesin pencarian (SearXNG/Tavily/Brave/SerpAPI) |
 | `/api/sites` | GET, POST | user, outboundTest (POST) | Daftar situs WordPress & pendaftaran situs baru; URL duplikat → 409 |
-| `/api/sites/[id]` | DELETE | user | Menghapus situs milik pengguna |
+| `/api/sites/[id]` | PATCH, DELETE | user | Ubah nama tampilan / `max_concurrency` (1–10) situs; hapus situs (kaskade batch, antrean, log, media) |
 | `/api/sites/[id]/authors` | GET, POST | user | Daftar author WP (`users`) & pendaftaran author baru |
 | `/api/sites/[id]/categories` | GET, POST | user | Kategori situs WordPress target & pembuatan kategori baru |
 | `/api/sites/connect` | POST | user, outboundTest | Inisialisasi redirect otorisasi Application Passwords (state HMAC) |

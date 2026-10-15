@@ -1,5 +1,5 @@
 import "server-only"
-import type { SupabaseClient } from "@supabase/supabase-js"
+import type { SupabaseClient, User } from "@supabase/supabase-js"
 import { createAuthStateToken, decryptCredential, encryptCredential, verifyAuthStateToken } from "@/lib/crypto"
 import { createAdminClient } from "@/lib/supabase/admin"
 import {
@@ -24,6 +24,7 @@ import type {
   CreateCategoryInput,
   CreateSiteInput,
   TestSiteInput,
+  UpdateSiteInput,
 } from "@/lib/validation/sites"
 import type { ConnectCallbackQuery } from "@/server/validation/sites"
 import type { CreatedSite, Site } from "@/types/site"
@@ -65,6 +66,56 @@ export async function listSites(supabase: SupabaseClient, userId: string): Promi
     .order("created_at", { ascending: false })
   throwIfDbError(error)
   return (data ?? []) as Site[]
+}
+
+/** Satu situs milik pengguna (tanpa kredensial); `null` bila tidak ada / milik tenant lain. */
+export async function getSite(supabase: SupabaseClient, userId: string, siteId: string): Promise<Site | null> {
+  const { data, error } = await supabase
+    .from("wp_sites")
+    .select(SITE_LIST_COLUMNS)
+    .eq("id", siteId)
+    .eq("user_id", userId)
+    .maybeSingle()
+  throwIfDbError(error)
+  return (data as Site | null) ?? null
+}
+
+/** Ubah pengaturan situs (nama tampilan, batas request paralel). Kredensial hanya berubah lewat koneksi ulang. */
+export async function updateSite(
+  supabase: SupabaseClient,
+  userId: string,
+  siteId: string,
+  input: UpdateSiteInput
+): Promise<Site> {
+  const changes: Partial<Pick<Site, "site_name" | "max_concurrency">> = {}
+  if (input.site_name !== undefined) changes.site_name = input.site_name
+  if (input.max_concurrency !== undefined) changes.max_concurrency = input.max_concurrency
+
+  const { data, error } = await supabase
+    .from("wp_sites")
+    .update(changes)
+    .eq("id", siteId)
+    .eq("user_id", userId)
+    .select(SITE_LIST_COLUMNS)
+    .maybeSingle()
+  throwIfDbError(error)
+  if (!data) throw notFound("Website tidak ditemukan.")
+  return data as Site
+}
+
+/**
+ * Hapus situs milik pengguna. FK `on delete cascade` ikut menghapus batch, item antrean (beserta log eksekusi,
+ * agent run, checkpoint) dan catatan media situs ini. Artikel yang sudah terbit di WordPress tidak tersentuh.
+ */
+export async function deleteSite(supabase: SupabaseClient, userId: string, siteId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("wp_sites")
+    .delete()
+    .eq("id", siteId)
+    .eq("user_id", userId)
+    .select("id")
+  throwIfDbError(error)
+  if (!data?.length) throw notFound("Website tidak ditemukan.")
 }
 
 async function assertSiteNotRegistered(supabase: SupabaseClient, userId: string, baseUrl: string): Promise<void> {
@@ -142,6 +193,15 @@ export async function testSiteConnection(
 // Alur otorisasi otomatis (authorize-application.php → /api/sites/callback)
 // ---------------------------------------------------------------------------
 
+/**
+ * Identitas akun untuk nama Application Password di WordPress (`AutoWP-<identitas>-<waktu>`):
+ * `user_metadata.username` bila ada, selain itu email.
+ */
+export function accountAppIdentifier(user: Pick<User, "email" | "user_metadata">): string {
+  const metadataUsername: unknown = user.user_metadata?.username
+  return (typeof metadataUsername === "string" && metadataUsername) || user.email || ""
+}
+
 /** Origin yang dilihat browser (di belakang reverse proxy: X-Forwarded-Host/Proto). */
 export function resolveRequestOrigin(headers: Headers): string {
   const host = headers.get("x-forwarded-host") || headers.get("host") || "localhost:3000"
@@ -208,7 +268,8 @@ export interface ConnectionCallbackContext {
 
 /**
  * Selesaikan callback otorisasi WordPress dan kembalikan URL redirect ke halaman /sites
- * (`auth_status` dibaca oleh `src/app/(dashboard)/sites/page.tsx`). Tidak pernah melempar untuk kegagalan
+ * (`auth_status` dipetakan ke banner oleh `describeConnectStatus` di `src/components/organisms/sites/connect-status.ts`
+ * — setiap nilai baru wajib ditambahkan di sana). Tidak pernah melempar untuk kegagalan
  * yang diketahui agar pengguna selalu kembali ke aplikasi.
  */
 export async function completeSiteConnection(

@@ -26,7 +26,6 @@ const settingsKey = ["settings"] as const
 const webhooksKey = ["webhooks"] as const
 const aiKey = ["ai"] as const
 const toolsKey = ["tools"] as const
-const docsKey = ["docs"] as const
 const labKey = ["lab"] as const
 
 export const queryKeys = {
@@ -55,16 +54,13 @@ export const queryKeys = {
   },
   agents: {
     all: agentsKey,
+    /** Ringkasan preset + Agent Profile kustom (`agentsQueries.list()`). */
     list: () => [...agentsKey, "list"] as const,
-    /** `ref` = UUID Agent Profile atau `preset:*`. */
-    detail: (ref: string) => [...agentsKey, "detail", ref] as const,
-    templates: () => [...agentsKey, "templates"] as const,
     tools: (siteId?: string) => [...agentsKey, "tools", siteId ?? null] as const,
   },
   skills: {
     all: skillsKey,
     list: () => [...skillsKey, "list"] as const,
-    detail: (skillId: string) => [...skillsKey, "detail", skillId] as const,
   },
   settings: {
     all: settingsKey,
@@ -80,11 +76,6 @@ export const queryKeys = {
   },
   tools: {
     all: toolsKey,
-  },
-  docs: {
-    all: docsKey,
-    list: () => [...docsKey, "list"] as const,
-    detail: (slug: string) => [...docsKey, "detail", slug] as const,
   },
   lab: {
     all: labKey,

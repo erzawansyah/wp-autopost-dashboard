@@ -23,11 +23,9 @@ Buka menu **Pengaturan ➔ Kunci API** (`/settings/keys`):
 - **Pexafy API Key**: Kunci pencarian foto berkualitas tinggi bebas royalti.
 
 ### B. Hubungkan Website WordPress Pertama Anda
-Buka menu **Website** (`/sites`) dan klik **Tambah Website**:
-- Masukkan URL situs WordPress (contoh: `https://bloganda.com`).
-- Masukkan Username WordPress Anda.
-- Masukkan Application Password (dibuat di menu *Users ➔ Profile* pada wp-admin Anda).
-- Klik **Uji & Simpan Koneksi**.
+Buka menu **Daftar Website** (`/sites`) dan klik **Sambungkan Website**:
+- Tab **Otomatis (disarankan)**: masukkan URL situs WordPress (contoh: `https://bloganda.com`), klik **Hubungkan ke WordPress**, lalu tekan **Setujui** di halaman WordPress. Anda kembali ke Panitera dan website langsung tersambung.
+- Tab **Input Manual**: isi URL, Username WordPress, dan Application Password (dibuat di menu *Users ➔ Profile* pada wp-admin), klik **Cek Koneksi**, lalu **Simpan Website**.
 
 ---
 

@@ -10,8 +10,8 @@ import {
   SearchProviderSchema,
   type SearchTestInput,
   type UpdateUserSettingsInput,
-} from "@/server/validation/settings"
-import type { MaskedKeyInfo, NotificationPrefs, SearchPreferences, UserSettingsResponse } from "@/types/settings"
+} from "@/lib/validation/settings"
+import type { MaskedKeyInfo, NotificationPrefs, SearchPreferences, UserSettings } from "@/types/settings"
 
 /**
  * Service pengaturan pengguna (`user_settings`): kunci BYOK terenkripsi, preferensi pencarian/model,
@@ -38,8 +38,6 @@ const BYOK_KEY_COLUMNS = [
 
 type JsonRecord = Record<string, unknown>
 type ReasoningEffort = NonNullable<SearchPreferences["reasoning_effort"]>
-
-export type UserSettingsView = Omit<UserSettingsResponse, "ok">
 
 function asRecord(value: unknown): JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as JsonRecord) : {}
@@ -87,7 +85,7 @@ function pickClientSearchPreferences(raw: unknown): SearchPreferences {
  * (sumber yang sama dengan `getUserDecryptedKeys`); tidak ada fallback ke LANGSMITH_* milik operator.
  * `default_ai_model`/`reasoning_effort` lama di `notification_prefs` tetap dibaca sebagai fallback.
  */
-export async function getUserSettings(supabase: SupabaseClient, userId: string): Promise<UserSettingsView> {
+export async function getUserSettings(supabase: SupabaseClient, userId: string): Promise<UserSettings> {
   const { data, error } = await supabase
     .from("user_settings")
     .select(USER_SETTINGS_COLUMNS)

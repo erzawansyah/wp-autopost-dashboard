@@ -79,7 +79,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: async () => createFakeSu
 
 import { GET as listSkills, POST as createSkill } from "@/app/api/skills/route"
 import { DELETE as deleteSkill, GET as getSkill, PUT as updateSkill } from "@/app/api/skills/[id]/route"
-import { normalizeSkillSlug, parseSkillFrontmatter } from "@/server/services/skills"
+import { normalizeSkillSlug, parseSkillFrontmatter } from "@/lib/validation/skills"
 
 const ME = "11111111-1111-4111-8111-111111111111"
 const OTHER = "22222222-2222-4222-8222-222222222222"

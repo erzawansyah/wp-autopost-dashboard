@@ -1,169 +1,117 @@
-"use client"
-
-import * as React from "react"
+import { AlertCircle, CheckCircle2, Clock, Globe, Loader2, Send, Sparkles, type LucideIcon } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/atoms/alert"
+import { StatusBadge } from "@/components/molecules/status-badge"
+import { SUCCESS_STATES } from "@/lib/queue/states"
 import { cn } from "@/lib/utils"
-import { CheckCircle2, Clock, AlertCircle, Loader2, Sparkles, Send, Globe } from "lucide-react"
+import type { PostItemState } from "@/types/queue"
 
-export type PipelineStepState =
-  | "queued_input"
-  | "generating_content"
-  | "ready_to_sync"
-  | "syncing_to_wp"
-  | "published_on_wp"
-  | "scheduled_on_wp"
-  | "saved_draft_on_wp"
-  | "failed_generation"
-  | "failed_sync"
-
-interface PostDetailStepperProps {
-  state: PipelineStepState
-  lastError?: string | null
-  className?: string
-}
+type StepStatus = "completed" | "active" | "error" | "waiting"
 
 interface StepDefinition {
-  id: string
   label: string
   sublabel: string
-  icon: React.ComponentType<{ className?: string }>
+  icon: LucideIcon
+  status: (state: PostItemState) => StepStatus
 }
 
+/** Empat tahap pipeline (PRD §4) dan status tiap tahap menurut `post_items.state`. */
 const STEPS: StepDefinition[] = [
+  { label: "Masuk Antrean", sublabel: "Topik diterima sistem", icon: Clock, status: () => "completed" },
   {
-    id: "queued",
-    label: "Masuk Antrean",
-    sublabel: "Topik diterima sistem",
-    icon: Clock,
-  },
-  {
-    id: "generation",
     label: "Penulisan",
     sublabel: "Menyusun draf naskah",
     icon: Sparkles,
+    status: (state) =>
+      state === "queued_input"
+        ? "waiting"
+        : state === "generating_content"
+          ? "active"
+          : state === "failed_generation"
+            ? "error"
+            : "completed",
   },
   {
-    id: "sync",
     label: "Kirim WordPress",
     sublabel: "Sinkronisasi ke situs",
     icon: Send,
+    status: (state) =>
+      state === "queued_input" || state === "generating_content" || state === "failed_generation"
+        ? "waiting"
+        : state === "ready_to_sync" || state === "syncing_to_wp"
+          ? "active"
+          : state === "failed_sync"
+            ? "error"
+            : "completed",
   },
   {
-    id: "completed",
     label: "Selesai",
     sublabel: "Tersimpan di WordPress",
     icon: Globe,
+    status: (state) =>
+      SUCCESS_STATES.has(state) ? "completed" : state === "failed_generation" || state === "failed_sync" ? "error" : "waiting",
   },
 ]
 
-export function PostDetailStepper({ state, lastError, className }: PostDetailStepperProps) {
-  // Evaluasi indeks aktif berdasarkan state
-  const getStepStatus = (index: number) => {
-    switch (index) {
-      case 0: // Antrean Masuk
-        return "completed" // Selalu komplit jika item sudah ada di database
+const STATUS_STYLE: Record<StepStatus, { border: string; icon: string; srLabel: string }> = {
+  completed: { border: "border-success/30", icon: "bg-success/10 text-success-strong", srLabel: "selesai" },
+  active: { border: "border-primary/50 bg-primary/5", icon: "bg-primary/10 text-primary", srLabel: "sedang berjalan" },
+  error: { border: "border-destructive/40", icon: "bg-destructive/10 text-destructive-strong", srLabel: "gagal" },
+  waiting: { border: "border-border/70", icon: "bg-muted/40 text-muted-foreground", srLabel: "menunggu" },
+}
 
-      case 1: // Penulisan AI
-        if (state === "queued_input") return "waiting"
-        if (state === "generating_content") return "active"
-        if (state === "failed_generation") return "error"
-        return "completed" // ready_to_sync, syncing_to_wp, published, saved_draft, failed_sync
-
-      case 2: // Kirim WordPress
-        if (state === "queued_input" || state === "generating_content" || state === "failed_generation") {
-          return "waiting"
-        }
-        if (state === "ready_to_sync" || state === "syncing_to_wp") return "active"
-        if (state === "failed_sync") return "error"
-        return "completed" // published, scheduled, saved_draft
-
-      case 3: // Selesai Terbit
-        if (
-          state === "published_on_wp" ||
-          state === "scheduled_on_wp" ||
-          state === "saved_draft_on_wp"
-        ) {
-          return "completed"
-        }
-        if (state === "failed_generation" || state === "failed_sync") {
-          return "error"
-        }
-        return "waiting"
-
-      default:
-        return "waiting"
-    }
+function StepIndicator({ status, index }: { status: StepStatus; index: number }) {
+  if (status === "completed") return <CheckCircle2 aria-hidden="true" className="size-4 shrink-0 text-success-strong" />
+  if (status === "active") {
+    return <Loader2 aria-hidden="true" className="size-4 shrink-0 animate-spin text-primary motion-reduce:animate-none" />
   }
+  if (status === "error") return <AlertCircle aria-hidden="true" className="size-4 shrink-0 text-destructive-strong" />
+  return <span aria-hidden="true" className="font-mono text-xs text-muted-foreground">0{index + 1}</span>
+}
 
+/** Alur visual state machine artikel + kendala terakhir (bila belum sukses). */
+export function PostDetailStepper({ state, lastError }: { state: PostItemState; lastError?: string | null }) {
   return (
-    <div className={cn("flex flex-col gap-3 rounded-xl border border-border/80 bg-card p-4 shadow-2xs", className)}>
+    <section
+      aria-label="Status pengerjaan"
+      className="flex flex-col gap-3 rounded-xl border border-border/80 bg-card p-4 shadow-2xs"
+    >
       <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-3">
-        <span className="text-xs font-semibold text-foreground">
-          Status Pengerjaan
-        </span>
-        <span className="text-[11px] font-mono text-muted-foreground">
-          Status: <strong className="text-foreground">{state}</strong>
-        </span>
+        <h2 className="text-sm font-semibold text-foreground">Status pengerjaan</h2>
+        <StatusBadge status={state} />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
-        {STEPS.map((step, idx) => {
-          const status = getStepStatus(idx)
+      <ol className="grid grid-cols-1 gap-3 pt-1 sm:grid-cols-2 lg:grid-cols-4">
+        {STEPS.map((step, index) => {
+          const status = step.status(state)
+          const style = STATUS_STYLE[status]
           const Icon = step.icon
-
-          let borderColor = "border-border/70"
-          let bgColor = "bg-muted/20 text-muted-foreground"
-          let badgeBadge = null
-
-          if (status === "completed") {
-            borderColor = "border-emerald-500/30"
-            bgColor = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-            badgeBadge = <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-          } else if (status === "active") {
-            borderColor = "border-primary/50"
-            bgColor = "bg-primary/10 text-primary animate-pulse"
-            badgeBadge = <Loader2 className="size-4 animate-spin text-primary shrink-0" />
-          } else if (status === "error") {
-            borderColor = "border-destructive/40"
-            bgColor = "bg-destructive/10 text-destructive"
-            badgeBadge = <AlertCircle className="size-4 text-destructive shrink-0" />
-          } else {
-            badgeBadge = <span className="font-mono text-[11px] text-muted-foreground">0{idx + 1}</span>
-          }
-
           return (
-            <div
-              key={step.id}
-              className={cn(
-                "flex items-start gap-3 rounded-lg border p-3 transition-colors",
-                borderColor,
-                status === "active" ? "bg-primary/5" : "bg-card"
-              )}
-            >
-              <div className={cn("flex size-8 items-center justify-center rounded-md shrink-0", bgColor)}>
+            <li key={step.label} className={cn("flex items-start gap-3 rounded-lg border bg-card p-3", style.border)}>
+              <span aria-hidden="true" className={cn("flex size-8 shrink-0 items-center justify-center rounded-md", style.icon)}>
                 <Icon className="size-4" />
-              </div>
-              <div className="flex flex-col min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-xs font-bold text-foreground truncate">{step.label}</span>
-                  {badgeBadge}
-                </div>
-                <span className="text-[10.5px] text-muted-foreground line-clamp-1">{step.sublabel}</span>
-              </div>
-            </div>
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="flex items-center justify-between gap-1">
+                  <span className="truncate text-xs font-bold text-foreground">
+                    {step.label}
+                    <span className="sr-only"> — {style.srLabel}</span>
+                  </span>
+                  <StepIndicator status={status} index={index} />
+                </span>
+                <span className="line-clamp-1 text-xs text-muted-foreground">{step.sublabel}</span>
+              </span>
+            </li>
           )
         })}
-      </div>
+      </ol>
 
-      {lastError &&
-        !["published_on_wp", "saved_draft_on_wp", "scheduled_on_wp"].includes(state) && (
-          <div className="mt-1 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive animate-in fade-in-50">
-            <AlertCircle className="size-4 shrink-0 mt-0.5" />
-            <div className="flex flex-col gap-0.5">
-              <span className="font-bold">Kendala Eksekusi:</span>
-              <span className="text-[11px] leading-relaxed">{lastError}</span>
-            </div>
-          </div>
-        )}
-    </div>
+      {lastError && !SUCCESS_STATES.has(state) && (
+        <Alert variant="destructive" role="note">
+          <AlertCircle aria-hidden="true" />
+          <AlertTitle>Kendala eksekusi</AlertTitle>
+          <AlertDescription>{lastError}</AlertDescription>
+        </Alert>
+      )}
+    </section>
   )
 }

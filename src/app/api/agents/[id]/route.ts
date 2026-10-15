@@ -1,6 +1,7 @@
 import { defineRoute } from "@/server/http/route"
 import { forbidden } from "@/server/http/errors"
-import { AgentRefParamsSchema, isPresetRef, UpdateAgentProfileBodySchema } from "@/server/validation/agents"
+import { AgentRefParamsSchema, isPresetRef } from "@/lib/validation/agents"
+import { UpdateAgentProfileBodySchema } from "@/server/validation/agents"
 import { archiveAgentProfile, getAgentProfile, updateAgentProfile } from "@/server/services/agents"
 
 // GET /api/agents/[id] - Detail Agent Profile kustom atau profil bawaan (`preset:*`, untuk kloning)

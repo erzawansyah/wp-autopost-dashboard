@@ -1,6 +1,9 @@
 import { z } from "zod"
 
-/** Validasi input modul skill (`agent_skills`, berkas SKILL.md). */
+/**
+ * Skema & helper murni modul skill (`agent_skills`, berkas SKILL.md) — dipakai bersama form client
+ * (`/skills/new`, `/skills/[id]`) dan route API (`/api/skills/**`) serta service skill.
+ */
 
 /** Selaras CHECK `agent_skills_name_check` (2..120) & `agent_skills_slug_check` di migrasi baseline. */
 export const SKILL_INPUT_BOUNDS = {
@@ -12,6 +15,40 @@ export const SKILL_INPUT_BOUNDS = {
 } as const
 
 const SKILL_SLUG_PATTERN = /^[a-z0-9_-]+$/
+const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---/
+
+/** Ambil `name`/`description` dari YAML frontmatter SKILL.md (`---\nname: ...\n---`). */
+export function parseSkillFrontmatter(content: string): { name?: string; description?: string } {
+  const match = content.match(FRONTMATTER_PATTERN)
+  if (!match) return {}
+  const result: { name?: string; description?: string } = {}
+
+  for (const line of match[1].split(/\r?\n/)) {
+    const colonIdx = line.indexOf(":")
+    if (colonIdx === -1) continue
+    const key = line.slice(0, colonIdx).trim()
+    let value = line.slice(colonIdx + 1).trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    if (key === "name") result.name = value
+    if (key === "description") result.description = value
+  }
+  return result
+}
+
+/** Normalisasi slug ke pola CHECK `^[a-z0-9_-]+$`; kosong → `custom-skill`. */
+export function normalizeSkillSlug(raw: string): string {
+  const slug = raw
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, SKILL_INPUT_BOUNDS.slugMax)
+    .replace(/-$/, "")
+  return slug || "custom-skill"
+}
 
 /** Slug skill yang sudah ternormalisasi (dipakai juga oleh daftar skill di Agent Profile). */
 export const SkillSlugSchema = z
@@ -59,7 +96,27 @@ export const CreateSkillBodySchema = z.object(
 
 export type CreateSkillInput = z.infer<typeof CreateSkillBodySchema>
 
-/** PUT /api/skills/[id]: pembaruan parsial; slug tidak dapat diubah. */
+/** Nama efektif skill baru: isian `name`, atau `name` di frontmatter SKILL.md bila kosong. */
+export function resolveSkillName(name: string | undefined, content: string): string {
+  return name || parseSkillFrontmatter(content).name || ""
+}
+
+/**
+ * Form `/skills/new`: body yang sama dengan POST, plus nama efektif (isian atau frontmatter) wajib
+ * valid di sisi client — sama dengan aturan service sehingga pengguna tidak perlu menunggu 400.
+ */
+export const CreateSkillFormSchema = CreateSkillBodySchema.superRefine((value, ctx) => {
+  const result = SkillNameSchema.safeParse(resolveSkillName(value.name, value.content))
+  if (!result.success) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["name"],
+      message: `${result.error.issues[0]?.message ?? "Nama skill tidak valid."} Isi nama atau tulis 'name: ...' di frontmatter.`,
+    })
+  }
+})
+
+/** PUT /api/skills/[id]: pembaruan parsial; slug tidak dapat diubah. Juga skema form `/skills/[id]`. */
 export const UpdateSkillBodySchema = z
   .object(
     {

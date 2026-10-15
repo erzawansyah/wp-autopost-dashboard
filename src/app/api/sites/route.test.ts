@@ -62,6 +62,15 @@ function fakeFrom(table: string) {
       conflictKeys = options.onConflict.split(",")
       return query
     },
+    update(row: Row) {
+      op = "update"
+      payload = row
+      return query
+    },
+    delete() {
+      op = "delete"
+      return query
+    },
     eq(column: string, value: unknown) {
       filters.push([column, value])
       return query
@@ -113,6 +122,7 @@ vi.mock("@/lib/wordpress/client", async (importOriginal) => ({
 }))
 
 import { GET as listSitesRoute, POST as createSiteRoute } from "@/app/api/sites/route"
+import { DELETE as deleteSiteRoute, PATCH as updateSiteRoute } from "@/app/api/sites/[id]/route"
 import { GET as listCategoriesRoute, POST as createCategoryRoute } from "@/app/api/sites/[id]/categories/route"
 import { GET as listAuthorsRoute, POST as createAuthorRoute } from "@/app/api/sites/[id]/authors/route"
 import { POST as testSiteRoute } from "@/app/api/sites/test/route"
@@ -272,6 +282,62 @@ describe("POST /api/sites", () => {
     const res = await createSiteRoute(jsonRequest("/api/sites", { ...validBody, base_url: "http://127.0.0.1" }), noParams)
     expect(res.status).toBe(400)
     expect(wp.testWordPressConnection).not.toHaveBeenCalled()
+  })
+})
+
+describe("PATCH /api/sites/[id]", () => {
+  it("wajib sesi", async () => {
+    state.user = null
+    const res = await updateSiteRoute(jsonRequest("/x", { max_concurrency: 3 }, "PATCH"), withId(SITE_A))
+    expect(res.status).toBe(401)
+  })
+
+  it("validasi: max_concurrency di luar 1–10, bukan bilangan bulat, atau body kosong → 400", async () => {
+    seedSite(SITE_A, USER_A, "https://a.example.com")
+
+    for (const body of [{ max_concurrency: 0 }, { max_concurrency: 11 }, { max_concurrency: 2.5 }, { max_concurrency: "3" }, {}]) {
+      const res = await updateSiteRoute(jsonRequest("/x", body, "PATCH"), withId(SITE_A))
+      expect(res.status).toBe(400)
+      expect((await res.json()).code).toBe("validation_failed")
+    }
+    expect(state.tables.wp_sites[0].max_concurrency).toBe(2)
+  })
+
+  it("situs milik tenant lain → 404 tanpa mengubah baris", async () => {
+    seedSite(SITE_B, USER_B, "https://b.example.com")
+    const res = await updateSiteRoute(jsonRequest("/x", { site_name: "Diambil alih" }, "PATCH"), withId(SITE_B))
+    expect(res.status).toBe(404)
+    expect(state.tables.wp_sites[0].site_name).toBe("Situs bbbb")
+  })
+
+  it("memperbarui nama & batas paralel, mengembalikan { site } tanpa kredensial", async () => {
+    seedSite(SITE_A, USER_A, "https://a.example.com")
+
+    const res = await updateSiteRoute(
+      jsonRequest("/x", { site_name: "  Blog Baru  ", max_concurrency: 4, encrypted_app_password: "x" }, "PATCH"),
+      withId(SITE_A)
+    )
+    const raw = await res.text()
+    const body = JSON.parse(raw)
+
+    expect(res.status).toBe(200)
+    expect(body.site).toMatchObject({ id: SITE_A, site_name: "Blog Baru", max_concurrency: 4 })
+    expect(raw).not.toContain("encrypted_app_password")
+    expect(decryptCredential(String(state.tables.wp_sites[0].encrypted_app_password))).toBe(PLAIN_PASSWORD)
+  })
+})
+
+describe("DELETE /api/sites/[id]", () => {
+  it("situs milik tenant lain → 404; milik sendiri → terhapus", async () => {
+    seedSite(SITE_A, USER_A, "https://a.example.com")
+    seedSite(SITE_B, USER_B, "https://b.example.com")
+
+    const foreign = await deleteSiteRoute(new Request("http://localhost/x", { method: "DELETE" }), withId(SITE_B))
+    expect(foreign.status).toBe(404)
+
+    const own = await deleteSiteRoute(new Request("http://localhost/x", { method: "DELETE" }), withId(SITE_A))
+    expect(await own.json()).toEqual({ ok: true, message: "Website berhasil dihapus." })
+    expect(state.tables.wp_sites.map((row) => row.id)).toEqual([SITE_B])
   })
 })
 

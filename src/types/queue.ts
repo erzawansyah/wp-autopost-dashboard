@@ -63,9 +63,8 @@ export interface BatchScheduleConfig {
 }
 
 /**
- * Baris `GET /api/batches` (`{ batches: Batch[] }`).
- * Catatan: grup virtual Tulis Cepat mengirim `wp_sites` sebagai array (`[site]`), batch biasa sebagai objek —
- * seragamkan di `src/server/queue/batches.ts` saat halaman batch dirombak.
+ * Baris `GET /api/batches` (`{ batches: Batch[] }`). Grup virtual Tulis Cepat (`id: "quick-writer"`) memakai
+ * bentuk yang sama; `wp_sites` selalu objek (situs item terbaru untuk grup virtual) atau `null`.
  */
 export interface Batch {
   id: string
@@ -78,5 +77,5 @@ export interface Batch {
   schedule_config: BatchScheduleConfig | null
   created_at: string
   updated_at: string
-  wp_sites: SiteRef | SiteRef[] | null
+  wp_sites: SiteRef | null
 }

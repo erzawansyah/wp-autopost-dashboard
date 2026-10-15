@@ -1,9 +1,10 @@
 import "server-only"
+import { cache } from "react"
 import type { SupabaseClient, User } from "@supabase/supabase-js"
 import { ToolInputParsingException } from "@langchain/core/tools"
 import { run } from "@/core/writer"
 import { BUILTIN_PRESETS } from "@/core/writer/profiles"
-import { ToolRegistry, type ToolInputField } from "@/core/writer/tools"
+import { ToolRegistry } from "@/core/writer/tools"
 import { redactSecrets, redactSecretsInText } from "@/lib/security/redact"
 import { RunRecorder, type AgentStepEvent } from "@/core/writer/runtime/telemetry"
 import { readToolArtifact } from "@/core/writer/tools/tool-response"
@@ -13,9 +14,9 @@ import { getKeywordSuggestions } from "@/core/shared/tools/keyword-suggestions"
 import { readWebContent } from "@/core/shared/tools/web-reader"
 import { webSearch, type WebSearchProvider } from "@/core/shared/tools/web-search"
 import { publishPostToWordPress } from "@/core/shared/tools/wordpress-publisher"
-import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 import { hasLabAccess } from "@/lib/constants/auth"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
+import type { LabProfileManifest, LabRegistry, LabSiteOption, LabToolManifest } from "@/types/lab"
 import type { DecryptedUserKeys } from "@/types/settings"
 import { ApiError, badRequest, forbidden, notFound, throwIfDbError } from "@/server/http/errors"
 import { getOwnedSiteCredentials } from "@/server/services/wp-tools"
@@ -52,7 +53,13 @@ function labExecutionError(err: unknown): ApiError {
   return new ApiError(500, "internal_error", message, { cause: { message } })
 }
 
-/** Gerbang Developer Mode (`user_settings.notification_prefs.developer_mode`). */
+/**
+ * Akses Lab untuk render RSC `/lab`: layout (halaman ramah) dan page (sebelum membaca data) berbagi SATU
+ * query per request lewat React `cache` (client sesi & user dari `requireSession()` yang juga ter-cache).
+ */
+export const getLabAccess = cache((supabase: SupabaseClient, user: User): Promise<boolean> => hasLabAccess(supabase, user))
+
+/** Gerbang Developer Mode (`user_settings.notification_prefs.developer_mode`) untuk route API Lab. */
 export async function assertLabAccess(supabase: SupabaseClient, user: User): Promise<void> {
   if (!(await hasLabAccess(supabase, user))) {
     throw forbidden("Aktifkan Developer Mode di Pengaturan Profil untuk mengakses Laboratorium.")
@@ -62,25 +69,6 @@ export async function assertLabAccess(supabase: SupabaseClient, user: User): Pro
 // ---------------------------------------------------------------------------
 // Registry
 // ---------------------------------------------------------------------------
-
-interface LabToolManifest {
-  id: string
-  name: string
-  description: string
-  requiresSite: boolean
-  defaultParams: Record<string, unknown>
-  inputFields: ToolInputField[]
-}
-
-interface LabProfileManifest {
-  id: string
-  name: string
-  description: string
-  mode: string
-  toolCount: number
-  isPreset: boolean
-  defaultRequest: { keyword: string; brief: string; actionStatus: "draft"; model: string }
-}
 
 const TOOL_DEFAULT_PARAMS: Record<string, Record<string, unknown>> = {
   web_search: { query: "perkembangan artificial intelligence indonesia" },
@@ -139,10 +127,7 @@ const PUBLISHER_TOOL: LabToolManifest = {
 }
 
 /** Data pendukung Lab: situs milik pengguna, manifest tool, dan Agent Profile (bawaan + kustom). */
-export async function getLabRegistry(
-  supabase: SupabaseClient,
-  userId: string
-): Promise<{ sites: unknown[]; tools: LabToolManifest[]; profiles: LabProfileManifest[] }> {
+export async function getLabRegistry(supabase: SupabaseClient, userId: string): Promise<LabRegistry> {
   const [sitesRes, profilesRes] = await Promise.all([
     supabase
       .from("wp_sites")
@@ -151,7 +136,7 @@ export async function getLabRegistry(
       .order("created_at", { ascending: false }),
     supabase
       .from("agent_profiles")
-      .select("id, name, description, mode, model, tool_ids")
+      .select("id, name, description, mode, tool_ids")
       .eq("user_id", userId)
       .eq("is_archived", false),
   ])
@@ -178,12 +163,10 @@ export async function getLabRegistry(
     defaultRequest: {
       keyword: "cara merawat tanaman hias di dalam ruangan",
       brief: "Berikan tips pencahayaan, penyiraman, dan pemupukan yang ideal.",
-      actionStatus: "draft",
-      model: DEFAULT_AI_MODEL,
     },
   }))
 
-  type ProfileRow = { id: string; name: string; description: string | null; mode: string; model: string | null; tool_ids: unknown }
+  type ProfileRow = { id: string; name: string; description: string | null; mode: string; tool_ids: unknown }
   const customProfiles: LabProfileManifest[] = ((profilesRes.data ?? []) as ProfileRow[]).map((profile) => ({
     id: profile.id,
     name: profile.name,
@@ -194,12 +177,10 @@ export async function getLabRegistry(
     defaultRequest: {
       keyword: "panduan investasi saham untuk pemula",
       brief: "Fokus pada tips fundamental dan diversifikasi portofolio.",
-      actionStatus: "draft",
-      model: profile.model || DEFAULT_AI_MODEL,
     },
   }))
 
-  return { sites: sitesRes.data ?? [], tools, profiles: [...presetProfiles, ...customProfiles] }
+  return { sites: (sitesRes.data ?? []) as LabSiteOption[], tools, profiles: [...presetProfiles, ...customProfiles] }
 }
 
 // ---------------------------------------------------------------------------

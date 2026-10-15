@@ -12,7 +12,7 @@ import {
   type AgentProfile,
 } from "@/core/writer/types/profile"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
-import { notFound, throwIfDbError } from "@/server/http/errors"
+import { ApiError, notFound, throwIfDbError } from "@/server/http/errors"
 import type { CreateAgentProfileInput, UpdateAgentProfileInput } from "@/server/validation/agents"
 
 /**
@@ -132,6 +132,20 @@ export async function getAgentProfile(
   throwIfDbError(error)
   if (!data) throw notFound(PROFILE_NOT_FOUND)
   return toAgentProfileDto(data as AgentProfileRow)
+}
+
+/** Seperti `getAgentProfile`, tetapi `null` bila tidak ada/bukan milik pengguna (page RSC → `notFound()`). */
+export async function findAgentProfile(
+  supabase: SupabaseClient,
+  userId: string,
+  ref: string
+): Promise<AgentProfile | AgentProfileDto | null> {
+  try {
+    return await getAgentProfile(supabase, userId, ref)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null
+    throw err
+  }
 }
 
 /** Hanya satu profil default per pengguna: lepas penanda `limits.isDefault` dari profil lain. */
@@ -260,6 +274,11 @@ export function listAgentPromptTemplates(): Array<{ name: string; prompt: string
     { name: "Template Research & Media Writer", prompt: prompts.research },
     { name: "Template Deep Research Agent", prompt: prompts.deep },
   ]
+}
+
+/** Workflow prompt awal editor Agent Profile baru: template "Research & Media Writer". */
+export function defaultAgentWorkflowPrompt(): string {
+  return getPresetPrompts().research
 }
 
 interface AgentToolStatus {

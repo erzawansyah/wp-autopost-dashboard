@@ -27,15 +27,24 @@ Panitera menggunakan standar resmi **WordPress REST API** bawaan WordPress core 
 
 ## 3. Mendaftarkan Situs di Panitera
 
-1. Di Panitera, buka menu **Website** (`/sites`).
-2. Klik tombol **Tambah Website**.
-3. Isi formulir pendaftaran:
-   - **Nama Situs**: Nama pengenal bebas untuk dasbor Anda (misal: *Blog Teknologi*).
-   - **URL Situs**: Alamat lengkap WordPress Anda (contoh: `https://domainanda.com`).
-   - **Username**: Username akun admin/editor WordPress Anda.
-   - **Application Password**: Tempel sandi aplikasi 24 karakter yang baru dibuat tadi (spasi boleh dibiarkan).
-4. Klik **Simpan & Uji Koneksi**.
-5. Sistem akan melakukan ping ke `/wp-json/wp/v2/users/me` untuk memverifikasi hak akses. Jika valid, status situs akan menjadi **Terkoneksi**.
+Buka menu **Daftar Website** (`/sites`) lalu klik **Sambungkan Website**. Tersedia dua cara:
+
+### A. Otomatis (disarankan) — tanpa menyalin password
+1. Isi **Alamat website WordPress** (contoh: `https://domainanda.com`). **Nama tampilan** boleh dikosongkan (diambil dari judul website).
+2. Klik **Hubungkan ke WordPress**. Panitera memeriksa REST API, lalu membuka halaman otorisasi resmi WordPress.
+3. Tekan **Setujui / Approve**. WordPress membuat Application Password khusus Panitera dan mengembalikan Anda ke `/sites`.
+4. Banner di atas daftar menjelaskan hasilnya. Bila otorisasi gagal (misalnya token kedaluwarsa, sesi login berakhir, atau WordPress tidak mengirim kredensial), ulangi dari tombol **Sambungkan Website** atau gunakan cara manual.
+
+### B. Input Manual (Application Password)
+1. Buat Application Password seperti langkah bagian 2 (atau klik tautan **Buat Application Password di WordPress** di formulir).
+2. Isi **Nama tampilan**, **Alamat website**, **Username WordPress**, dan **Application Password** (spasi boleh dibiarkan).
+3. Klik **Cek Koneksi** untuk menguji tanpa menyimpan, lalu **Simpan Website**. Sistem memverifikasi akses ke `/wp-json/wp/v2/users/me`; bila valid, status situs menjadi **Tersambung**.
+
+### C. Kelola Website
+Klik nama website di daftar untuk membuka halaman kelola (`/sites/[id]`):
+- **Pengaturan Website**: ubah nama tampilan dan **Batas request paralel** (1–10, bawaan 2) — jumlah artikel yang dikirim bersamaan ke hosting Anda. Naikkan hanya bila hosting kuat.
+- **Kategori & Author WordPress**: daftar yang dibaca langsung dari website; pembuatan dan saran AI ada di **WP Tools**.
+- **Hapus Website**: menghapus permanen semua batch dan antrean artikel website tersebut (beserta naskah dan log) dari Panitera. Artikel yang sudah terkirim ke WordPress tidak terhapus; cabut Application Password-nya di wp-admin bila tidak dipakai lagi.
 
 ---
 

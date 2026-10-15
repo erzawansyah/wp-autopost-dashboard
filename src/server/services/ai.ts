@@ -18,7 +18,7 @@ interface RawOpenRouterModel {
   architecture?: { modality?: string; tokenizer?: string; instruct_type?: string }
 }
 
-/** Bentuk item model di respons (dibaca `fetchDynamicAiModels` di `src/lib/ai/settings.ts`). */
+/** Bentuk item model di respons (dibaca `aiQueries.models()` di `src/lib/api/queries/ai.ts`). */
 export interface OpenRouterModelItem {
   id: string
   name: string

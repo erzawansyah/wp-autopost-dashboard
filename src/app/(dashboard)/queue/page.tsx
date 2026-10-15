@@ -1,41 +1,28 @@
-"use client"
-
-import * as React from "react"
-import { useRouter } from "next/navigation"
 import { Layers } from "lucide-react"
-import { PageContainer } from "@/components/templates/page-container"
-import { PageHeader } from "@/components/molecules/page-header"
 import { BatchModuleActions } from "@/components/molecules/batch-module-actions"
+import { PageHeader } from "@/components/molecules/page-header"
 import { KeywordListForm } from "@/components/organisms/batch-keyword/keyword-list-form"
-import { useConnectedSites } from "@/lib/hooks/use-connected-sites"
+import { PageContainer } from "@/components/templates/page-container"
+import { requireSession } from "@/lib/auth/session"
+import { toAgentProfileOptions } from "@/lib/queue/writer-options"
+import { listAgentProfiles } from "@/server/services/agents"
+import { listSites } from "@/server/services/sites"
 
-export default function QueuePage() {
-  const router = useRouter()
-  const { sites, isLoading } = useConnectedSites()
+export const metadata = { title: "Tulis Massal" }
 
-  const handleCreated = (batchId: string) => {
-    window.setTimeout(() => {
-      router.push(`/queue/items?batchId=${batchId}`)
-    }, 1200)
-  }
+export default async function BulkWritePage() {
+  const { supabase, user } = await requireSession()
+  const [sites, profiles] = await Promise.all([listSites(supabase, user.id), listAgentProfiles(supabase, user.id)])
 
   return (
-    <PageContainer size="default">
+    <PageContainer>
       <PageHeader
         title="Tulis Massal"
         description="Buat dan jadwalkan banyak artikel sekaligus dari daftar kata kunci."
         icon={Layers}
-        actions={
-          <div className="flex items-center gap-2">
-            <BatchModuleActions show={["batches", "items"]} />
-          </div>
-        }
+        actions={<BatchModuleActions show={["batches", "items"]} />}
       />
-      <KeywordListForm
-        sites={sites}
-        isLoadingSites={isLoading}
-        onSuccess={handleCreated}
-      />
+      <KeywordListForm initialSites={sites} agentProfiles={toAgentProfileOptions(profiles)} />
     </PageContainer>
   )
 }

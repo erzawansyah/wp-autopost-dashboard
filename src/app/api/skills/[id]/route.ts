@@ -1,6 +1,6 @@
 import { defineRoute } from "@/server/http/route"
 import { IdParamsSchema } from "@/lib/validation/common"
-import { UpdateSkillBodySchema } from "@/server/validation/skills"
+import { UpdateSkillBodySchema } from "@/lib/validation/skills"
 import { deleteSkill, getSkill, updateSkill } from "@/server/services/skills"
 
 // GET /api/skills/[id] - Detail skill sistem atau milik pengguna

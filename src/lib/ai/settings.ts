@@ -31,18 +31,6 @@ export const FALLBACK_AI_MODELS: OpenRouterModelInfo[] = [
 export const AVAILABLE_AI_MODELS = FALLBACK_AI_MODELS
 
 /**
- * Mengambil nama model AI yang aktif secara global dari localStorage (client) atau default.
- * Modul ini dipakai Client Component, jadi tidak membaca env server: render server (SSR/prerender)
- * memakai `DEFAULT_AI_MODEL`, sama dengan fallback browser, agar hidrasi konsisten.
- */
-export function getGlobalAiModel(): string {
-  if (typeof window !== "undefined") {
-    return localStorage.getItem("custom_openrouter_model") || DEFAULT_AI_MODEL
-  }
-  return DEFAULT_AI_MODEL
-}
-
-/**
  * Mengambil nama label model yang mudah dibaca pengguna
  */
 export function getModelDisplayName(modelId: string, customModels?: OpenRouterModelInfo[]): string {
@@ -59,31 +47,3 @@ export function getModelDisplayName(modelId: string, customModels?: OpenRouterMo
 
 /** Header untuk mengirim API key yang belum disimpan (uji sebelum simpan). Jangan lewat query string. */
 export const UNSAVED_OPENROUTER_KEY_HEADER = "x-openrouter-key"
-
-/**
- * Fetch daftar model dinamis dari endpoint /api/ai/models.
- * Server memakai API key OpenRouter milik pengguna yang tersimpan; `unsavedKey` opsional
- * (mis. kunci yang baru diketik dan belum disimpan) dikirim lewat header, bukan query string.
- */
-export async function fetchDynamicAiModels(options?: { unsavedKey?: string }): Promise<OpenRouterModelInfo[]> {
-  try {
-    const headers: Record<string, string> = {}
-    const unsavedKey = options?.unsavedKey?.trim()
-    // Lewati nilai tersamar (•/*) atau non-ASCII: bukan kunci asli dan tidak valid sebagai header.
-    if (unsavedKey && /^[\x21-\x7E]+$/.test(unsavedKey) && !unsavedKey.includes("*")) {
-      headers[UNSAVED_OPENROUTER_KEY_HEADER] = unsavedKey
-    }
-    const res = await fetch("/api/ai/models", { headers, cache: "no-store" })
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`)
-    }
-    const data = await res.json()
-    if (data.ok && Array.isArray(data.models) && data.models.length > 0) {
-      return data.models
-    }
-    return FALLBACK_AI_MODELS
-  } catch (err) {
-    console.warn("Gagal memuat model dinamis dari OpenRouter, menggunakan fallback:", err)
-    return FALLBACK_AI_MODELS
-  }
-}

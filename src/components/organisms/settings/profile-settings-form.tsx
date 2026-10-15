@@ -1,269 +1,165 @@
 "use client"
 
 import * as React from "react"
-import {
-  User,
-  ShieldCheck,
-  Bell,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  FlaskConical,
-} from "lucide-react"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/atoms/card"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { Controller, type Control } from "react-hook-form"
+import { Bell, FlaskConical, Loader2, Save, type LucideIcon } from "lucide-react"
 import { Button } from "@/components/atoms/button"
-import { Label } from "@/components/atoms/label"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card"
+import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/atoms/field"
 import { Switch } from "@/components/atoms/switch"
-import { UserSettingsResponse, NotificationPrefs } from "@/types/settings"
-import { useDeveloperMode } from "@/lib/hooks/use-developer-mode"
+import { apiFetch } from "@/lib/api/client"
+import { queryKeys } from "@/lib/api/query-keys"
+import { useZodForm } from "@/lib/hooks/use-zod-form"
+import { notify } from "@/lib/ui/notify"
+import { ProfilePreferencesFormSchema, type ProfilePreferencesFormValues } from "@/lib/validation/settings"
+import type { UserSettings } from "@/types/settings"
 
-export function ProfileSettingsForm() {
-  const { developerMode: globalDevMode, setDeveloperMode } = useDeveloperMode()
-  const [data, setData] = React.useState<UserSettingsResponse | null>(null)
-  const [isLoading, setIsLoading] = React.useState(true)
-  const [isSaving, setIsSaving] = React.useState(false)
-  const [isSaved, setIsSaved] = React.useState(false)
-  const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+type PreferenceName = keyof ProfilePreferencesFormValues
 
-  // Developer mode local state
-  const [devMode, setDevMode] = React.useState<boolean>(globalDevMode)
-
-  // Notification prefs
-  const [notifPrefs, setNotifPrefs] = React.useState<NotificationPrefs>({
-    email_on_failure: true,
-    email_on_batch_complete: true,
-    in_app_toast: true,
+/**
+ * Preferensi akun yang disimpan di server (`user_settings.notification_prefs`): notifikasi kegagalan/batch, toast
+ * dasbor, dan Developer Mode. Simpan → invalidasi `queryKeys.settings` sehingga menu Lab di sidebar ikut berubah.
+ */
+export function ProfileSettingsForm({ initialSettings }: { initialSettings: UserSettings }) {
+  const queryClient = useQueryClient()
+  const prefs = initialSettings.notificationPrefs
+  const form = useZodForm(ProfilePreferencesFormSchema, {
+    defaultValues: {
+      email_on_failure: prefs.email_on_failure ?? true,
+      email_on_batch_complete: prefs.email_on_batch_complete ?? true,
+      in_app_toast: prefs.in_app_toast ?? true,
+      developerMode: initialSettings.developerMode === true,
+    },
   })
 
-  const fetchSettings = React.useCallback(async () => {
-    try {
-      setIsLoading(true)
-      const res = await fetch("/api/settings/user")
-      const result = await res.json()
-      if (result.ok) {
-        setData(result)
-        if (result.notificationPrefs) {
-          setNotifPrefs((prev) => ({ ...prev, ...result.notificationPrefs }))
-        }
-        if (typeof result.developerMode === "boolean") {
-          setDevMode(result.developerMode)
-          setDeveloperMode(result.developerMode)
-        }
-      }
-    } catch (err) {
-      console.error("Gagal mengambil data user settings:", err)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [setDeveloperMode])
-
-  React.useEffect(() => {
-    let ignore = false
-    async function load() {
-      if (!ignore) {
-        await fetchSettings()
-      }
-    }
-    load()
-    return () => {
-      ignore = true
-    }
-  }, [fetchSettings])
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsSaving(true)
-    setErrorMessage(null)
-
-    try {
-      const payload = {
-        notificationPrefs: notifPrefs,
-        developerMode: devMode,
-      }
-
-      const res = await fetch("/api/settings/user", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-
-      const resData = await res.json()
-      if (!res.ok || !resData.ok) {
-        setErrorMessage(resData.error || "Gagal menyimpan preferensi profil.")
-      } else {
-        setIsSaved(true)
-        setTimeout(() => setIsSaved(false), 3000)
-        fetchSettings()
-      }
-    } catch {
-      setErrorMessage("Terjadi kesalahan jaringan.")
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  if (isLoading) {
-    return (
-      <Card className="border-border/80 bg-card/60">
-        <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-          <Loader2 className="size-6 animate-spin text-primary" />
-          <p className="mt-2 text-xs text-muted-foreground">Memuat profil akun...</p>
-        </CardContent>
-      </Card>
-    )
-  }
+  const save = useMutation({
+    mutationFn: ({ developerMode, ...notificationPrefs }: ProfilePreferencesFormValues) =>
+      apiFetch("/api/settings/user", { method: "PUT", body: { notificationPrefs, developerMode } }),
+    onSuccess: async (_data, values) => {
+      notify.success("Preferensi profil berhasil disimpan.")
+      form.reset(values)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.settings.all })
+    },
+    onError: (error) => notify.error(error, { fallback: "Gagal menyimpan preferensi profil." }),
+  })
 
   return (
-    <form onSubmit={handleSave} className="flex flex-col gap-6">
-      {errorMessage && (
-        <div className="flex items-center gap-2 rounded-md bg-destructive/10 p-3 text-xs text-destructive">
-          <AlertCircle className="size-4 shrink-0" />
-          <span>{errorMessage}</span>
-        </div>
-      )}
+    <form noValidate onSubmit={form.handleSubmit((values) => save.mutate(values))} className="flex flex-col gap-6">
+      <PreferenceCard
+        icon={Bell}
+        title="Preferensi Notifikasi & Peringatan"
+        description="Atur bagaimana sistem memberi tahu Anda saat posting artikel atau antrean batch selesai diproses."
+      >
+        <PreferenceSwitch
+          control={form.control}
+          name="email_on_failure"
+          label="Peringatan Kegagalan Posting"
+          description="Kirim pemberitahuan segera jika pembuatan konten AI atau sinkronisasi ke WordPress gagal."
+        />
+        <PreferenceSwitch
+          control={form.control}
+          name="email_on_batch_complete"
+          label="Laporan Batch Selesai"
+          description="Kirim ringkasan saat seluruh kata kunci dalam satu antrean batch selesai diterbitkan."
+        />
+        <PreferenceSwitch
+          control={form.control}
+          name="in_app_toast"
+          label="Toast Notifikasi di Dashboard"
+          description="Tampilkan pop-up pemberitahuan aktif saat Anda membuka halaman dashboard."
+        />
+      </PreferenceCard>
 
-      {isSaved && (
-        <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400">
-          <CheckCircle2 className="size-4 shrink-0" />
-          <span>Preferensi profil berhasil disimpan.</span>
-        </div>
-      )}
+      <PreferenceCard
+        icon={FlaskConical}
+        title="Mode Pengembang (Developer Mode)"
+        description="Akses modul eksperimental, perkakas pengujian tool agen, dan sandbox internal."
+      >
+        <PreferenceSwitch
+          control={form.control}
+          name="developerMode"
+          label="Laboratorium Pengujian Agen (/lab)"
+          description="Tampilkan menu Laboratorium di navigasi untuk menguji perkakas riset web, visual, dan pipeline agen."
+        />
+      </PreferenceCard>
 
-      {/* Ringkasan Akun & Multi-Tenant ID */}
-      <Card className="border-border/80 bg-card/90">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <User className="size-4 text-primary" />
-            Identitas Akun
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Data identitas tenant terisolasi aman dengan Supabase Row Level Security (RLS).
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <span className="text-[11px] font-medium text-muted-foreground">User ID (Tenant)</span>
-            <div className="font-mono text-xs text-foreground bg-muted/40 p-2 rounded border border-border/50 truncate">
-              {data?.userId || "—"}
-            </div>
-          </div>
-          <div className="space-y-1">
-            <span className="text-[11px] font-medium text-muted-foreground">Status Keamanan Database</span>
-            <div className="flex items-center gap-2 text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 p-2 rounded border border-emerald-500/20">
-              <ShieldCheck className="size-3.5" />
-              <span>RLS Aktif &amp; Terproteksi</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Preferensi Notifikasi */}
-      <Card className="border-border/80 bg-card/90">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Bell className="size-4 text-primary" />
-            Preferensi Notifikasi &amp; Peringatan
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Atur bagaimana sistem memberi tahu Anda saat posting artikel atau antrean batch selesai diproses.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
-            <div className="space-y-0.5">
-              <Label className="text-xs font-medium text-foreground">
-                Peringatan Kegagalan Posting
-              </Label>
-              <p className="text-[11px] text-muted-foreground">
-                Kirim pemberitahuan segera jika AI generation atau sinkronisasi ke WordPress gagal.
-              </p>
-            </div>
-            <Switch
-              checked={notifPrefs.email_on_failure ?? true}
-              onCheckedChange={(checked) =>
-                setNotifPrefs((prev) => ({ ...prev, email_on_failure: checked }))
-              }
-            />
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
-            <div className="space-y-0.5">
-              <Label className="text-xs font-medium text-foreground">
-                Laporan Batch Selesai
-              </Label>
-              <p className="text-[11px] text-muted-foreground">
-                Kirim ringkasan saat seluruh kata kunci dalam satu antrean batch selesai diterbitkan.
-              </p>
-            </div>
-            <Switch
-              checked={notifPrefs.email_on_batch_complete ?? true}
-              onCheckedChange={(checked) =>
-                setNotifPrefs((prev) => ({ ...prev, email_on_batch_complete: checked }))
-              }
-            />
-          </div>
-
-          <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
-            <div className="space-y-0.5">
-              <Label className="text-xs font-medium text-foreground">
-                Toast Notifikasi di Dashboard
-              </Label>
-              <p className="text-[11px] text-muted-foreground">
-                Tampilkan pop-up pemberitahuan aktif saat Anda membuka halaman dashboard.
-              </p>
-            </div>
-            <Switch
-              checked={notifPrefs.in_app_toast ?? true}
-              onCheckedChange={(checked) =>
-                setNotifPrefs((prev) => ({ ...prev, in_app_toast: checked }))
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Mode Pengembang (Developer Mode) */}
-      <Card className="border-border/80 bg-card/90">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <FlaskConical className="size-4 text-primary" />
-            Mode Pengembang (Developer Mode)
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Akses modul eksperimental, perkakas pengujian tool agen, dan sandbox internal.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between rounded-lg border border-border/50 p-3">
-            <div className="space-y-0.5">
-              <Label className="text-xs font-medium text-foreground">
-                Laboratorium Pengujian Agen (/lab)
-              </Label>
-              <p className="text-[11px] text-muted-foreground">
-                Tampilkan menu Laboratorium di navigasi untuk menguji perkakas riset web, visual, dan pipeline agen.
-              </p>
-            </div>
-            <Switch
-              checked={devMode}
-              onCheckedChange={(checked) => {
-                setDevMode(checked)
-                setDeveloperMode(checked)
-              }}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="flex justify-end gap-3">
-        <Button
-          type="submit"
-          disabled={isSaving}
-          className="cursor-pointer gap-1.5 text-xs px-5"
-        >
-          {isSaving && <Loader2 className="size-3.5 animate-spin" />}
+      <div className="flex justify-end">
+        <Button type="submit" disabled={save.isPending} className="cursor-pointer gap-1.5 px-5 text-xs">
+          {save.isPending ? (
+            <Loader2 aria-hidden="true" className="size-3.5 animate-spin motion-reduce:animate-none" />
+          ) : (
+            <Save aria-hidden="true" className="size-3.5" />
+          )}
           Simpan Preferensi
         </Button>
       </div>
     </form>
+  )
+}
+
+function PreferenceCard({
+  icon: Icon,
+  title,
+  description,
+  children,
+}: {
+  icon: LucideIcon
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <Card className="gap-4 border-border/80 shadow-2xs">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Icon aria-hidden="true" className="size-4 text-primary" />
+          {title}
+        </CardTitle>
+        <CardDescription className="text-xs">{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">{children}</CardContent>
+    </Card>
+  )
+}
+
+function PreferenceSwitch({
+  control,
+  name,
+  label,
+  description,
+}: {
+  control: Control<ProfilePreferencesFormValues>
+  name: PreferenceName
+  label: string
+  description: string
+}) {
+  const id = React.useId()
+  return (
+    <Controller
+      control={control}
+      name={name}
+      render={({ field }) => (
+        <Field orientation="horizontal" className="justify-between gap-4 rounded-lg border border-border/50 p-3">
+          <FieldContent className="gap-0.5">
+            <FieldLabel htmlFor={id} className="text-xs font-medium text-foreground">
+              {label}
+            </FieldLabel>
+            <FieldDescription id={`${id}-description`} className="text-xs">
+              {description}
+            </FieldDescription>
+          </FieldContent>
+          <Switch
+            id={id}
+            ref={field.ref}
+            name={field.name}
+            checked={field.value}
+            onCheckedChange={field.onChange}
+            onBlur={field.onBlur}
+            aria-describedby={`${id}-description`}
+          />
+        </Field>
+      )}
+    />
   )
 }

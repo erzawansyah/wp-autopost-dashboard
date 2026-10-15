@@ -16,7 +16,18 @@ import {
 } from "@/lib/wordpress/client"
 import { insertInternalLink, type InsertInternalLinkResult } from "@/lib/wordpress/internal-link"
 import { ApiError, badRequest, conflict, notFound, throwIfDbError, unprocessable, upstreamFailed } from "@/server/http/errors"
-import type { LinkAnalyzeInput, LinkApplyInput, WpToolPromptInput } from "@/server/validation/tools"
+import { WP_AUTHOR_ROLES } from "@/lib/validation/sites"
+import type { LinkAnalyzeInput, WpToolPromptInput } from "@/lib/validation/tools"
+import type { LinkApplyInput } from "@/server/validation/tools"
+import type {
+  AuthorSuggestion,
+  AuthorSuggestResponse,
+  CategorySuggestion,
+  CategorySuggestResponse,
+  InternalLinkAnalysis,
+  LinkApplyResponse,
+  LinkRecommendation,
+} from "@/types/tools"
 
 /**
  * Service WP Tools (taksonomi, persona author, internal link building). Situs WordPress wajib milik
@@ -106,21 +117,12 @@ function arrayOf<T>(value: unknown): T[] {
 // Taksonomi kategori & persona author
 // ---------------------------------------------------------------------------
 
-interface CategorySuggestion {
-  name: string
-  slug: string
-  parentId: number
-  parentName?: string
-  description: string
-  rationale: string
-}
-
 export async function suggestCategories(
   supabase: SupabaseClient,
   userId: string,
   input: WpToolPromptInput,
   { signal }: WpToolRequestOptions = {}
-): Promise<{ suggestions: CategorySuggestion[]; existingCount: number }> {
+): Promise<CategorySuggestResponse> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
   return withUserLlm(userId, signal, async (llm) => {
     const existingRes = await fetchWordPressCategories({ ...site, signal })
@@ -147,25 +149,13 @@ export async function suggestCategories(
   })
 }
 
-interface AuthorSuggestion {
-  name: string
-  username: string
-  email: string
-  role: "author" | "editor" | "contributor"
-  bio: string
-  expertise: string
-  rationale: string
-}
-
-const AUTHOR_SUGGESTION_ROLES: readonly AuthorSuggestion["role"][] = ["author", "editor", "contributor"]
-
 /**
  * Peran dari LLM berupa teks bebas ("Author", "Penulis", "administrator"); dinormalkan ke peran yang
  * diterima `/api/sites/[id]/authors` agar tombol "Setujui" tidak gagal validasi. Tidak dikenal → author.
  */
 function normalizeAuthorSuggestion(raw: AuthorSuggestion): AuthorSuggestion {
   const role = typeof raw.role === "string" ? raw.role.trim().toLowerCase() : ""
-  const known = AUTHOR_SUGGESTION_ROLES.find((r) => r === role)
+  const known = WP_AUTHOR_ROLES.find((r) => r === role)
   return { ...raw, role: known ?? "author" }
 }
 
@@ -182,7 +172,7 @@ export async function suggestAuthors(
   userId: string,
   input: WpToolPromptInput,
   { signal }: WpToolRequestOptions = {}
-): Promise<{ suggestions: AuthorSuggestion[]; existingCount: number }> {
+): Promise<AuthorSuggestResponse> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
   return withUserLlm(userId, signal, async (llm) => {
     const existingRes = await fetchWordPressUsers({ ...site, signal })
@@ -215,17 +205,6 @@ export async function suggestAuthors(
 // Internal link building
 // ---------------------------------------------------------------------------
 
-interface LinkRecommendation {
-  postId: number
-  postTitle: string
-  postLink: string
-  anchorText: string
-  sentenceOriginal: string
-  sentenceWithLink: string
-  relevanceReason: string
-  relevanceScore: number
-}
-
 const MAX_SEARCH_QUERIES = 4
 const MAX_CANDIDATE_POSTS = 6
 const CANDIDATE_EXCERPT_CHARS = 2200
@@ -247,13 +226,6 @@ function toPlainExcerpt(html: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, CANDIDATE_EXCERPT_CHARS)
-}
-
-interface InternalLinkAnalysis {
-  topicSummary: string
-  searchQueries: string[]
-  recommendations: LinkRecommendation[]
-  message?: string
 }
 
 export async function analyzeInternalLinks(
@@ -368,7 +340,7 @@ export async function applyInternalLink(
   supabase: SupabaseClient,
   userId: string,
   input: LinkApplyInput
-): Promise<{ message: string }> {
+): Promise<LinkApplyResponse> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
 
   // Konten mentah (bukan content.rendered) agar komentar blok `<!-- wp:... -->` tidak rusak.
