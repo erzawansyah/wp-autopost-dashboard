@@ -524,3 +524,76 @@ describe("runAgentWriter — checkpoint langkah", () => {
     expect(mocks.toolContexts[0]?.mediaCache).toBeUndefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Taksonomi, author & media tidak pernah dari teks keluaran agen
+// ---------------------------------------------------------------------------
+
+/** Keluaran agen (dapat dipengaruhi konten web lewat web_reader) yang mencoba menimpa taksonomi/author/media. */
+const HIJACK_FIELDS = { categoryIds: [999], authorId: 666, featuredMediaId: 555 }
+
+describe("runAgentWriter — taksonomi, author & media terkunci", () => {
+  beforeEach(() => {
+    mocks.preResolve.mockResolvedValue({ ...PRE_RESOLVED, degradedReasons: [] })
+  })
+
+  it("categoryIds/authorId/featuredMediaId di teks agen diabaikan dan tidak ikut disimpan di checkpoint draft", async () => {
+    mocks.buildWriterAgent.mockImplementation(async ({ recorder }: { recorder: RunRecorder }) => ({
+      invoke: async () => {
+        recorder.featuredMediaId = 88
+        const output = { title: "Kopi Arabika", excerpt: "Ringkas.", markdownContent: LONG_ARTICLE, ...HIJACK_FIELDS }
+        return { messages: [{ content: JSON.stringify(output) }] }
+      },
+    }))
+    const saved: GenerationCheckpoint[] = []
+
+    const result = await runAgentWriter({
+      request,
+      profile,
+      userKeys,
+      checkpoints: { onCheckpoint: async (checkpoint) => (saved.push(checkpoint), true) },
+    })
+
+    expect(result.success).toBe(true)
+    expect(result.enrichment).toMatchObject({ categories: [12], author: 4, featuredMedia: 88, authorDetail: { id: 4 } })
+    const draftOutput = saved.find((c) => c.step === "draft")?.data.output
+    expect(Object.keys(draftOutput ?? {}).sort()).toEqual(["excerpt", "markdownContent", "title"])
+  })
+
+  it("pilihan pengguna > hasil Pre-Flight Resolver (kategori, author, featured image)", async () => {
+    writingAgent()
+    const chosen = WriterRequestSchema.parse({
+      content: { keyword: "kopi arabika" },
+      model: "acme/request-model",
+      publishing: { mode: "draft", categoryIds: [7], authorId: 9, featuredImageId: 77 },
+    })
+
+    const result = await runAgentWriter({ request: chosen, profile, userKeys })
+
+    expect(result.success).toBe(true)
+    expect(result.enrichment).toMatchObject({ categories: [7], author: 9, featuredMedia: 77, tags: [301] })
+    // Persona pre-resolve (author 4) bukan milik author yang dipakai: tidak dilaporkan.
+    expect(result.enrichment?.authorDetail).toBeUndefined()
+  })
+
+  it("tanpa pilihan pengguna: kategori & author dari pre-resolve, media dari tool set_featured_image", async () => {
+    writingAgent()
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result.enrichment).toMatchObject({ categories: [12], author: 4, featuredMedia: 88, authorDetail: { id: 4 } })
+  })
+
+  it("checkpoint draft lama yang masih memuat field tersebut tetap di-resume; field-nya diabaikan", async () => {
+    const legacy = storedDraft({
+      output: { title: "Kopi Arabika Tersimpan", excerpt: "Ringkasan tersimpan.", markdownContent: LONG_ARTICLE, ...HIJACK_FIELDS },
+    })
+
+    const result = await runAgentWriter({ request, profile, userKeys, checkpoints: { resume: [storedPreResolve(), legacy] } })
+
+    expect(mocks.buildWriterAgent).not.toHaveBeenCalled()
+    expect(result).toMatchObject({ success: true, stopReason: "completed" })
+    expect(result.recorder.getSummary("completed").resumedSteps).toEqual(["pre_resolve", "draft"])
+    expect(result.enrichment).toMatchObject({ categories: [12], author: 4, featuredMedia: 88 })
+  })
+})

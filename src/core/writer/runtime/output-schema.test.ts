@@ -60,34 +60,29 @@ describe("extractArticleJsonFromText — format lain tetap berfungsi", () => {
       title: "Kopi Nusantara",
       excerpt: "Perbandingan kopi.",
       markdownContent: BODY_WITH_TABLE,
-      tagNames: ["kopi"],
     }
     const out = extractArticleJsonFromText(`Berikut hasilnya:\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\``)
     expect(out).toEqual({
       title: "Kopi Nusantara",
       excerpt: "Perbandingan kopi.",
       markdownContent: BODY_WITH_TABLE,
-      tagNames: ["kopi"],
-      categoryIds: undefined,
-      authorId: undefined,
-      featuredMediaId: undefined,
     })
   })
 
-  it("ID & nama tag dari LLM dikoersi: hanya bilangan bulat positif aman / string tidak kosong", () => {
+  it("kategori/tag/author/media di teks agen dibuang (dikunci Pre-Flight Resolver & tool, bukan keluaran agen)", () => {
     const payload = {
       title: "Kopi",
       markdownContent: BODY_WITH_TABLE,
-      categoryIds: [7, "12", 7, -1, 0, 1.5, "x", null, 2 ** 60, { id: 3 }],
-      tagNames: ["kopi", 5, "", "  ", null, "teh"],
-      authorId: "4",
-      featuredMediaId: -9,
+      categoryIds: [7],
+      tagNames: ["kopi"],
+      authorId: 4,
+      featuredMediaId: 9,
     }
-    const out = extractArticleJsonFromText(JSON.stringify(payload))
-    expect(out).toMatchObject({ categoryIds: [7, 12], tagNames: ["kopi", "teh"], authorId: 4, featuredMediaId: undefined })
-
-    const empty = extractArticleJsonFromText(JSON.stringify({ ...payload, categoryIds: ["a"], tagNames: [1], authorId: "abc" }))
-    expect(empty).toMatchObject({ categoryIds: undefined, tagNames: undefined, authorId: undefined })
+    expect(extractArticleJsonFromText(JSON.stringify(payload))).toEqual({
+      title: "Kopi",
+      excerpt: undefined,
+      markdownContent: BODY_WITH_TABLE,
+    })
   })
 
   it("JSON fenced yang markdownContent-nya memuat blok kode tetap terbaca", () => {

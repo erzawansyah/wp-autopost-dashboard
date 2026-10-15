@@ -2,6 +2,7 @@ import "server-only"
 import type { SupabaseClient } from "@supabase/supabase-js"
 import { createLlmGateway, type LlmGateway, type LlmJsonRequest } from "@/core/shared/llm/gateway"
 import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
+import { toPromptAuthorProfile, toUntrustedPromptJson } from "@/core/shared/prompts/untrusted-data"
 import { MISSING_OPENROUTER_KEY_MESSAGE } from "@/lib/ai/platform-keys"
 import { decryptCredential } from "@/lib/crypto"
 import { serverEnv } from "@/lib/env/server"
@@ -15,7 +16,6 @@ import {
   type WPPostSummary,
 } from "@/lib/wordpress/client"
 import { insertInternalLink, type InsertInternalLinkResult } from "@/lib/wordpress/internal-link"
-import { stripToPlainText } from "@/lib/wordpress/plain-text"
 import { ApiError, badRequest, conflict, notFound, throwIfDbError, unprocessable, upstreamFailed } from "@/server/http/errors"
 import { CreateAuthorBodySchema } from "@/lib/validation/sites"
 import type { LinkAnalyzeInput, WpToolPromptInput } from "@/lib/validation/tools"
@@ -159,18 +159,6 @@ function domainHostOf(baseUrl: string): string {
   }
 }
 
-/** Batas teks profil author WordPress yang dikirim ke LLM (cukup untuk membandingkan gaya, mempersempit ruang injeksi). */
-const PROMPT_AUTHOR_NAME_MAX = 100
-const PROMPT_AUTHOR_BIO_MAX = 300
-
-/**
- * JSON data tidak tepercaya untuk blok bertag di prompt (`<author_terdaftar>…</author_terdaftar>`): `<` dan `>`
- * di-escape (`\u003c`/`\u003e`, tetap JSON valid) agar isi data tidak bisa menutup tag pembungkus.
- */
-function toUntrustedPromptJson(value: unknown): string {
-  return JSON.stringify(value, null, 2).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")
-}
-
 function textField(record: Record<string, unknown>, key: string): string {
   const value = record[key]
   return typeof value === "string" ? value.trim() : ""
@@ -219,11 +207,7 @@ export async function suggestAuthors(
     const existingRes = await fetchWordPressUsers({ ...site, signal, publishedAuthorsOnly: true })
     const existingAuthors =
       existingRes.ok && Array.isArray(existingRes.users)
-        ? existingRes.users.map((u) => ({
-            name: stripToPlainText(u.name, PROMPT_AUTHOR_NAME_MAX),
-            slug: stripToPlainText(u.slug, PROMPT_AUTHOR_NAME_MAX),
-            bio: stripToPlainText(u.description, PROMPT_AUTHOR_BIO_MAX),
-          }))
+        ? existingRes.users.map(toPromptAuthorProfile)
         : []
 
     const domainHost = domainHostOf(site.baseUrl)

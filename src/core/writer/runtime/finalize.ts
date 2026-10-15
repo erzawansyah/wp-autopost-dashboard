@@ -96,10 +96,6 @@ export async function executeSingleFinalizeCall(
         title: parsed.title || `Panduan Lengkap ${keyword}`,
         excerpt: parsed.excerpt || `Ulasan lengkap dan terpercaya mengenai ${keyword}.`,
         markdownContent: parsed.markdownContent,
-        categoryIds: parsed.categoryIds,
-        tagNames: parsed.tagNames,
-        authorId: parsed.authorId,
-        featuredMediaId: parsed.featuredMediaId,
       }
     } else if (contentStr && contentStr.trim().length > 150) {
       // Jaring pengaman darurat jika model tidak mematuhi header TITLE/EXCERPT

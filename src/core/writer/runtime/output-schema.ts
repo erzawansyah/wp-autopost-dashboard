@@ -3,6 +3,10 @@ import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleane
 /**
  * Bentuk naskah hasil agent/finalize setelah diekstrak dari teks model (Markdown-first; agen tidak
  * memakai structured output sehingga tidak ada skema yang dikirim ke LLM).
+ *
+ * Sengaja tanpa kategori/tag/author/media: taksonomi & author dikunci Pre-Flight Resolver sebelum agen
+ * menulis, dan featured image hanya dari tool `set_featured_image`. Teks agen dapat dipengaruhi konten web
+ * (`web_reader`), jadi field seperti `categoryIds`/`authorId`/`featuredMediaId` di keluarannya diabaikan.
  */
 export interface ArticleOutput {
   /** Judul artikel (maksimal 60 karakter setelah postprocess). */
@@ -11,30 +15,6 @@ export interface ArticleOutput {
   excerpt: string
   /** Naskah utuh dalam Markdown murni. */
   markdownContent: string
-  categoryIds?: number[]
-  tagNames?: string[]
-  authorId?: number
-  featuredMediaId?: number
-}
-
-const NUMERIC_ID = /^\d+$/
-
-/** ID WordPress dari LLM: hanya bilangan bulat positif aman (angka atau string angka); selain itu dibuang. */
-function toPositiveId(value: unknown): number | undefined {
-  const num = typeof value === "string" && NUMERIC_ID.test(value.trim()) ? Number(value) : value
-  return typeof num === "number" && Number.isSafeInteger(num) && num > 0 ? num : undefined
-}
-
-function toPositiveIds(value: unknown): number[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const ids = Array.from(new Set(value.map(toPositiveId).filter((id): id is number => id !== undefined)))
-  return ids.length > 0 ? ids : undefined
-}
-
-function toStrings(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const names = value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
-  return names.length > 0 ? names : undefined
 }
 
 /**
@@ -76,11 +56,6 @@ export function normalizeArticleOutput(parsed: unknown): Partial<ArticleOutput> 
       title: typeof title === "string" ? title.trim() : undefined,
       excerpt: typeof excerpt === "string" ? excerpt.trim() : undefined,
       markdownContent: markdown.trim(),
-      // Nilai dari LLM tidak dipercaya: ID wajib bilangan bulat positif, nama tag wajib string.
-      categoryIds: toPositiveIds(p.categoryIds),
-      tagNames: toStrings(p.tagNames),
-      authorId: toPositiveId(p.authorId),
-      featuredMediaId: toPositiveId(p.featuredMediaId),
     }
   }
 

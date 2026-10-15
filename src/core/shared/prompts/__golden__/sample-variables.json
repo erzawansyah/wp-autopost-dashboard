@@ -24,9 +24,8 @@
     "instructionsText": "",
     "operation": "write_file",
     "brief": "Sasar pekerja kantoran usia 25-40 tahun.",
-    "existingCategories": "- ID: 3, Nama: \"Kesehatan\", Slug: \"kesehatan\"\n- ID: 7, Nama: \"Kuliner\", Slug: \"kuliner\"",
-    "existingAuthors": "- ID: 2, Nama: \"Rina Pratama\", Bio/Deskripsi: \"Barista dan penguji kopi\"\n- ID: 1, Nama: \"admin\", Bio/Deskripsi: \"-\" (AKUN ADMIN TEKNIS - JANGAN DIPILIH)",
-    "existingTags": "kopi, kafein, resep minuman",
+    "existingCategories": "[\n  {\n    \"id\": 3,\n    \"name\": \"Kesehatan\",\n    \"slug\": \"kesehatan\",\n    \"parent\": 0\n  }\n]",
+    "wordpressData": "{\n  \"categories\": [\n    {\n      \"id\": 3,\n      \"name\": \"Kesehatan\",\n      \"slug\": \"kesehatan\"\n    },\n    {\n      \"id\": 7,\n      \"name\": \"Kuliner\",\n      \"slug\": \"kuliner\"\n    }\n  ],\n  \"authors\": [\n    {\n      \"id\": 2,\n      \"name\": \"Rina Pratama\",\n      \"slug\": \"rina\",\n      \"bio\": \"Barista dan penguji kopi \\u003c3\"\n    }\n  ],\n  \"tags\": [\n    \"kopi\",\n    \"kafein\",\n    \"resep minuman\"\n  ]\n}",
     "requestedCategory": "Otomatis oleh AI",
     "requestedAuthor": "Otomatis oleh AI",
     "requestedTags": "Otomatis oleh AI",
@@ -43,9 +42,6 @@
   "byPrompt": {
     "system-resolve-taxonomy-author": {
       "language": "id"
-    },
-    "wp-tools-categories-suggest": {
-      "existingCategories": "[\n  {\n    \"id\": 3,\n    \"name\": \"Kesehatan\",\n    \"slug\": \"kesehatan\",\n    \"parent\": 0\n  }\n]"
     }
   }
 }

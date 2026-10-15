@@ -5,13 +5,14 @@ import {
   normalizeAndValidateWpUrl,
   makeAuthHeader,
   wpFetch,
-  WPUserItem,
-  WPCategoryItem,
+  type WPUserItem,
+  type WPCategoryItem,
 } from "@/lib/wordpress/client"
-import { sanitizeTermNames, toPlainText } from "@/lib/wordpress/plain-text"
+import { sanitizeTermNames, stripToPlainText, WP_TERM_NAME_MAX_LENGTH } from "@/lib/wordpress/plain-text"
 import { classifyLlmError, describeLlmError } from "@/core/shared/llm/errors"
 import type { LlmGateway } from "@/core/shared/llm/gateway"
 import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
+import { PROMPT_AUTHOR_BIO_MAX, toPromptAuthorProfile, toUntrustedPromptJson } from "@/core/shared/prompts/untrusted-data"
 import { RunRecorder } from "./telemetry"
 
 export interface PreResolveOptions {
@@ -58,12 +59,80 @@ export interface PreResolveResult extends PreResolvedContext {
 }
 
 /**
+ * Author WordPress dalam bentuk tersanitasi (nama, slug, bio teks polos terpotong). Satu-satunya bentuk data
+ * author di resolver: dipakai untuk prompt LLM, heuristik, dan persona yang diteruskan ke prompt agen.
+ */
+interface AuthorCandidate {
+  id: number
+  name: string
+  slug: string
+  bio: string
+}
+
+/** Kategori WordPress dengan nama & slug teks polos (nama term dapat memuat HTML/entitas). */
+interface CategoryOption {
+  id: number
+  name: string
+  slug: string
+}
+
+/** Jumlah contoh tag WordPress yang dikirim ke LLM. */
+const PROMPT_TAG_SAMPLE_MAX = 30
+
+const NUMERIC_ID = /^\d+$/
+
+/** ID WordPress (data WP atau keluaran LLM): hanya bilangan bulat positif aman (angka atau string angka). */
+function toPositiveId(value: unknown): number | undefined {
+  const num = typeof value === "string" && NUMERIC_ID.test(value.trim()) ? Number(value) : value
+  return typeof num === "number" && Number.isSafeInteger(num) && num > 0 ? num : undefined
+}
+
+function toAuthorCandidate(user: WPUserItem): AuthorCandidate {
+  return { id: user.id, ...toPromptAuthorProfile(user) }
+}
+
+function toCategoryOption(category: WPCategoryItem): CategoryOption {
+  return {
+    id: category.id,
+    name: stripToPlainText(category.name, WP_TERM_NAME_MAX_LENGTH),
+    slug: stripToPlainText(category.slug, WP_TERM_NAME_MAX_LENGTH),
+  }
+}
+
+/** Akun admin teknis (ADR-060): tidak boleh menjadi author selama ada persona manusia. */
+function isTechnicalAdminUser(user: AuthorCandidate, connectionUsername: string): boolean {
+  const slug = user.slug.toLowerCase().trim()
+  const name = user.name.toLowerCase().trim()
+  const connUser = connectionUsername.toLowerCase().trim()
+  return (
+    slug === "admin" ||
+    slug === "administrator" ||
+    slug === "root" ||
+    slug === "webmaster" ||
+    slug.endsWith("_admin") ||
+    slug.startsWith("admin_") ||
+    slug.includes("admin") ||
+    name === "admin" ||
+    name === "administrator" ||
+    name.endsWith("_admin") ||
+    (connUser.length > 0 &&
+      (slug === connUser || name === connUser) &&
+      (connUser.includes("admin") || connUser === "root"))
+  )
+}
+
+/**
  * Pre-Flight Resolver untuk Taksonomi (Kategori & Tag) dan Penulis WordPress.
  * Dijalankan di latar belakang SEBELUM AI Agent mulai menulis naskah artikel.
  *
  * Menggunakan LLM (system-resolve-taxonomy-author.md) untuk menganalisis topik dan
  * mencocokkan kategori, penulis, serta tag yang paling kontekstual.
  * Memiliki fallback heuristik otomatis jika pemanggilan LLM gagal atau API key belum ada.
+ *
+ * Data WordPress (bio author, nama term) dapat ditulis pihak lain, sehingga diperlakukan sebagai data tidak
+ * tepercaya: hanya author yang sudah menerbitkan artikel yang dipertimbangkan, teks dijadikan teks polos
+ * terpotong di blok data bertag pada pesan pengguna, dan keluaran LLM divalidasi di server (ID wajib ada di
+ * daftar yang dikirim; kategori/author pilihan pengguna tidak dapat ditimpa).
  */
 export async function preResolveTaxonomyAndAuthor(
   options: PreResolveOptions
@@ -106,13 +175,18 @@ export async function preResolveTaxonomyAndAuthor(
   }
 
   // 1. Ambil data Penulis, Kategori, dan Tag dari WordPress
-  let users: WPUserItem[] = []
-  let existingCategories: WPCategoryItem[] = []
-  let existingTags: Array<{ id: number; name: string; slug: string }> = []
+  let users: AuthorCandidate[] = []
+  let existingCategories: CategoryOption[] = []
+  let existingTagNames: string[] = []
 
   try {
     const [authorRes, catRes] = await Promise.all([
-      fetchWordPressUsers({ ...wpCredentials, signal }).catch(() => ({ ok: false, users: [] as WPUserItem[] })),
+      // Hanya author yang sudah menerbitkan artikel: bio subscriber (pendaftaran terbuka) dapat diisi siapa saja,
+      // padahal bio dikirim ke LLM resolver dan menjadi persona di prompt agen (prompt injection).
+      fetchWordPressUsers({ ...wpCredentials, signal, publishedAuthorsOnly: true }).catch(() => ({
+        ok: false,
+        users: [] as WPUserItem[],
+      })),
       fetchWordPressCategories({ ...wpCredentials, signal }).catch(() => ({
         ok: false,
         categories: [] as WPCategoryItem[],
@@ -120,12 +194,16 @@ export async function preResolveTaxonomyAndAuthor(
     ])
 
     if (authorRes.ok && Array.isArray(authorRes.users)) {
-      users = authorRes.users
+      users = authorRes.users.filter((u) => toPositiveId(u.id) !== undefined).map(toAuthorCandidate)
     } else {
       result.degradedReasons.push("wp_users")
     }
     if (catRes.ok && Array.isArray(catRes.categories)) {
+      // Nama kosong setelah sanitasi (hanya markup) dibuang: `keyword.includes("")` selalu cocok di heuristik.
       existingCategories = catRes.categories
+        .filter((c) => toPositiveId(c.id) !== undefined)
+        .map(toCategoryOption)
+        .filter((c) => c.name.length > 0)
     } else {
       result.degradedReasons.push("wp_categories")
     }
@@ -133,7 +211,7 @@ export async function preResolveTaxonomyAndAuthor(
     // Ambil cuplikan tag yang sudah terdaftar di WordPress
     try {
       const wpTagsRes = await wpFetch(
-        `${normalizedUrl}/wp-json/wp/v2/tags?per_page=40`,
+        `${normalizedUrl}/wp-json/wp/v2/tags?per_page=40&_fields=name`,
         {
           headers: {
             Authorization: makeAuthHeader(wpCredentials.username, wpCredentials.applicationPassword),
@@ -147,12 +225,8 @@ export async function preResolveTaxonomyAndAuthor(
       if (wpTagsRes.ok) {
         const rawTags = await wpTagsRes.json()
         if (Array.isArray(rawTags)) {
-          existingTags = rawTags.map((t) => ({
-            id: Number(t.id),
-            // WordPress mengembalikan nama term ter-escape (mis. "&amp;"): decode ke teks polos
-            name: toPlainText(String(t.name || "")),
-            slug: String(t.slug || ""),
-          }))
+          // WordPress mengembalikan nama term ter-escape (mis. "&amp;"): decode ke teks polos berbatas panjang
+          existingTagNames = sanitizeTermNames(rawTags.map((t) => t?.name))
         }
       } else {
         result.degradedReasons.push("wp_tags")
@@ -166,30 +240,16 @@ export async function preResolveTaxonomyAndAuthor(
     result.degradedReasons.push("wp_users", "wp_categories")
   }
 
-  // 2. Eksekusi Resolusi Cerdas via LLM (system-resolve-taxonomy-author.md)
-  const isTechnicalAdminUser = (u: WPUserItem) => {
-    const slug = (u.slug || "").toLowerCase().trim()
-    const name = (u.name || "").toLowerCase().trim()
-    const connUser = (wpCredentials.username || "").toLowerCase().trim()
-    return (
-      slug === "admin" ||
-      slug === "administrator" ||
-      slug === "root" ||
-      slug === "webmaster" ||
-      slug.endsWith("_admin") ||
-      slug.startsWith("admin_") ||
-      slug.includes("admin") ||
-      name === "admin" ||
-      name === "administrator" ||
-      name.endsWith("_admin") ||
-      (connUser.length > 0 &&
-        (slug === connUser || name === connUser) &&
-        (connUser.includes("admin") || connUser === "root"))
-    )
-  }
+  // 2. Kandidat author & pilihan eksplisit pengguna
+  const nonAdminUsers = users.filter((u) => !isTechnicalAdminUser(u, wpCredentials.username))
+  // ADR-060: akun admin teknis hanya menjadi kandidat bila tidak ada persona manusia. Daftar ini satu-satunya
+  // yang dikirim ke LLM, dan pilihan author LLM di luar daftar ini ditolak.
+  const authorCandidates = nonAdminUsers.length > 0 ? nonAdminUsers : users
+  // Author & kategori pilihan pengguna mengikat: keluaran LLM tidak dapat menimpanya.
+  const requestedAuthor = requestedAuthorId ? users.find((u) => u.id === requestedAuthorId) : undefined
+  const hasRequestedCategories = requestedCategoryIds.length > 0
 
-  const nonAdminUsers = users.filter((u) => !isTechnicalAdminUser(u))
-
+  // 3. Eksekusi Resolusi Cerdas via LLM (system-resolve-taxonomy-author.md)
   if (gateway?.hasKey && (users.length > 0 || existingCategories.length > 0)) {
     const llmStart = Date.now()
     try {
@@ -200,38 +260,24 @@ export async function preResolveTaxonomyAndAuthor(
           keyword: keyword || "Artikel Informatif",
           language,
           brief: brief || "-",
-          existingCategories:
-            existingCategories.length > 0
-              ? existingCategories.map((c) => `- ID: ${c.id}, Nama: "${c.name}", Slug: "${c.slug}"`).join("\n")
-              : "Belum ada kategori terdaftar",
-          existingAuthors:
-            users.length > 0
-              ? users
-                  .map((u) => {
-                    const isAdm = isTechnicalAdminUser(u)
-                    const label = isAdm && nonAdminUsers.length > 0 ? " (AKUN ADMIN TEKNIS - JANGAN DIPILIH)" : ""
-                    return `- ID: ${u.id}, Nama: "${u.name}", Bio/Deskripsi: "${u.description || '-'}"${label}`
-                  })
-                  .join("\n")
-              : "Belum ada data author",
-          existingTags:
-            existingTags.length > 0
-              ? existingTags.slice(0, 30).map((t) => t.name).join(", ")
-              : "Belum ada tag terdaftar",
-          requestedCategory:
-            requestedCategoryIds.length > 0 ? requestedCategoryIds.join(", ") : "Otomatis oleh AI",
+          // Data WordPress hanya di blok data bertag pada pesan pengguna (bukan system prompt).
+          wordpressData: toUntrustedPromptJson({
+            categories: existingCategories,
+            authors: authorCandidates,
+            tags: existingTagNames.slice(0, PROMPT_TAG_SAMPLE_MAX),
+          }),
+          requestedCategory: hasRequestedCategories ? requestedCategoryIds.join(", ") : "Otomatis oleh AI",
           requestedAuthor: requestedAuthorId ? String(requestedAuthorId) : "Otomatis oleh AI",
           requestedTags: requestedTagNames.length > 0 ? requestedTagNames.join(", ") : "Otomatis oleh AI",
         })
 
+        /** Field keluaran LLM yang dibaca server; nilainya tidak tepercaya dan selalu divalidasi. */
         interface LlmTaxonomyResolution {
-          selectedCategoryId?: number
-          selectedCategoryName?: string
-          selectedAuthorId?: number
-          selectedAuthorName?: string
-          selectedAuthorBio?: string
-          tagNames?: string[]
-          rationale?: string
+          selectedCategoryId?: unknown
+          selectedAuthorId?: unknown
+          selectedAuthorBio?: unknown
+          tagNames?: unknown
+          rationale?: unknown
         }
 
         const llmResult = await gateway.completeJson<LlmTaxonomyResolution>({
@@ -245,50 +291,53 @@ export async function preResolveTaxonomyAndAuthor(
         })
 
         if (llmResult) {
-          // A. Resolusi Penulis dari LLM
-          if (llmResult.selectedAuthorId) {
-            let matchedUser = users.find((u) => u.id === Number(llmResult.selectedAuthorId))
+          // Keluaran LLM tidak tepercaya (dapat dipengaruhi data WordPress di prompt): ID yang tidak ada di
+          // daftar yang dikirim ditolak lalu jatuh ke fallback heuristik.
+          const rejectedIds: string[] = []
 
-            // Proteksi Anti-Admin: Jika LLM memilih akun admin teknis padahal ada akun penulis non-admin dan user tidak minta ID spesifik
-            if (
-              matchedUser &&
-              !requestedAuthorId &&
-              isTechnicalAdminUser(matchedUser) &&
-              nonAdminUsers.length > 0
-            ) {
-              const fallbackAuthor =
-                nonAdminUsers.find((u) => u.description && u.description.trim().length > 0) ||
-                nonAdminUsers[0]
-              matchedUser = fallbackAuthor
-            }
-
+          // A. Resolusi Penulis dari LLM (hanya bila pengguna tidak memilih author yang valid)
+          const llmAuthorId = toPositiveId(llmResult.selectedAuthorId)
+          if (!requestedAuthor && llmAuthorId !== undefined) {
+            const matchedUser = authorCandidates.find((u) => u.id === llmAuthorId)
             if (matchedUser) {
               result.author = {
                 id: matchedUser.id,
                 name: matchedUser.name,
-                bio:
-                  matchedUser.description ||
-                  (matchedUser.id === Number(llmResult.selectedAuthorId)
-                    ? llmResult.selectedAuthorBio
-                    : undefined),
+                bio: matchedUser.bio || stripToPlainText(llmResult.selectedAuthorBio, PROMPT_AUTHOR_BIO_MAX) || undefined,
                 slug: matchedUser.slug,
               }
+            } else {
+              rejectedIds.push(`author ${llmAuthorId}`)
             }
           }
 
-          // B. Resolusi Kategori dari LLM
-          if (llmResult.selectedCategoryId) {
-            const matchedCat = existingCategories.find((c) => c.id === Number(llmResult.selectedCategoryId))
+          // B. Resolusi Kategori dari LLM (hanya bila pengguna tidak memilih kategori)
+          const llmCategoryId = toPositiveId(llmResult.selectedCategoryId)
+          if (!hasRequestedCategories && llmCategoryId !== undefined) {
+            const matchedCat = existingCategories.find((c) => c.id === llmCategoryId)
             if (matchedCat) {
               result.categoryIds = [matchedCat.id]
               result.categoryNames = [matchedCat.name]
+            } else {
+              rejectedIds.push(`kategori ${llmCategoryId}`)
             }
           }
 
-          // C. Resolusi Tag dari LLM
+          // C. Resolusi Tag dari LLM (teks polos, panjang & jumlah dibatasi)
           const llmTagNames = sanitizeTermNames(llmResult.tagNames, 5)
           if (llmTagNames.length > 0) {
             result.tagNames = llmTagNames
+          }
+
+          const rationale = stripToPlainText(llmResult.rationale)
+          if (rejectedIds.length > 0) {
+            recorder?.recordEvent({
+              kind: "guard",
+              tool: "pre_resolve_llm",
+              status: "blocked",
+              durationMs: 0,
+              summary: `Pilihan LLM di luar data WordPress ditolak (ID ${rejectedIds.join(", ")}); memakai fallback heuristik.`,
+            })
           }
 
           recorder?.recordEvent({
@@ -300,13 +349,13 @@ export async function preResolveTaxonomyAndAuthor(
               result.author?.id || '-'
             }), Kategori "${result.categoryNames.join(", ") || '-'}", Tag: ${
               result.tagNames.join(", ") || '-'
-            }. Alasan: ${llmResult.rationale || "-"}`,
+            }. Alasan: ${rationale || "-"}`,
             argsPreview: {
               authorId: result.author?.id ?? 0,
               authorName: result.author?.name ?? "",
               categoryIds: result.categoryIds.join(", "),
               tags: result.tagNames.join(", "),
-              rationale: (llmResult.rationale || "").slice(0, 100),
+              rationale: rationale.slice(0, 100),
             },
           })
         }
@@ -326,60 +375,36 @@ export async function preResolveTaxonomyAndAuthor(
     }
   }
 
-  // 3. Fallback Heuristik untuk Author jika belum terselesaikan oleh LLM
+  // 4. Fallback Heuristik untuk Author jika belum terselesaikan oleh LLM
   if (!result.author && users.length > 0) {
-    let selectedUser: WPUserItem | undefined
+    // Pilihan pengguna → persona non-admin ber-bio → persona non-admin → akun mana pun (situs satu akun)
+    const selectedUser =
+      requestedAuthor ?? nonAdminUsers.find((u) => u.bio.length > 0) ?? nonAdminUsers[0] ?? users[0]
 
-    if (requestedAuthorId) {
-      selectedUser = users.find((u) => u.id === requestedAuthorId)
+    result.author = {
+      id: selectedUser.id,
+      name: selectedUser.name,
+      bio: selectedUser.bio || undefined,
+      slug: selectedUser.slug,
     }
 
-    // Utamakan selalu akun persona non-admin
-    if (!selectedUser && nonAdminUsers.length > 0) {
-      selectedUser =
-        nonAdminUsers.find((u) => u.description && u.description.trim().length > 0) ||
-        nonAdminUsers[0]
-    }
-
-    if (!selectedUser) {
-      selectedUser = users[0]
-    }
-
-    if (selectedUser) {
-      result.author = {
-        id: selectedUser.id,
-        name: selectedUser.name,
-        bio: selectedUser.description || undefined,
-        slug: selectedUser.slug,
-      }
-
-      recorder?.recordEvent({
-        kind: "guard",
-        tool: "pre_resolve_author",
-        status: "ok",
-        durationMs: 1,
-        summary: `Penulis WordPress terverifikasi (heuristik): "${selectedUser.name}" (ID: ${selectedUser.id})`,
-        argsPreview: {
-          requestedId: requestedAuthorId ?? 0,
-          resolvedId: selectedUser.id,
-          resolvedName: selectedUser.name,
-        },
-      })
-    }
+    recorder?.recordEvent({
+      kind: "guard",
+      tool: "pre_resolve_author",
+      status: "ok",
+      durationMs: 1,
+      summary: `Penulis WordPress terverifikasi (heuristik): "${selectedUser.name}" (ID: ${selectedUser.id})`,
+      argsPreview: {
+        requestedId: requestedAuthorId ?? 0,
+        resolvedId: selectedUser.id,
+        resolvedName: selectedUser.name,
+      },
+    })
   }
 
-  // 4. Fallback Heuristik untuk Kategori jika belum terselesaikan oleh LLM
+  // 5. Fallback Heuristik untuk Kategori jika belum terselesaikan oleh LLM (pengguna tidak memilih kategori)
   if (result.categoryIds.length === 0 && existingCategories.length > 0) {
-    if (requestedCategoryIds.length > 0) {
-      const validIds = requestedCategoryIds.filter((id) =>
-        existingCategories.some((c) => c.id === id)
-      )
-      if (validIds.length > 0) {
-        result.categoryIds = validIds
-      }
-    }
-
-    if (result.categoryIds.length === 0 && keyword.trim().length > 0) {
+    if (keyword.trim().length > 0) {
       const lowerKeyword = keyword.toLowerCase()
       const matched = existingCategories.find((c) => {
         const cName = c.name.toLowerCase()
@@ -423,15 +448,13 @@ export async function preResolveTaxonomyAndAuthor(
       .map((c) => c.name)
   }
 
-  // 5. Fallback Heuristik untuk Tag jika belum terselesaikan oleh LLM
+  // 6. Fallback Heuristik untuk Tag jika belum terselesaikan oleh LLM
   if (result.tagNames.length === 0) {
     let tagsToResolve: string[] = [...requestedTagNames]
 
-    if (tagsToResolve.length === 0 && existingTags.length > 0 && keyword.trim().length > 0) {
+    if (tagsToResolve.length === 0 && existingTagNames.length > 0 && keyword.trim().length > 0) {
       const lowerKeyword = keyword.toLowerCase()
-      const matchedExisting = existingTags
-        .filter((t) => lowerKeyword.includes(t.name.toLowerCase()))
-        .map((t) => t.name)
+      const matchedExisting = existingTagNames.filter((name) => lowerKeyword.includes(name.toLowerCase()))
 
       if (matchedExisting.length > 0) {
         tagsToResolve = matchedExisting.slice(0, 4)
@@ -450,7 +473,7 @@ export async function preResolveTaxonomyAndAuthor(
     result.tagNames = sanitizeTermNames(tagsToResolve)
   }
 
-  // 6. Daftarkan / Selesaikan Tag di WordPress
+  // 7. Daftarkan / Selesaikan Tag di WordPress
   if (result.tagNames.length > 0) {
     const tagStart = Date.now()
     try {

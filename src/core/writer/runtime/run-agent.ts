@@ -166,39 +166,32 @@ function completeArticle(params: CompleteArticleParams): RunAgentResult {
     rawMarkdown: rawOutput.markdownContent,
   });
 
-  // Gabungkan taksonomi dari hasil pre-resolution, temuan agent, dan request manual
+  // Taksonomi, author, & media: pilihan pengguna → hasil Pre-Flight Resolver / tool `set_featured_image`.
+  // Tidak pernah dari teks keluaran agen (dapat dipengaruhi konten web yang dibaca `web_reader`).
   const finalCategories =
-    rawOutput.categoryIds && rawOutput.categoryIds.length > 0
-      ? rawOutput.categoryIds
-      : preResolved.categoryIds.length > 0
-        ? preResolved.categoryIds
-        : request.publishing.categoryIds || [];
+    request.publishing.categoryIds.length > 0 ? request.publishing.categoryIds : preResolved.categoryIds;
 
   const finalTags: number[] =
     preResolved.tagIds.length > 0 ? preResolved.tagIds : [];
+
+  const finalAuthor = request.publishing.authorId ?? preResolved.author?.id;
 
   const enrichment: WpEnrichment = {
     categories: finalCategories,
     categoryNames: preResolved.categoryNames,
     tags: finalTags,
     tagNames: preResolved.tagNames,
-    author:
-      preResolved.author?.id ??
-      request.publishing.authorId ??
-      rawOutput.authorId ??
-      undefined,
-    authorDetail: preResolved.author
-      ? {
-          id: preResolved.author.id,
-          name: preResolved.author.name,
-          bio: preResolved.author.bio,
-        }
-      : undefined,
-    featuredMedia:
-      request.publishing.featuredImageId ??
-      rawOutput.featuredMediaId ??
-      recorder.featuredMediaId ??
-      undefined,
+    author: finalAuthor,
+    // Persona hanya dilaporkan bila memang milik author yang dipakai.
+    authorDetail:
+      preResolved.author && preResolved.author.id === finalAuthor
+        ? {
+            id: preResolved.author.id,
+            name: preResolved.author.name,
+            bio: preResolved.author.bio,
+          }
+        : undefined,
+    featuredMedia: request.publishing.featuredImageId ?? recorder.featuredMediaId,
     featuredImage: recorder.featuredImage,
     inContentImages: recorder.inContentImages,
   };
@@ -738,9 +731,6 @@ export async function runAgentWriter(
           title: draftOutput.title,
           excerpt: draftOutput.excerpt,
           markdownContent: draftOutput.markdownContent,
-          categoryIds: draftOutput.categoryIds,
-          authorId: draftOutput.authorId,
-          featuredMediaId: draftOutput.featuredMediaId,
         },
         stopReason,
         sources: Array.from(recorder.sources.values()),

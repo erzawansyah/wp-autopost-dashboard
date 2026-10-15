@@ -26,7 +26,11 @@ export const GENERATION_STEPS = ["pre_resolve", "draft"] as const
 
 export type GenerationStep = (typeof GENERATION_STEPS)[number]
 
-/** Versi bentuk `data`. Naikkan setiap kali skema di bawah berubah: checkpoint versi lain diabaikan. */
+/**
+ * Versi bentuk `data`. Naikkan setiap kali skema di bawah berubah secara tidak kompatibel (data lama gagal
+ * validasi atau maknanya berubah): checkpoint versi lain diabaikan. Menghapus field opsional tidak perlu
+ * dinaikkan — `z.object` membuang key yang tidak dikenal dari data lama.
+ */
 export const GENERATION_CHECKPOINT_SCHEMA_VERSION = 1
 
 /**
@@ -107,9 +111,6 @@ const DraftOutputSchema = z.object({
   excerpt: OptionalTextSchema,
   /** Kriteria naskah valid sama dengan jalur sukses run (≥ 200 karakter). */
   markdownContent: z.string().min(200),
-  categoryIds: z.array(z.number().int()).optional(),
-  authorId: z.number().int().optional(),
-  featuredMediaId: z.number().int().optional(),
 })
 
 export const PreResolveCheckpointDataSchema = z.object({
