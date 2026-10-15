@@ -72,12 +72,13 @@ export function postprocessArticle(input: PostprocessInput): GeneratedArticle {
   // yang tidak menyentuh isi fenced code & kode inline.
   const cleanedMarkdown = cleanMarkdown(md, plainTitle)
 
+  // Subjudul diekstrak sebelum serialisasi agar keduanya memakai satu hasil parse (cache parse terakhir).
+  const subheadings = extractSubheadings(cleanedMarkdown)
   // Serialisasi Markdown deterministik ke komentar blok WordPress Gutenberg resmi (<!-- wp:... -->)
   const gutenbergHtml = markdownToGutenberg(cleanedMarkdown)
 
   const wordCount = calculateWordCount(cleanedMarkdown)
   const readingTimeMinutes = Math.max(1, Math.ceil(wordCount / 200))
-  const subheadings = extractSubheadings(cleanedMarkdown)
   const slug = createSlug(plainTitle)
 
   return {

@@ -87,11 +87,45 @@ describe("postprocessArticle — literal \\n tidak merusak blok kode", () => {
   })
 })
 
-describe("postprocessArticle — tabel dengan pemisah rusak tidak menggantung (HIGH)", () => {
-  it("pemisah tabel diakhiri en-dash (disanitasi menjadi ', ') selesai cepat", () => {
-    const rawMarkdown = "| A | B | C | D | E | F |\n|-------|-------|-------|-------|-------|-------|–\n| 1 | 2 | 3 | 4 | 5 | 6 |"
+describe("postprocessArticle — input patologis tidak menggantung (HIGH)", () => {
+  /**
+   * Watchdog `vm` menghentikan loop sinkron yang menggantung; durasi dibandingkan anggaran longgar
+   * (regresi kuadratik/ReDoS yang dicegah butuh puluhan detik hingga menit).
+   */
+  function expectFast(rawMarkdown: string, budgetMs = 1000): void {
     const started = performance.now()
     vm.runInNewContext("run()", { run: () => postprocess({ rawMarkdown }) }, { timeout: 5000 })
-    expect(performance.now() - started).toBeLessThan(1000)
+    expect(performance.now() - started).toBeLessThan(budgetMs)
+  }
+
+  it("pemisah tabel diakhiri en-dash (disanitasi menjadi ', ') selesai cepat", () => {
+    expectFast("| A | B | C | D | E | F |\n|-------|-------|-------|-------|-------|-------|–\n| 1 | 2 | 3 | 4 | 5 | 6 |")
+  })
+
+  it.each([
+    ["200 KB penutup emphasis tanpa pembuka", "a* ".repeat(66_000)],
+    ["200 KB ']'", "]".repeat(200_000)],
+    ["~75 KB padat penanda inline (jalur AST, mode inline-safe)", "a_ [b] ".repeat(9_500)],
+    ["~60 KB dash naratif", "kopi — teh ".repeat(5_500)],
+    ["~5.000 item list padat (jalur teks polos)", "- **a** [1]\n".repeat(5_000)],
+  ])("%s", (_label, rawMarkdown) => {
+    expectFast(rawMarkdown)
+  })
+
+  it("struktur terpadat yang masih lewat jalur AST (±950 item list) tetap dalam anggaran kerja linear", () => {
+    // Biaya micromark ±100 µs per item per parse (±0,3 dtk total); anggaran lebih longgar untuk CI paralel.
+    expectFast("- **a** [1]\n".repeat(950), 2500)
+  })
+})
+
+describe("postprocessArticle — Markdown → Gutenberg", () => {
+  it("naskah bersih tersimpan sebagai Markdown, konten sebagai blok native; subjudul dari H2/H3", () => {
+    const article = postprocess({
+      rawTitle: "Panduan Kopi",
+      rawMarkdown: "# Panduan Kopi\n\nPembuka—singkat.\n\n## Cara **Seduh**\n\n```bash\n## bukan subjudul\n```",
+    })
+    expect(article.markdownContent).toBe("Pembuka, singkat.\n\n## Cara **Seduh**\n\n```bash\n## bukan subjudul\n```")
+    expect(article.contentHtml).toContain('<h2 class="wp-block-heading">Cara <strong>Seduh</strong></h2>')
+    expect(article.subheadings).toEqual(["Cara Seduh"])
   })
 })

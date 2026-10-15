@@ -1,15 +1,27 @@
 import vm from "node:vm"
 import { describe, expect, it } from "vitest"
-import {
-  formatInlineMarkdown,
-  markdownToGutenberg,
-  serializeButtonBlock,
-  serializeCodeBlock,
-  serializeDetailsBlock,
-  serializeEmbedBlock,
-  serializeHeading,
-  serializeImageBlock,
-} from "./gutenberg"
+import { markdownToGutenberg } from "./gutenberg"
+
+const VOID_TAGS = new Set(["img", "hr", "br"])
+/** Grup: 1 penutup blok, 2 nama blok, 3 penutup tag, 4 nama tag. */
+const MARKUP_TOKEN_RE = /<!-- (\/)?wp:([a-z0-9/-]+)(?: \{[^\n]*?\})? -->|<(\/)?([a-z][a-z0-9]*)\b[^>]*>/g
+
+/**
+ * Invarian markup blok: komentar `wp:*` & tag HTML berpasangan dan bersarang rapi, tanpa `[` mentah
+ * (shortcode), dan tanpa elemen aktif dari naskah.
+ */
+function assertWellFormedBlocks(html: string): void {
+  expect(html).not.toContain("[")
+  expect(html).not.toMatch(/<(?:script|iframe|style|svg|object)\b|<!-- wp:html/i)
+  const stack: string[] = []
+  for (const [token, closeBlock, block, closeTag, tag] of html.matchAll(MARKUP_TOKEN_RE)) {
+    const name = block ? `wp:${block}` : tag
+    if (!name || VOID_TAGS.has(name)) continue
+    if (!closeBlock && !closeTag) stack.push(name)
+    else if (stack.pop() !== name) throw new Error(`Markup tidak bersarang rapi di "${token}":\n${html}`)
+  }
+  expect(stack).toEqual([])
+}
 
 /**
  * Timeout vitest tidak bisa menghentikan busy-loop sinkron. `vm` memasang watchdog V8
@@ -23,12 +35,21 @@ function runWithin(fn: () => unknown, ms: number): unknown {
 function convertWithin(markdown: string, ms = 2000): string {
   const result = runWithin(() => markdownToGutenberg(markdown), ms)
   if (typeof result !== "string") throw new Error("markdownToGutenberg harus mengembalikan string")
+  assertWellFormedBlocks(result)
   return result
+}
+
+/** HTML isi satu paragraf (naskah wajib menghasilkan tepat satu blok paragraf). */
+function inline(markdown: string): string {
+  const html = convertWithin(markdown)
+  const match = /^<!-- wp:paragraph -->\n<p>([\s\S]*)<\/p>\n<!-- \/wp:paragraph -->$/.exec(html)
+  if (!match) throw new Error(`Bukan satu paragraf:\n${html}`)
+  return match[1]
 }
 
 /**
  * Anggaran waktu untuk regresi ReDoS / kuadratik: watchdog `vm` menghentikan loop sinkron yang
- * menggantung, lalu durasi nyata dibandingkan dengan anggaran (kode lama butuh detik–menit).
+ * menggantung, lalu durasi nyata dibandingkan dengan anggaran (kode rentan butuh detik–menit).
  */
 // Anggaran longgar agar tidak flaky di CI yang sibuk; regresi kuadratik/ReDoS yang dicegah butuh > 6 detik.
 function expectFast(fn: () => unknown, budgetMs = 1000): void {
@@ -75,8 +96,8 @@ function blockAttrs(html: string, blockName: string): string {
   return match[1]
 }
 
-describe("markdownToGutenberg — format Markdown normal tidak berubah", () => {
-  it("dokumen lengkap (heading, paragraf, list bertingkat, tabel, kutipan, callout, kode, gambar, embed, tombol, details)", () => {
+describe("markdownToGutenberg — dokumen lengkap", () => {
+  it("heading, paragraf, list bertingkat, tabel, kutipan, callout, kode, gambar, embed, tombol, details", () => {
     const md = [
       "# Judul Artikel Utama",
       "",
@@ -209,14 +230,15 @@ describe("markdownToGutenberg — format Markdown normal tidak berubah", () => {
       <!-- /wp:table -->
 
       <!-- wp:quote -->
-      <blockquote class="wp-block-quote">
-        <p>Kutipan baris satu<br/>Kutipan baris dua</p>
-        <cite>Tokoh Terkenal</cite>
-      </blockquote>
+      <blockquote class="wp-block-quote"><!-- wp:paragraph -->
+      <p>Kutipan baris satu<br/>Kutipan baris dua</p>
+      <!-- /wp:paragraph --><cite>Tokoh Terkenal</cite></blockquote>
       <!-- /wp:quote -->
 
       <!-- wp:quote {"className":"is-style-plain has-border-color"} -->
-      <blockquote class="wp-block-quote is-style-plain has-border-color"><p><strong>💡 Tips:</strong> Simpan biji kopi di wadah kedap udara.</p></blockquote>
+      <blockquote class="wp-block-quote is-style-plain has-border-color"><!-- wp:paragraph -->
+      <p><strong>💡 Tips:</strong> Simpan biji kopi di wadah kedap udara.</p>
+      <!-- /wp:paragraph --></blockquote>
       <!-- /wp:quote -->
 
       <!-- wp:code {"className":"language-js"} -->
@@ -258,21 +280,15 @@ describe("markdownToGutenberg — format Markdown normal tidak berubah", () => {
       <!-- /wp:buttons -->
 
       <!-- wp:details {"summary":"Apa itu kopi?"} -->
-      <details class="wp-block-details">
-        <summary>Apa itu kopi?</summary>
-        <!-- wp:paragraph -->
+      <details class="wp-block-details"><summary>Apa itu kopi?</summary><!-- wp:paragraph -->
       <p>Kopi adalah minuman.</p>
-      <!-- /wp:paragraph -->
-      </details>
+      <!-- /wp:paragraph --></details>
       <!-- /wp:details -->
 
       <!-- wp:details {"summary":"Pertanyaan HTML"} -->
-      <details class="wp-block-details">
-        <summary>Pertanyaan HTML</summary>
-        <!-- wp:paragraph -->
+      <details class="wp-block-details"><summary>Pertanyaan HTML</summary><!-- wp:paragraph -->
       <p>Jawaban HTML.</p>
-      <!-- /wp:paragraph -->
-      </details>
+      <!-- /wp:paragraph --></details>
       <!-- /wp:details -->
 
       <!-- wp:paragraph -->
@@ -292,6 +308,126 @@ describe("markdownToGutenberg — format Markdown normal tidak berubah", () => {
       <!-- /wp:heading -->"
     `)
   })
+
+  it("H1 setelah blok lain tidak dibuang", () => {
+    expect(convertWithin("Pembuka.\n\n# Bagian")).toContain('<h2 class="wp-block-heading">Bagian</h2>')
+  })
+})
+
+describe("markdownToGutenberg — CommonMark/GFM via remark", () => {
+  it("underscore di tengah kata bukan penekanan", () => {
+    expect(inline("Variabel nama_file_ini dan __init__")).toBe("Variabel nama_file_ini dan <strong>init</strong>")
+  })
+
+  it("autolink GFM (URL, www, email) menjadi tautan aman", () => {
+    expect(inline("Lihat https://contoh.co.id/a, www.contoh.com, atau redaksi@contoh.co.id.")).toBe(
+      'Lihat <a href="https://contoh.co.id/a" target="_blank" rel="noopener noreferrer">https://contoh.co.id/a</a>, ' +
+        '<a href="http://www.contoh.com" target="_blank" rel="noopener noreferrer">www.contoh.com</a>, atau ' +
+        '<a href="mailto:redaksi@contoh.co.id" target="_blank" rel="noopener noreferrer">redaksi@contoh.co.id</a>.'
+    )
+  })
+
+  it("tautan referensi diselesaikan; definisinya tidak tampil", () => {
+    const html = convertWithin("Lihat [situs resmi][bps].\n\n[bps]: https://bps.go.id")
+    expect(html).toContain('<a href="https://bps.go.id" target="_blank" rel="noopener noreferrer">situs resmi</a>')
+    expect(html).not.toContain("bps]:")
+  })
+
+  it("hard break (dua spasi / backslash) menjadi <br/>, soft break menjadi spasi", () => {
+    expect(inline("Baris satu  \nBaris dua\\\nBaris tiga\nBaris empat")).toBe("Baris satu<br/>Baris dua<br/>Baris tiga Baris empat")
+  })
+
+  it("'Paragraf\\n---' adalah paragraf + pembatas (setext dimatikan), bukan heading", () => {
+    const html = convertWithin("Paragraf penting\n---\nLanjut")
+    expect(html).not.toContain("wp:heading")
+    expect(html).toContain("<!-- wp:separator -->")
+  })
+
+  it("indentasi 4 spasi bukan blok kode", () => {
+    expect(convertWithin("Paragraf.\n\n    teks terindentasi")).toContain("<p>teks terindentasi</p>")
+  })
+
+  it("fence tilde & bahasa", () => {
+    expect(convertWithin("~~~py\nprint(1)\n~~~")).toContain('<pre class="wp-block-code language-py"><code>print(1)</code></pre>')
+  })
+
+  it("list berurut mempertahankan nomor awal; penanda ')' dikenali", () => {
+    const html = convertWithin("3. tiga\n4. empat\n\n1) satu\n2) dua")
+    expect(html).toContain('<!-- wp:list {"ordered":true,"start":3} -->\n<ol start="3" class="wp-block-list">')
+    expect(html.match(/<!-- wp:list \{"ordered":true(?:,"start":\d+)?\} -->/g)).toHaveLength(2)
+  })
+
+  it("item list longgar dengan paragraf lanjutan tetap satu item", () => {
+    const html = convertWithin("- a\n\n  lanjutan item a\n\n- b")
+    expect(html).toContain("<li>a<br/>lanjutan item a</li>")
+    expect(html.match(/<!-- wp:list -->/g)).toHaveLength(1)
+  })
+
+  it("blok non-list di dalam item list diratakan menjadi inline (core/list-item hanya menerima sub-list)", () => {
+    const html = convertWithin("- Langkah:\n\n  ```bash\n  npm i\n  ```\n\n  ### Catatan\n\n  > kutip")
+    expect(html).toContain("<li>Langkah:<br/><code>npm i</code><br/><strong>Catatan</strong><br/>kutip</li>")
+  })
+
+  it("task list menampilkan kotak centang sebagai teks", () => {
+    const html = convertWithin("- [ ] tugas\n- [x] selesai")
+    expect(html).toContain("<li>&#91; ] tugas</li>")
+    expect(html).toContain("<li>&#91;x] selesai</li>")
+  })
+
+  it("tabel: sel dilengkapi/dipotong sesuai header; tanpa baris badan tidak ada <tbody>", () => {
+    const html = convertWithin("| A | B |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |")
+    expect(html).toContain("<tr><td>1</td><td></td></tr>")
+    expect(html).toContain("<tr><td>1</td><td>2</td></tr>")
+    expect(convertWithin("| A | B |\n|---|---|")).not.toContain("tbody")
+  })
+
+  it("gambar di tengah paragraf dipecah menjadi blok gambar; teks di sekitarnya tetap paragraf", () => {
+    const html = convertWithin("Lihat ![Kebun](https://images.pexels.com/a.jpg) di atas.")
+    expect(html.match(/<!-- wp:(\w+)/g)).toEqual(["<!-- wp:paragraph", "<!-- wp:image", "<!-- wp:paragraph"])
+  })
+
+  it("gambar di konteks inline (tabel, list) ditampilkan sebagai teks alt", () => {
+    const html = convertWithin("| Foto |\n|---|\n| ![Kopi Gayo](https://images.pexels.com/a.jpg) |\n\n- ![Kopi Bali](https://images.pexels.com/b.jpg)")
+    expect(html).toContain("<td>Kopi Gayo</td>")
+    expect(html).toContain("<li>Kopi Bali</li>")
+    expect(html).not.toContain("<img")
+  })
+
+  it("kutipan multi-paragraf: inner blocks + atribusi", () => {
+    expect(convertWithin("> Paragraf satu.\n>\n> Paragraf dua.\n> — Tokoh")).toBe(
+      '<!-- wp:quote -->\n<blockquote class="wp-block-quote"><!-- wp:paragraph -->\n<p>Paragraf satu.</p>\n<!-- /wp:paragraph -->\n\n' +
+        "<!-- wp:paragraph -->\n<p>Paragraf dua.</p>\n<!-- /wp:paragraph --><cite>Tokoh</cite></blockquote>\n<!-- /wp:quote -->"
+    )
+  })
+
+  it.each([
+    ["baris '-- Tokoh' (hasil pembersih)", "> Isi kutipan.\n> -- Tokoh"],
+    ["baris '- Tokoh' yang terbaca sebagai list", "> Isi kutipan.\n> - Tokoh"],
+    ["paragraf atribusi terpisah", "> Isi kutipan.\n>\n> — Tokoh"],
+    ["cite:", "> Isi kutipan.\n> cite: Tokoh"],
+  ])("atribusi kutipan dikenali: %s", (_label, md) => {
+    const html = convertWithin(md)
+    expect(html).toContain("<p>Isi kutipan.</p>")
+    expect(html).toContain("<cite>Tokoh</cite>")
+  })
+
+  it("kutipan satu baris berawalan dash bukan atribusi", () => {
+    expect(convertWithin("> — Tokoh")).toContain("<p>— Tokoh</p>")
+  })
+
+  it("callout: penanda sendirian, lalu paragraf berikutnya mendapat label", () => {
+    const html = convertWithin("> [!WARNING]\n>\n> Jangan seduh dengan air mendidih.")
+    expect(html).toContain("<p><strong>⚠️ Peringatan:</strong> Jangan seduh dengan air mendidih.</p>")
+  })
+
+  it("beberapa URL video di baris berurutan menjadi beberapa embed", () => {
+    const html = convertWithin("https://www.youtube.com/watch?v=abc123\nhttps://vimeo.com/42")
+    expect(html.match(/<!-- wp:embed /g)).toHaveLength(2)
+  })
+
+  it("heading kosong ditampilkan apa adanya sebagai paragraf", () => {
+    expect(convertWithin("##\n\nTeks")).toContain("<p>##</p>")
+  })
 })
 
 describe("markdownToGutenberg — regresi infinite loop (CRITICAL)", () => {
@@ -304,6 +440,28 @@ describe("markdownToGutenberg — regresi infinite loop (CRITICAL)", () => {
     ["bullet dengan tab", "-\tItem dengan tab", "<li>Item dengan tab</li>"],
   ])("%s tidak menggantung", (_label, md, expected) => {
     expect(convertWithin(md)).toContain(expected)
+  })
+
+  it("baris caption miring tepat di bawah gambar menjadi figcaption (di-escape)", () => {
+    const html = convertWithin("![Kebun](https://images.pexels.com/a.jpg)\n*Sumber: **Pexels** <script> [gallery]*")
+    expect(html).toContain(
+      '<figcaption class="wp-element-caption">Sumber: <strong>Pexels</strong> &lt;script&gt; &#91;gallery]</figcaption>'
+    )
+    expect(html).not.toContain("wp:paragraph")
+  })
+
+  it.each([
+    ["caption eksplisit (judul) didahulukan", '![K](https://images.pexels.com/a.jpg "Judul")\n*Sumber: Pexels*'],
+    ["baris berikutnya bukan hanya teks miring", "![K](https://images.pexels.com/a.jpg)\n*Sumber* dan teks"],
+    ["gambar dibuang (placeholder)", "![K](https://example.com/a.jpg)\n*Sumber: Pexels*"],
+  ])("baris miring tetap paragraf bila %s", (_label, md) => {
+    expect(convertWithin(md)).toContain("<!-- wp:paragraph -->\n<p><em>Sumber")
+  })
+
+  it("caption miring setelah atribut {id=…} hasil unggahan tetap dipromosikan", () => {
+    const html = convertWithin("![K](https://kopi.co.id/wp-content/uploads/a.jpg){id=12}\n_Foto: redaksi_")
+    expect(html).toContain('<img src="https://kopi.co.id/wp-content/uploads/a.jpg" alt="K" class="wp-image-12"/>')
+    expect(html).toContain('<figcaption class="wp-element-caption">Foto: redaksi</figcaption>')
   })
 
   it("gambar diikuti teks di baris yang sama: gambar tetap dirender dan teks tidak hilang", () => {
@@ -326,7 +484,15 @@ describe("markdownToGutenberg — regresi infinite loop (CRITICAL)", () => {
   it("details satu baris tidak menelan sisa artikel", () => {
     const html = convertWithin("<details><summary>Tanya</summary>Jawab</details>\n\nParagraf berikutnya.")
     expect(html).toContain("<summary>Tanya</summary>")
+    expect(html).toContain("<p>Jawab</p>")
     expect(html).toContain("<!-- wp:paragraph -->\n<p>Paragraf berikutnya.</p>")
+  })
+
+  it("details tanpa penutup memuat sisa naskah; penanda di dalam kode tidak dikenali", () => {
+    expect(convertWithin(":::details Tanya\nJawab panjang\n\n- poin")).toContain("<li>poin</li>")
+    const code = convertWithin("```md\n:::details bukan details\n```")
+    expect(code).not.toContain("wp:details")
+    expect(code).toContain(":::details bukan details")
   })
 
   it("kombinasi baris aneh selalu selesai", () => {
@@ -346,15 +512,19 @@ describe("markdownToGutenberg — regresi infinite loop (CRITICAL)", () => {
       "|",
       "| a |",
       ":::details",
+      ":::",
       "<details>",
+      "</details>",
       "1.",
       "1.\tx",
       "[x](y){.button",
       "<!-- wp:paragraph -->",
+      "[^1]: catatan",
+      "> [!NOTE]",
     ]
     const convertAll = () => {
       for (const a of weird) {
-        for (const b of weird) markdownToGutenberg(`${a}\n${b}\nteks`)
+        for (const b of weird) assertWellFormedBlocks(markdownToGutenberg(`${a}\n${b}\nteks`))
       }
       return true
     }
@@ -373,7 +543,7 @@ describe("markdownToGutenberg — ReDoS & kompleksitas (HIGH)", () => {
     ["pemisah menyatu dengan baris data", `| Kota | Harga | Stok | Ket |\n${separator(4, 8)}| Jakarta | 10 | 5 | ok |`],
     ["prosa ber-pipe lalu 30 dash + teks", `Harga | Kualitas\n${"-".repeat(30)} catatan`],
     ["pemisah lebar yang gagal di karakter terakhir", `| a |\n${separator(12, 40)}x`],
-  ])("isTableStart tidak backtracking eksponensial: %s", (_label, md) => {
+  ])("pemisah tabel rusak tidak backtracking eksponensial: %s", (_label, md) => {
     expectFast(() => markdownToGutenberg(md))
     expect(convertWithin(md)).not.toContain("wp:table")
   })
@@ -389,34 +559,73 @@ describe("markdownToGutenberg — ReDoS & kompleksitas (HIGH)", () => {
     expect(html).toContain("<!-- wp:separator -->")
   })
 
+  // Jalur superlinear micromark yang terukur (detik–menit tanpa pra-pemindaian), 200 KB.
   it.each([
     ["'[' × 200K", "[".repeat(200_000)],
     ["'[a' × 100K", "[a".repeat(100_000)],
     ["'[[a' × 60K", "[[a".repeat(60_000)],
+    ["']' × 200K", "]".repeat(200_000)],
+    ["'a* ' × 66K (penutup emphasis tanpa pembuka)", "a* ".repeat(66_000)],
+    ["'*_' × 100K", "*_".repeat(100_000)],
+    ["'[a]' × 66K (label tanpa definisi)", "[a]".repeat(66_000)],
+    ["'.' × 200K (regex email autolink)", ".".repeat(200_000)],
+    ["'www.a ' × 33K (autolink GFM)", "www.a ".repeat(33_000)],
+    ["'>' × 200K (sarang kutipan)", ">".repeat(200_000)],
+    ["'1. ' × 66K (sarang list)", "1. ".repeat(66_000)],
+    ["'- a\\n' × 50K (list padat)", "- a\n".repeat(50_000)],
+    ["tabel 30K kolom", `${"|a".repeat(30_000)}|\n${"|-".repeat(30_000)}|\n${"|1".repeat(30_000)}|`],
     ["'<details>' + '<summary>' × 20K", `<details>${"<summary>".repeat(20_000)}`],
-  ])("input penuh kurung/summary tetap linear: %s", (_label, md) => {
+    ["':::details x\\n' × 15K", ":::details x\n".repeat(15_000)],
+  ])("input 200 KB patologis tetap cepat: %s", (_label, md) => {
     expectFast(() => markdownToGutenberg(md))
+  })
+
+  // Ukuran di bawah batas AST: pra-pemindaian memilih mode inline-safe (penanda inline tampil literal).
+  it.each([
+    ["'a* ' × 25K", "a* ".repeat(25_000)],
+    ["']' × 75K", "]".repeat(75_000)],
+    ["'`a' × 37K", "`a".repeat(37_000)],
+    ["'a@b.c ' × 12K", "a@b.c ".repeat(12_000)],
+    ["'\\\\' × 75K", "\\".repeat(75_000)],
+  ])("input ~75 KB padat penanda inline tetap cepat: %s", (_label, md) => {
+    expectFast(() => markdownToGutenberg(md))
+  })
+
+  it("paragraf patologis dirender sebagai teks literal (mode inline-safe), struktur blok tetap", () => {
+    const html = convertWithin(`## Judul\n\n${"a* ".repeat(300)}\n\n- **item**`)
+    expect(html).toContain('<h2 class="wp-block-heading">Judul</h2>')
+    expect(html).toContain("<li>**item**</li>")
+  })
+
+  it("naskah di atas batas AST menjadi paragraf teks polos yang tetap di-escape", () => {
+    const html = convertWithin(`${"x".repeat(120_000)}\n\n<script>alert(1)</script> [gallery]`)
+    expect(html).toContain("<p>&lt;script&gt;alert(1)&lt;/script&gt; &#91;gallery]</p>")
   })
 })
 
-describe("formatInlineMarkdown — tag tidak pernah bersilangan (invalid block)", () => {
+describe("inline — tag tidak pernah bersilangan (invalid block)", () => {
   it.each([
     ["tilde 'kira-kira' + bold", "Suhu ~25°C dan **kelembapan ~80%** di pagi hari.", "Suhu ~25°C dan <strong>kelembapan ~80%</strong> di pagi hari."],
-    ["strike memotong bold", "~~a **b~~ c**", "~~a <strong>b~~ c</strong>"],
+    ["strike memotong bold", "~~a **b~~ c**", "<del>a **b</del> c**"],
     ["superscript memotong bold", "**a^b** c^d", "<strong>a^b</strong> c^d"],
     ["mark memotong bold", "==x **y== z**", "==x <strong>y== z</strong>"],
+    ["superscript memotong mark", "==x^y==z^", "<mark>x^y</mark>z^"],
   ])("%s", (_label, md, expected) => {
-    const html = formatInlineMarkdown(md)
+    const html = inline(md)
     expect(html).toBe(expected)
     expect(isWellNested(html)).toBe(true)
   })
 
   it("subscript/superscript rapat tetap didukung, strikethrough tetap jalan", () => {
-    expect(formatInlineMarkdown("H~2~O, 2^10^ dan ~~coret~~")).toBe("H<sub>2</sub>O, 2<sup>10</sup> dan <del>coret</del>")
+    expect(inline("H~2~O, 2^10^ dan ~~coret~~")).toBe("H<sub>2</sub>O, 2<sup>10</sup> dan <del>coret</del>")
+  })
+
+  it("subscript berurutan tanpa pemisah (rumus kimia) semuanya dikenali", () => {
+    expect(inline("C~8~H~10~N~4~O~2~")).toBe("C<sub>8</sub>H<sub>10</sub>N<sub>4</sub>O<sub>2</sub>")
   })
 
   it("span ber-spasi tidak menjadi subscript/superscript", () => {
-    expect(formatInlineMarkdown("Antara ~5 kg~ dan x^2 + y^2")).toBe("Antara ~5 kg~ dan x^2 + y^2")
+    expect(inline("Antara ~5 kg~ dan x^2 + y^2")).toBe("Antara ~5 kg~ dan x^2 + y^2")
   })
 
   it.each([
@@ -425,23 +634,23 @@ describe("formatInlineMarkdown — tag tidak pernah bersilangan (invalid block)"
     "[[Ctrl **x]] y**",
     "**a ~~b** c~~ ==d **e== f** ^g _h^ i_",
   ])("kombinasi penekanan bersilangan selalu menghasilkan HTML bersarang rapi: %s", (md) => {
-    expect(isWellNested(formatInlineMarkdown(md))).toBe(true)
+    expect(isWellNested(inline(md))).toBe(true)
   })
 })
 
-describe("formatInlineMarkdown — entitas HTML", () => {
-  it("entitas bernama & numerik dipertahankan (tidak tampil literal &amp;nbsp;)", () => {
-    expect(formatInlineMarkdown("Spasi&nbsp;tak terputus &mdash; panah &rarr; &#8217; &#x2014; dan &copy; 2024")).toBe(
-      "Spasi&nbsp;tak terputus &mdash; panah &rarr; &#8217; &#x2014; dan &copy; 2024"
-    )
+describe("inline — entitas HTML", () => {
+  it("entitas di-decode parser menjadi karakternya (tidak tampil literal &amp;nbsp;)", () => {
+    const html = inline("Spasi&nbsp;tak terputus &mdash; panah &rarr; &#8217; dan &copy; 2024")
+    expect(html).toBe("Spasi tak terputus — panah → ’ dan © 2024")
+    expect(html).not.toContain("&amp;")
   })
 
   it("ampersand telanjang & tag tetap di-escape", () => {
-    expect(formatInlineMarkdown("AT&T & R&D &lt;b&gt; <script>")).toBe("AT&amp;T &amp; R&amp;D &lt;b&gt; &lt;script&gt;")
+    expect(inline("AT&T & R&D &lt;b&gt; <script>")).toBe("AT&amp;T &amp; R&amp;D &lt;b&gt; &lt;script&gt;")
   })
 
   it("entitas di dalam kode inline ditampilkan apa adanya", () => {
-    expect(formatInlineMarkdown("Tulis `&nbsp; <br>` di HTML")).toBe("Tulis <code>&amp;nbsp; &lt;br&gt;</code> di HTML")
+    expect(inline("Tulis `&nbsp; <br>` di HTML")).toBe("Tulis <code>&amp;nbsp; &lt;br&gt;</code> di HTML")
   })
 })
 
@@ -479,14 +688,43 @@ describe("markdownToGutenberg — daftar (list)", () => {
     expect(html.match(/<!-- wp:list(?: \{"ordered":true\})? -->\n<[ou]l/g)).toHaveLength(3)
     expect(html).toContain("<p>Paragraf.</p>")
   })
+
+  it.each([
+    ["di bawah item bernomor", "1. A\n  - x\n  - y\n2. B"],
+    ["di bawah nomor dua digit", "10. A\n  - x\n  - y\n11. B"],
+    ["di bawah nomor dua digit (3 spasi)", "10. A\n   - x\n   - y\n11. B"],
+    ["di bawah bullet berpenanda lebar", "-   A\n  - x\n  - y\n- B"],
+  ])("sub-item 2 spasi yang kurang dari kolom konten induk tetap menjadi anak: %s", (_label, md) => {
+    const html = compact(convertWithin(md))
+    expect(html).toMatch(/<li>A<!-- wp:list --><ul class="wp-block-list"><li>x<\/li><li>y<\/li><\/ul><!-- \/wp:list --><\/li><li>B<\/li>/)
+    expect(html.match(/<!-- wp:list/g)).toHaveLength(2)
+  })
+
+  it("seluruh isi sub-item yang digeser ikut bergeser (cucu, lanjutan, kode)", () => {
+    const html = compact(convertWithin("1. A\n  - x\n    - cucu\n      lanjutan cucu\n\n    ```js\n    const a = 1\n    ```\n  - y"))
+    expect(html).toContain('<li>x<br/><code>const a = 1</code><!-- wp:list --><ul class="wp-block-list"><li>cucu lanjutan cucu</li></ul>')
+    expect(html).toContain("<li>y</li>")
+  })
+
+  it.each([
+    ["indentasi 1 spasi tetap saudara (bukan anak)", "1. A\n - x", 2],
+    ["bullet 1 spasi tetap item saudara", "- A\n - x", 1],
+    ["di dalam kutipan tidak dinormalkan", "> 1. A\n>   - x\n>\n> Penutup.", 2],
+  ])("%s", (_label, md, lists) => {
+    expect(convertWithin(md).match(/<!-- wp:list[ {]/g)).toHaveLength(lists)
+  })
+
+  it("isi fence yang mirip list tidak digeser", () => {
+    expect(convertWithin("```text\n1. A\n  - x\n```")).toContain("<code>1. A\n  - x</code>")
+  })
 })
 
 describe("markdownToGutenberg — markup blok sesuai save() core (lolos validasi editor)", () => {
   it("blok kode berbahasa: className blok di <pre>, tanpa kelas di <code>", () => {
-    expect(serializeCodeBlock("x < 1", "JavaScript")).toBe(
+    expect(convertWithin("```JavaScript\nx < 1\n```")).toBe(
       '<!-- wp:code {"className":"language-javascript"} -->\n<pre class="wp-block-code language-javascript"><code>x &lt; 1</code></pre>\n<!-- /wp:code -->'
     )
-    expect(serializeCodeBlock("x")).toBe('<!-- wp:code -->\n<pre class="wp-block-code"><code>x</code></pre>\n<!-- /wp:code -->')
+    expect(convertWithin("```\nx\n```")).toBe('<!-- wp:code -->\n<pre class="wp-block-code"><code>x</code></pre>\n<!-- /wp:code -->')
   })
 
   it("perataan kolom tabel memakai has-text-align-* + data-align, bukan style", () => {
@@ -497,47 +735,46 @@ describe("markdownToGutenberg — markup blok sesuai save() core (lolos validasi
   })
 })
 
-describe("formatInlineMarkdown — XSS (CRITICAL)", () => {
+describe("inline — XSS (CRITICAL)", () => {
   it("tanda kutip di URL tidak bisa keluar dari atribut href", () => {
-    const html = formatInlineMarkdown('[x](https://a"onmouseover="alert(1))')
+    const html = inline('[x](https://a"onmouseover="alert(1))')
     expect(eventHandlerAttributes(html)).toEqual([])
     expect(html).toContain('href="https://a&quot;onmouseover=&quot;alert(1)"')
   })
 
-  it("payload dengan spasi tidak menjadi tautan dan tidak menyuntik atribut", () => {
-    const html = formatInlineMarkdown('[x](https://a" onmouseover="alert(1))')
+  it("payload dengan spasi bukan tujuan tautan dan tidak menyuntik atribut", () => {
+    // Hanya "https://a" yang menjadi autolink GFM; sisanya teks biasa.
+    const html = inline('[x](https://a" onmouseover="alert(1))')
     expect(eventHandlerAttributes(html)).toEqual([])
-    expect(html).not.toContain("<a ")
+    expect(html).toContain('<a href="https://a" target="_blank" rel="noopener noreferrer">https://a</a>" onmouseover="alert(1))')
   })
 
   it.each([
     "javascript:location='//evil.example'",
     "JaVaScRiPt:alert(1)",
     "java\tscript:alert(1)",
+    "<java\tscript:alert(1)>",
     "javascript&#58;alert(1)",
     "javascript&#x3A;alert(1)",
+    "javascript&colon;alert(1)",
     "&#106;avascript:alert(1)",
     "vbscript:msgbox",
     "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==",
   ])("skema berbahaya %s: tautan dibuang, label tetap", (url) => {
-    const html = formatInlineMarkdown(`[klik](${url})`)
+    const html = convertWithin(`[klik](${url})`)
     expect(html).not.toContain("<a ")
     expect(html).toContain("klik")
   })
 
-  it.each(["javascript&colon;alert(1)", "javascript&amp;#x3a;alert(1)"])(
-    "entitas yang tidak dikenali (%s) di-escape penuh sehingga inert",
-    (url) => {
-      const html = formatInlineMarkdown(`[klik](${url})`)
-      // Setelah browser men-decode atribut sekali, hasilnya harus tetap teks "&...", bukan ":".
-      expect(html).toMatch(/href="javascript&amp;/)
-    }
-  )
+  it("entitas ganda yang tersisa setelah decode di-escape penuh sehingga inert", () => {
+    // Setelah browser men-decode atribut sekali, hasilnya tetap teks "&#x3a;", bukan ":".
+    expect(inline("[klik](javascript&amp;#x3a;alert(1))")).toMatch(/href="javascript&amp;#x3a;alert\(1\)"/)
+  })
 
-  it("kode inline di dalam URL tidak bisa memecah atribut href", () => {
-    const html = formatInlineMarkdown('[x](https://a`"onmouseover="alert(1)`)')
+  it("backtick di dalam URL tidak bisa memecah atribut href", () => {
+    const html = inline('[x](https://a`"onmouseover="alert(1)`)')
     expect(eventHandlerAttributes(html)).toEqual([])
-    expect(html).not.toContain("<a ")
+    expect(html).toContain('href="https://a`&quot;onmouseover=&quot;alert(1)`"')
   })
 
   it.each([
@@ -547,7 +784,7 @@ describe("formatInlineMarkdown — XSS (CRITICAL)", () => {
     "tel:",
     "whatsapp://send?phone=62812",
   ])("tel/sms tidak sah dan skema di luar allowlist ditolak: %s", (url) => {
-    const html = formatInlineMarkdown(`[hubungi](${url})`)
+    const html = convertWithin(`[hubungi](${url})`)
     expect(html).not.toContain("<a ")
     expect(html).toContain("hubungi")
   })
@@ -564,33 +801,47 @@ describe("formatInlineMarkdown — XSS (CRITICAL)", () => {
     ["https://id.wikipedia.org/wiki/Kopi_luwak_terbaik", 'href="https://id.wikipedia.org/wiki/Kopi_luwak_terbaik"'],
     ["https://en.wikipedia.org/wiki/Java_(programming_language)", 'href="https://en.wikipedia.org/wiki/Java_(programming_language)"'],
   ])("URL aman %s tetap menjadi tautan utuh", (url, expected) => {
-    expect(formatInlineMarkdown(`[label](${url})`)).toContain(expected)
+    expect(inline(`[label](${url})`)).toContain(expected)
   })
 
   it("tag HTML mentah di teks di-escape", () => {
-    const html = formatInlineMarkdown('<img src=x onerror="alert(1)"> <script>alert(1)</script>')
+    const html = inline('<img src=x onerror="alert(1)"> <script>alert(1)</script>')
     expect(html).not.toContain("<img")
     expect(html).not.toContain("<script")
     expect(html).toContain("&lt;script&gt;")
   })
 
   it("format inline tidak bocor ke dalam kode inline", () => {
-    expect(formatInlineMarkdown("Panggil `__init__` dan `a*b*c`")).toBe(
-      "Panggil <code>__init__</code> dan <code>a*b*c</code>"
-    )
+    expect(inline("Panggil `__init__` dan `a*b*c`")).toBe("Panggil <code>__init__</code> dan <code>a*b*c</code>")
   })
+})
 
-  it("karakter token placeholder di input tidak bisa memalsukan token", () => {
-    const html = formatInlineMarkdown("`kode` lalu [x](https://a.co/\uE0000\uE001) dan \uE0000\uE001")
-    expect(html).toBe(
-      '<code>kode</code> lalu <a href="https://a.co/0" target="_blank" rel="noopener noreferrer">x</a> dan 0'
+describe("shortcode WordPress dinetralkan di semua konteks (CRITICAL)", () => {
+  it("teks, label & URL tautan, heading, list, tabel, kutipan, kode, alt, caption", () => {
+    const html = convertWithin(
+      [
+        'Isi [contact-form-7 id="1"] dan [/embed]',
+        "",
+        "[Lihat [gallery]](https://a.co/[gallery])",
+        "",
+        "## Judul [audio]",
+        "",
+        "- item [video]",
+        "",
+        "| a |\n|---|\n| [playlist] |",
+        "",
+        "> kutip [caption]",
+        "",
+        "```\n[embed]x[/embed]\n```",
+        "",
+        "Kode `[shortcode]` inline.",
+        "",
+        '![alt [gallery]](https://images.pexels.com/a.jpg "Judul [gallery]")',
+      ].join("\n")
     )
-  })
-
-  it("shortcode WordPress dari konten LLM dinetralkan (tampil sama, tidak dieksekusi)", () => {
-    const html = formatInlineMarkdown('Isi [contact-form-7 id="1"] dan [/embed]')
     expect(html).not.toMatch(/\[\/?[a-z]/i)
     expect(html).toContain("&#91;contact-form-7")
+    expect(html).toContain('href="https://a.co/&#91;gallery]"')
   })
 })
 
@@ -602,8 +853,26 @@ describe("markdownToGutenberg — XSS & injeksi blok (CRITICAL)", () => {
   })
 
   it("src gambar tidak bisa menyuntik atribut", () => {
-    const html = convertWithin('![a](https://images.pexels.com/x.jpg"onerror="alert(1))')
+    const html = convertWithin('![a](https://images.pexels.com/x.jpg"onerror="alert(1))\n\n![b](<https://images.pexels.com/a.jpg" onload="alert(1)>)')
     expect(eventHandlerAttributes(html)).toEqual([])
+    expect(html).toContain('src="https://images.pexels.com/a.jpg&quot; onload=&quot;alert(1)"')
+  })
+
+  it.each([
+    ["javascript:", "![x](javascript:alert(1))"],
+    ["data:", "![x](data:image/png;base64,AAAA)"],
+    ["protocol-relative", "![x](//cdn.contoh.co.id/a.jpg)"],
+    ["relatif", "![x](/wp-content/a.jpg)"],
+    ["placeholder", "![x](https://via.placeholder.com/600)"],
+  ])("gambar non-http(s)/fiktif tidak menghasilkan <img>: %s", (_label, md) => {
+    expect(convertWithin(md)).not.toContain("<img")
+  })
+
+  it("atribut {…} gambar: id hanya bilangan bulat aman, caption di-escape", () => {
+    const html = convertWithin('![a](https://images.pexels.com/a.jpg){caption="<b>x</b> [gallery]" id=abc}\n\n![b](https://images.pexels.com/b.jpg){id=99999999999999999999}')
+    expect(html).not.toContain("wp-image-")
+    expect(html).not.toContain('"id"')
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt; &#91;gallery]")
   })
 
   it("blok wp:html mentah tidak diteruskan apa adanya", () => {
@@ -613,9 +882,7 @@ describe("markdownToGutenberg — XSS & injeksi blok (CRITICAL)", () => {
   })
 
   it("dokumen yang seluruhnya berupa komentar blok tidak dikembalikan verbatim", () => {
-    const html = convertWithin(
-      '<!-- wp:paragraph -->\n<p><img src=x onerror="alert(1)"></p>\n<!-- /wp:paragraph -->'
-    )
+    const html = convertWithin('<!-- wp:paragraph -->\n<p><img src=x onerror="alert(1)"></p>\n<!-- /wp:paragraph -->')
     expect(eventHandlerAttributes(html)).toEqual([])
     expect(html).not.toContain("<img")
   })
@@ -624,6 +891,12 @@ describe("markdownToGutenberg — XSS & injeksi blok (CRITICAL)", () => {
     const html = convertWithin("Teks --> <!-- /wp:paragraph --><script>alert(1)</script>")
     expect(html).not.toContain("<script")
     expect(html.match(/<!-- \/wp:paragraph -->/g)).toHaveLength(1)
+  })
+
+  it("iframe, style, svg, dan atribut event di HTML mentah selalu menjadi teks", () => {
+    const html = convertWithin('<iframe src="https://evil.example"></iframe>\n\n<svg onload=alert(1)>\n\n<style>body{display:none}</style>')
+    expect(html).not.toMatch(/<(?:iframe|svg|style)/)
+    expect(eventHandlerAttributes(html)).toEqual([])
   })
 
   it("details: summary & isi di-escape, atribut JSON aman sesuai konvensi serializer Gutenberg", () => {
@@ -638,10 +911,15 @@ describe("markdownToGutenberg — XSS & injeksi blok (CRITICAL)", () => {
     expect(attrs).toContain("\\u0026")
   })
 
+  it(":::details: atribut summary aman", () => {
+    const html = convertWithin(":::details Ringkasan -- <b>x</b> & y\nIsi\n:::")
+    expect(blockAttrs(html, "details")).not.toMatch(/--|<|>|&/)
+  })
+
   it("tombol CTA dengan skema javascript: menjadi teks biasa", () => {
     const html = convertWithin("[Daftar](javascript:location='//evil.example'){.button}")
     expect(html).not.toMatch(/href="javascript/i)
-    expect(html).toContain("Daftar")
+    expect(html).toContain("<p>Daftar</p>")
   })
 
   it("tombol CTA: tanda kutip di URL di-escape", () => {
@@ -649,54 +927,22 @@ describe("markdownToGutenberg — XSS & injeksi blok (CRITICAL)", () => {
     expect(eventHandlerAttributes(html)).toEqual([])
   })
 
+  it("baris mirip embed dengan payload bukan embed dan tidak menyuntik markup", () => {
+    const html = convertWithin('https://www.youtube.com/watch?v=x"--><script>alert(1)</script>')
+    expect(html).not.toContain("wp:embed")
+    expect(html).not.toContain("<script")
+    expect(eventHandlerAttributes(html)).toEqual([])
+  })
+
+  it("bahasa blok kode tidak bisa menyuntik atribut", () => {
+    const html = convertWithin('```js" onclick="alert(1)\nx\n```')
+    expect(eventHandlerAttributes(html)).toEqual([])
+    expect(html).toContain('<pre class="wp-block-code language-js">')
+  })
+
   it("kode di blok kode tetap di-escape", () => {
     const html = convertWithin("```html\n<script>alert(1)</script>\n```")
     expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;")
     expect(html).not.toContain("<script")
-  })
-})
-
-describe("serializer blok yang diekspor — input tidak tepercaya", () => {
-  it("serializeEmbedBlock: URL disisipkan aman di atribut JSON & HTML", () => {
-    const html = serializeEmbedBlock('https://www.youtube.com/watch?v=x"--><script>alert(1)</script>')
-    expect(html).not.toContain("<script")
-    expect(blockAttrs(html, "embed")).not.toMatch(/--|<|>|&/)
-  })
-
-  it("serializeEmbedBlock: skema non-http ditolak", () => {
-    expect(serializeEmbedBlock("javascript:alert(1)")).not.toContain("wp:embed")
-  })
-
-  it("serializeButtonBlock: skema non-http ditolak", () => {
-    expect(serializeButtonBlock("Klik", "javascript:alert(1)")).not.toContain("href")
-  })
-
-  it("serializeImageBlock: alt, src, dan id tidak tepercaya", () => {
-    const html = serializeImageBlock({
-      url: 'https://images.pexels.com/a.jpg" onload="alert(1)',
-      alt: '"><script>alert(1)</script>',
-      id: Number.NaN,
-    })
-    expect(html).not.toContain("<script")
-    expect(eventHandlerAttributes(html)).toEqual([])
-    expect(html).not.toContain("NaN")
-  })
-
-  it("serializeImageBlock: URL non-http tidak menghasilkan <img>", () => {
-    expect(serializeImageBlock({ url: "javascript:alert(1)", alt: "x" })).not.toContain("<img")
-  })
-
-  it("serializeCodeBlock: bahasa tidak bisa menyuntik atribut", () => {
-    const html = serializeCodeBlock("x", 'js" onclick="alert(1)')
-    expect(eventHandlerAttributes(html)).toEqual([])
-  })
-
-  it("serializeHeading: level di luar 1-6 dijepit", () => {
-    expect(serializeHeading(9, "Judul")).toContain("<h6 ")
-  })
-
-  it("serializeDetailsBlock: atribut summary aman", () => {
-    const html = serializeDetailsBlock("Ringkasan -- <b>x</b> & y", ["Isi"])
-    expect(blockAttrs(html, "details")).not.toMatch(/--|<|>|&/)
   })
 })

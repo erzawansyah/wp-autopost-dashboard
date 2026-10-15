@@ -8,7 +8,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 
 - **Tahap Selesai**: **MVP Minimal, Multi-Select Kategori WP, Resolusi Tag, BYOK Settings, Retry Sinkronisasi WP, Factory System Writer, Lab Pengujian (/lab), UI Tulis Cepat (/posts/new), Queue Worker, Standard Writing Engine, Hybrid Scraper Tools, Dynamic OpenRouter Models, Featured Image WP, Modul 2 Batch Keyword Ingestion, Agentic Writer Engine, Multi-Language Selection, Integrasi user_settings & webhooks, Perombakan Arsitektur Total ke Agent Profile Runtime, Modul Artikel Terjadwal (/scheduled), Skill Registry (/skills), Sentralisasi Kunci API (/settings/keys), Revamp Gambar (SearxNG + Pexafy), dan Konsolidasi Sidebar WP Tools (/tools)**.
 - **Catatan Worklog**: `.workspaces/worklogs/` (lokal, di-ignore Git) — `00`–`28`, terbaru `28-rebranding-panitera-tools-config-and-docs.md`.
-- **Fase Aktif**: **Rombak v2 (branch `v2`)** — Fase 0 (keamanan), Fase 1 (fondasi), Fase 2 (backend & runner antrean) selesai; baseline migrasi masih rekonstruksi → wajib dicek `supabase db diff` ke production sebelum `db push`. Berikutnya (disepakati dulu): Fase 3 (inti AI). Roadmap: laporan audit 14 Okt 2026.
+- **Fase Aktif**: **Rombak v2 (branch `v2`)** — Fase 0 (keamanan), Fase 1 (fondasi), Fase 2 (backend & runner antrean), Fase 3 (inti AI) selesai; baseline migrasi masih rekonstruksi → wajib dicek `supabase db diff` ke production sebelum `db push`. Berikutnya (disepakati dulu): Fase 4 (frontend). Roadmap: laporan audit 14 Okt 2026.
 - **Fase Produk Berikutnya (setelah v2)**: **Modul 3 Niche Auto-Genesis & Smart Content Recycling**.
 
 ---
@@ -50,13 +50,7 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 15. **ADR-056 (Injeksi Konteks Website & Persona ke Workflow Prompt Agen + Fleksibel Output Schema)**:
     - **Injeksi Variabel Dinamis ke Workflow Prompt Agen (`preset-*.md`)**: `buildSystemPrompt` di `prompt-builder.ts` kini menerima `SystemPromptVariables` (`siteName`, `siteUrl`, `authorName`, `authorBio`, `categoryName`, `language`). Agen AI kini menyadari nama website, brand, dan persona spesifik tempat artikel akan diterbitkan.
     - **Tag `[OUTPUT_FORMAT]` dengan Inferensi JSON Schema**: Mendukung notasi tanda tanya `?` pada nama key untuk mendeklarasikan field opsional/nullable secara ringkas dan manusiawi. Loader secara otomatis mengonversinya menjadi format JSON Schema standar (`strict: true`) yang dikirim lewat `completeJson` gateway LLM (`src/core/shared/llm/`) dengan fallback otomatis ke `json_object` jika model LLM tertentu belum mendukung `json_schema`.
-16. **ADR-057 (Restrukturisasi Nomenklatur Prompt: 3 Pilar Utama `wp-tools-*`, `system-*`, dan `agent-*`)**:
-    - **3 Pilar Prompt di `src/core/shared/prompts/`**:
-      1. `wp-tools-*`: Kumpulan prompt khusus WP Tools (`wp-tools-categories-suggest.md`, `wp-tools-authors-suggest.md`, `wp-tools-link-extract.md`, `wp-tools-link-recommend.md`).
-      2. `system-*`: Prompt fondasi inti infrastruktur runtime (`system-guardrail.md`, `system-finalize.md`, `system-resolve-taxonomy-author.md`).
-      3. `agent-*`: Seluruh prompt yang mengatur perilaku dan input agent kepenulisan (`agent-user-prompt.md`, `agent-quick-writer.md`, `agent-research-writer.md`, `agent-deep-research.md`), menggantikan konvensi `preset-*` dan `user-prompt.md`.
-    - **Standardisasi YAML Frontmatter**: Seluruh 11 prompt menggunakan skema `description`, `used_by` (array path), dan `variables` (array objek `{ key, desc }`).
-    - **Backward-Compatible Prompt Resolution**: `loader.ts` otomatis memetakan alias nama lama (`preset-quick-writer`, `user-prompt`, dsb.) ke berkas `agent-*` yang baru sehingga aman dari pemanggilan legasi.
+16. **ADR-057 (3 Pilar Prompt)**: Semua prompt di `src/core/shared/prompts/` berprefix `wp-tools-*` (WP Tools), `system-*` (fondasi runtime), atau `agent-*` (perilaku & input agen) dengan frontmatter `description`/`used_by`/`variables`. Alias nama lama sudah dihapus (registry Fase 3 menuntut nama persis).
 17. **ADR-058 (Eliminasi Tool Taksonomi Obsolete & Konsolidasi 6 Universal Tools Penulis)**:
     - **Pembersihan Tool Usang**: Mengeliminasi tool `list_wp_categories`, `list_wp_tags`, dan `list_wp_authors` dari `ToolRegistry` dan profil agen (`preset:research-writer` & `preset:deep-research`).
     - **Efisiensi Kuota Tool Calls & Token**: Penghapusan ini menjamin kuota `maxToolCalls` tidak terbuang untuk urusan administratif WordPress yang sudah selesai di tahap Pre-Flight Resolver (`pre-resolve.ts`).
@@ -65,16 +59,14 @@ Dokumen ini adalah **Memori Dinamis Proyek (Living Memory)** untuk seluruh AI Ag
 19. **ADR-060 (Aturan Anti-Admin Author Resolution & Prioritas Persona E-E-A-T)**:
     - Menambahkan aturan mutlak di prompt `system-resolve-taxonomy-author.md` dan filter `isTechnicalAdminUser` di `pre-resolve.ts`.
     - Sistem dan LLM dilarang memilih akun admin teknis (`admin`, `administrator`, `*_admin`, dll.) jika masih ada akun persona manusia lain di WordPress, meskipun bidang keahliannya lintas topik. Akun admin hanya dijadikan pilihan darurat jika situs benar-benar hanya memiliki 1 akun tunggal.
-
 20. **ADR-061 (Rombak v2 · Fase 0: Hotfix Keamanan Multi-Tenant)**:
     - **BYOK-only**: kunci tenant hanya dari `user_settings` terenkripsi; tidak ada lagi baca/tulis `.env.local` saat runtime. Kunci platform hanya jika `PLATFORM_KEY_ALLOWED=true` (`src/lib/ai/platform-keys.ts`). LangSmith memakai tracer per tenant, tanpa mutasi `process.env`. API key tidak pernah disimpan di localStorage.
     - **Anti-SSRF terpusat**: semua fetch ke URL dari pengguna/LLM lewat `safeFetch` (`src/lib/net/safe-fetch.ts`: DNS pinning, blokir IP privat, validasi ulang redirect, batas ukuran). SearXNG platform hanya dipercaya untuk `/search` & `/autocompleter` (opt-in), `image_proxy` dimatikan. Dev lokal: `ALLOW_PRIVATE_NETWORK_FETCH=true`.
     - **Antrean**: klaim selalu difilter `user_id` untuk sesi; `CRON_SECRET` wajib & hanya lewat header; `syncing_to_wp` macet → `failed_sync`; item ber-`wp_post_id` tidak dipublikasi ulang; situs wajib milik pemilik item.
     - **Konten**: serializer Gutenberg escape penuh, tanpa passthrough HTML mentah, `[` dinetralkan (anti-shortcode); preview di dashboard disanitasi DOMPurify. Webhook ditandatangani `HMAC(secret, "timestamp.body")` + `X-Panitera-Timestamp`.
-
 21. **ADR-062 (Rombak v2 · Fase 1: Fondasi)**: Skema di `supabase/migrations` (10 tabel, RLS force, GRANT eksplisit, FK komposit `(…, user_id)` anti lintas-tenant; `post_items` tanpa UPDATE oleh `authenticated`) + test PGlite `supabase/tests`. Env tervalidasi zod (`src/lib/env/*`, cek saat start via `instrumentation.ts`), `server-only` di modul kredensial. CI GitHub Actions + `npm run audit:hygiene` (allowlist ratchet). Lint wajib 0 warning. Worker hanya memakai Service Role.
-
 22. **ADR-063 (Rombak v2 · Fase 2: Backend & Runner Antrean)**: Semua route lewat `defineRoute` (`src/server/http`: auth eksplisit, zod, `{ok,...}`/`{ok:false,error,code}`, pemetaan SQLSTATE, rate limit, body ≤ 1 MB default) + service layer `src/server/services`. Runner antrean tertanam (`src/server/queue`, start di `instrumentation.ts`) menggantikan `after()`/sidecar cron: RPC `claim_post_items` (lease + heartbeat, batas per situs, round-robin tenant), fencing token klaim unik (`locked_by`) + state persis, backoff 1→5 mnt maks 3 percobaan, timeout/5xx WP tidak dikirim ulang otomatis, `wp_post_id` tercatat → dituntaskan sukses; INSERT sesi hanya kolom input (GRANT per kolom). `QUEUE_RUNNER` default `embedded` hanya di production; `off` + `CRON_SECRET` = mode cron eksternal (1 item/pemicu). Panduan pengguna di `docs/guides/`.
+23. **ADR-064 (Rombak v2 · Fase 3: Inti AI)**: Gateway LLM per run (`src/core/shared/llm`: BYOK-only, retry, fallback model `ai.fallbackModels`, ledger token & biaya), kontrak tool `ToolOutcome` + `AbortSignal` (guard membaca artifact), registry prompt ter-generate & berversi (`npm run prompts:build`, golden, `eval:writer`), checkpoint generasi `pre_resolve`/`draft` (`generation_checkpoints`, RPC berpagar token lease) untuk resume tanpa LLM, metrik biaya/versi di `agent_runs`, serializer Markdown→Gutenberg berbasis AST remark dengan pre-scan anti-DoS.
 
 ---
 

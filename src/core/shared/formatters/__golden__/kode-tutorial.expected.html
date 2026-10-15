@@ -1,0 +1,58 @@
+<!-- wp:paragraph -->
+<p>Tutorial ini menunjukkan cara membuat skrip kecil untuk mencatat stok biji kopi. Semua contoh bisa dijalankan di terminal.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Menyiapkan Proyek</h2>
+<!-- /wp:heading -->
+
+<!-- wp:paragraph -->
+<p>Pasang dependensi lalu buat berkas <code>stok.js</code>. Elemen pertama larik diakses dengan <code>stok&#91;0]</code>.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:code {"className":"language-bash"} -->
+<pre class="wp-block-code language-bash"><code>npm init -y
+npm install dayjs</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:heading -->
+<h2 class="wp-block-heading">Menulis Skrip</h2>
+<!-- /wp:heading -->
+
+<!-- wp:code {"className":"language-js"} -->
+<pre class="wp-block-code language-js"><code>const stok = &#91;{ nama: "Gayo", kg: 12 }]
+
+// Penulis: tim gudang — revisi &#91;1]
+function cetak(item) {
+  console.log(`${item.nama}\t${item.kg} kg\n`)
+}
+
+stok.forEach(cetak)</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:heading {"level":3} -->
+<h3 class="wp-block-heading">Versi Python</h3>
+<!-- /wp:heading -->
+
+<!-- wp:code {"className":"language-python"} -->
+<pre class="wp-block-code language-python"><code>def total(stok):
+    jumlah = 0
+    for item in stok:  # dua  spasi
+        jumlah += item&#91;"kg"]
+    return jumlah</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:paragraph -->
+<p>Baris yang diawali <code>#</code> di dalam kode tidak dianggap heading:</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:code {"className":"language-text"} -->
+<pre class="wp-block-code language-text"><code>## Kesimpulan
+# Judul
+Penulis: Bukan Byline
+x — y</code></pre>
+<!-- /wp:code -->
+
+<!-- wp:paragraph -->
+<p>Gunakan <code>printf("%s\n", nama)</code> untuk mencetak satu baris.</p>
+<!-- /wp:paragraph -->

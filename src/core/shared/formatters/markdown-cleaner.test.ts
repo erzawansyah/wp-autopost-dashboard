@@ -4,14 +4,9 @@ import { markdownToGutenberg } from "./gutenberg"
 import {
   calculateWordCount,
   cleanMarkdown,
+  extractSubheadings,
   MAX_MARKDOWN_LENGTH,
-  sanitizeAISlopPhrases,
-  sanitizeAuthorBylines,
-  sanitizeCitationsAndReferences,
-  sanitizeConversationalPreamblesAndOutros,
   sanitizeDashes,
-  sanitizeDuplicateTitleAndH1,
-  sanitizeMetaAnnouncements,
   unescapeLiteralNewlines,
 } from "./markdown-cleaner"
 
@@ -26,8 +21,11 @@ function expectFast(fn: () => unknown, budgetMs = 1000): void {
   expect(performance.now() - started).toBeLessThan(budgetMs)
 }
 
-describe("cleanMarkdown — perilaku normal tidak berubah", () => {
-  it("artikel tipikal (preamble, H1, heading generik, meta, sitasi, slop, referensi)", () => {
+/** Naskah tiga paragraf: baris uji di tengah. */
+const around = (line: string): string => `Paragraf awal.\n\n${line}\n\nParagraf akhir.`
+
+describe("cleanMarkdown — artikel tipikal", () => {
+  it("preamble, H1, heading generik, meta, sitasi, slop, byline, referensi", () => {
     const raw = [
       "Tentu, berikut artikel lengkap tentang kopi:",
       "",
@@ -57,7 +55,7 @@ describe("cleanMarkdown — perilaku normal tidak berubah", () => {
     ].join("\n")
 
     expect(cleanMarkdown(raw, "Panduan Kopi Nusantara")).toMatchInlineSnapshot(`
-      "Kopi adalah minuman populer. Banyak orang menyukainya .
+      "Kopi adalah minuman populer. Banyak orang menyukainya.
 
       ## Sejarah Kopi
 
@@ -67,26 +65,59 @@ describe("cleanMarkdown — perilaku normal tidak berubah", () => {
       - Poin dua
 
       ## Langkah Nyata dan Rekomendasi
-      Secara keseluruhan, kopi itu nikmat."
+
+      kopi itu nikmat."
     `)
+  })
+
+  it("bagian yang tidak dibersihkan tetap utuh byte-per-byte (bukan stringify ulang)", () => {
+    const md = "Paragraf dengan *miring*, __tebal__, \\*bintang\\* & &amp; entitas.\n\n* bullet bintang\n+ bullet plus\n\n| a|b |\n|-|-|\n| 1|2 |"
+    expect(cleanMarkdown(md)).toBe(md)
   })
 })
 
-describe("sanitizeDuplicateTitleAndH1", () => {
-  it.each(["**Panduan Kopi**", "## Panduan Kopi", "panduan  kopi"])(
-    "baris pertama yang hanya mengulang judul post dibuang: %s",
+describe("cleanMarkdown — judul ganda & H1", () => {
+  it.each(["# Panduan Kopi", "**Panduan Kopi**", "## Panduan Kopi", "panduan  kopi", "Judul: Panduan Kopi", "**Judul Artikel:** Panduan Kopi", "Title: Panduan"])(
+    "baris pertama yang mengulang judul / berlabel judul dibuang: %s",
     (firstLine) => {
-      expect(sanitizeDuplicateTitleAndH1(`${firstLine}\n\nIsi artikel.`, "Panduan Kopi")).toBe("\nIsi artikel.")
+      expect(cleanMarkdown(`${firstLine}\n\nIsi artikel.`, "Panduan Kopi")).toBe("Isi artikel.")
     }
   )
 
   it("baris pertama yang berbeda dari judul dipertahankan", () => {
-    const text = "## Sejarah Kopi\n\nIsi artikel."
-    expect(sanitizeDuplicateTitleAndH1(text, "Panduan Kopi")).toBe(text)
+    expect(cleanMarkdown("## Sejarah Kopi\n\nIsi artikel.", "Panduan Kopi")).toBe("## Sejarah Kopi\n\nIsi artikel.")
+  })
+
+  it("paragraf pembuka yang kebetulan diawali 'Judul…'/'Title…' tanpa titik dua tidak dihapus (bug lama)", () => {
+    const md = "Judulnya harus memikat pembaca sejak awal.\n\nTitleist adalah merek bola golf."
+    expect(cleanMarkdown(md, "Panduan Kopi")).toBe(md)
+  })
+
+  it("H1 lain di body diturunkan menjadi H2, termasuk di dalam kutipan; '#' di kode tidak disentuh", () => {
+    const md = "Pembuka.\n\n# Bagian Satu\n\n> # Kutipan Besar\n\n```bash\n# komentar bash\n```"
+    expect(cleanMarkdown(md)).toBe("Pembuka.\n\n## Bagian Satu\n\n> ## Kutipan Besar\n\n```bash\n# komentar bash\n```")
   })
 })
 
-describe("sanitizeAuthorBylines — jangan hapus kalimat biasa (HIGH)", () => {
+describe("cleanMarkdown — heading generik, bernomor, kesimpulan", () => {
+  it("heading pembuka generik pertama dibuang", () => {
+    expect(cleanMarkdown("## Pendahuluan\n\nIsi.\n\n## Pengantar Lanjut\n\nIsi dua.")).toBe("Isi.\n\n## Pengantar Lanjut\n\nIsi dua.")
+  })
+
+  it.each([
+    ["## Kesimpulan", "## Langkah Nyata dan Rekomendasi"],
+    ["### Rangkuman Praktis", "### Langkah Nyata dan Rekomendasi"],
+    ["## **Penutup**", "## Langkah Nyata dan Rekomendasi"],
+    ["## 7. Kesimpulan", "## Catatan Akhir dan Langkah Nyata"],
+    ["#### Kesimpulan", "#### Catatan Akhir dan Langkah Nyata"],
+    ["## 2.1. Asal-Usul Kopi", "## Asal-Usul Kopi"],
+    ["## 2024 adalah tahun kopi", "## 2024 adalah tahun kopi"],
+  ])("%s → %s", (heading, expected) => {
+    expect(cleanMarkdown(`Pembuka.\n\n${heading}\n\nIsi.`)).toBe(`Pembuka.\n\n${expected}\n\nIsi.`)
+  })
+})
+
+describe("cleanMarkdown — byline (penulis hanya referensi persona)", () => {
   it.each([
     "Oleh karena itu, petani kopi perlu menjaga kelembapan tanah.",
     "Oleh sebab itu, kita harus berhati-hati.",
@@ -95,8 +126,7 @@ describe("sanitizeAuthorBylines — jangan hapus kalimat biasa (HIGH)", () => {
     "By default, mesin kopi menyala otomatis.",
     "- Penulis: Pramoedya Ananta Toer",
   ])("mempertahankan: %s", (line) => {
-    const text = `Paragraf awal.\n\n${line}\n\nParagraf akhir.`
-    expect(sanitizeAuthorBylines(text)).toBe(text)
+    expect(cleanMarkdown(around(line))).toBe(around(line))
   })
 
   it.each([
@@ -114,70 +144,168 @@ describe("sanitizeAuthorBylines — jangan hapus kalimat biasa (HIGH)", () => {
     "Ditulis oleh Ni Made Ayu",
     "> Penulis: Budi",
   ])("menghapus byline: %s", (line) => {
-    const out = sanitizeAuthorBylines(`Paragraf awal.\n\n${line}\n\nParagraf akhir.`)
-    expect(out).not.toContain(line)
-    expect(out).toContain("Paragraf awal.")
-    expect(out).toContain("Paragraf akhir.")
+    expect(cleanMarkdown(around(line))).toBe("Paragraf awal.\n\nParagraf akhir.")
+  })
+
+  it("byline di baris kedua paragraf hanya menghapus barisnya", () => {
+    expect(cleanMarkdown("Paragraf awal.\nPenulis: Budi\nLanjutan paragraf.")).toBe("Paragraf awal.\nLanjutan paragraf.")
   })
 
   it.each(["**By The Numbers**", "By Car", "**By Air**", "By Train Or Plane", "*By The Way*"])(
     "pseudo-heading Inggris bukan byline: %s",
     (line) => {
-      const text = `Paragraf awal.\n\n${line}\n\nParagraf akhir.`
-      expect(sanitizeAuthorBylines(text)).toBe(text)
+      expect(cleanMarkdown(around(line))).toBe(around(line))
     }
   )
 
   it("byline nama saja hanya dihapus di tepi naskah; baris serupa di tengah dipertahankan", () => {
     const middle = ["P1.", "P2.", "P3.", "**Oleh Oleh Khas Bali**", "P4.", "P5.", "P6."].join("\n\n")
-    expect(sanitizeAuthorBylines(middle)).toBe(middle)
+    expect(cleanMarkdown(middle)).toBe(middle)
 
-    const top = ["*By John Smith*", "P1.", "P2.", "P3.", "P4.", "Oleh Budi Santoso"].join("\n\n")
-    expect(sanitizeAuthorBylines(top)).toBe(["", "P1.", "P2.", "P3.", "P4.", ""].join("\n\n"))
+    const edges = ["*By John Smith*", "P1.", "P2.", "P3.", "P4.", "Oleh Budi Santoso"].join("\n\n")
+    expect(cleanMarkdown(edges)).toBe(["P1.", "P2.", "P3.", "P4."].join("\n\n"))
   })
 
   it("byline berlabel titik dua tetap dihapus di mana pun", () => {
     const text = ["P1.", "P2.", "P3.", "Penulis: Dimas", "P4.", "P5.", "P6."].join("\n\n")
-    expect(sanitizeAuthorBylines(text)).not.toContain("Penulis: Dimas")
+    expect(cleanMarkdown(text)).not.toContain("Penulis: Dimas")
   })
 
-  it("cleanMarkdown tidak menghapus paragraf yang diawali 'Oleh karena itu'", () => {
-    const out = cleanMarkdown("Kalimat pertama.\n\nOleh karena itu, kopi harus disimpan rapat.")
-    expect(out).toContain("Oleh karena itu, kopi harus disimpan rapat.")
+  it("blok 'Tentang Penulis' di akhir naskah dipotong", () => {
+    expect(cleanMarkdown("Isi artikel.\n\n## Tentang Penulis\n\nBudi adalah barista.\n\n- Instagram")).toBe("Isi artikel.")
+  })
+
+  it("perkenalan persona di pembuka dibuang, juga setelah judul & byline yang dibuang", () => {
+    expect(cleanMarkdown("Sebagai Kurator Kopi, saya, Ni Made Ayu, selalu terpesona oleh aroma kopi. Kopi Bali unik.")).toBe("Kopi Bali unik.")
+    expect(
+      cleanMarkdown("# Kopi Bali\n\nOleh: Ni Made Ayu\n\nSebagai Kurator Kopi, saya, Ni Made Ayu, selalu terpesona oleh aroma kopi. Kopi Bali unik.")
+    ).toBe("Kopi Bali unik.")
+  })
+
+  it("penutup basa-basi sebelum blok 'Tentang Penulis' tetap dibuang", () => {
+    expect(cleanMarkdown("Isi.\n\nSemoga artikel ini bermanfaat.\n\n## Tentang Penulis\n\nBudi.")).toBe("Isi.")
   })
 })
 
-describe("spasi ganda — jangan rusak indentasi & kode (HIGH)", () => {
-  it("indentasi list bertingkat dipertahankan sehingga struktur nested tetap", () => {
-    const md = "- Satu\n  - Dua\n    - Tiga"
-    expect(cleanMarkdown(md)).toBe(md)
-    const html = markdownToGutenberg(cleanMarkdown(md))
+describe("cleanMarkdown — regresi audit (HIGH)", () => {
+  it("paragraf yang diawali 'Oleh karena itu' tidak dihapus", () => {
+    expect(cleanMarkdown("Kalimat pertama.\n\nOleh karena itu, kopi harus disimpan rapat.")).toBe(
+      "Kalimat pertama.\n\nOleh karena itu, kopi harus disimpan rapat."
+    )
+  })
+
+  it("rentang kata dengan en-dash rapat ('Mei–Juli') dipertahankan; em-dash naratif tetap menjadi koma", () => {
+    expect(cleanMarkdown("Panen Mei–Juli, buka Senin–Jumat, rute Jakarta–Bandung. Kopi—terutama arabika—sejuk.")).toBe(
+      "Panen Mei–Juli, buka Senin–Jumat, rute Jakarta–Bandung. Kopi, terutama arabika, sejuk."
+    )
+  })
+
+  it("rentang angka '2020–2024' tidak berubah menjadi '2020, 2024'", () => {
+    expect(cleanMarkdown("Periode 2020–2024 dan jam 09.00 – 17.00 serta harga Rp15.000—Rp35.000.")).toBe(
+      "Periode 2020–2024 dan jam 09.00–17.00 serta harga Rp15.000–Rp35.000."
+    )
+  })
+
+  it("indentasi kode dan list bertingkat tidak rusak", () => {
+    const code = "```python\ndef f(x):\n    if x:  # dua  spasi — dash [1]\n        return [1]\n```"
+    expect(cleanMarkdown(`Paragraf.\n\n${code}\n\nPenutup.`)).toBe(`Paragraf.\n\n${code}\n\nPenutup.`)
+
+    const list = "- Satu\n  - Dua\n    - Tiga"
+    expect(cleanMarkdown(list)).toBe(list)
     // Tiga harus menjadi anak dari Dua (3 level), bukan saudara Dua.
-    expect(html).toMatch(/<li>Dua\n<!-- wp:list -->\n<ul class="wp-block-list">\n<!-- wp:list-item -->\n<li>Tiga<\/li>/)
+    expect(markdownToGutenberg(cleanMarkdown(list))).toMatch(/<li>Dua\n<!-- wp:list -->\n<ul class="wp-block-list">\n<!-- wp:list-item -->\n<li>Tiga<\/li>/)
+  })
+})
+
+describe("cleanMarkdown — node kode tidak pernah disentuh", () => {
+  it.each([
+    // Paragraf pembuka wajib: fence tanpa label yang membungkus seluruh naskah dianggap pembungkus jawaban.
+    ["fence backtick", "Contoh:\n\n```\nPenulis: Budi\nOleh Budi Santoso\n## 1. Kesimpulan\nx — y  z [1]\n```"],
+    ["fence tilde", "~~~text\nDalam artikel ini kita membahas kode.\nSecara keseluruhan, ok.\n~~~"],
+    ["fence di dalam list", "- Langkah:\n\n  ```bash\n  echo 'a — b'  # [2]\n  ```"],
+    ["fence di dalam kutipan", "> ```\n> Penulis: Budi — x\n> ```"],
+    ["kode inline", "Gunakan `a — b  [1]` dan `Penulis: x` di sini."],
+  ])("%s", (_label, md) => {
+    expect(cleanMarkdown(md)).toBe(md)
   })
 
-  it("indentasi & spasi ganda di dalam blok kode dipertahankan", () => {
-    const code = "```python\ndef f(x):\n    if x:  # dua spasi\n        return [1]\n```"
-    const out = cleanMarkdown(`Paragraf.\n\n${code}\n\nPenutup.`)
-    expect(out).toContain(code)
+  it("fence tanpa penutup dilindungi sampai akhir naskah", () => {
+    const md = "Paragraf.\n\n```js\nconst a = 1 — 2 // [3]\n\n\n\nconst b = 2"
+    expect(cleanMarkdown(md)).toBe(md)
   })
 
-  it("spasi ganda di kode inline dipertahankan, di prosa dirapikan", () => {
+  it("spasi ganda di kode inline dipertahankan, di prosa dirapikan; hard break dipertahankan", () => {
     expect(cleanMarkdown("Kata  ganda dan `a  b` di sini.")).toBe("Kata ganda dan `a  b` di sini.")
+    expect(cleanMarkdown("Baris satu  \nBaris dua")).toBe("Baris satu  \nBaris dua")
   })
 
-  it("sanitizeCitationsAndReferences tidak menyentuh indentasi awal baris", () => {
-    expect(sanitizeCitationsAndReferences("- a\n    - b  c")).toBe("- a\n    - b c")
+  it("indeks array di kode tidak dianggap sitasi", () => {
+    const md = "Ambil elemen `arr[0]` dulu.\n\n```js\nconst x = arr[1]\n```"
+    expect(cleanMarkdown(md)).toBe(md)
   })
 
-  it("karakter token placeholder di input tidak bisa memalsukan token kode", () => {
-    expect(cleanMarkdown("Isi `rahasia` lalu \uE0000\uE001 selesai.")).toBe("Isi `rahasia` lalu 0 selesai.")
+  it("URL autolink tidak disentuh, kecuali dash yang menempel (batas URL dipulihkan)", () => {
+    expect(cleanMarkdown("Lihat https://contoh.co.id/a--b_c [1] dan <https://contoh.co.id/x—y>.")).toBe(
+      "Lihat https://contoh.co.id/a--b_c dan <https://contoh.co.id/x—y>."
+    )
+    expect(cleanMarkdown("Data dari https://bps.go.id—situs resmi.")).toBe("Data dari https://bps.go.id, situs resmi.")
+  })
+})
+
+describe("cleanMarkdown — normalisasi indentasi sub-item list", () => {
+  it("sub-item 2 spasi di bawah item bernomor digeser ke kolom konten induk; isi kode tidak berubah", () => {
+    const md = "1. A\n  - x\n    - cucu\n\n    ```js\n    if (a)  b\n    ```\n2. B"
+    expect(cleanMarkdown(md)).toBe("1. A\n   - x\n     - cucu\n\n     ```js\n     if (a)  b\n     ```\n2. B")
   })
 
-  it("cleanMarkdown tidak menghapus indeks array di kode", () => {
-    const out = cleanMarkdown("Ambil elemen `arr[0]` dulu.\n\n```js\nconst x = arr[1]\n```")
-    expect(out).toContain("`arr[0]`")
-    expect(out).toContain("const x = arr[1]")
+  it("naskah yang sudah benar, indentasi 0–1 spasi, dan isi fence tidak disentuh", () => {
+    for (const md of ["1. A\n   - x", "- A\n  - x", "1. A\n - x", "Contoh:\n\n```\n1. A\n  - x\n```"]) {
+      expect(cleanMarkdown(md)).toBe(md)
+    }
+  })
+
+  it("idempoten dan linear", () => {
+    const once = cleanMarkdown("1. A\n  - x\n2. B")
+    expect(cleanMarkdown(once)).toBe(once)
+    expectFast(() => cleanMarkdown("1. a\n  - b\n".repeat(4_000)))
+    expectFast(() => cleanMarkdown(Array.from({ length: 2_000 }, (_, i) => `${" ".repeat((i % 20) * 2)}1. x`).join("\n")))
+  })
+})
+
+describe("cleanMarkdown — sitasi & referensi", () => {
+  it("penanda sitasi dihapus beserta spasinya; tautan [1](url) aman", () => {
+    expect(cleanMarkdown("Fakta [1] lain[2][3] dan [^4]. Lihat [1](https://a.co).")).toBe("Fakta lain dan. Lihat [1](https://a.co).")
+  })
+
+  it.each([
+    ["heading", "Isi.\n\n## Referensi\n- a\n- b"],
+    ["heading dengan titik dua", "Isi.\n\n### Daftar Pustaka:\n\n1. a"],
+    ["paragraf berlabel", "Isi.\n\nReferensi: Kemenkes 2023; BPS 2024."],
+    ["label di akhir", "Isi.\n\nReferences"],
+  ])("blok referensi di akhir dipotong: %s", (_label, md) => {
+    expect(cleanMarkdown(md)).toBe("Isi.")
+  })
+
+  it("kalimat yang hanya diawali kata 'Referensi' bukan blok referensi", () => {
+    const md = "Isi.\n\nReferensi tambahan bisa dibaca di perpustakaan daerah."
+    expect(cleanMarkdown(md)).toBe(md)
+  })
+
+  it("definisi & baris entri referensi bernomor dihapus", () => {
+    expect(cleanMarkdown("Isi.\n\n[1]: https://a.co\n[^2]: catatan\n\nLanjut.")).toBe("Isi.\n\nLanjut.")
+    expect(cleanMarkdown("Isi.\n[1] Kementan, Statistik Kopi 2023.\nLanjut.")).toBe("Isi.\nLanjut.")
+  })
+})
+
+describe("cleanMarkdown — gambar fiktif", () => {
+  it("gambar placeholder / non-http(s) dibuang beserta atribut {…}; gambar sah dipertahankan", () => {
+    const md = [
+      "![a](https://example.com/a.jpg){id=1} teks",
+      "![b](/lokal/b.jpg)",
+      "![c](https://via.placeholder.com/600)",
+      "![d](https://images.pexels.com/d.jpg){id=42}",
+    ].join("\n\n")
+    expect(cleanMarkdown(md)).toBe("teks\n\n![d](https://images.pexels.com/d.jpg){id=42}")
   })
 })
 
@@ -200,6 +328,7 @@ describe("unescape \\n literal — jangan rusak kode (HIGH)", () => {
 
   it("\\n literal di prosa tetap dipulihkan pada naskah multi-baris", () => {
     expect(unescapeLiteralNewlines("Baris A\\nBaris B\nBaris C")).toBe("Baris A\nBaris B\nBaris C")
+    expect(unescapeLiteralNewlines("Baris A\\r\\nBaris B\n`x\\ny`")).toBe("Baris A\nBaris B\n`x\\ny`")
   })
 
   it("pembungkus ```markdown dibuka, termasuk bentuk ter-escape", () => {
@@ -233,6 +362,36 @@ describe("sanitizeDashes — rentang angka dipertahankan (HIGH)", () => {
 
   it("atribusi kutipan dinormalkan ke '> -- '", () => {
     expect(sanitizeDashes("> Kopi adalah hidup.\n> — Budi")).toBe("> Kopi adalah hidup.\n> -- Budi")
+    expect(cleanMarkdown("> Kopi adalah hidup.\n> — Budi")).toBe("> Kopi adalah hidup.\n> -- Budi")
+  })
+})
+
+describe("cleanMarkdown — basa-basi, meta, slop", () => {
+  it.each([
+    ["Tentu, berikut artikel lengkap tentang kopi:\n\n## Kopi\n\nIsi.", "## Kopi\n\nIsi."],
+    ["Here is the article about coffee:\n\nBody.", "Body."],
+    ["Berikut ini. Kalimat biasa.\n\nIsi.", "Berikut ini. Kalimat biasa.\n\nIsi."],
+    ["Dalam artikel ini kita akan membahas kopi. Kopi enak.", "Kopi enak."],
+    ["Artikel ini bertujuan untuk mengulas kopi. Kopi enak.", "Kopi enak."],
+    ["Pembuka.\n\nSecara keseluruhan, kopi nikmat.", "Pembuka.\n\nkopi nikmat."],
+    ["Pembuka.\n\nDewasa ini, kopi populer.", "Pembuka.\n\nkopi populer."],
+    ["Kopi enak. Tidak dapat dipungkiri bahwa kopi populer.", "Kopi enak. kopi populer."],
+    ["Isi.\n\nSemoga artikel ini bermanfaat bagi pembaca.", "Isi."],
+    ["Isi.\n\nDemikian pembahasan mengenai kopi.", "Isi."],
+  ])("%j", (input, expected) => {
+    expect(cleanMarkdown(input)).toBe(expected)
+  })
+
+  it("frasa slop hanya di awal paragraf root, bukan di list/kutipan/tengah kalimat", () => {
+    const md = "Pembuka.\n\n- Secara keseluruhan, item list.\n\n> Secara keseluruhan, kutipan.\n\nIni **Secara keseluruhan,** tengah."
+    expect(cleanMarkdown(md)).toBe(md)
+  })
+})
+
+describe("extractSubheadings", () => {
+  it("H2 & H3 teks polos; heading di dalam kode bukan subjudul; penanda penutup dibuang", () => {
+    const md = "## Satu **Tebal** ##\n\n### `Dua`\n\n#### Empat\n\n```bash\n## bukan heading\n```\n\n> ## Di Kutipan"
+    expect(extractSubheadings(md)).toEqual(["Satu Tebal", "Dua", "Di Kutipan"])
   })
 })
 
@@ -240,20 +399,29 @@ describe("kompleksitas linear pada input patologis (MEDIUM)", () => {
   const newlines = (count: number): string => `a${"\n".repeat(count)}b`
 
   it.each([
-    ["cleanMarkdown: 200K newline", () => cleanMarkdown(newlines(200_000))],
-    ["cleanMarkdown: 30K baris berisi spasi", () => cleanMarkdown(`a${"\n ".repeat(30_000)}b`)],
-    ["sanitizeCitationsAndReferences: 50K newline", () => sanitizeCitationsAndReferences(newlines(50_000))],
-    ["sanitizeAISlopPhrases: 50K newline", () => sanitizeAISlopPhrases(newlines(50_000))],
-    ["sanitizeAuthorBylines: 50K newline", () => sanitizeAuthorBylines(newlines(50_000))],
-    ["sanitizeConversationalPreamblesAndOutros: 50K newline", () => sanitizeConversationalPreamblesAndOutros(newlines(50_000))],
-    ["preamble 'Tentu, berikut' + 50K spasi tanpa newline", () => sanitizeConversationalPreamblesAndOutros(`Tentu, berikut${" ".repeat(50_000)}x`)],
-    ["persona 'Sebagai' + 50K spasi", () => sanitizeAuthorBylines(`Sebagai${" ".repeat(50_000)}x`)],
-    ["meta 'Dalam artikel ini' + 50K spasi", () => sanitizeMetaAnnouncements(`Dalam artikel ini${" ".repeat(50_000)}x`)],
-    ["gambar tak tertutup '![' × 50K", () => cleanMarkdown("![".repeat(50_000))],
-    ["gambar tak tertutup '![a](' × 30K", () => cleanMarkdown("![a](".repeat(30_000))],
-    ["calculateWordCount '<' × 100K", () => calculateWordCount("<".repeat(100_000))],
-  ])("%s", (_label, fn) => {
-    expectFast(fn)
+    ["200K newline", newlines(200_000)],
+    ["30K baris berisi spasi", `a${"\n ".repeat(30_000)}b`],
+    ["preamble 'Tentu, berikut' + 50K spasi tanpa newline", `Tentu, berikut${" ".repeat(50_000)}x`],
+    ["persona 'Sebagai' + 50K spasi", `Sebagai${" ".repeat(50_000)}x`],
+    ["persona 'Sebagai a, ' × 30K", `Sebagai ${"a, ".repeat(30_000)}`],
+    ["meta 'Dalam artikel ini' + 50K spasi", `Dalam artikel ini${" ".repeat(50_000)}x`],
+    ["meta 'Dalam artikel ini membahas ' × 3K", "Dalam artikel ini membahas ".repeat(3_000)],
+    ["gambar tak tertutup '![' × 50K", "![".repeat(50_000)],
+    ["gambar tak tertutup '![a](' × 30K", "![a](".repeat(30_000)],
+    ["dash 'a—' × 45K (satu baris)", "a—".repeat(45_000)],
+    ["dash ' — ' × 30K", " — ".repeat(30_000)],
+    ["sitasi ' [1]' × 24K", " [1]".repeat(24_000)],
+    ["'a* ' × 66K (200 KB)", "a* ".repeat(66_000)],
+    ["']' × 75K (mode inline-safe)", "]".repeat(75_000)],
+    ["byline 'Penulis: Budi' × 2K paragraf", "Penulis: Budi\n\n".repeat(2_000)],
+    ["heading '## 1. Kesimpulan' × 2K", "## 1. Kesimpulan\n".repeat(2_000)],
+    ["'>' × 200K (sarang kutipan)", ">".repeat(200_000)],
+  ])("%s", (_label, input) => {
+    expectFast(() => cleanMarkdown(input, "Judul"))
+  })
+
+  it("calculateWordCount '<' × 100K", () => {
+    expectFast(() => calculateWordCount("<".repeat(100_000)))
   })
 
   it("deretan baris kosong & baris berisi spasi diringkas, kode tidak disentuh", () => {
@@ -265,19 +433,7 @@ describe("kompleksitas linear pada input patologis (MEDIUM)", () => {
     expect(cleanMarkdown("a".repeat(MAX_MARKDOWN_LENGTH + 1000)).length).toBe(MAX_MARKDOWN_LENGTH)
   })
 
-  it("pola yang dibuat linear tetap bekerja seperti sebelumnya", () => {
-    expect(sanitizeConversationalPreamblesAndOutros("Tentu, berikut artikel lengkap tentang kopi:\n\n## Kopi\n\nIsi.")).toBe(
-      "## Kopi\n\nIsi."
-    )
-    expect(sanitizeConversationalPreamblesAndOutros("Here is the article about coffee:\n\nBody.")).toBe("Body.")
-    expect(sanitizeConversationalPreamblesAndOutros("Berikut ini. Kalimat biasa.\n\nIsi.")).toBe("Berikut ini. Kalimat biasa.\n\nIsi.")
-    expect(sanitizeMetaAnnouncements("Dalam artikel ini kita akan membahas kopi. Kopi enak.")).toBe("Kopi enak.")
-    expect(sanitizeCitationsAndReferences("Isi.\n\n\n## Referensi\n- a\n- b")).toBe("Isi.")
-    expect(sanitizeCitationsAndReferences("Isi.\n[1]: https://a.co\nLanjut.")).toBe("Isi.\n\nLanjut.")
-    expect(sanitizeAISlopPhrases("Pembuka.\n\nSecara keseluruhan, kopi nikmat.")).toBe("Pembuka.\n\nkopi nikmat.")
-    expect(
-      sanitizeAuthorBylines("Sebagai Kurator Kopi, saya, Ni Made Ayu, selalu terpesona oleh aroma kopi. Kopi Bali unik.")
-    ).toBe("Kopi Bali unik.")
-    expect(calculateWordCount("Satu <b>dua</b> tiga")).toBe(3)
+  it("calculateWordCount mengabaikan tag & sintaks", () => {
+    expect(calculateWordCount("Satu <b>dua</b> **tiga**")).toBe(3)
   })
 })

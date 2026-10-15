@@ -504,54 +504,59 @@ flowchart TD
         REQ["WriterRequest (keyword, site, profileRef, options)"]
         VAL["validateAndSanitizeInput()"]
         PROF["resolveAgentProfile(targetRef)"]
-        PRE["pre-resolve.ts (Verifikasi Author, Kategori, Tags di WP)"]
-        REQ --> VAL --> PROF --> PRE
+        GW["LLM Gateway per run (BYOK, retry, fallback, ledger biaya, tracer tenant)"]
+        CKPT{"Checkpoint tersimpan? (inputKey cocok)"}
+        PRE["pre-resolve.ts (Author, Kategori, Tags di WP)"]
+        REQ --> VAL --> PROF --> GW --> CKPT
+        CKPT -- "tidak ada" --> PRE
     end
 
     subgraph Runtime["2. Runtime Execution & Guards"]
-        AGENT["runAgentWriter() (LangChain / Deep Agent)"]
-        TOOLS["Universal Tools Pool (Search, Reader, Images, WP Taxonomy)"]
-        GUARDS["Anti-Infinite Loop Guards (Circuit Breaker & Dedup)"]
-        PRE --> AGENT
+        AGENT["runAgentWriter() (createAgent / createDeepAgent)"]
+        TOOLS["6 Universal Tools → ToolOutcome {ok, code, retryable}"]
+        GUARDS["Loop Guards (dedupe, breaker, kuota, 1× finalize)"]
+        PRE -- "checkpoint pre_resolve" --> AGENT
+        CKPT -- "pre_resolve" --> AGENT
         AGENT <--> GUARDS
         AGENT <--> TOOLS
     end
 
-    subgraph Formatting["3. Formatting & Gutenberg Serialization"]
-        CLEAN["markdown-cleaner.ts (Anti-Slop, H1 Normalizer, Pre/Post-amble Stripper)"]
-        GUTEN["gutenberg.ts (Deterministic Markdown -> Native WP Gutenberg Blocks)"]
-        AGENT --> CLEAN --> GUTEN
+    subgraph Formatting["3. Postprocess (deterministik, selalu dijalankan ulang)"]
+        CLEAN["markdown-cleaner.ts (transform berbasis AST, kode tidak disentuh)"]
+        GUTEN["gutenberg.ts (mdast → blok Gutenberg native, escape penuh)"]
+        AGENT -- "checkpoint draft" --> CLEAN
+        CKPT -- "draft (tanpa LLM)" --> CLEAN
+        CLEAN --> GUTEN
     end
 
     subgraph Output["4. Hasil Terstruktur"]
-        RES["WriterResult (GeneratedArticle, WpEnrichment, ExecutionTrace, RunTelemetry)"]
+        RES["WriterResult (GeneratedArticle, WpEnrichment, ExecutionTrace, RunTelemetry: token, biaya, model)"]
         GUTEN --> RES
     end
 ```
 
 ### Komponen Inti Runtime:
-- **`build-agent.ts`**: Menyusun agen runtime LangChain `createAgent` (Standard Mode) atau Deep Agents (Deep Mode) dengan injeksi instruksi `workflowPrompt` kustom dan alat bantu yang diizinkan.
-- **`pre-resolve.ts`**: Memeriksa target website WordPress sebelum proses penulisan. Mengambil persona penulis aktif (nama & biografi) serta taksonomi kategori/tags, lalu menyuntikkannya ke prompt agen sehingga artikel ditulis dari sudut pandang author yang sah tanpa penolakan ID author oleh WP REST API.
-- **Universal Tools Pool**:
-  - `web_search`: Pencarian web faktual via SearXNG, Tavily, atau Brave.
-  - `web_reader`: Ekstraksi konten artikel dari URL rujukan untuk riset mendalam.
+- **LLM Gateway (`src/core/shared/llm/`)**: dibuat sekali per run/request (`createLlmGateway`). Kunci OpenRouter BYOK-only (`resolveOpenRouterKey`; tanpa kunci, `ChatOpenRouter` tidak pernah dibuat), urutan model `request.model → defaultAiModel pengguna → profile.model → OPENROUTER_DEFAULT_MODEL → DEFAULT_AI_MODEL`. Retry bawaan model dengan backoff + jitter yang berhenti saat abort (tanpa retry untuk 400/401/402/403/kuota); middleware fallback model kustom (hanya untuk model tidak tersedia / 429 / 5xx / jaringan setelah retry habis, sticky dalam run) untuk Standard dan Deep mode; `completeJson` untuk panggilan JSON tunggal (pre-resolve, WP Tools) dengan JSON Schema strict lalu `json_object`; `LlmUsageLedger` menghitung token & biaya (`usage.cost` OpenRouter) seluruh panggilan termasuk subagent dan panggilan gagal. Konfigurasi di `settings.json` → `ai` (`fallbackModels`, `maxRetries`, suhu, `maxTokens`, timeout; dijepit `ai.bounds`). Kunci ditolak / kredit habis → `LLM_AUTH_FAILED` / `LLM_QUOTA_EXHAUSTED` tanpa retry antrean.
+- **`build-agent.ts`**: Menyusun `createAgent` (Standard) atau `createDeepAgent` (Deep) dengan `workflowPrompt`, tool yang eligible, guard, dan middleware fallback gateway (paling dalam).
+- **`pre-resolve.ts`**: Memeriksa target WordPress sebelum menulis: persona author (nama & bio), kategori, dan tag dikunci lewat LLM (`system-resolve-taxonomy-author.md`) dengan fallback heuristik, lalu disuntikkan ke prompt agen.
+- **Checkpoint & resume (`runtime/checkpoints.ts`)**: langkah `pre_resolve` dan `draft` disimpan bersama `inputKey` (sidik input) dan usage langkah; run berikutnya untuk item yang sama melanjutkan dari langkah terakhir yang valid (detail di §4). Writer menerima `checkpoints: { resume, onCheckpoint }` opsional; Lab dan eval berjalan tanpa persistensi.
+- **Universal Tools Pool** (6 tool riset/visual; kontrak `ToolOutcome` di `src/core/shared/tools/contract.ts`):
+  - `web_search`: Pencarian web faktual via SearXNG, Tavily, Brave, atau SerpAPI (rantai fallback provider).
+  - `web_reader`: Ekstraksi konten artikel dari URL rujukan (`safeFetch`, anti-SSRF).
   - `image_search`: Pencarian gambar bebas royalti via SearXNG Images atau Pexafy API.
-  - `upload_media`: Unggah otomatis berkas gambar eksternal ke pustaka WordPress Media Library.
+  - `upload_media`: Unggah gambar eksternal ke WordPress Media Library (dedup `uploaded_media` per pengguna + situs).
   - `keyword_suggestions`: Penemuan entitas kata kunci LSI dan pencarian terkait.
   - `set_featured_image`: Mencari dan menetapkan gambar sampul landscape.
-  - Taksonomi & author WordPress tidak lagi menjadi tool agen; semuanya dikunci oleh Pre-Flight Resolver (`pre-resolve.ts`).
+  - Hasil: `{ ok: true, data }` atau `{ ok: false, code, message, retryable }` (14 kode tertutup, pesan diredaksi tanpa secret/host internal). Definisi memakai `responseFormat: "content_and_artifact"`: LLM menerima teks ringkas, guard membaca artifact. Setiap tool meneruskan `AbortSignal` run ke setiap fetch.
+  - Taksonomi & author WordPress tidak menjadi tool agen; semuanya dikunci oleh Pre-Flight Resolver.
 - **Anti-Infinite Loop Guards (`loop-guard.ts` & `guards.ts`)**:
-  - *Consecutive Duplicate Tool Call Guard*: Mendeteksi dan memblokir pemanggilan alat dengan parameter persis sama secara berulang.
-  - *Circuit Breaker*: Menghentikan eksekusi jika terjadi 2 kali kegagalan pemanggilan alat berturut-turut.
-  - *Hard Ceiling Clamp*: Membatasi maksimal pemanggilan model (35 calls) dan batas waktu eksekusi (480 detik).
-  - *Emergency Finalize Call*: Jika batas pemanggilan model mendekati limit, sistem memaksa 1x pemanggilan sintesis akhir untuk merangkum hasil yang sudah dikumpulkan menjadi artikel utuh daripada gagal total.
-- **Hidden Formatting & Cleaning Engine (`markdown-cleaner.ts`)**:
-  - Menghapus pembuka obrolan AI (*"Tentu, ini artikelnya..."*) dan salam penutup (*"Semoga artikel ini membantu..."*).
-  - Menghilangkan duplikasi judul H1 di awal paragraf artikel.
-  - Menurunkan seluruh heading `# ` internal menjadi `## ` (H2).
-  - Menghapus byline terlarang seperti `"Penulis: ..."` agar persona menyatu secara organik dalam gaya narasi.
-- **Deterministic Gutenberg Serializer (`gutenberg.ts`)**:
-  - Mengonversi sintaks Markdown murni ke blok WordPress Gutenberg resmi: `<!-- wp:heading -->`, `<!-- wp:paragraph -->`, `<!-- wp:image -->`, `<!-- wp:list -->`, `<!-- wp:quote -->`, `<!-- wp:code -->`, `<!-- wp:separator -->`.
+  - *Duplicate Tool Call Guard*: memblokir panggilan tool identik berturut-turut (mengembalikan hasil tersimpan).
+  - *Circuit Breaker*: tool dinonaktifkan setelah 2 kegagalan berturut-turut (`ok: false` pada artifact), langsung pada `missing_credentials`/`unauthorized`.
+  - *Hard Ceiling Clamp*: kuota global & per-tool serta batas pemanggilan model dan waktu eksekusi dari `settings.json` lewat `clampLimits()`.
+  - *Emergency Finalize Call*: tepat 1× panggilan sintesis akhir (`system-finalize.md`) bila naskah belum lengkap saat batas tercapai.
+- **Prompt Registry (`src/core/shared/prompts/`)**: `npm run prompts:build` memvalidasi semua `.md` (penamaan 3 pilar, frontmatter, `used_by`, variabel, seksi) dan menghasilkan `registry.generated.ts` yang dibundel saat build (runtime tidak membaca disk; image Docker tidak lagi menyalin `src/core`). Setiap prompt punya versi (hash); `createPromptVersionTracker()` mencatat versi yang dipakai run ke `agent_runs.prompt_versions` dan checkpoint. Golden render prompt dan golden formatter dijalankan di `npm test`; eval live `npm run eval:writer` (BYOK dari shell, tidak di CI).
+- **Pembersih Markdown (`markdown-cleaner.ts`)**: transform berbasis AST (remark) yang menerapkan edit ke teks asli dan tidak pernah menyentuh blok/inline kode. Menghapus pembuka/penutup obrolan AI, duplikasi H1, byline `"Penulis: ..."`, sitasi/daftar referensi, membungkus JSON; memulihkan literal `\n`; menormalkan indentasi daftar bersarang 2 spasi di bawah item bernomor.
+- **Gutenberg Serializer (`gutenberg.ts` + `markdown-ast.ts`)**: parse CommonMark + GFM (tabel, coret, autolink) dengan remark lalu serialisasi deterministik ke blok native: `heading`, `paragraph`, `list`/`list-item` (bersarang), `quote` (inner block + `cite`), `code`, `table`, `image` (`figcaption` dari title, `{caption=…}`, atau baris miring tepat di bawah gambar), `separator`, plus ekstensi (callout, details/FAQ, embed, tombol CTA). Semua teks & atribut di-escape, URL dibatasi http/https/mailto/tel/sms/relatif/#anchor, HTML mentah selalu di-escape (tidak pernah passthrough), `[` dinetralkan (anti-shortcode). Pre-scan linear melindungi dari input patologis: dokumen besar/rumit diturunkan ke mode `inline-safe` atau `plain` (batas 80 KB, 2.500 baris, 1.000 blok, kedalaman bersarang) sehingga input serangan 200 KB tetap selesai < 50 ms; artikel normal ±50–200 ms.
 
 ---
 

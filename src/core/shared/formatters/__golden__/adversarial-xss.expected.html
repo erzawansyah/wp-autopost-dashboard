@@ -1,0 +1,48 @@
+<!-- wp:paragraph -->
+<p>Paragraf normal sebelum serangan.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>klik di sini dan data serta vb dan entitas dan tab.</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p><a href="https://contoh.co.id&quot;onmouseover=&quot;alert(1)" target="_blank" rel="noopener noreferrer">kutip</a> dan !&#91;alt" onerror="alert(1)](<a href="https://images.pexels.com/a.jpg" target="_blank" rel="noopener noreferrer">https://images.pexels.com/a.jpg</a> "judul" onload="x")</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>&lt;script&gt;alert('xss')&lt;/script&gt;</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>&lt;img src=x onerror="alert(1)"&gt; &lt;iframe src="<a href="https://evil.example&quot;&gt;" target="_blank" rel="noopener noreferrer">https://evil.example"&gt;</a>&lt;/iframe&gt;</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>&lt;!-- wp:html --&gt; &lt;div onclick="alert(1)"&gt;klik&lt;/div&gt; &lt;!-- /wp:html --&gt;</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>Teks --&gt; &lt;!-- /wp:paragraph --&gt;&lt;!-- wp:html --&gt;&lt;script&gt;alert(2)&lt;/script&gt;</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:paragraph -->
+<p>&lt;a href="javascript:alert(3)"&gt;tautan HTML&lt;/a&gt; dan &lt;b onmouseover=alert(4)&gt;tebal&lt;/b&gt;</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:table {"hasFixedLayout":false} -->
+<figure class="wp-block-table">
+  <table>
+    <thead>
+      <tr><th>Kolom &lt;script&gt;</th><th>Nilai</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>&lt;img src=x onerror=alert(5)&gt;</td><td>x</td></tr>
+    </tbody>
+  </table>
+</figure>
+<!-- /wp:table -->
+
+<!-- wp:code {"className":"language-html"} -->
+<pre class="wp-block-code language-html"><code>&lt;script&gt;alert("ini kode, harus tampil sebagai teks")&lt;/script&gt;</code></pre>
+<!-- /wp:code -->

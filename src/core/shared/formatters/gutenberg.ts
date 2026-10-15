@@ -1,90 +1,61 @@
 /**
- * Native WordPress Gutenberg Block Serializer
- * Mengonversi naskah Markdown murni menjadi markup blok resmi WordPress Gutenberg
- * Mendukung:
- * - Headings (H1 - H6) <!-- wp:heading -->
- * - Paragraphs <!-- wp:paragraph -->
- * - Quotes & Citations & Callout Alerts <!-- wp:quote -->
- * - Lists (Unordered & Ordered, termasuk Nested) <!-- wp:list --> & <!-- wp:list-item -->
- * - Tables dengan Kolom Alignment <!-- wp:table -->
- * - Fenced Code Blocks dengan Syntax Language <!-- wp:code -->
- * - Details / Collapsible FAQ <!-- wp:details -->
- * - Media / Images <!-- wp:image -->
- * - Video Embeds (YouTube, Vimeo) <!-- wp:embed -->
- * - Call-to-Action Buttons <!-- wp:buttons --> & <!-- wp:button -->
- * - Separators <!-- wp:separator -->
+ * Serializer Markdown → blok native WordPress Gutenberg berbasis mdast (remark: CommonMark + GFM).
  *
- * Keamanan: naskah ditulis LLM yang dapat dipengaruhi halaman web hasil scraping (prompt
- * injection) dan sering dikirim sebagai admin dengan `unfiltered_html`, sehingga WordPress
- * TIDAK menyaring ulang. Karena itu serializer ini:
- * - meng-escape seluruh teks & nilai atribut HTML; tidak ada passthrough HTML/komentar blok mentah;
- * - hanya mengizinkan URL http/https/mailto/tel/sms/relatif untuk tautan (http/https untuk gambar & embed);
- * - menyerialisasi atribut komentar blok dengan konvensi `serializeAttributes()` @wordpress/blocks;
- * - menetralkan shortcode (`[` → `&#91;`) agar tidak dieksekusi `do_shortcode` saat render.
+ * Naskah di-parse oleh `markdown-ast.ts`, lalu setiap node diserialisasi secara deterministik:
+ * - paragraf, heading (H1 di awal naskah dibuang, H1 lain menjadi H2), list bertingkat (`wp:list-item`),
+ *   kutipan (inner blocks + `<cite>`, callout `> [!TIP]`), kode, tabel GFM, gambar (`figure`/`figcaption`),
+ *   pembatas, embed YouTube/Vimeo, tombol CTA `[Label](url){.button}`, dan details (`:::details`, `<details>`);
+ * - inline: tebal, miring, coret (`~~`), kode, tautan, plus `==sorot==`, `[[Ctrl]]`, `H~2~O`, `2^10^`.
+ *
+ * Keamanan: naskah ditulis LLM yang dapat dipengaruhi halaman web hasil scraping (prompt injection) dan
+ * sering dikirim sebagai admin dengan `unfiltered_html`, sehingga WordPress TIDAK menyaring ulang. Karena itu:
+ * - HTML mentah tidak pernah dikenali parser; seluruh teks & nilai atribut di-escape;
+ * - tautan hanya http/https/mailto, tel/sms bernomor telepon, atau relatif; gambar & embed hanya http/https;
+ * - atribut komentar blok diserialisasi dengan konvensi `serializeAttributes()` @wordpress/blocks;
+ * - shortcode dinetralkan (`[` → `&#91;`) agar tidak dieksekusi `do_shortcode` saat render.
  */
 
-import { unescapeLiteralNewlines } from "./markdown-cleaner"
-
-export interface GutenbergImageMetadata {
-  id?: number
-  url: string
-  alt: string
-  caption?: string
-}
+import type {
+  Definition,
+  Emphasis,
+  Heading,
+  List,
+  ListItem,
+  Nodes,
+  Paragraph,
+  PhrasingContent,
+  RootContent,
+  Table,
+  Text,
+} from "mdast"
+import {
+  decodeLiteralNewlines,
+  isPlaceholderImageUrl,
+  nodeRange,
+  normalizeListIndentation,
+  parseMarkdown,
+  plainText,
+  walkTree,
+  type ParsedMarkdown,
+} from "./markdown-ast"
 
 // ---------------------------------------------------------------------------
 // Escaping & validasi URL
 // ---------------------------------------------------------------------------
-
-/**
- * `&` yang bukan awal referensi entitas sah di-escape. Entitas bernama (`&nbsp;`, `&mdash;`) dan
- * numerik (`&#8217;`, `&#x2014;`) dipertahankan agar tampil sebagai karakternya, bukan teks literal
- * `&amp;nbsp;`. Aman di konteks teks maupun atribut ber-kutip: referensi entitas hanya menghasilkan
- * karakter, tidak pernah markup, sedangkan `<`, `>`, dan `"` mentah tetap di-escape.
- */
-const BARE_AMPERSAND_RE = /&(?![a-zA-Z][a-zA-Z0-9]{1,31};|#[0-9]{1,7};|#[xX][0-9a-fA-F]{1,6};)/g
-
-/** Escape teks node HTML. */
-function escapeText(text: string): string {
-  return text.replace(BARE_AMPERSAND_RE, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-}
-
-/** Escape isi kode (inline maupun blok): seluruh `&` di-escape agar `&nbsp;` di kode tampil apa adanya. */
-function escapeCode(code: string): string {
-  return neutralizeShortcodes(code.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
-}
 
 /** Netralkan shortcode WordPress: `[` dirender identik oleh browser namun tidak dikenali `do_shortcode`. */
 function neutralizeShortcodes(html: string): string {
   return html.replace(/\[/g, "&#91;")
 }
 
-/** Escape nilai atribut non-URL (mis. alt) yang selalu dibungkus tanda kutip ganda. */
+/** Escape teks (nilai node sudah ter-decode parser, sehingga seluruh `&` di-escape). */
+function escapeText(text: string): string {
+  return neutralizeShortcodes(text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"))
+}
+
+/** Escape nilai atribut ber-kutip ganda (alt, href, src). */
 function escapeAttribute(value: string): string {
-  return neutralizeShortcodes(escapeText(value).replace(/"/g, "&quot;"))
-}
-
-/**
- * Escape URL yang sudah tervalidasi untuk atribut/teks HTML. `&` selalu di-escape penuh
- * sehingga entitas sisa (mis. `&colon;`) tidak bisa di-decode browser menjadi skema berbahaya.
- */
-function escapeUrl(url: string): string {
-  return neutralizeShortcodes(
-    url.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-  )
-}
-
-const NAMED_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }
-
-function decodeHtmlEntities(value: string): string {
-  return value.replace(/&(#[xX][0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);/g, (entity, body: string) => {
-    if (body.startsWith("#")) {
-      const isHex = body[1] === "x" || body[1] === "X"
-      const codePoint = isHex ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10)
-      return Number.isFinite(codePoint) && codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : ""
-    }
-    return NAMED_ENTITIES[body] ?? entity
-  })
+  return escapeText(value).replace(/"/g, "&quot;")
 }
 
 type UrlPolicy = "link" | "media"
@@ -103,28 +74,26 @@ function hasControlChars(value: string): boolean {
 }
 
 /**
- * Validasi URL dari naskah tidak tepercaya. Mengembalikan URL ter-decode (belum di-escape)
- * atau `null` bila ditolak.
- * - `link`: http/https/mailto, tel/sms berisi nomor telepon, atau relatif/anchor (`/path`, `#id`,
- *   `?q`, `halaman.html`).
+ * Validasi URL (sudah ter-decode parser) dari naskah tidak tepercaya; `null` bila ditolak.
+ * - `link`: http/https/mailto, tel/sms berisi nomor telepon, atau relatif/anchor (`/path`, `#id`, `?q`).
  * - `media`: wajib absolut http/https.
- * Karakter kontrol ditolak karena browser membuangnya dari skema (`java\tscript:`).
+ * Hasilnya selalu di-escape penuh (`&` → `&amp;`), sehingga sisa teks entitas tidak bisa di-decode
+ * browser menjadi skema berbahaya.
  */
 function sanitizeUrl(raw: string, policy: UrlPolicy): string | null {
-  const decoded = decodeHtmlEntities(raw).trim()
-  if (!decoded || hasControlChars(decoded)) return null
+  const url = raw.trim()
+  if (!url || hasControlChars(url)) return null
 
-  const scheme = decoded.match(/^([a-zA-Z][a-zA-Z0-9+.-]*):/)
+  const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(url)
   if (scheme) {
     const name = scheme[1].toLowerCase()
-    const allowed = policy === "media" ? MEDIA_SCHEMES : LINK_SCHEMES
-    if (!allowed.has(name)) return null
-    if ((name === "tel" || name === "sms") && !PHONE_URL_RE.test(decoded)) return null
-    return decoded
+    if (!(policy === "media" ? MEDIA_SCHEMES : LINK_SCHEMES).has(name)) return null
+    if ((name === "tel" || name === "sms") && !PHONE_URL_RE.test(url)) return null
+    return url
   }
   if (policy === "media") return null
   // Titik dua sebelum "/", "?", atau "#" tanpa skema valid → ambigu, tolak.
-  return /^[^/?#]*:/.test(decoded) ? null : decoded
+  return /^[^/?#]*:/.test(url) ? null : url
 }
 
 // ---------------------------------------------------------------------------
@@ -151,36 +120,51 @@ function openBlock(name: string, attributes?: Record<string, unknown>): string {
   return `<!-- wp:${name}${attrs} -->`
 }
 
+function paragraphBlock(innerHtml: string): string {
+  return `<!-- wp:paragraph -->\n<p>${innerHtml}</p>\n<!-- /wp:paragraph -->`
+}
+
 // ---------------------------------------------------------------------------
-// Inline Markdown
+// Konteks render
 // ---------------------------------------------------------------------------
 
-/** Token placeholder (Private Use Area); karakter ini dibuang dari input agar tidak bisa dipalsukan. */
-const INLINE_TOKEN_CHARS_RE = /[\uE000\uE001]/g
-const INLINE_TOKEN_RE = /\uE000(\d+)\uE001/g
+interface DocumentState {
+  /** Jumlah blok level atas yang sudah dihasilkan (H1 sebelum blok pertama dibuang). */
+  emitted: number
+}
 
-/**
- * URL tautan Markdown: tanpa spasi, boleh memuat satu tingkat kurung (mis. Wikipedia), opsional "judul".
- * Karakter token (kode inline) dilarang di URL agar HTML `<code>` tidak pernah dipulihkan ke dalam atribut.
- */
-const URL_CHAR_SRC = String.raw`[^()\s\uE000\uE001]`
-const LINK_TARGET_SRC = String.raw`\(\s*((?:${URL_CHAR_SRC}|\(${URL_CHAR_SRC}*\))+)(?:\s+(?:"([^"]*)"|'([^']*)'))?\s*\)`
-/**
- * Label tautan: tanpa `[`/`]` dan berbatas panjang, sehingga pencocokan tetap linear pada naskah
- * yang dipenuhi `[` (tanpa batas ini setiap `[` memindai sampai akhir teks → kuadratik).
- */
-const LINK_LABEL_SRC = String.raw`\[([^\[\]]{1,500})\]`
-const INLINE_LINK_RE = new RegExp(`${LINK_LABEL_SRC}${LINK_TARGET_SRC}`, "g")
-const BUTTON_LINE_RE = new RegExp(String.raw`^${LINK_LABEL_SRC}${LINK_TARGET_SRC}\s*\{[.:]?(?:button|btn)\s*\}$`, "i")
-/** Gambar di awal baris: ![alt](url "judul"){caption="..." id=123} — teks setelahnya boleh ada. */
-const IMAGE_PREFIX_RE = new RegExp(String.raw`^!\[([^\]]*)\]${LINK_TARGET_SRC}(?:\{([^}]*)\})?`)
+interface RenderContext {
+  source: string
+  definitions: Map<string, Definition>
+  state: DocumentState
+  /** Pemisah soft line break: spasi di paragraf biasa, `<br/>` di kutipan (perilaku baris kutipan). */
+  softBreak: string
+  topLevel: boolean
+  depth: number
+}
 
-const EMPHASIS_TAG_RE = /<(\/?)(strong|em|del|mark|sub|sup|kbd)>/g
+/** Batas kedalaman render kontainer (pra-pemindaian parser sudah membatasi sarang; ini jaring pengaman). */
+const MAX_RENDER_DEPTH = 32
 
-/** true bila tag penekanan di `html` berpasangan dan bersarang rapi (tidak ada yang terpotong batas span). */
-function hasBalancedEmphasisTags(html: string): boolean {
+function nested(ctx: RenderContext, overrides: Partial<RenderContext> = {}): RenderContext {
+  return { ...ctx, topLevel: false, depth: ctx.depth + 1, ...overrides }
+}
+
+function sourceOf(node: Nodes, ctx: RenderContext): string {
+  const [start, end] = nodeRange(node)
+  return ctx.source.slice(start, end)
+}
+
+// ---------------------------------------------------------------------------
+// Inline
+// ---------------------------------------------------------------------------
+
+const EXTENSION_TAG_RE = /<(\/?)(mark|sub|sup|kbd)>/g
+
+/** true bila tag ekstensi di `html` berpasangan dan bersarang rapi (tidak terpotong batas span). */
+function hasBalancedExtensionTags(html: string): boolean {
   const open: string[] = []
-  for (const [, closing, name] of html.matchAll(EMPHASIS_TAG_RE)) {
+  for (const [, closing, name] of html.matchAll(EXTENSION_TAG_RE)) {
     if (!closing) open.push(name)
     else if (open.pop() !== name) return false
   }
@@ -188,686 +172,618 @@ function hasBalancedEmphasisTags(html: string): boolean {
 }
 
 /**
- * Pembungkus span penekanan untuk `String.replace` (grup: sebelum, isi, sesudah). Span yang isinya
- * memotong tag lain (mis. `~~a **b~~ c**`) dibiarkan sebagai teks agar HTML tidak pernah bersilangan
- * (`<del>…<strong>…</del>…</strong>`) — markup seperti itu ditandai "invalid content" oleh editor.
+ * Pembungkus span untuk `String.replace` (grup: sebelum, isi, sesudah). Span yang isinya memotong tag
+ * lain dibiarkan sebagai teks agar HTML tidak pernah bersilangan (ditandai "invalid content" oleh editor).
  */
-function emphasis(tag: string) {
+function wrapSpan(tag: string) {
   return (match: string, before: string, inner: string, after: string): string =>
-    hasBalancedEmphasisTags(inner) ? `${before}<${tag}>${inner}</${tag}>${after}` : match
-}
-
-/** Format penekanan inline (bold, italic, strike, mark, sub/sup, kbd) pada teks yang di-escape. */
-function formatEmphasis(text: string): string {
-  let formatted = escapeText(text)
-
-  // Bold: **text** atau __text__
-  formatted = formatted.replace(/()\*\*([^*]+)\*\*()/g, emphasis("strong"))
-  formatted = formatted.replace(/()__([^_]+)__()/g, emphasis("strong"))
-
-  // Italic: *text* atau _text_
-  formatted = formatted.replace(/(^|[^*])\*([^*]+)\*([^*]|$)/g, emphasis("em"))
-  formatted = formatted.replace(/(^|[^_])_([^_]+)_([^_]|$)/g, emphasis("em"))
-
-  // Strikethrough: ~~text~~
-  formatted = formatted.replace(/()~~([^~]+)~~()/g, emphasis("del"))
-
-  // Highlight / Mark: ==text==
-  formatted = formatted.replace(/()==([^=]+)==()/g, emphasis("mark"))
-
-  // Subscript ~text~ dan superscript ^text^ hanya untuk span rapat tanpa spasi (H~2~O, 2^10^),
-  // sehingga "~" penanda kira-kira ("suhu ~25°C dan ~80%") tidak berubah menjadi subscript.
-  formatted = formatted.replace(/(^|[^~])~([^~\s]+)~([^~]|$)/g, emphasis("sub"))
-  formatted = formatted.replace(/()\^([^^\s]+)\^()/g, emphasis("sup"))
-
-  // Keyboard: [[key]] -> <kbd>key</kbd> (isi berbatas & tanpa kurung siku agar deretan "[[" tetap linear)
-  formatted = formatted.replace(/()\[\[([^[\]]{1,100})\]\]()/g, emphasis("kbd"))
-
-  return neutralizeShortcodes(formatted)
-}
-
-function restoreInlineTokens(html: string, stash: string[]): string {
-  return html.replace(INLINE_TOKEN_RE, (_token, index: string) => restoreInlineTokens(stash[Number(index)] ?? "", stash))
+    hasBalancedExtensionTags(inner) ? `${before}<${tag}>${inner}</${tag}>${after}` : match
 }
 
 /**
- * Format inline markdown (bold, italic, link, code, highlight, sub/sup, strike) menjadi HTML aman.
- * Kode inline dan tautan diproses lebih dulu menjadi token sehingga format lain tidak bocor ke
- * dalam kode maupun URL; tautan dengan skema tidak aman dibuang (labelnya tetap).
+ * Teks node → HTML aman: escape, ekstensi `==sorot==`, `[[Ctrl]]`, subscript `H~2~O` & superscript `2^10^`
+ * (hanya span rapat tanpa spasi, sehingga "~25°C" tetap teks), lalu soft break dan netralisasi shortcode.
  */
-export function formatInlineMarkdown(text: string): string {
-  const stash: string[] = []
-  const hold = (html: string): string => `\uE000${stash.push(html) - 1}\uE001`
+function formatText(value: string, softBreak: string): string {
+  let html = value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  html = html.replace(/()==([^=\n]+)==()/g, wrapSpan("mark"))
+  html = html.replace(/()(?<!~)~([^~\s]+)~(?!~)()/g, wrapSpan("sub"))
+  html = html.replace(/()\^([^^\s]+)\^()/g, wrapSpan("sup"))
+  html = html.replace(/()\[\[([^[\]\n]{1,100})\]\]()/g, wrapSpan("kbd"))
+  return neutralizeShortcodes(html.replace(/\n/g, softBreak))
+}
 
-  let formatted = text.replace(INLINE_TOKEN_CHARS_RE, "")
+function renderLink(url: string, innerHtml: string): string {
+  const safeUrl = sanitizeUrl(url, "link")
+  if (safeUrl === null) return innerHtml
+  return `<a href="${escapeAttribute(safeUrl)}" target="_blank" rel="noopener noreferrer">${innerHtml}</a>`
+}
 
-  // Inline Code: `code`
-  formatted = formatted.replace(/`([^`]+)`/g, (_match, code: string) => hold(`<code>${escapeCode(code)}</code>`))
+function renderInline(nodes: readonly PhrasingContent[], ctx: RenderContext): string {
+  return nodes.map((node) => renderInlineNode(node, ctx)).join("")
+}
 
-  // Links: [label](url)
-  formatted = formatted.replace(INLINE_LINK_RE, (_match, label: string, url: string) => {
-    const labelHtml = formatEmphasis(label)
-    const safeUrl = sanitizeUrl(url, "link")
-    if (safeUrl === null) return hold(labelHtml)
-    return hold(`<a href="${escapeUrl(safeUrl)}" target="_blank" rel="noopener noreferrer">${labelHtml}</a>`)
-  })
-
-  return restoreInlineTokens(formatEmphasis(formatted), stash)
+function renderInlineNode(node: PhrasingContent, ctx: RenderContext): string {
+  switch (node.type) {
+    case "text":
+      return formatText(node.value, ctx.softBreak)
+    case "strong":
+      return `<strong>${renderInline(node.children, ctx)}</strong>`
+    case "emphasis":
+      return `<em>${renderInline(node.children, ctx)}</em>`
+    case "delete":
+      return `<del>${renderInline(node.children, ctx)}</del>`
+    case "inlineCode":
+      return `<code>${escapeText(node.value)}</code>`
+    case "break":
+      return "<br/>"
+    case "link":
+      return renderLink(node.url, renderInline(node.children, ctx))
+    case "linkReference": {
+      const definition = ctx.definitions.get(node.identifier)
+      const inner = renderInline(node.children, ctx)
+      return definition ? renderLink(definition.url, inner) : inner
+    }
+    // Gambar di konteks inline (list, tabel, heading, label tautan) ditampilkan sebagai teks alt.
+    case "image":
+    case "imageReference":
+      return escapeText(node.alt ?? "")
+    default:
+      // HTML mentah & node tak dikenal: sumber Markdown aslinya sebagai teks yang di-escape.
+      return escapeText(sourceOf(node, ctx))
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Serializer blok
+// Blok
 // ---------------------------------------------------------------------------
 
-/**
- * Serialisasi blok Heading WordPress
- */
-export function serializeHeading(level: number, text: string): string {
-  const safeLevel = Number.isInteger(level) ? Math.min(6, Math.max(1, level)) : 2
-  const innerHtml = formatInlineMarkdown(text.trim())
-  const open = openBlock("heading", safeLevel === 2 ? undefined : { level: safeLevel })
-  return `${open}\n<h${safeLevel} class="wp-block-heading">${innerHtml}</h${safeLevel}>\n<!-- /wp:heading -->`
+function renderHeading(node: Heading, ctx: RenderContext): string[] {
+  const innerHtml = renderInline(node.children, ctx).trim()
+  // "#" / "##" tanpa teks bukan heading bermakna: tampilkan apa adanya sebagai paragraf.
+  if (!innerHtml) return [paragraphBlock(escapeText(sourceOf(node, ctx).trim()))]
+  // Judul post dirender tema sebagai H1: H1 sebelum blok pertama dibuang, H1 lain menjadi H2.
+  if (node.depth === 1 && ctx.topLevel && ctx.state.emitted === 0) return []
+  const level = node.depth === 1 ? 2 : node.depth
+  const open = openBlock("heading", level === 2 ? undefined : { level })
+  return [`${open}\n<h${level} class="wp-block-heading">${innerHtml}</h${level}>\n<!-- /wp:heading -->`]
 }
 
 /**
- * Serialisasi blok Paragraf WordPress
+ * Blok kode. core/code tidak mengenal atribut kelas pada `<code>`; bahasa disimpan sebagai `className`
+ * blok (`<pre class="wp-block-code language-x">`) agar lolos validasi editor.
  */
-export function serializeParagraph(text: string): string {
-  const innerHtml = formatInlineMarkdown(text.trim())
-  return `<!-- wp:paragraph -->\n<p>${innerHtml}</p>\n<!-- /wp:paragraph -->`
-}
-
-/**
- * Serialisasi blok Quote / Kutipan WordPress (mendukung sitasi dan GitHub-style Callout alert)
- */
-export function serializeQuote(quoteLines: string[]): string {
-  if (quoteLines.length === 0) return ""
-
-  const cleanLines = quoteLines.map((l) => l.trim()).filter(Boolean)
-  if (cleanLines.length === 0) return ""
-
-  // Cek apakah ini Callout Box / Alert (misal [!NOTE], [!TIP], [!WARNING], [!IMPORTANT], [!CAUTION])
-  const firstLine = cleanLines[0]
-  const alertMatch = firstLine.match(/^\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION)\]\s*(.*)$/i)
-
-  if (alertMatch) {
-    const alertType = alertMatch[1].toUpperCase()
-    const alertRest = alertMatch[2]
-
-    const alertLabels: Record<string, { label: string; icon: string }> = {
-      NOTE: { label: "Catatan", icon: "ℹ️" },
-      TIP: { label: "Tips", icon: "💡" },
-      WARNING: { label: "Peringatan", icon: "⚠️" },
-      IMPORTANT: { label: "Penting", icon: "📌" },
-      CAUTION: { label: "Perhatian", icon: "🛑" },
-    }
-
-    const info = alertLabels[alertType] || { label: alertType, icon: "ℹ️" }
-    const restLines = cleanLines.slice(1)
-    if (alertRest) {
-      restLines.unshift(alertRest)
-    }
-
-    const contentHtml = restLines.map((l) => formatInlineMarkdown(l)).join("<br/>")
-    const open = openBlock("quote", { className: "is-style-plain has-border-color" })
-    return `${open}\n<blockquote class="wp-block-quote is-style-plain has-border-color"><p><strong>${info.icon} ${info.label}:</strong> ${contentHtml}</p></blockquote>\n<!-- /wp:quote -->`
-  }
-
-  // Cek apakah baris terakhir adalah atribusi kutipan / sitasi (diawali —, --, atau -)
-  let citation: string | undefined = undefined
-  let bodyLines = cleanLines
-
-  if (cleanLines.length > 1) {
-    const lastLine = cleanLines[cleanLines.length - 1]
-    const citeMatch = lastLine.match(/^([—–-]{1,2}|cite:)\s*(.+)$/i)
-    if (citeMatch) {
-      citation = formatInlineMarkdown(citeMatch[2].trim())
-      bodyLines = cleanLines.slice(0, -1)
-    }
-  }
-
-  const content = bodyLines.map((l) => formatInlineMarkdown(l)).join("<br/>")
-  const citeHtml = citation ? `\n  <cite>${citation}</cite>` : ""
-
-  return `<!-- wp:quote -->\n<blockquote class="wp-block-quote">\n  <p>${content}</p>${citeHtml}\n</blockquote>\n<!-- /wp:quote -->`
-}
-
-interface ListNode {
-  text: string
-  indent: number
-  ordered: boolean
-}
-
-const LIST_MARKER_RE = /^([-*+]|\d+\.)\s+/
-
-/**
- * Pecah node menjadi kelompok saudara berurutan dengan jenis penanda yang sama (beserta turunannya).
- * Saudara adalah node pertama dan setiap node berikutnya yang indentasinya tidak lebih dalam darinya.
- */
-function splitByListType(nodes: ListNode[]): ListNode[][] {
-  const groups: ListNode[][] = []
-  let i = 0
-  while (i < nodes.length) {
-    const sibling = nodes[i]
-    let end = i + 1
-    while (end < nodes.length && nodes[end].indent > sibling.indent) end++
-    const last = groups[groups.length - 1]
-    if (last && last[0].ordered === sibling.ordered) last.push(...nodes.slice(i, end))
-    else groups.push(nodes.slice(i, end))
-    i = end
-  }
-  return groups
-}
-
-function renderListBlock(nodes: ListNode[], ordered: boolean): string {
-  const tag = ordered ? "ol" : "ul"
-  const open = openBlock("list", ordered ? { ordered: true } : undefined)
-  return `${open}\n<${tag} class="wp-block-list">\n${renderListItems(nodes)}\n</${tag}>\n<!-- /wp:list -->`
-}
-
-function renderListItems(nodes: ListNode[]): string {
-  const rendered: string[] = []
-  let i = 0
-  while (i < nodes.length) {
-    const current = nodes[i]
-    let end = i + 1
-    while (end < nodes.length && nodes[end].indent > current.indent) end++
-    const children = nodes.slice(i + 1, end)
-    i = end
-
-    const itemHtml = formatInlineMarkdown(current.text)
-    if (children.length === 0) {
-      rendered.push(`<!-- wp:list-item -->\n<li>${itemHtml}</li>\n<!-- /wp:list-item -->`)
-      continue
-    }
-    // Jenis sub-list (ol/ul) ditentukan penanda anak-anaknya sendiri, bukan diwarisi dari induk.
-    const subLists = splitByListType(children)
-      .map((group) => renderListBlock(group, group[0].ordered))
-      .join("\n")
-    rendered.push(`<!-- wp:list-item -->\n<li>${itemHtml}\n${subLists}</li>\n<!-- /wp:list-item -->`)
-  }
-  return rendered.join("\n")
-}
-
-/**
- * Serialisasi blok List WordPress dengan dukungan sub-list bertingkat (Nested List).
- * `ordered` menentukan jenis daftar teratas; tiap sub-list memakai jenis penanda miliknya sendiri.
- * Baris berindentasi tanpa penanda adalah lanjutan teks item sebelumnya, bukan item baru.
- */
-export function serializeList(items: string[], ordered: boolean): string {
-  const nodes: ListNode[] = []
-  for (const raw of items) {
-    const text = raw.trim()
-    if (!text) continue
-    const marker = text.match(LIST_MARKER_RE)
-    const previous = nodes[nodes.length - 1]
-    if (!marker && previous) {
-      previous.text += ` ${text}`
-      continue
-    }
-    nodes.push({
-      text: marker ? text.slice(marker[0].length) : text,
-      indent: raw.length - raw.trimStart().length,
-      ordered: marker ? /\d/.test(marker[1]) : ordered,
-    })
-  }
-  return renderListBlock(nodes, ordered)
-}
-
-/**
- * Serialisasi blok Tabel WordPress (<!-- wp:table -->)
- */
-export function serializeTable(headerRow: string, separatorRow: string, bodyRows: string[]): string {
-  const parseCells = (row: string): string[] => {
-    let trimmed = row.trim()
-    if (trimmed.startsWith("|")) trimmed = trimmed.slice(1)
-    if (trimmed.endsWith("|")) trimmed = trimmed.slice(0, -1)
-    return trimmed.split("|").map((cell) => cell.trim())
-  }
-
-  // Ekstraksi alignment dari baris separator (| :--- | :---: | ---: |)
-  const sepCells = parseCells(separatorRow)
-  const alignments: ("left" | "center" | "right" | null)[] = sepCells.map((cell) => {
-    const c = cell.trim()
-    const starts = c.startsWith(":")
-    const ends = c.endsWith(":")
-    if (starts && ends) return "center"
-    if (ends) return "right"
-    if (starts) return "left"
-    return null
-  })
-
-  // Markup perataan persis seperti save() core/table (atribut sel `align` dari `data-align`);
-  // `style="text-align:…"` membuat blok ditandai "invalid content" oleh editor.
-  const getAlignAttrs = (index: number): string => {
-    const align = alignments[index]
-    return align ? ` class="has-text-align-${align}" data-align="${align}"` : ""
-  }
-
-  // Header
-  const headers = parseCells(headerRow)
-  const thHtml = headers
-    .map((h, i) => `<th${getAlignAttrs(i)}>${formatInlineMarkdown(h)}</th>`)
-    .join("")
-
-  // Body
-  const trHtml = bodyRows
-    .map((row) => {
-      const cells = parseCells(row)
-      const tdHtml = cells
-        .map((cell, i) => `<td${getAlignAttrs(i)}>${formatInlineMarkdown(cell)}</td>`)
-        .join("")
-      return `<tr>${tdHtml}</tr>`
-    })
-    .join("\n      ")
-
-  return `${openBlock("table", { hasFixedLayout: false })}
-<figure class="wp-block-table">
-  <table>
-    <thead>
-      <tr>${thHtml}</tr>
-    </thead>
-    <tbody>
-      ${trHtml}
-    </tbody>
-  </table>
-</figure>
-<!-- /wp:table -->`
-}
-
-/**
- * Serialisasi blok Code WordPress dengan dukungan bahasa penyorot sintaks.
- * core/code tidak mengenal atribut kelas pada `<code>`; bahasa disimpan sebagai `className` blok
- * (`<pre class="wp-block-code language-x">`) agar lolos validasi editor.
- */
-export function serializeCodeBlock(code: string, language?: string): string {
-  const escaped = escapeCode(code)
+function renderCode(value: string, language: string | null | undefined): string {
+  const escaped = escapeText(value)
   const safeLanguage = (language || "").toLowerCase().replace(/[^a-z0-9_-]/g, "")
-  if (!safeLanguage) {
-    return `<!-- wp:code -->\n<pre class="wp-block-code"><code>${escaped}</code></pre>\n<!-- /wp:code -->`
-  }
+  if (!safeLanguage) return `<!-- wp:code -->\n<pre class="wp-block-code"><code>${escaped}</code></pre>\n<!-- /wp:code -->`
   const className = `language-${safeLanguage}`
   return `${openBlock("code", { className })}\n<pre class="wp-block-code ${className}"><code>${escaped}</code></pre>\n<!-- /wp:code -->`
 }
 
-/**
- * Serialisasi blok Details / FAQ / Spoiler WordPress (<!-- wp:details -->)
- */
-export function serializeDetailsBlock(summaryText: string, contentLines: string[]): string {
-  const safeSummary = formatInlineMarkdown(summaryText.trim())
-  const innerParagraphs = contentLines
-    .filter(Boolean)
-    .map((l) => `<!-- wp:paragraph -->\n<p>${formatInlineMarkdown(l.trim())}</p>\n<!-- /wp:paragraph -->`)
-    .join("\n")
+function renderSeparator(): string {
+  return `<!-- wp:separator -->\n<hr class="wp-block-separator has-alpha-channel-opacity"/>\n<!-- /wp:separator -->`
+}
 
-  return `${openBlock("details", { summary: safeSummary })}
-<details class="wp-block-details">
-  <summary>${safeSummary}</summary>
-  ${innerParagraphs}
-</details>
-<!-- /wp:details -->`
+interface ImageSource {
+  url: string
+  alt: string
+  title: string | null | undefined
+}
+
+function imageSource(node: PhrasingContent, ctx: RenderContext): ImageSource | null {
+  if (node.type === "image") return { url: node.url, alt: node.alt ?? "", title: node.title }
+  if (node.type === "imageReference") {
+    const definition = ctx.definitions.get(node.identifier)
+    return definition ? { url: definition.url, alt: node.alt ?? "", title: definition.title } : null
+  }
+  return null
+}
+
+/** Caption eksplisit gambar: `{caption="…"}` atau judul `![alt](url "judul")`. */
+function explicitCaption(image: ImageSource, attributes: string): string | undefined {
+  return /caption=["']([^"']+)["']/.exec(attributes)?.[1] ?? (image.title?.trim() || undefined)
 }
 
 /**
- * Serialisasi blok Embed Video WordPress (YouTube / Vimeo).
- * URL non-http(s) tidak di-embed; teksnya dipertahankan sebagai paragraf.
+ * Blok gambar. Gambar fiktif/placeholder atau URL non-http(s) tidak menghasilkan blok.
+ * `attributes` adalah isi `{caption="…" id=123}` tepat setelah gambar (id dari unggahan WordPress);
+ * `lineCaptionHtml` adalah baris caption miring yang dipromosikan (dipakai bila tanpa caption eksplisit).
  */
-export function serializeEmbedBlock(url: string): string {
-  const safeUrl = sanitizeUrl(url, "media")
-  if (safeUrl === null) return serializeParagraph(url)
+function renderImage(image: ImageSource, attributes: string, lineCaptionHtml: string): string {
+  const safeUrl = sanitizeUrl(image.url, "media")
+  if (safeUrl === null || isPlaceholderImageUrl(safeUrl)) return ""
 
-  const isYoutube = /youtube\.com|youtu\.be/.test(safeUrl)
-  const isVimeo = /vimeo\.com/.test(safeUrl)
+  const idMatch = /(?:^|\s)id=(\d{1,15})(?:\s|$)/.exec(attributes)
+  const caption = explicitCaption(image, attributes)
+  const id = idMatch && Number.isSafeInteger(Number(idMatch[1])) && Number(idMatch[1]) > 0 ? Number(idMatch[1]) : undefined
 
-  const providerSlug = isYoutube ? "youtube" : isVimeo ? "vimeo" : "embed"
-  const type = "video"
+  const blockAttributes = id === undefined
+    ? { sizeSlug: "large", linkDestination: "none" }
+    : { id, sizeSlug: "large", linkDestination: "none" }
+  const imgClass = id === undefined ? "" : ` class="wp-image-${id}"`
+  const figcaption = caption ? renderInlineMarkdown(caption) : lineCaptionHtml
+  const captionHtml = figcaption ? `\n  <figcaption class="wp-element-caption">${figcaption}</figcaption>` : ""
+  return `${openBlock("image", blockAttributes)}\n<figure class="wp-block-image size-large">\n  <img src="${escapeAttribute(safeUrl)}" alt="${escapeAttribute(image.alt)}"${imgClass}/>${captionHtml}\n</figure>\n<!-- /wp:image -->`
+}
+
+/** Embed video: baris yang hanya berisi URL YouTube/Vimeo. */
+const EMBED_LINE_RE =
+  /^https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=[a-zA-Z0-9_-]+|youtu\.be\/[a-zA-Z0-9_-]+|vimeo\.com\/\d+)$/
+
+function renderEmbed(url: string): string {
+  const providerSlug = /youtube\.com|youtu\.be/.test(url) ? "youtube" : "vimeo"
   const open = openBlock("embed", {
-    url: safeUrl,
-    type,
+    url,
+    type: "video",
     providerNameSlug: providerSlug,
     responsive: true,
     className: "wp-embed-aspect-16-9 wp-has-aspect-ratio",
   })
-
   return `${open}
-<figure class="wp-block-embed is-type-${type} is-provider-${providerSlug} wp-block-embed-${providerSlug} wp-embed-aspect-16-9 wp-has-aspect-ratio">
+<figure class="wp-block-embed is-type-video is-provider-${providerSlug} wp-block-embed-${providerSlug} wp-embed-aspect-16-9 wp-has-aspect-ratio">
   <div class="wp-block-embed__wrapper">
-    ${escapeUrl(safeUrl)}
+    ${escapeAttribute(url)}
   </div>
 </figure>
 <!-- /wp:embed -->`
 }
 
-/**
- * Serialisasi blok Tombol CTA WordPress (<!-- wp:buttons --> & <!-- wp:button -->).
- * URL dengan skema tidak aman dibuang; label dipertahankan sebagai paragraf.
- */
-export function serializeButtonBlock(label: string, url: string): string {
-  const safeUrl = sanitizeUrl(url, "link")
-  if (safeUrl === null) return serializeParagraph(label)
+const BUTTON_SUFFIX_RE = /^[ \t]*\{[.:]?(?:button|btn)[ \t]*\}[ \t]*$/i
 
-  const safeLabel = formatInlineMarkdown(label.trim())
+/** Tombol CTA: paragraf `[Label](url){.button}`. URL tidak aman → label sebagai paragraf biasa. */
+function renderButton(node: Paragraph, ctx: RenderContext): string | null {
+  const [link, suffix] = node.children
+  if (node.children.length !== 2 || link.type !== "link" || suffix.type !== "text" || !BUTTON_SUFFIX_RE.test(suffix.value)) {
+    return null
+  }
+  const label = renderInline(link.children, ctx).trim()
+  const safeUrl = sanitizeUrl(link.url, "link")
+  if (safeUrl === null) return paragraphBlock(label)
   return `${openBlock("buttons", { layout: { type: "flex", justifyContent: "center" } })}
 <div class="wp-block-buttons">
   ${openBlock("button", { className: "is-style-fill" })}
-  <div class="wp-block-button is-style-fill"><a class="wp-block-button__link wp-element-button" href="${escapeUrl(safeUrl)}" target="_blank" rel="noopener noreferrer">${safeLabel}</a></div>
+  <div class="wp-block-button is-style-fill"><a class="wp-block-button__link wp-element-button" href="${escapeAttribute(safeUrl)}" target="_blank" rel="noopener noreferrer">${label}</a></div>
   <!-- /wp:button -->
 </div>
 <!-- /wp:buttons -->`
 }
 
 /**
- * Serialisasi blok Gambar WordPress. URL non-http(s) menghasilkan string kosong (gambar dibuang).
+ * Baris caption miring tepat di baris berikutnya setelah gambar (`![alt](url)\n*Sumber: …*`) yang menjadi
+ * seluruh sisa paragraf; null bila pola tidak cocok persis.
  */
-export function serializeImageBlock(meta: GutenbergImageMetadata): string {
-  const safeUrl = sanitizeUrl(meta.url, "media")
-  if (safeUrl === null) return ""
-
-  const id = typeof meta.id === "number" && Number.isSafeInteger(meta.id) && meta.id > 0 ? meta.id : undefined
-  const attributes = id === undefined
-    ? { sizeSlug: "large", linkDestination: "none" }
-    : { id, sizeSlug: "large", linkDestination: "none" }
-  const imgClass = id === undefined ? "" : ` class="wp-image-${id}"`
-  const captionHtml = meta.caption
-    ? `\n  <figcaption class="wp-element-caption">${formatInlineMarkdown(meta.caption)}</figcaption>`
-    : ""
-
-  return `${openBlock("image", attributes)}\n<figure class="wp-block-image size-large">\n  <img src="${escapeUrl(safeUrl)}" alt="${escapeAttribute(meta.alt)}"${imgClass}/>${captionHtml}\n</figure>\n<!-- /wp:image -->`
+function captionLine(gap: PhrasingContent | undefined, caption: PhrasingContent | undefined): Emphasis | null {
+  const isLineBreak = gap?.type === "break" || (gap?.type === "text" && /^[ \t]*\n[ \t]*$/.test(gap.value))
+  return isLineBreak && caption?.type === "emphasis" ? caption : null
 }
 
 /**
- * Serialisasi blok Separator / Pembatas Horizontal
+ * Paragraf → blok. Gambar di level atas paragraf dipecah menjadi blok gambar tersendiri; teks sebelum &
+ * sesudahnya tetap menjadi paragraf. Baris caption miring tepat di bawah gambar tanpa caption eksplisit
+ * dipromosikan menjadi `<figcaption>`; caption di baris yang sama (mis. "*Sumber: Unsplash*") tetap paragraf.
  */
-export function serializeSeparator(): string {
-  return `<!-- wp:separator -->\n<hr class="wp-block-separator has-alpha-channel-opacity"/>\n<!-- /wp:separator -->`
-}
-
-// ---------------------------------------------------------------------------
-// Parser blok
-// ---------------------------------------------------------------------------
-
-const SEPARATOR_RE = /^(\*{3,}|-{3,})$/
-const HEADING_RE = /^(#{1,6})\s+(.+)$/
-const UNORDERED_ITEM_RE = /^[-*+]\s+/
-const ORDERED_ITEM_RE = /^\d+\.\s+/
-const EMBED_LINE_RE =
-  /^(https?:\/\/(www\.)?(youtube\.com\/watch\?v=[a-zA-Z0-9_-]+|youtu\.be\/[a-zA-Z0-9_-]+|vimeo\.com\/\d+))\s*$/
-const FAKE_IMAGE_DOMAIN_RE =
-  /example\.(?:com|org|net)|placeholder|dummy|localhost|127\.0\.0\.1|test\.com|yourdomain|via\.placeholder/i
-const SUMMARY_OPEN_RE = /<summary>/i
-const SUMMARY_CLOSE_RE = /<\/summary>/gi
-/** Item list berindentasi (sub-list) — boleh menyambung daftar setelah satu baris kosong. */
-const NESTED_LIST_ITEM_RE = /^\s{2,}(?:[-*+]|\d+\.)\s+/
-
-const TABLE_SEPARATOR_CELL_RE = /^\s*:?-+:?\s*$/
-
-/**
- * Baris pemisah tabel: `| --- | :---: | ---: |` — memuat `|` dan setiap selnya hanya berisi dash
- * (opsional `:` di tepi). Diperiksa per sel, bukan dengan satu regex bersarang yang backtracking
- * eksponensial pada baris dash panjang yang gagal di ujung (mis. `|-----|-----|, `).
- */
-function isTableSeparatorRow(line: string): boolean {
-  let row = line.trim()
-  if (!row.includes("|")) return false
-  if (row.startsWith("|")) row = row.slice(1)
-  if (row.endsWith("|")) row = row.slice(0, -1)
-  return row.split("|").every((cell) => TABLE_SEPARATOR_CELL_RE.test(cell))
-}
-
-/**
- * Helper untuk mendeteksi apakah baris saat ini adalah awal dari tabel markdown
- */
-function isTableStart(lines: string[], index: number): boolean {
-  if (index >= lines.length - 1) return false
-
-  // Header harus mengandung karakter pipe '|', baris kedua harus separator tabel
-  return lines[index].includes("|") && isTableSeparatorRow(lines[index + 1])
-}
-
-/**
- * Apakah baris ke-`index` memulai blok baru (atau kosong) sehingga paragraf harus berhenti.
- * Kondisinya sama persis dengan cabang parser di `parseBlockAt`, jadi baris yang tidak dikenali
- * cabang mana pun (mis. "#hashtag", "![rusak") diperlakukan sebagai lanjutan paragraf.
- */
-function startsNewBlock(lines: string[], index: number): boolean {
-  const trimmed = lines[index].trim()
-  return (
-    !trimmed ||
-    trimmed.startsWith("```") ||
-    SEPARATOR_RE.test(trimmed) ||
-    HEADING_RE.test(trimmed) ||
-    isTableStart(lines, index) ||
-    trimmed.startsWith(">") ||
-    trimmed.startsWith("<details>") ||
-    trimmed.startsWith(":::details") ||
-    BUTTON_LINE_RE.test(trimmed) ||
-    EMBED_LINE_RE.test(trimmed) ||
-    IMAGE_PREFIX_RE.test(trimmed) ||
-    UNORDERED_ITEM_RE.test(trimmed) ||
-    ORDERED_ITEM_RE.test(trimmed)
-  )
-}
-
-function emit(blocks: string[], html: string): void {
-  if (html) blocks.push(html)
-}
-
-/**
- * Parse satu blok mulai baris `start`, dorong hasilnya ke `blocks`, dan kembalikan indeks baris
- * berikutnya. Setiap cabang mengonsumsi minimal satu baris; paragraf adalah fallback universal.
- * `lines` boleh disisipi (sisa teks setelah gambar) — baris sisipan selalu lebih pendek.
- */
-function parseBlockAt(lines: string[], start: number, blocks: string[]): number {
-  const trimmed = lines[start].trim()
-  let i = start
-
-  // 1. Baris kosong, lewati
-  if (!trimmed) return start + 1
-
-  // 2. Fenced Code Block (```lang ... ```)
-  if (trimmed.startsWith("```")) {
-    const langMatch = trimmed.match(/^```([a-zA-Z0-9_-]*)/)
-    const language = langMatch && langMatch[1] ? langMatch[1].trim() : undefined
-    const codeLines: string[] = []
-    i++
-    while (i < lines.length && !lines[i].trim().startsWith("```")) {
-      codeLines.push(lines[i])
-      i++
-    }
-    emit(blocks, serializeCodeBlock(codeLines.join("\n"), language))
-    return i + 1 // lewati penutup ```
-  }
-
-  // 3. Horizontal Separator (--- atau ***)
-  if (SEPARATOR_RE.test(trimmed)) {
-    emit(blocks, serializeSeparator())
-    return start + 1
-  }
-
-  // 4. Headings (# sampai ######)
-  const headingMatch = trimmed.match(HEADING_RE)
-  if (headingMatch) {
-    const level = headingMatch[1].length
-    // Abaikan H1 jika naskah diawali H1 (karena judul post di WP adalah entitas terpisah).
-    // Body postingan blog WordPress tidak boleh menggunakan H1; turunkan H1 menjadi H2.
-    if (!(level === 1 && blocks.length === 0)) {
-      emit(blocks, serializeHeading(level === 1 ? 2 : level, headingMatch[2]))
-    }
-    return start + 1
-  }
-
-  // 5. Tabel Markdown (| Col 1 | Col 2 |)
-  if (isTableStart(lines, start)) {
-    const separatorRow = lines[start + 1].trim()
-    i += 2 // lewati header dan separator
-
-    const bodyRows: string[] = []
-    while (i < lines.length && lines[i].trim().includes("|")) {
-      bodyRows.push(lines[i].trim())
-      i++
-    }
-
-    emit(blocks, serializeTable(trimmed, separatorRow, bodyRows))
-    return i
-  }
-
-  // 6. Blockquote / Callout / Alert (> ...)
-  if (trimmed.startsWith(">")) {
-    const quoteLines: string[] = []
-    while (i < lines.length && lines[i].trim().startsWith(">")) {
-      quoteLines.push(lines[i].trim().replace(/^>\s?/, ""))
-      i++
-    }
-    emit(blocks, serializeQuote(quoteLines))
-    return i
-  }
-
-  // 7. Details / Accordion / FAQ (<details> atau :::details)
-  if (trimmed.startsWith(":::details")) {
-    const summaryText = trimmed.replace(/^:::details\s*/, "") || "Rincian"
-    const contentLines: string[] = []
-    i++
-    while (i < lines.length && !lines[i].trim().startsWith(":::")) {
-      contentLines.push(lines[i])
-      i++
-    }
-    emit(blocks, serializeDetailsBlock(summaryText, contentLines))
-    return i + 1 // lewati penutup :::
-  }
-
-  if (trimmed.startsWith("<details>")) {
-    let summaryText = "Rincian"
-    const contentLines: string[] = []
-    const collect = (segment: string): void => {
-      // Pencarian literal (bukan regex lazy) agar baris berisi ribuan `<summary>` tanpa penutup tetap linear.
-      let rest = segment
-      const open = SUMMARY_OPEN_RE.exec(segment)
-      if (open) {
-        const summaryStart = open.index + open[0].length
-        SUMMARY_CLOSE_RE.lastIndex = summaryStart
-        const close = SUMMARY_CLOSE_RE.exec(segment)
-        if (close) {
-          summaryText = segment.slice(summaryStart, close.index)
-          rest = segment.slice(0, open.index) + segment.slice(close.index + close[0].length)
-        }
-      }
-      rest = rest.trim()
-      if (rest) contentLines.push(rest)
-    }
-
-    // Isi boleh berada di baris yang sama dengan <details> / </details>
-    let segment = trimmed.slice("<details>".length)
-    let closed = false
-    do {
-      const closeAt = segment.indexOf("</details>")
-      closed = closeAt !== -1
-      collect(closed ? segment.slice(0, closeAt) : segment)
-      i++
-      if (!closed && i < lines.length) segment = lines[i].trim()
-    } while (!closed && i < lines.length)
-
-    emit(blocks, serializeDetailsBlock(summaryText, contentLines))
-    return i
-  }
-
-  // 8. Standalone CTA Button Link: [Label](url){.button} atau [Label](url){button}
-  const buttonMatch = trimmed.match(BUTTON_LINE_RE)
-  if (buttonMatch) {
-    emit(blocks, serializeButtonBlock(buttonMatch[1], buttonMatch[2]))
-    return start + 1
-  }
-
-  // 9. Standalone Embed Video (YouTube / Vimeo)
-  if (EMBED_LINE_RE.test(trimmed)) {
-    emit(blocks, serializeEmbedBlock(trimmed))
-    return start + 1
-  }
-
-  // 10. Image Markdown: ![alt](url) atau ![alt](url "title") atau ![alt](url){caption="..." id=123}
-  const imgMatch = trimmed.match(IMAGE_PREFIX_RE)
-  if (imgMatch) {
-    const alt = imgMatch[1] || ""
-    const url = imgMatch[2] || ""
-    const title = imgMatch[3] ?? imgMatch[4]
-    const extra = imgMatch[5] || ""
-
-    let caption: string | undefined = title !== undefined ? title.trim() : undefined
-    let id: number | undefined = undefined
-
-    if (extra) {
-      const captionMatch = extra.match(/caption=["']([^"']+)["']/)
-      if (captionMatch) caption = captionMatch[1]
-
-      const idMatch = extra.match(/id=(\d+)/)
-      if (idMatch) id = Number(idMatch[1])
-    }
-
-    // Safeguard: Abaikan gambar dummy/placeholder/fiktif (URL non-http ditolak serializeImageBlock)
-    if (!FAKE_IMAGE_DOMAIN_RE.test(url)) {
-      emit(blocks, serializeImageBlock({ url, alt, caption, id }))
-    }
-
-    // Teks setelah gambar di baris yang sama (mis. "*Sumber: Unsplash*") diproses sebagai baris berikutnya
-    const trailing = trimmed.slice(imgMatch[0].length).trim()
-    if (trailing) lines.splice(start + 1, 0, trailing)
-    return start + 1
-  }
-
-  // 11-12. Unordered List (- atau * atau +) / Ordered List (1. 2. 3.)
-  const ordered = ORDERED_ITEM_RE.test(trimmed)
-  if (ordered || UNORDERED_ITEM_RE.test(trimmed)) {
-    const itemRe = ordered ? ORDERED_ITEM_RE : UNORDERED_ITEM_RE
-    const listItems: string[] = []
-    while (i < lines.length) {
-      const line = lines[i]
-      if (itemRe.test(line.trim()) || (listItems.length > 0 && /^\s{2,}/.test(line))) {
-        if (line.trim().length > 0) listItems.push(line)
-        i++
-        continue
-      }
-      // Daftar "longgar": satu baris kosong di antara item sejenis (atau sebelum sub-item) tidak
-      // memutus daftar, sehingga penomoran <ol> tidak kembali ke 1.
-      const following = lines[i + 1]
-      if (!line.trim() && following !== undefined && (itemRe.test(following.trim()) || NESTED_LIST_ITEM_RE.test(following))) {
-        i++
-        continue
-      }
-      break
-    }
-    emit(blocks, serializeList(listItems, ordered))
-    return i
-  }
-
-  // 13. Paragraf Biasa (fallback universal): baris pertama SELALU dikonsumsi, lalu kumpulkan
-  //     baris berikutnya sampai baris kosong atau awal blok lain.
-  const paragraphLines: string[] = [trimmed]
-  i = start + 1
-  while (i < lines.length && !startsNewBlock(lines, i)) {
-    paragraphLines.push(lines[i].trim())
-    i++
-  }
-  emit(blocks, serializeParagraph(paragraphLines.join(" ")))
-  return i
-}
-
-/**
- * Parser Utama: Mengonversi naskah Markdown murni menjadi rangkaian blok WordPress Gutenberg.
- * HTML mentah maupun komentar blok `<!-- wp:... -->` di naskah tidak diteruskan; semuanya
- * diperlakukan sebagai teks dan di-escape.
- */
-export function markdownToGutenberg(markdown: string): string {
-  // Normalisasi newline & unescape literal \n jika teks ter-escape (kode tidak disentuh)
-  const normalizedInput = unescapeLiteralNewlines((markdown || "").trim().replace(/\r\n/g, "\n"))
+function renderParagraph(node: Paragraph, ctx: RenderContext): string[] {
+  const lines = sourceOf(node, ctx).split("\n").map((line) => line.trim())
+  if (lines.every((line) => EMBED_LINE_RE.test(line))) return lines.map(renderEmbed)
+  const button = renderButton(node, ctx)
+  if (button) return [button]
 
   const blocks: string[] = []
-  const lines = normalizedInput.split("\n")
-
-  let i = 0
-  while (i < lines.length) {
-    const next = parseBlockAt(lines, i, blocks)
-    // Pengaman anti-hang: setiap iterasi WAJIB memajukan indeks minimal satu baris.
-    i = next > i ? next : i + 1
+  let buffer: PhrasingContent[] = []
+  const flush = (): void => {
+    const html = renderInline(buffer, ctx).trim()
+    if (html) blocks.push(paragraphBlock(html))
+    buffer = []
   }
 
-  return blocks.join("\n\n")
+  // Salinan dangkal: sisa teks setelah atribut `{…}` menggantikan node aslinya (pohon tidak dimutasi).
+  const children = [...node.children]
+  for (let index = 0; index < children.length; index++) {
+    const image = imageSource(children[index], ctx)
+    if (!image) {
+      buffer.push(children[index])
+      continue
+    }
+    flush()
+    let attributes = ""
+    const next = children[index + 1]
+    if (next?.type === "text" && next.value.startsWith("{")) {
+      const close = next.value.indexOf("}")
+      if (close > 0 && close <= 500 && !next.value.slice(0, close).includes("\n")) {
+        attributes = next.value.slice(1, close)
+        const rest: Text = { type: "text", value: next.value.slice(close + 1) }
+        children[index + 1] = rest
+      }
+    }
+    const caption =
+      index + 3 === children.length && !explicitCaption(image, attributes)
+        ? captionLine(children[index + 1], children[index + 2])
+        : null
+    const html = renderImage(image, attributes, caption ? renderInline(caption.children, ctx).trim() : "")
+    if (html) blocks.push(html)
+    if (html && caption) return blocks
+  }
+  flush()
+  return blocks
+}
+
+/** Penanda callout GitHub di awal kutipan. */
+const CALLOUT_RE = /^\[!(NOTE|TIP|WARNING|IMPORTANT|CAUTION)\][ \t]*\n?/i
+const CALLOUT_LABELS: Record<string, string> = {
+  NOTE: "ℹ️ Catatan",
+  TIP: "💡 Tips",
+  WARNING: "⚠️ Peringatan",
+  IMPORTANT: "📌 Penting",
+  CAUTION: "🛑 Perhatian",
+}
+const CALLOUT_CLASS = "is-style-plain has-border-color"
+
+/** Baris atribusi kutipan: diawali —, –, -, -- atau "cite:". */
+const CITATION_RE = /^(?:[—–-]{1,2}|cite:)[ \t]*(?=\S)/i
+
+/** Pisahkan baris terakhir (soft/hard break) dari isi inline paragraf. */
+function splitLastLine(children: readonly PhrasingContent[]): { body: PhrasingContent[]; last: PhrasingContent[] } | null {
+  for (let index = children.length - 1; index >= 0; index--) {
+    const child = children[index]
+    if (child.type === "break") return { body: children.slice(0, index), last: children.slice(index + 1) }
+    if (child.type === "text") {
+      const newline = child.value.lastIndexOf("\n")
+      if (newline === -1) continue
+      return {
+        body: [...children.slice(0, index), { type: "text", value: child.value.slice(0, newline) }],
+        last: [{ type: "text", value: child.value.slice(newline + 1) }, ...children.slice(index + 1)],
+      }
+    }
+  }
+  return null
+}
+
+/** Isi inline baris atribusi tanpa penanda dash/"cite:", atau null bila bukan atribusi. */
+function citationLine(line: readonly PhrasingContent[]): PhrasingContent[] | null {
+  const [first, ...rest] = line
+  if (first?.type !== "text" || !CITATION_RE.test(first.value)) return null
+  return [{ type: "text", value: first.value.replace(CITATION_RE, "") }, ...rest]
+}
+
+/** Pisahkan atribusi di akhir kutipan (baris terakhir paragraf terakhir, atau "- Tokoh" setelah isi). */
+function extractCitation(
+  children: readonly RootContent[],
+  ctx: RenderContext
+): { body: RootContent[]; citeHtml: string } | null {
+  const last = children[children.length - 1]
+  const body = children.slice(0, -1)
+  if (last?.type === "paragraph") {
+    const split = splitLastLine(last.children)
+    const cite = citationLine(split ? split.last : last.children)
+    if (!cite || (!split && body.length === 0)) return null
+    const remaining = split ? [...body, { ...last, children: split.body }] : body
+    return { body: remaining, citeHtml: renderInline(cite, ctx).trim() }
+  }
+  if (last?.type === "list" && !last.ordered && last.children.length === 1 && body.length > 0) {
+    const [paragraph, ...extra] = last.children[0].children
+    if (paragraph?.type === "paragraph" && extra.length === 0 && sourceOf(last, ctx).startsWith("-")) {
+      return { body, citeHtml: renderInline(paragraph.children, ctx).trim() }
+    }
+  }
+  return null
+}
+
+/** Kutipan (core/quote dengan inner blocks) atau callout `> [!TIP]`. */
+function renderQuote(children: readonly RootContent[], ctx: RenderContext): string {
+  const inner = nested(ctx, { softBreak: "<br/>" })
+  const [first, ...rest] = children
+  const head = first?.type === "paragraph" ? first.children[0] : undefined
+  const marker = head?.type === "text" ? CALLOUT_RE.exec(head.value) : null
+
+  if (first?.type === "paragraph" && head?.type === "text" && marker) {
+    const label = `<strong>${CALLOUT_LABELS[marker[1].toUpperCase()]}:</strong>`
+    const stripped: PhrasingContent[] = [{ type: "text", value: head.value.slice(marker[0].length) }, ...first.children.slice(1)]
+    let firstHtml = renderInline(stripped, inner).trim()
+    let remaining = rest
+    if (!firstHtml && rest[0]?.type === "paragraph") {
+      firstHtml = renderInline(rest[0].children, inner).trim()
+      remaining = rest.slice(1)
+    }
+    const blocks = [paragraphBlock(firstHtml ? `${label} ${firstHtml}` : label), ...renderBlocks(remaining, inner)]
+    return `${openBlock("quote", { className: CALLOUT_CLASS })}\n<blockquote class="wp-block-quote ${CALLOUT_CLASS}">${blocks.join("\n\n")}</blockquote>\n<!-- /wp:quote -->`
+  }
+
+  const citation = extractCitation(children, inner)
+  const blocks = renderBlocks(citation ? citation.body : children, inner)
+  const cite = citation?.citeHtml ? `<cite>${citation.citeHtml}</cite>` : ""
+  return `<!-- wp:quote -->\n<blockquote class="wp-block-quote">${blocks.join("\n\n")}${cite}</blockquote>\n<!-- /wp:quote -->`
+}
+
+/** Isi blok non-list di dalam item list sebagai HTML inline (core/list-item hanya menerima sub-list). */
+function flattenToInline(node: RootContent, ctx: RenderContext): string {
+  switch (node.type) {
+    case "paragraph":
+      return renderInline(node.children, ctx).trim()
+    case "heading":
+      return `<strong>${renderInline(node.children, ctx).trim()}</strong>`
+    case "code":
+      return `<code>${escapeText(node.value)}</code>`
+    case "thematicBreak":
+    case "definition":
+      return ""
+    default:
+      return escapeText(plainText(node).trim())
+  }
+}
+
+function renderListItem(item: ListItem, ctx: RenderContext): string {
+  const texts: string[] = []
+  const subLists: string[] = []
+  for (const child of item.children) {
+    if (child.type === "list") subLists.push(renderList(child, nested(ctx)))
+    else texts.push(flattenToInline(child, ctx))
+  }
+  const checkbox = item.checked === true ? "&#91;x] " : item.checked === false ? "&#91; ] " : ""
+  const text = checkbox + texts.filter(Boolean).join("<br/>")
+  if (subLists.length === 0) return `<!-- wp:list-item -->\n<li>${text}</li>\n<!-- /wp:list-item -->`
+  return `<!-- wp:list-item -->\n<li>${text}\n${subLists.join("\n")}</li>\n<!-- /wp:list-item -->`
+}
+
+/** List (tak berurut / berurut, `start` dipertahankan) dengan sub-list bertingkat sebagai blok `wp:list`. */
+function renderList(node: List, ctx: RenderContext): string {
+  if (ctx.depth > MAX_RENDER_DEPTH) return paragraphBlock(escapeText(plainText(node).trim()))
+  const itemCtx = { ...ctx, softBreak: " " }
+  const ordered = Boolean(node.ordered)
+  const start = ordered && typeof node.start === "number" && node.start !== 1 ? node.start : undefined
+  const attributes = ordered ? (start === undefined ? { ordered: true } : { ordered: true, start }) : undefined
+  const tag = ordered ? "ol" : "ul"
+  const startAttribute = start === undefined ? "" : ` start="${start}"`
+  const items = node.children.map((item) => renderListItem(item, itemCtx)).join("\n")
+  return `${openBlock("list", attributes)}\n<${tag}${startAttribute} class="wp-block-list">\n${items}\n</${tag}>\n<!-- /wp:list -->`
+}
+
+/**
+ * Tabel GFM → core/table. Perataan memakai `has-text-align-*` + `data-align` persis seperti save()
+ * core/table (`style="text-align:…"` membuat blok ditandai "invalid content"). Baris dilengkapi/dipotong
+ * mengikuti jumlah kolom header.
+ */
+function renderTable(node: Table, ctx: RenderContext): string {
+  const [head, ...body] = node.children
+  const align = node.align ?? []
+  const width = head.children.length
+  const cellAttributes = (index: number): string => {
+    const value = align[index]
+    return value ? ` class="has-text-align-${value}" data-align="${value}"` : ""
+  }
+  const cells = (row: Table["children"][number], tag: "th" | "td"): string =>
+    Array.from({ length: width }, (_, index) => {
+      const cell = row.children[index]
+      return `<${tag}${cellAttributes(index)}>${cell ? renderInline(cell.children, ctx).trim() : ""}</${tag}>`
+    }).join("")
+
+  const tbody = body.length === 0
+    ? ""
+    : `\n    <tbody>\n${body.map((row) => `      <tr>${cells(row, "td")}</tr>`).join("\n")}\n    </tbody>`
+  return `${openBlock("table", { hasFixedLayout: false })}
+<figure class="wp-block-table">
+  <table>
+    <thead>
+      <tr>${cells(head, "th")}</tr>
+    </thead>${tbody}
+  </table>
+</figure>
+<!-- /wp:table -->`
+}
+
+function renderBlock(node: RootContent, ctx: RenderContext): string[] {
+  switch (node.type) {
+    case "paragraph":
+      return renderParagraph(node, ctx)
+    case "heading":
+      return renderHeading(node, ctx)
+    case "thematicBreak":
+      return [renderSeparator()]
+    case "code":
+      return [renderCode(node.value, node.lang)]
+    case "blockquote":
+      return ctx.depth > MAX_RENDER_DEPTH
+        ? [paragraphBlock(escapeText(plainText(node).trim()))]
+        : [renderQuote(node.children, ctx)]
+    case "list":
+      return [renderList(node, ctx)]
+    case "table":
+      return [renderTable(node, ctx)]
+    case "definition":
+      return []
+    default: {
+      // HTML mentah & node tak dikenal: sumber Markdown aslinya sebagai teks yang di-escape.
+      const text = sourceOf(node, ctx).trim()
+      return text ? [paragraphBlock(escapeText(text).replace(/\n/g, " "))] : []
+    }
+  }
+}
+
+function renderBlocks(nodes: readonly RootContent[], ctx: RenderContext): string[] {
+  const blocks: string[] = []
+  for (const node of nodes) {
+    for (const block of renderBlock(node, ctx)) {
+      blocks.push(block)
+      if (ctx.topLevel) ctx.state.emitted++
+    }
+  }
+  return blocks
+}
+
+// ---------------------------------------------------------------------------
+// Dokumen: details, jalur teks polos
+// ---------------------------------------------------------------------------
+
+function contextFor(source: string, parsed: ParsedMarkdown, state: DocumentState): RenderContext {
+  const definitions = new Map<string, Definition>()
+  if (parsed.root) {
+    walkTree(parsed.root, (node) => {
+      if (node.type === "definition" && !definitions.has(node.identifier)) definitions.set(node.identifier, node)
+    })
+  }
+  return { source, definitions, state, softBreak: " ", topLevel: true, depth: 0 }
+}
+
+/** Paragraf teks polos (dipisah baris kosong) untuk naskah di luar batas parse AST. */
+function renderPlainText(source: string): string[] {
+  const blocks: string[] = []
+  let lines: string[] = []
+  const flush = (): void => {
+    if (lines.length > 0) blocks.push(paragraphBlock(escapeText(lines.join(" "))))
+    lines = []
+  }
+  for (const line of source.split("\n")) {
+    const trimmed = line.trim()
+    if (trimmed) lines.push(trimmed)
+    else flush()
+  }
+  flush()
+  return blocks
+}
+
+/** Parse teks pendek (summary, caption) sebagai Markdown inline; selain satu paragraf → teks polos. */
+function renderInlineMarkdown(text: string): string {
+  const parsed = parseMarkdown(text)
+  const only = parsed.root?.children.length === 1 ? parsed.root.children[0] : undefined
+  if (only?.type !== "paragraph") return escapeText(text)
+  return renderInline(only.children, contextFor(text, parsed, { emitted: 0 }))
+}
+
+function renderDetails(summary: string, content: string, state: DocumentState): string {
+  const summaryHtml = renderInlineMarkdown(summary.trim() || "Rincian")
+  const text = content.trim()
+  const parsed = parseMarkdown(text)
+  const inner = parsed.root ? renderBlocks(parsed.root.children, nested(contextFor(text, parsed, state))) : renderPlainText(text)
+  return `${openBlock("details", { summary: summaryHtml })}\n<details class="wp-block-details"><summary>${summaryHtml}</summary>${inner.join("\n\n")}</details>\n<!-- /wp:details -->`
+}
+
+type Segment = { kind: "markdown"; text: string } | { kind: "details"; summary: string; content: string }
+
+interface SourceLine {
+  start: number
+  end: number
+  text: string
+  code: boolean
+}
+
+function sourceLines(source: string, parsed: ParsedMarkdown): SourceLine[] {
+  const lines: SourceLine[] = []
+  const ranges = parsed.codeRanges
+  let range = 0
+  for (let start = 0; start <= source.length; ) {
+    const newline = source.indexOf("\n", start)
+    const end = newline === -1 ? source.length : newline
+    while (range < ranges.length && ranges[range][1] <= start) range++
+    lines.push({ start, end, text: source.slice(start, end), code: range < ranges.length && ranges[range][0] <= start })
+    start = end + 1
+  }
+  return lines
+}
+
+function isDetailsCloser(text: string): boolean {
+  const trimmed = text.trim()
+  return trimmed.startsWith(":::") && !trimmed.startsWith(":::details")
+}
+
+/**
+ * Pecah naskah pada blok details `:::details Ringkasan … :::` dan `<details><summary>…</summary>…</details>`.
+ * Penanda hanya dikenali di awal baris di luar kode, dalam satu kali pindai (linear). Details tidak
+ * bersarang; tanpa penutup, isinya sampai akhir naskah. Sisa baris setelah penutup tetap dirender.
+ */
+function splitDetails(source: string, parsed: ParsedMarkdown): Segment[] {
+  const lines = sourceLines(source, parsed)
+  const segments: Segment[] = []
+  let markdownStart = 0
+  const pushMarkdown = (end: number): void => {
+    const text = source.slice(markdownStart, end)
+    if (text.trim()) segments.push({ kind: "markdown", text })
+  }
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
+    const trimmed = line.text.trim()
+    if (line.code) continue
+
+    if (trimmed.startsWith(":::details")) {
+      pushMarkdown(line.start)
+      let close = index + 1
+      while (close < lines.length && (lines[close].code || !isDetailsCloser(lines[close].text))) close++
+      const contentEnd = close < lines.length ? lines[close].start : source.length
+      segments.push({
+        kind: "details",
+        summary: trimmed.slice(":::details".length),
+        content: source.slice(Math.min(line.end + 1, contentEnd), contentEnd),
+      })
+      markdownStart = close < lines.length ? lines[close].start + lines[close].text.indexOf(":::") + 3 : source.length
+      index = close
+      continue
+    }
+
+    if (trimmed.startsWith("<details>")) {
+      pushMarkdown(line.start)
+      const contentStart = line.start + line.text.indexOf("<details>") + "<details>".length
+      let closeAt = -1
+      let close = index
+      for (; close < lines.length; close++) {
+        if (close > index && lines[close].code) continue
+        const from = close === index ? contentStart - line.start : 0
+        const found = lines[close].text.indexOf("</details>", from)
+        if (found !== -1) {
+          closeAt = lines[close].start + found
+          break
+        }
+      }
+      let content = source.slice(contentStart, closeAt === -1 ? source.length : closeAt)
+      let summary = ""
+      const open = /<summary>/i.exec(content)
+      const closing = open ? content.toLowerCase().indexOf("</summary>", open.index) : -1
+      if (open && closing !== -1) {
+        summary = content.slice(open.index + open[0].length, closing)
+        content = content.slice(0, open.index) + content.slice(closing + "</summary>".length)
+      }
+      segments.push({ kind: "details", summary, content })
+      markdownStart = closeAt === -1 ? source.length : closeAt + "</details>".length
+      index = close
+    }
+  }
+  pushMarkdown(source.length)
+  return segments
+}
+
+const DETAILS_MARKER_RE = /:::details|<details>/
+
+function renderDocument(source: string, parsed: ParsedMarkdown, state: DocumentState): string[] {
+  if (!parsed.root) return renderPlainText(source)
+  if (!DETAILS_MARKER_RE.test(source)) return renderBlocks(parsed.root.children, contextFor(source, parsed, state))
+
+  const blocks: string[] = []
+  for (const segment of splitDetails(source, parsed)) {
+    if (segment.kind === "details") {
+      blocks.push(renderDetails(segment.summary, segment.content, state))
+      state.emitted++
+      continue
+    }
+    const text = segment.text.trim()
+    const segmentParsed = parseMarkdown(text)
+    blocks.push(
+      ...(segmentParsed.root
+        ? renderBlocks(segmentParsed.root.children, contextFor(text, segmentParsed, state))
+        : renderPlainText(text))
+    )
+  }
+  return blocks
+}
+
+/**
+ * Parser utama: naskah Markdown murni → rangkaian blok WordPress Gutenberg. HTML mentah maupun komentar
+ * blok `<!-- wp:... -->` di naskah tidak diteruskan; semuanya diperlakukan sebagai teks dan di-escape.
+ * Literal `\n` (naskah ter-escape) dipulihkan di luar kode.
+ */
+export function markdownToGutenberg(markdown: string): string {
+  let source = (markdown || "").replace(/\r\n?/g, "\n").trim()
+  if (source.includes("\\n") && !source.includes("\n")) source = decodeLiteralNewlines(source, []).trim()
+  if (source.includes("\\n")) source = decodeLiteralNewlines(source, parseMarkdown(source).codeRanges).trim()
+  // Naskah dari pembersih sudah ternormalisasi (idempoten), sehingga parse di bawah memakai cache yang sama.
+  source = normalizeListIndentation(source)
+  return renderDocument(source, parseMarkdown(source), { emitted: 0 }).join("\n\n")
 }
