@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { ToolMessage } from "@langchain/core/messages"
+import { toolFailure, toolSuccess } from "@/core/shared/tools/contract"
 import { REDACTED } from "@/core/writer/runtime/redact"
 
 /**
@@ -188,18 +190,64 @@ describe("POST /api/lab/run — redaksi terarah", () => {
     expect(runOptions.userId).toBe(ME)
   })
 
-  it("keluaran tool generik: properti rahasia disamarkan, URL & field struktural utuh", async () => {
+  it("keluaran tool generik (artifact ToolOutcome): properti rahasia disamarkan, URL & field struktural utuh", async () => {
+    const invoke = vi.fn(
+      async (call: { id: string; name: string }) =>
+        new ToolMessage({
+          content: "SUKSES",
+          tool_call_id: call.id,
+          name: call.name,
+          artifact: toolSuccess({ url: SIGNED_IMAGE_URL, primaryKey: 42, apiKey: "sk-or-v1-abcdef0123456789" }),
+        })
+    )
+    mocks.toolGet.mockReturnValue({ id: "upload_media", build: () => ({ invoke }), summarize: () => "ringkas" })
+
+    const res = await POST(labRequest({ type: "tool", targetId: "upload_media", params: { imageUrl: "x" } }), noParams)
+    const body = await res.json()
+
+    expect(body).toMatchObject({ ok: true, summary: "ringkas" })
+    expect(body.output).toEqual({ url: SIGNED_IMAGE_URL, primaryKey: 42, apiKey: REDACTED })
+    // Dipanggil sebagai tool call agar artifact ikut kembali.
+    expect(invoke.mock.calls[0][0]).toMatchObject({ type: "tool_call", name: "upload_media", args: { imageUrl: "x" } })
+  })
+
+  it("kegagalan tool generik → HTTP 200 ok:false dengan error teredaksi, code & retryable", async () => {
     mocks.toolGet.mockReturnValue({
+      id: "upload_media",
       build: () => ({
-        invoke: async () =>
-          JSON.stringify({ url: SIGNED_IMAGE_URL, primaryKey: 42, apiKey: "sk-or-v1-abcdef0123456789" }),
+        invoke: async (call: { id: string; name: string }) =>
+          new ToolMessage({
+            content: "ERROR[unauthorized]: ...",
+            tool_call_id: call.id,
+            name: call.name,
+            artifact: toolFailure("unauthorized", "WordPress merespons HTTP 401 untuk https://wp.test/?api_key=sk-bocor-777"),
+          }),
       }),
+      summarize: () => "x",
     })
 
     const res = await POST(labRequest({ type: "tool", targetId: "upload_media", params: {} }), noParams)
+    expect(res.status).toBe(200)
     const body = await res.json()
+    expect(body).toMatchObject({ ok: false, code: "unauthorized", retryable: false })
+    expect(body.error).toContain("HTTP 401")
+    expect(JSON.stringify(body)).not.toContain("sk-bocor-777")
+  })
 
-    expect(body.output).toEqual({ url: SIGNED_IMAGE_URL, primaryKey: 42, apiKey: REDACTED })
+  it("kegagalan tool langsung (web_search) → HTTP 200 ok:false dengan kode", async () => {
+    mocks.webSearch.mockResolvedValue(toolFailure("rate_limited", "Layanan pencarian merespons HTTP 429."))
+
+    const res = await POST(labRequest({ type: "tool", targetId: "web_search", params: { query: "kopi" } }), noParams)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: false, code: "rate_limited", retryable: true, error: expect.stringContaining("429") })
+  })
+
+  it("sukses tool langsung (web_search) mempertahankan bentuk output Lab", async () => {
+    const results = [{ title: "A", url: "https://a.test", snippet: "s", source: "brave" }]
+    mocks.webSearch.mockResolvedValue(toolSuccess(results))
+
+    const res = await POST(labRequest({ type: "tool", targetId: "web_search", params: { query: "kopi" } }), noParams)
+    expect(await res.json()).toMatchObject({ ok: true, output: { query: "kopi", totalResults: 1, results } })
   })
 
   it("error tak terduga → 500 dengan pesan & log server yang sudah diredaksi", async () => {

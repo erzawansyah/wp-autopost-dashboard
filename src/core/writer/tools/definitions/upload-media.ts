@@ -1,7 +1,26 @@
 import { z } from "zod"
 import { tool } from "@langchain/core/tools"
-import { uploadMediaToWordPress } from "../../../shared/tools/upload-media"
+import { mapToolOutcome } from "@/core/shared/tools/contract"
+import { UploadedMediaSchema, uploadMediaToWordPress } from "../../../shared/tools/upload-media"
 import { ToolDefinition, ToolRuntimeContext } from "../registry"
+import {
+  formatToolFailure,
+  resolveToolSignal,
+  summarizeToolOutcome,
+  TOOL_RESPONSE_FORMAT,
+  type ToolResponse,
+} from "../tool-response"
+
+/** Kontrak data artifact `upload_media` yang sukses. */
+export const UploadMediaToolDataSchema = UploadedMediaSchema.extend({
+  isFeatured: z.boolean(),
+})
+
+export type UploadMediaToolData = z.infer<typeof UploadMediaToolDataSchema>
+
+function renderUploadedMedia({ mediaId, sourceUrl, isFeatured, altText, title, caption }: UploadMediaToolData): string {
+  return `SUKSES! Gambar berhasil diunggah ke WordPress.\n- Media ID: ${mediaId}\n- WordPress Media URL: ${sourceUrl}\n- Sebagai Featured Image: ${isFeatured ? "YA (otomatis dipasang sebagai sampul)" : "TIDAK (silakan sematkan di dalam naskah)"}\n\nJika ingin menyematkannya di dalam naskah Markdown, gunakan sintaks:\n![${altText || title || "Ilustrasi"}](${sourceUrl} "${caption || ""}")`
+}
 
 export const uploadMediaToolDef: ToolDefinition = {
   id: "upload_media",
@@ -52,75 +71,61 @@ export const uploadMediaToolDef: ToolDefinition = {
     },
   ],
 
-  summarize(result: unknown): string {
-    if (typeof result === "string" && result.startsWith("ERROR")) return result.slice(0, 150)
-    if (typeof result === "string") {
-      const idMatch = result.match(/Media ID:\s*(\d+)/)
-      const featMatch = result.match(/Featured Image:\s*(YA|TIDAK)/)
-      if (idMatch) {
-        return `Unggah media WordPress #${idMatch[1]} (${featMatch?.[1] === "YA" ? "Sampul / Featured" : "In-Content"})`
-      }
-      return result.slice(0, 120)
-    }
-    return "Upload media selesai"
+  summarize(outcome) {
+    return summarizeToolOutcome(
+      outcome,
+      UploadMediaToolDataSchema,
+      ({ mediaId, isFeatured }) => `Unggah media WordPress #${mediaId} (${isFeatured ? "Sampul / Featured" : "In-Content"})`
+    )
   },
 
   build(ctx: ToolRuntimeContext) {
     return tool(
-      async ({ imageUrl, title, altText, caption, isFeatured = false }) => {
+      async ({ imageUrl, title, altText, caption, isFeatured = false }, config): Promise<ToolResponse> => {
         const cleanUrl = (imageUrl || "").trim()
-        if (!cleanUrl) return "ERROR[invalid_input]: URL gambar tidak boleh kosong."
+        const upload = await uploadMediaToWordPress({
+          imageUrl: cleanUrl,
+          title: title || "Foto Ilustrasi Artikel",
+          altText: altText || title || "Ilustrasi artikel",
+          caption,
+          baseUrl: ctx.wpCredentials?.baseUrl,
+          username: ctx.wpCredentials?.username,
+          applicationPassword: ctx.wpCredentials?.applicationPassword,
+          timeoutMs: 25000,
+          signal: resolveToolSignal(ctx, config),
+        })
+        const outcome = mapToolOutcome(upload, (media) => ({ ...media, isFeatured }))
 
-        if (!ctx.wpCredentials?.baseUrl || !ctx.wpCredentials?.applicationPassword) {
-          return "ERROR[no_wp_credentials]: Website WordPress tujuan tidak terhubung atau kredensial kosong. Tidak dapat mengunggah media."
+        if (!outcome.ok) {
+          const retryHint = outcome.retryable ? "" : " Jangan ulangi pemanggilan dengan URL yang sama."
+          return [`${formatToolFailure(outcome, "Gagal mengunggah gambar ke WordPress")}${retryHint}`, outcome]
         }
 
-        try {
-          const uploadResult = await uploadMediaToWordPress({
-            imageUrl: cleanUrl,
-            title: title || "Foto Ilustrasi Artikel",
-            altText: altText || title || "Ilustrasi artikel",
-            caption,
-            baseUrl: ctx.wpCredentials.baseUrl,
-            username: ctx.wpCredentials.username,
-            applicationPassword: ctx.wpCredentials.applicationPassword,
-            timeoutMs: 25000,
+        const media = outcome.data
+        if (isFeatured) {
+          ctx.recorder.featuredMediaId = media.mediaId
+          ctx.recorder.featuredImage = {
+            title: title || "Featured Image",
+            wpMediaId: media.mediaId,
+            imageUrl: media.sourceUrl,
+            originalUrl: cleanUrl,
+            explanation: "Dipilih oleh autonomous agent sebagai foto sampul utama artikel.",
+            altText: media.altText,
+            caption: media.caption,
+          }
+        } else {
+          ctx.recorder.inContentImages.push({
+            subheading: title || "Ilustrasi Subbab",
+            imageUrl: media.sourceUrl,
+            originalUrl: cleanUrl,
+            altText: media.altText || title || "Ilustrasi artikel",
+            caption: media.caption,
+            wpMediaId: media.mediaId,
+            usageDescription: "Disematkan oleh autonomous agent ke dalam naskah.",
           })
-
-          if (!uploadResult.ok || !uploadResult.mediaId) {
-            return `ERROR[upload_failed]: Gagal mengunggah gambar ke WordPress (${uploadResult.error || "Gagal"}). Jangan ulangi pemanggilan dengan URL yang sama.`
-          }
-
-          const wpUrl = uploadResult.sourceUrl || cleanUrl
-
-          if (isFeatured) {
-            ctx.recorder.featuredMediaId = uploadResult.mediaId
-            ctx.recorder.featuredImage = {
-              title: title || "Featured Image",
-              wpMediaId: uploadResult.mediaId,
-              imageUrl: wpUrl,
-              originalUrl: cleanUrl,
-              explanation: "Dipilih oleh autonomous agent sebagai foto sampul utama artikel.",
-              altText: uploadResult.altText,
-              caption: uploadResult.caption,
-            }
-          } else {
-            ctx.recorder.inContentImages.push({
-              subheading: title || "Ilustrasi Subbab",
-              imageUrl: wpUrl,
-              originalUrl: cleanUrl,
-              altText: uploadResult.altText || title || "Ilustrasi artikel",
-              caption: uploadResult.caption,
-              wpMediaId: uploadResult.mediaId,
-              usageDescription: "Disematkan oleh autonomous agent ke dalam naskah.",
-            })
-          }
-
-          return `SUKSES! Gambar berhasil diunggah ke WordPress.\n- Media ID: ${uploadResult.mediaId}\n- WordPress Media URL: ${wpUrl}\n- Sebagai Featured Image: ${isFeatured ? "YA (otomatis dipasang sebagai sampul)" : "TIDAK (silakan sematkan di dalam naskah)"}\n\nJika ingin menyematkannya di dalam naskah Markdown, gunakan sintaks:\n![${uploadResult.altText || title || "Ilustrasi"}](${wpUrl} "${uploadResult.caption || ""}")`
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : "Kesalahan upload"
-          return `ERROR[upload_exception]: Gagal mengunggah media ke WordPress: ${msg}`
         }
+
+        return [renderUploadedMedia(media), outcome]
       },
       {
         name: "upload_media",
@@ -137,6 +142,7 @@ export const uploadMediaToolDef: ToolDefinition = {
             .default(false)
             .describe("Set true jika gambar ini adalah foto sampul utama (Featured Image)"),
         }),
+        responseFormat: TOOL_RESPONSE_FORMAT,
       }
     )
   },

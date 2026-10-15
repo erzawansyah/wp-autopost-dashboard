@@ -7,6 +7,20 @@ const DEFAULT_GUARDRAIL_FALLBACK =
 const DEFAULT_USER_PROMPT_FALLBACK =
   'Tuliskan artikel mendalam, mengalir alami, dan tuntas untuk topik: "{{keyword}}" ({{language}}). Target minimal {{targetWords}} kata dengan 5 subbab deskriptif. {{briefNote}} {{authorPersona}} {{customInstructions}}'
 
+const AUTHOR_PERSONA_FALLBACK = "- Persona penulis: {{authorName}}{{authorBio}}."
+
+/**
+ * Baris persona author WordPress (`system-author-persona.md`) untuk prompt agen & finalize call.
+ * Tanpa author → string kosong (baris template ikut hilang saat `renderPrompt`).
+ */
+export function buildAuthorPersonaLine(author?: { name: string; bio?: string }): string {
+  if (!author) return ""
+  return renderPrompt(loadPrompt("system-author-persona.md", AUTHOR_PERSONA_FALLBACK, "user"), {
+    authorName: author.name,
+    authorBio: author.bio ? ` (${author.bio})` : "",
+  })
+}
+
 export interface SystemPromptVariables {
   siteName?: string
   siteUrl?: string
@@ -62,9 +76,7 @@ export function buildUserPrompt(vars: UserPromptVariables): string {
   const categoryInfo = vars.categoryName ? `- Target Kategori: ${vars.categoryName}` : ""
   const tagsInfo = vars.tagsList ? `- Tag Terkait: ${vars.tagsList}` : ""
   const briefNote = vars.brief ? `- Catatan Khusus dari Pengguna: ${vars.brief}` : ""
-  const authorPersona = vars.author
-    ? `- Sudut Pandang Penulis (Persona): Tulis naskah dari perspektif ${vars.author.name}${vars.author.bio ? ` (${vars.author.bio})` : ""}. (DILARANG mencantumkan teks byline 'Penulis: ...' ke naskah).`
-    : ""
+  const authorPersona = buildAuthorPersonaLine(vars.author)
   const customInstructionsNote = vars.customInstructions
     ? `- Instruksi Tambahan: ${vars.customInstructions}`
     : ""

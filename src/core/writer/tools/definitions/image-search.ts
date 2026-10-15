@@ -1,7 +1,31 @@
 import { z } from "zod"
 import { tool } from "@langchain/core/tools"
-import { searchRoyaltyFreeImages, ImageSearchProvider } from "../../../shared/tools/image-search"
+import { mapToolOutcome } from "@/core/shared/tools/contract"
+import { ImageSearchProvider, ImageSearchResultSchema, searchRoyaltyFreeImages } from "../../../shared/tools/image-search"
 import { ToolDefinition, ToolRuntimeContext } from "../registry"
+import { resolveToolSignal, summarizeToolOutcome, TOOL_RESPONSE_FORMAT, toToolResponse } from "../tool-response"
+
+/** Kontrak data artifact `image_search` yang sukses. */
+export const ImageSearchToolDataSchema = z.object({
+  query: z.string(),
+  images: z.array(ImageSearchResultSchema),
+})
+
+export type ImageSearchToolData = z.infer<typeof ImageSearchToolDataSchema>
+
+function renderImages({ query, images }: ImageSearchToolData): string {
+  if (images.length === 0) {
+    return `Tidak ditemukan foto untuk kata kunci "${query}". Coba gunakan istilah bahasa Inggris yang lebih umum (misal: "modern workplace technology").`
+  }
+
+  const formatted = images
+    .map(
+      (img, idx) => `[Foto ${idx + 1}]\nURL: ${img.url}\nDeskripsi: ${img.alt || img.caption || query}\nSumber: ${img.source}`
+    )
+    .join("\n\n")
+
+  return `Ditemukan ${images.length} foto berkualitas tinggi:\n\n${formatted}\n\nUntuk menggunakannya, pilih URL foto yang paling pas lalu sematkan ke dalam artikel (misalnya sebagai foto sampul utama atau ilustrasi subbab terkait).`
+}
 
 export const imageSearchToolDef: ToolDefinition = {
   id: "image_search",
@@ -48,49 +72,32 @@ export const imageSearchToolDef: ToolDefinition = {
     },
   ],
 
-  summarize(result: unknown): string {
-    if (typeof result === "string" && result.startsWith("ERROR")) return result.slice(0, 150)
-    if (typeof result === "string") {
-      const match = result.match(/Ditemukan (\d+) foto/)
-      if (match) return `Menemukan ${match[1]} foto berkualitas tinggi`
-      return result.slice(0, 120)
-    }
-    return "Pencarian gambar selesai"
+  summarize(outcome) {
+    return summarizeToolOutcome(outcome, ImageSearchToolDataSchema, ({ query, images }) =>
+      images.length > 0 ? `Menemukan ${images.length} foto berkualitas tinggi` : `Tidak ada foto untuk "${query}"`
+    )
   },
 
   build(ctx: ToolRuntimeContext) {
     return tool(
-      async ({ query, count = 3, provider, minWidth }) => {
+      async ({ query, count = 3, provider, minWidth }, config) => {
         const cleanQuery = (query || "").trim()
-        if (!cleanQuery) return "ERROR[invalid_input]: Kata kunci pencarian foto kosong."
+        const outcome = await searchRoyaltyFreeImages({
+          query: cleanQuery,
+          count: count || 3,
+          orientation: "landscape",
+          minWidth: minWidth || 1280,
+          provider: (provider as ImageSearchProvider) || "auto",
+          pexafyApiKey: ctx.userKeys.pexafyKey,
+          searxngUrl: ctx.userKeys.searxngUrl,
+          signal: resolveToolSignal(ctx, config),
+        })
 
-        try {
-          const images = await searchRoyaltyFreeImages({
-            query: cleanQuery,
-            count: count || 3,
-            orientation: "landscape",
-            minWidth: minWidth || 1280,
-            provider: (provider as ImageSearchProvider) || "auto",
-            pexafyApiKey: ctx.userKeys.pexafyKey,
-            searxngUrl: ctx.userKeys.searxngUrl,
-          })
-
-          if (!images || images.length === 0) {
-            return `Tidak ditemukan foto untuk kata kunci "${cleanQuery}". Coba gunakan istilah bahasa Inggris yang lebih umum (misal: "modern workplace technology").`
-          }
-
-          const formatted = images
-            .map(
-              (img, idx) =>
-                `[Foto ${idx + 1}]\nURL: ${img.url}\nDeskripsi: ${img.alt || img.caption || cleanQuery}\nSumber: ${img.source}`
-            )
-            .join("\n\n")
-
-          return `Ditemukan ${images.length} foto berkualitas tinggi:\n\n${formatted}\n\nUntuk menggunakannya, pilih URL foto yang paling pas lalu sematkan ke dalam artikel (misalnya sebagai foto sampul utama atau ilustrasi subbab terkait).`
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : "Kesalahan pencarian gambar"
-          return `ERROR[image_search_failed]: Gagal mencari foto: ${msg}`
-        }
+        return toToolResponse(
+          mapToolOutcome(outcome, (images) => ({ query: cleanQuery, images })),
+          renderImages,
+          "Gagal mencari foto"
+        )
       },
       {
         name: "image_search",
@@ -102,6 +109,7 @@ export const imageSearchToolDef: ToolDefinition = {
           provider: z.string().optional().describe("Pilihan provider gambar (auto, searxng, pexafy, bing_scraper, curated)"),
           minWidth: z.number().optional().default(1280).describe("Lebar minimum foto dalam pixel"),
         }),
+        responseFormat: TOOL_RESPONSE_FORMAT,
       }
     )
   },

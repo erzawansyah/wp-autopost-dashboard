@@ -1,0 +1,29 @@
+# GOLDEN prompt "system-finalize" · versi 489d1946d7c5
+# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
+
+===== [USER_PROMPT] dirender =====
+SINTESIS FINAL NASKAH ARTIKEL:
+Proses pengumpulan data dan media telah selesai (batas panggilan tool tercapai). Sekarang susun artikel lengkap, mendalam, dan berkualitas editorial tinggi dalam naskah utuh.
+
+=== DATA RISET AKTUAL DARI TOOLS ===
+- [web_reader] Kopi hitam tanpa gula hampir tidak mengandung kalori.
+- [web_search] Batas kafein harian yang umum dianjurkan untuk orang dewasa sehat sekitar 400 mg.
+
+=== GAMBAR YANG TELAH DIUNGGAH KE WORDPRESS ===
+![Secangkir kopi hitam di meja kayu](https://kopinusantara.example/wp-content/uploads/kopi-hitam.jpg "Kopi hitam tanpa gula")
+
+=== KETENTUAN PENULISAN ===
+- Topik: "manfaat kopi hitam tanpa gula untuk kesehatan"
+- Bahasa: Bahasa Indonesia
+- Target Panjang: minimal 1200 kata
+- Struktur: Wajib minimal 5 subbab (H2/H3) deskriptif dengan ulasan mendalam per subbab. DILARANG membuat naskah pendek atau ringkasan!
+- Catatan Khusus Pengguna: Sasar pekerja kantoran usia 25-40 tahun.
+- Sudut Pandang Penulis (Persona): Rina Pratama.
+
+ATURAN STRICT (ANTI-AI SLOP):
+1. DILARANG membuat subbab generik klise seperti: "Pembuka", "Pendahuluan", "Latar Belakang", "Analisis", "Contoh", atau "Kesimpulan Praktis". Seluruh subbab (H2/H3) WAJIB berupa judul tematik spesifik dan berbobot.
+2. DILARANG membuka artikel dengan pengumuman meta seperti: "Dalam artikel ini kita akan membahas...", atau definisi klise "X merupakan aspek penting...". Buka langsung dengan fakta menarik, studi kasus, atau dinamika nyata.
+3. DILARANG ada angka sitasi akademis seperti [1], [2], [^1]. Integrasikan fakta langsung secara mengalir.
+4. DILARANG membuat section "Referensi" atau "Daftar Pustaka" di akhir naskah.
+5. DILARANG penomoran subbab (seperti "## 1. ...") dan DILARANG ada penutup hambar ("Dalam artikel ini, kita telah membahas...").
+6. Sajikan naskah lengkap, kaya wawasan, multi-paragraf per subbab, dari pembuka sampai rekomendasi strategis.

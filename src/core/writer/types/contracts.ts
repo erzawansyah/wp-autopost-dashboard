@@ -166,6 +166,7 @@ export interface NodeExecutionLog {
   timestamp: string
 }
 
+import type { LlmModelUsage } from "@/core/shared/llm/usage"
 import type { AgentStepEvent, RunTelemetrySummary } from "../runtime/telemetry"
 
 /** Trace eksekusi untuk observability */
@@ -177,7 +178,15 @@ export interface ExecutionTrace {
   stepEvents?: AgentStepEvent[]
   durationMs: number
   retries: number
+  /** Token seluruh panggilan LLM run (agent loop, subagent, pre-resolve, finalize). */
   tokenUsage?: { prompt: number; completion: number; total: number }
+  /** Biaya USD run menurut OpenRouter (`usage.cost`); null bila tidak dilaporkan. */
+  costUsd?: number | null
+  /** Jumlah panggilan LLM sukses di seluruh run. */
+  llmCalls?: number
+  /** Rincian token & biaya per model (model utama dan cadangan yang terpakai). */
+  modelUsage?: LlmModelUsage[]
+  /** Model utama hasil resolusi gateway (request → default pengguna → Agent Profile → env → default). */
   modelUsed: string
   warnings: string[]
 }

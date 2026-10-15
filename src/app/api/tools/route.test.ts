@@ -15,7 +15,8 @@ const db = vi.hoisted(() => ({
 
 const mocks = vi.hoisted(() => ({
   openrouterKey: "sk-or-v1-test" as string | undefined,
-  callOpenRouterJson: vi.fn(),
+  createLlmGateway: vi.fn(),
+  completeJson: vi.fn(),
   fetchWordPressCategories: vi.fn(),
   fetchWordPressUsers: vi.fn(),
   searchWordPressPosts: vi.fn(),
@@ -51,7 +52,7 @@ vi.mock("@/lib/crypto", () => ({ decryptCredential: () => "abcd efgh ijkl mnop" 
 vi.mock("@/lib/settings/user-keys", () => ({
   getUserDecryptedKeys: async () => ({ openrouterKey: mocks.openrouterKey, searchPreferences: {}, notificationPrefs: {} }),
 }))
-vi.mock("@/lib/ai/completion", () => ({ callOpenRouterJson: mocks.callOpenRouterJson }))
+vi.mock("@/core/shared/llm/gateway", () => ({ createLlmGateway: mocks.createLlmGateway }))
 vi.mock("@/lib/wordpress/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/wordpress/client")>()),
   fetchWordPressCategories: mocks.fetchWordPressCategories,
@@ -96,7 +97,13 @@ beforeEach(() => {
     { id: OTHER_SITE, user_id: OTHER, base_url: "https://orang.test", wp_username: "x", encrypted_app_password: "iv:tag:y" },
   ]
   mocks.openrouterKey = "sk-or-v1-test"
-  mocks.callOpenRouterJson.mockReset()
+  mocks.completeJson.mockReset()
+  // Gateway palsu: resolusi kunci BYOK & panggilan LLM diuji di src/core/shared/llm/gateway.test.ts.
+  mocks.createLlmGateway.mockReset().mockImplementation((options: { apiKey?: string }) => ({
+    hasKey: Boolean(options.apiKey),
+    completeJson: mocks.completeJson,
+    flush: async () => {},
+  }))
   mocks.fetchWordPressCategories.mockReset().mockResolvedValue({ ok: true, categories: [{ id: 1, name: "Kopi", slug: "kopi", parent: 0, count: 3 }] })
   mocks.fetchWordPressUsers.mockReset().mockResolvedValue({ ok: true, users: [] })
   mocks.searchWordPressPosts.mockReset()
@@ -131,7 +138,7 @@ describe("auth & validasi", () => {
     const res = await call()
     expect(res.status).toBe(400)
     expect((await res.json()).error).toContain(message)
-    expect(mocks.callOpenRouterJson).not.toHaveBeenCalled()
+    expect(mocks.completeJson).not.toHaveBeenCalled()
   })
 })
 
@@ -144,7 +151,7 @@ describe("kepemilikan situs", () => {
   ])("%s dengan situs milik pengguna lain → 404 tanpa memanggil LLM/WordPress", async (_label, call) => {
     const res = await call()
     expect(res.status).toBe(404)
-    expect(mocks.callOpenRouterJson).not.toHaveBeenCalled()
+    expect(mocks.completeJson).not.toHaveBeenCalled()
     expect(mocks.fetchWordPressCategories).not.toHaveBeenCalled()
     expect(mocks.fetchWordPressPostRawContent).not.toHaveBeenCalled()
     expect(mocks.updateWordPressPostContent).not.toHaveBeenCalled()
@@ -164,13 +171,13 @@ describe("rate limit", () => {
     expect((await analyzeLinks(post({ siteId: MY_SITE, newArticleUrl: "https://saya.test/a" }), noParams)).status).toBe(429)
     expect((await applyLink(post(APPLY_BODY), noParams)).status).toBe(429)
     expect(keys).toEqual([`llm:${ME}`, `llm:${ME}`, `outbound-test:${ME}`])
-    expect(mocks.callOpenRouterJson).not.toHaveBeenCalled()
+    expect(mocks.completeJson).not.toHaveBeenCalled()
   })
 })
 
 describe("POST /api/tools/categories/suggest & authors/suggest", () => {
   it("mengembalikan saran AI + jumlah kategori yang sudah ada", async () => {
-    mocks.callOpenRouterJson.mockResolvedValue({ suggestions: [{ name: "Kopi Susu", slug: "kopi-susu", parentId: 1 }] })
+    mocks.completeJson.mockResolvedValue({ suggestions: [{ name: "Kopi Susu", slug: "kopi-susu", parentId: 1 }] })
     const res = await suggestCategories(post({ siteId: MY_SITE, prompt: "Kategori minuman kopi" }), noParams)
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
@@ -178,11 +185,11 @@ describe("POST /api/tools/categories/suggest & authors/suggest", () => {
       suggestions: [{ name: "Kopi Susu", slug: "kopi-susu", parentId: 1 }],
       existingCount: 1,
     })
-    expect(mocks.callOpenRouterJson.mock.calls[0][0].apiKey).toBe("sk-or-v1-test")
+    expect(mocks.createLlmGateway.mock.calls[0][0].apiKey).toBe("sk-or-v1-test")
   })
 
   it("peran author dari LLM dinormalkan ke author/editor/contributor (tak dikenal → author)", async () => {
-    mocks.callOpenRouterJson.mockResolvedValue({
+    mocks.completeJson.mockResolvedValue({
       suggestions: [
         { name: "A", username: "a", role: "Editor" },
         { name: "B", username: "b", role: "administrator" },
@@ -201,12 +208,12 @@ describe("POST /api/tools/categories/suggest & authors/suggest", () => {
     const res = await suggestAuthors(post({ siteId: MY_SITE, prompt: "Persona barista" }), noParams)
     expect(res.status).toBe(400)
     expect((await res.json()).error).toContain("BYOK")
-    expect(mocks.callOpenRouterJson).not.toHaveBeenCalled()
+    expect(mocks.completeJson).not.toHaveBeenCalled()
   })
 
   it("kegagalan LLM → 502 upstream_failed tanpa membocorkan pesan upstream", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {})
-    mocks.callOpenRouterJson.mockRejectedValue(new Error("Gagal memanggil AI: internal provider trace xyz"))
+    mocks.completeJson.mockRejectedValue(new Error("Gagal memanggil AI: internal provider trace xyz"))
     const res = await suggestAuthors(post({ siteId: MY_SITE, prompt: "Persona barista" }), noParams)
     expect(res.status).toBe(502)
     const body = await res.json()
@@ -218,7 +225,7 @@ describe("POST /api/tools/categories/suggest & authors/suggest", () => {
 
 describe("POST /api/tools/link-building/analyze", () => {
   it("kandidat artikel lama tanpa tautan ke dirinya sendiri; rekomendasi tidak lengkap dibuang", async () => {
-    mocks.callOpenRouterJson
+    mocks.completeJson
       .mockResolvedValueOnce({ topicSummary: "Espresso", searchQueries: ["espresso"] })
       .mockResolvedValueOnce({
         recommendations: [
@@ -239,19 +246,19 @@ describe("POST /api/tools/link-building/analyze", () => {
     const body = await res.json()
     expect(body).toMatchObject({ ok: true, topicSummary: "Espresso", searchQueries: ["espresso"] })
     expect(body.recommendations.map((r: Row) => r.postId)).toEqual([7])
-    const candidatesJson = mocks.callOpenRouterJson.mock.calls[1][0].userPrompt as string
+    const candidatesJson = mocks.completeJson.mock.calls[1][0].userPrompt as string
     expect(candidatesJson).toContain("Teks lama")
     expect(candidatesJson).not.toContain("Diri sendiri")
   })
 
   it("tanpa kandidat → daftar kosong + pesan", async () => {
-    mocks.callOpenRouterJson.mockResolvedValueOnce({ topicSummary: "Espresso", searchQueries: ["espresso"] })
+    mocks.completeJson.mockResolvedValueOnce({ topicSummary: "Espresso", searchQueries: ["espresso"] })
     mocks.searchWordPressPosts.mockResolvedValue({ ok: true, posts: [] })
     const res = await analyzeLinks(post({ siteId: MY_SITE, newArticleUrl: "https://saya.test/baru" }), noParams)
     const body = await res.json()
     expect(body.recommendations).toEqual([])
     expect(body.message).toContain("Tidak ditemukan")
-    expect(mocks.callOpenRouterJson).toHaveBeenCalledTimes(1)
+    expect(mocks.completeJson).toHaveBeenCalledTimes(1)
   })
 })
 

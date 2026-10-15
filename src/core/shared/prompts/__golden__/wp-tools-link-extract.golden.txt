@@ -1,0 +1,41 @@
+# GOLDEN prompt "wp-tools-link-extract" · versi bca375ca690d
+# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
+
+===== [SYSTEM_PROMPT] dirender =====
+Kamu adalah pakar riset SEO WordPress. Tugasmu menganalisis URL artikel baru (dan keyword/instruksi jika ada) untuk mengekstrak topik utama dan merumuskan 3-4 query pencarian yang berbeda untuk mencari artikel-artikel LAMA yang relevan di WordPress via REST API search.
+
+===== [USER_PROMPT] dirender =====
+URL Artikel Baru: https://kopinusantara.example/manfaat-kopi-hitam/
+Kata Kunci Target (Opsional): manfaat kopi hitam
+Instruksi Tambahan (Opsional): -
+
+Keluarkan JSON murni persis dengan format berikut:
+{
+  "topicSummary": "string ringkasan topik spesifik artikel baru",
+  "searchQueries": [
+    "query1",
+    "query2",
+    "query3"
+  ]
+}
+
+===== [OUTPUT_SCHEMA] =====
+{
+  "type": "object",
+  "properties": {
+    "topicSummary": {
+      "type": "string"
+    },
+    "searchQueries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "topicSummary",
+    "searchQueries"
+  ]
+}

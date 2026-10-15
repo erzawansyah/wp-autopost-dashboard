@@ -8,8 +8,9 @@
  *                      (page/layout/route/loading/error/not-found/…, instrumentation, middleware/proxy)
  *                      maupun dari test (*.test.ts, src/test-utils/, supabase/tests/).
  * - test-only        : modul produksi yang hanya diimpor oleh test (kode mati di produksi).
- * - prompt-file      : prompt .md di src/core/shared/prompts/ tanpa prefix pilar
- *                      (wp-tools-*, system-*, agent-*) atau tidak dirujuk kode mana pun.
+ * - prompt-file      : validasi registry prompt src/core/shared/prompts/*.md — aturan tunggal di
+ *                      scripts/build-prompts.ts (prefix pilar, frontmatter, variabel {{…}}, section,
+ *                      OUTPUT_FORMAT, used_by ↔ kode pemakai, literal nama di load*Prompt*()).
  * - hardcoded-prompt : literal string/template di kode server yang menyerupai prompt LLM
  *                      (frasa persona, direktif kapital, atau teks instruksi multi-baris).
  * - legacy-term      : istilah "engine" pada identifier/teks UI (selain "search engine"/"metasearch engine");
@@ -39,6 +40,7 @@
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import path from "node:path"
+import type * as PromptRegistryBuild from "./build-prompts"
 
 const ROOT = path.resolve(import.meta.dirname, "..")
 const ALLOWLIST_PATH = path.join(ROOT, "scripts", "audit-allowlist.json")
@@ -61,7 +63,7 @@ type CheckId = (typeof CHECK_IDS)[number]
 const CHECK_TITLES: Record<CheckId, string> = {
   "orphan-file": "Berkas yatim (tidak terjangkau dari entrypoint/test)",
   "test-only": "Modul produksi yang hanya dipakai test",
-  "prompt-file": "Berkas prompt .md (penamaan pilar & rujukan)",
+  "prompt-file": "Berkas prompt .md (validasi registry: pilar, frontmatter, variabel, section, rujukan)",
   "hardcoded-prompt": "Prompt LLM hardcode di kode TS",
   "legacy-term": "Istilah legacy \"engine\" (gunakan Agent Profile)",
   "arbitrary-color": "Warna mentah/arbitrary di UI (gunakan token globals.css)",
@@ -416,21 +418,11 @@ for (const sf of srcSources) {
 // 2. prompt-file
 // ---------------------------------------------------------------------------
 
-const PROMPT_NAME = /^(?:wp-tools|system|agent)-[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
-const promptsAbs = path.join(ROOT, PROMPTS_DIR)
-if (existsSync(promptsAbs)) {
-  const consumers = srcSources.filter((sf) => !sf.isTest && !sf.file.startsWith(`${PROMPTS_DIR}/`))
-  for (const name of readdirSync(promptsAbs).filter((f) => f.endsWith(".md")).sort()) {
-    const file = `${PROMPTS_DIR}/${name}`
-    if (!PROMPT_NAME.test(name)) {
-      report("prompt-file", file, 1, "nama berkas wajib berprefix pilar wp-tools-*, system-*, atau agent-*")
-    }
-    const id = name.replace(/\.md$/, "")
-    const idPattern = new RegExp(`["'\`/]${id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\.md)?["'\`]`)
-    if (!consumers.some((sf) => idPattern.test(sf.text))) {
-      report("prompt-file", file, 1, "tidak dirujuk oleh kode mana pun (prompt yatim)")
-    }
-  }
+// Impor dinamis berekstensi .ts: Node menjalankan skrip ini dengan type stripping (butuh path berkas
+// persis), sedangkan tsc tanpa allowImportingTsExtensions menolak impor statis berakhiran .ts.
+const promptBuild = (await import(new URL("./build-prompts.ts", import.meta.url).href)) as typeof PromptRegistryBuild
+for (const issue of promptBuild.buildRegistry(ROOT).issues) {
+  report("prompt-file", issue.file, issue.line, issue.message)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,9 +1,10 @@
 import "server-only"
 import type { SupabaseClient } from "@supabase/supabase-js"
+import { createLlmGateway, type LlmGateway, type LlmJsonRequest } from "@/core/shared/llm/gateway"
 import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
-import { callOpenRouterJson, type CallAiJsonParams } from "@/lib/ai/completion"
-import { MISSING_OPENROUTER_KEY_MESSAGE, resolveOpenRouterKey } from "@/lib/ai/platform-keys"
+import { MISSING_OPENROUTER_KEY_MESSAGE } from "@/lib/ai/platform-keys"
 import { decryptCredential } from "@/lib/crypto"
+import { serverEnv } from "@/lib/env/server"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import {
   fetchWordPressCategories,
@@ -52,17 +53,30 @@ export async function getOwnedSiteCredentials(
   return { baseUrl: site.base_url, username: site.wp_username, applicationPassword }
 }
 
-/** Kunci OpenRouter BYOK pengguna (kunci platform hanya bila `PLATFORM_KEY_ALLOWED=true`). */
-async function requireOpenRouterKey(userId: string): Promise<string> {
-  const apiKey = resolveOpenRouterKey((await getUserDecryptedKeys(userId)).openrouterKey)
-  if (!apiKey) throw badRequest(MISSING_OPENROUTER_KEY_MESSAGE)
-  return apiKey
+/**
+ * Gateway LLM per request dengan kunci OpenRouter BYOK pengguna (kunci platform hanya bila
+ * `PLATFORM_KEY_ALLOWED=true`) dan model `DEFAULT_AI_MODEL` WP Tools; tanpa kunci → 400.
+ * Trace LangSmith tenant dikirim tuntas setelah `run` selesai.
+ */
+async function withUserLlm<T>(userId: string, run: (llm: LlmGateway) => Promise<T>): Promise<T> {
+  const userKeys = await getUserDecryptedKeys(userId)
+  const llm = createLlmGateway({
+    apiKey: userKeys.openrouterKey,
+    modelCandidates: [serverEnv().DEFAULT_AI_MODEL],
+    tracing: userKeys,
+  })
+  if (!llm.hasKey) throw badRequest(MISSING_OPENROUTER_KEY_MESSAGE)
+  try {
+    return await run(llm)
+  } finally {
+    await llm.flush()
+  }
 }
 
 /** Panggil LLM; detail error upstream hanya masuk log server (via `cause`), bukan ke client. */
-async function callLlmJson<T>(params: CallAiJsonParams): Promise<T> {
+async function callLlmJson<T>(llm: LlmGateway, request: LlmJsonRequest): Promise<T> {
   try {
-    return await callOpenRouterJson<T>(params)
+    return await llm.completeJson<T>(request)
   } catch (err: unknown) {
     throw new ApiError(
       502,
@@ -96,28 +110,29 @@ export async function suggestCategories(
   input: WpToolPromptInput
 ): Promise<{ suggestions: CategorySuggestion[]; existingCount: number }> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
-  const apiKey = await requireOpenRouterKey(userId)
+  return withUserLlm(userId, async (llm) => {
+    const existingRes = await fetchWordPressCategories(site)
+    const existingCategories =
+      existingRes.ok && Array.isArray(existingRes.categories)
+        ? existingRes.categories.map((c) => ({ id: c.id, name: c.name, slug: c.slug, parent: c.parent }))
+        : []
 
-  const existingRes = await fetchWordPressCategories(site)
-  const existingCategories =
-    existingRes.ok && Array.isArray(existingRes.categories)
-      ? existingRes.categories.map((c) => ({ id: c.id, name: c.name, slug: c.slug, parent: c.parent }))
-      : []
+    const promptConfig = loadSectionedPrompt("wp-tools-categories-suggest.md")
+    const analysis = await callLlmJson<{ suggestions?: unknown }>(llm, {
+      systemPrompt: renderPrompt(promptConfig.systemPrompt, {
+        existingCategories: JSON.stringify(existingCategories, null, 2),
+      }),
+      userPrompt: renderPrompt(promptConfig.userPromptTemplate, { userPrompt: input.prompt }),
+      jsonSchema: promptConfig.outputSchema,
+      runName: "Panitera WP Tools: categories/suggest",
+      tags: ["wp_tools", "panitera"],
+    })
 
-  const promptConfig = loadSectionedPrompt("wp-tools-categories-suggest.md")
-  const analysis = await callLlmJson<{ suggestions?: unknown }>({
-    apiKey,
-    systemPrompt: renderPrompt(promptConfig.systemPrompt, {
-      existingCategories: JSON.stringify(existingCategories, null, 2),
-    }),
-    userPrompt: renderPrompt(promptConfig.userPromptTemplate, { userPrompt: input.prompt }),
-    jsonSchema: promptConfig.outputSchema,
+    return {
+      suggestions: arrayOf<CategorySuggestion>(analysis?.suggestions),
+      existingCount: existingCategories.length,
+    }
   })
-
-  return {
-    suggestions: arrayOf<CategorySuggestion>(analysis?.suggestions),
-    existingCount: existingCategories.length,
-  }
 }
 
 interface AuthorSuggestion {
@@ -156,30 +171,31 @@ export async function suggestAuthors(
   input: WpToolPromptInput
 ): Promise<{ suggestions: AuthorSuggestion[]; existingCount: number }> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
-  const apiKey = await requireOpenRouterKey(userId)
+  return withUserLlm(userId, async (llm) => {
+    const existingRes = await fetchWordPressUsers(site)
+    const existingUsers =
+      existingRes.ok && Array.isArray(existingRes.users)
+        ? existingRes.users.map((u) => ({ id: u.id, name: u.name, slug: u.slug, bio: u.description }))
+        : []
 
-  const existingRes = await fetchWordPressUsers(site)
-  const existingUsers =
-    existingRes.ok && Array.isArray(existingRes.users)
-      ? existingRes.users.map((u) => ({ id: u.id, name: u.name, slug: u.slug, bio: u.description }))
-      : []
+    const domainHost = domainHostOf(site.baseUrl)
+    const promptConfig = loadSectionedPrompt("wp-tools-authors-suggest.md")
+    const analysis = await callLlmJson<{ suggestions?: unknown }>(llm, {
+      systemPrompt: renderPrompt(promptConfig.systemPrompt, {
+        existingUsers: JSON.stringify(existingUsers, null, 2),
+        domainHost,
+      }),
+      userPrompt: renderPrompt(promptConfig.userPromptTemplate, { userPrompt: input.prompt, domainHost }),
+      jsonSchema: promptConfig.outputSchema,
+      runName: "Panitera WP Tools: authors/suggest",
+      tags: ["wp_tools", "panitera"],
+    })
 
-  const domainHost = domainHostOf(site.baseUrl)
-  const promptConfig = loadSectionedPrompt("wp-tools-authors-suggest.md")
-  const analysis = await callLlmJson<{ suggestions?: unknown }>({
-    apiKey,
-    systemPrompt: renderPrompt(promptConfig.systemPrompt, {
-      existingUsers: JSON.stringify(existingUsers, null, 2),
-      domainHost,
-    }),
-    userPrompt: renderPrompt(promptConfig.userPromptTemplate, { userPrompt: input.prompt, domainHost }),
-    jsonSchema: promptConfig.outputSchema,
+    return {
+      suggestions: arrayOf<AuthorSuggestion>(analysis?.suggestions).map(normalizeAuthorSuggestion),
+      existingCount: existingUsers.length,
+    }
   })
-
-  return {
-    suggestions: arrayOf<AuthorSuggestion>(analysis?.suggestions).map(normalizeAuthorSuggestion),
-    existingCount: existingUsers.length,
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -220,25 +236,33 @@ function toPlainExcerpt(html: string): string {
     .slice(0, CANDIDATE_EXCERPT_CHARS)
 }
 
-export async function analyzeInternalLinks(
-  supabase: SupabaseClient,
-  userId: string,
-  input: LinkAnalyzeInput
-): Promise<{
+interface InternalLinkAnalysis {
   topicSummary: string
   searchQueries: string[]
   recommendations: LinkRecommendation[]
   message?: string
-}> {
+}
+
+export async function analyzeInternalLinks(
+  supabase: SupabaseClient,
+  userId: string,
+  input: LinkAnalyzeInput
+): Promise<InternalLinkAnalysis> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
-  const apiKey = await requireOpenRouterKey(userId)
+  return withUserLlm(userId, (llm) => recommendInternalLinks(llm, site, input))
+}
+
+async function recommendInternalLinks(
+  llm: LlmGateway,
+  site: SiteCredentials,
+  input: LinkAnalyzeInput
+): Promise<InternalLinkAnalysis> {
   const articleUrl = input.newArticleUrl
   const targetKeyword = input.targetKeyword || ""
 
   // Tahap AI 1: ringkasan topik & query pencarian WP REST API
   const extractPrompt = loadSectionedPrompt("wp-tools-link-extract.md")
-  const extracted = await callLlmJson<{ topicSummary?: unknown; searchQueries?: unknown }>({
-    apiKey,
+  const extracted = await callLlmJson<{ topicSummary?: unknown; searchQueries?: unknown }>(llm, {
     systemPrompt: extractPrompt.systemPrompt,
     userPrompt: renderPrompt(extractPrompt.userPromptTemplate, {
       cleanUrl: articleUrl,
@@ -246,6 +270,8 @@ export async function analyzeInternalLinks(
       extraInstructions: input.extraInstructions || "-",
     }),
     jsonSchema: extractPrompt.outputSchema,
+    runName: "Panitera WP Tools: link-building/extract",
+    tags: ["wp_tools", "panitera"],
   })
   const topicSummary = typeof extracted?.topicSummary === "string" ? extracted.topicSummary : ""
   const aiQueries = arrayOf<unknown>(extracted?.searchQueries).filter(
@@ -279,8 +305,7 @@ export async function analyzeInternalLinks(
 
   // Tahap AI 2: titik sisip & anchor text alami pada naskah kandidat
   const recommendPrompt = loadSectionedPrompt("wp-tools-link-recommend.md")
-  const analysis = await callLlmJson<{ recommendations?: unknown }>({
-    apiKey,
+  const analysis = await callLlmJson<{ recommendations?: unknown }>(llm, {
     systemPrompt: renderPrompt(recommendPrompt.systemPrompt, {
       cleanUrl: articleUrl,
       topicSummary,
@@ -300,6 +325,8 @@ export async function analyzeInternalLinks(
       cleanUrl: articleUrl,
     }),
     jsonSchema: recommendPrompt.outputSchema,
+    runName: "Panitera WP Tools: link-building/recommend",
+    tags: ["wp_tools", "panitera"],
   })
 
   const recommendations = arrayOf<LinkRecommendation>(analysis?.recommendations).filter(

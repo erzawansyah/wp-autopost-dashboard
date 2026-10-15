@@ -2,23 +2,36 @@
  * Universal Tool: Keyword & LSI Suggestions (keyword_suggestions)
  * Mengagregasi saran penelusuran (autocomplete), query turunan, dan entitas LSI
  * dari SearXNG (jika aktif) dengan fallback multi-source ke Google & Bing Suggest.
+ * Kegagalan satu sumber diabaikan (fallback); pembatalan run (`signal`) menghentikan seluruh rantai.
  */
 
+import { z } from "zod"
 import { getPlatformSearxngUrl, safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
+import {
+  failureFromError,
+  toolFailure,
+  toolSuccess,
+  withTimeout,
+  type ToolOutcome,
+} from "@/core/shared/tools/contract"
 
 export interface KeywordSuggestionsParams {
   query: string
   language?: string
   limit?: number
   searxngUrl?: string
+  /** Sinyal pembatalan run; request yang sedang berjalan ikut dibatalkan. */
+  signal?: AbortSignal
 }
 
-export interface KeywordSuggestionsResult {
-  query: string
-  suggestions: string[]
-  sources: string[]
-  total: number
-}
+export const KeywordSuggestionsResultSchema = z.object({
+  query: z.string(),
+  suggestions: z.array(z.string()),
+  sources: z.array(z.string()),
+  total: z.number().int().nonnegative(),
+})
+
+export type KeywordSuggestionsResult = z.infer<typeof KeywordSuggestionsResultSchema>
 
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -30,16 +43,16 @@ const SEARXNG_MAX_BYTES = 2 * 1024 * 1024
  * 1. Ambil saran kata kunci dari SearXNG (jika instance tersedia).
  * URL instance bisa diisi pengguna → lewat `safeFetch` (hanya endpoint SearXNG platform yang tepercaya).
  */
-async function fetchFromSearxng(query: string, searxngUrl: string): Promise<string[]> {
+async function fetchFromSearxng(query: string, searxngUrl: string, signal?: AbortSignal): Promise<string[]> {
   try {
     const base = toSearxngBaseUrl(searxngUrl)
-    
+
     // Coba endpoint autocompleter SearXNG terlebih dahulu
     try {
       const autoUrl = `${base}/autocompleter?q=${encodeURIComponent(query)}`
       const autoRes = await safeFetch(
         autoUrl,
-        { headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" } },
+        { headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" }, signal },
         { timeoutMs: 4000, maxBytes: SEARXNG_MAX_BYTES, platformSearxng: true }
       )
       if (autoRes.ok) {
@@ -53,6 +66,7 @@ async function fetchFromSearxng(query: string, searxngUrl: string): Promise<stri
         }
       }
     } catch {
+      signal?.throwIfAborted()
       // Lanjut coba endpoint search JSON
     }
 
@@ -60,7 +74,7 @@ async function fetchFromSearxng(query: string, searxngUrl: string): Promise<stri
     const searchUrl = `${base}/search?q=${encodeURIComponent(query)}&format=json&categories=general`
     const searchRes = await safeFetch(
       searchUrl,
-      { headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" } },
+      { headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "application/json" }, signal },
       { timeoutMs: 5000, maxBytes: SEARXNG_MAX_BYTES, platformSearxng: true }
     )
 
@@ -73,6 +87,7 @@ async function fetchFromSearxng(query: string, searxngUrl: string): Promise<stri
 
     return []
   } catch {
+    signal?.throwIfAborted()
     return []
   }
 }
@@ -80,7 +95,7 @@ async function fetchFromSearxng(query: string, searxngUrl: string): Promise<stri
 /**
  * 2. Ambil saran kata kunci dari Google Suggest API (Public JSON)
  */
-async function fetchFromGoogleSuggest(query: string, language: string = "id"): Promise<string[]> {
+async function fetchFromGoogleSuggest(query: string, language: string, signal?: AbortSignal): Promise<string[]> {
   try {
     const hl = language === "en" ? "en" : "id"
     const gl = language === "en" ? "us" : "id"
@@ -93,7 +108,7 @@ async function fetchFromGoogleSuggest(query: string, language: string = "id"): P
         "User-Agent": DEFAULT_USER_AGENT,
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(5000),
+      signal: withTimeout(signal, 5000),
     })
 
     if (!res.ok) return []
@@ -105,6 +120,7 @@ async function fetchFromGoogleSuggest(query: string, language: string = "id"): P
 
     return []
   } catch {
+    signal?.throwIfAborted()
     return []
   }
 }
@@ -112,7 +128,7 @@ async function fetchFromGoogleSuggest(query: string, language: string = "id"): P
 /**
  * 3. Ambil saran kata kunci dari Bing Suggest API (Public OSJSON)
  */
-async function fetchFromBingSuggest(query: string): Promise<string[]> {
+async function fetchFromBingSuggest(query: string, signal?: AbortSignal): Promise<string[]> {
   try {
     const url = `https://api.bing.com/osjson.aspx?query=${encodeURIComponent(query)}`
     const res = await fetch(url, {
@@ -120,7 +136,7 @@ async function fetchFromBingSuggest(query: string): Promise<string[]> {
         "User-Agent": DEFAULT_USER_AGENT,
         Accept: "application/json",
       },
-      signal: AbortSignal.timeout(5000),
+      signal: withTimeout(signal, 5000),
     })
 
     if (!res.ok) return []
@@ -132,6 +148,7 @@ async function fetchFromBingSuggest(query: string): Promise<string[]> {
 
     return []
   } catch {
+    signal?.throwIfAborted()
     return []
   }
 }
@@ -141,15 +158,22 @@ async function fetchFromBingSuggest(query: string): Promise<string[]> {
  */
 export async function getKeywordSuggestions(
   params: KeywordSuggestionsParams
-): Promise<KeywordSuggestionsResult> {
+): Promise<ToolOutcome<KeywordSuggestionsResult>> {
   const query = (params.query || "").trim()
-  if (!query) {
-    return { query: "", suggestions: [], sources: [], total: 0 }
-  }
+  if (!query) return toolFailure("invalid_input", "Kata kunci (query) tidak boleh kosong.")
 
+  try {
+    return toolSuccess(await collectSuggestions(query, params))
+  } catch (err: unknown) {
+    return failureFromError(err, { signal: params.signal })
+  }
+}
+
+async function collectSuggestions(query: string, params: KeywordSuggestionsParams): Promise<KeywordSuggestionsResult> {
   const limit = Math.max(1, Math.min(params.limit || 15, 30))
   const language = params.language || "id"
   const searxngUrl = params.searxngUrl || getPlatformSearxngUrl()
+  const { signal } = params
 
   const collected: string[] = []
   const sources: string[] = []
@@ -174,21 +198,21 @@ export async function getKeywordSuggestions(
 
   // Tingkat 1: Coba SearXNG jika URL tersedia
   if (searxngUrl) {
-    const searxngItems = await fetchFromSearxng(query, searxngUrl)
+    const searxngItems = await fetchFromSearxng(query, searxngUrl, signal)
     if (searxngItems.length > 0) {
       addSuggestions(searxngItems, "searxng")
     }
   }
 
   // Tingkat 2: Ambil dari Google Suggest (Sangat akurat untuk SEO & LSI lokal)
-  const googleItems = await fetchFromGoogleSuggest(query, language)
+  const googleItems = await fetchFromGoogleSuggest(query, language, signal)
   if (googleItems.length > 0) {
     addSuggestions(googleItems, "google")
   }
 
   // Tingkat 3: Jika belum mencapai kuota limit, lengkapi dari Bing Suggest
   if (collected.length < limit) {
-    const bingItems = await fetchFromBingSuggest(query)
+    const bingItems = await fetchFromBingSuggest(query, signal)
     if (bingItems.length > 0) {
       addSuggestions(bingItems, "bing")
     }

@@ -10,16 +10,29 @@
  * 4. SearXNG (instance milik pengguna, atau SearXNG internal platform)
  * 5. Bing Web Scraper (Live Web Scraper dengan rotasi User-Agent & auto-decode direct URL)
  * 6. Open Knowledge Base Wikipedia (Fallback Ensiklopedis Cepat & Bebas Biaya)
+ *
+ * Kegagalan satu provider diabaikan agar fallback berikutnya berjalan; hasil kosong tetap sukses
+ * (`ok: true` dengan array kosong). Pembatalan run (`signal`) menghentikan seluruh rantai → `aborted`.
  */
 
+import { z } from "zod"
 import { getPlatformSearxngUrl, safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
+import {
+  failureFromError,
+  toolFailure,
+  toolSuccess,
+  withTimeout,
+  type ToolOutcome,
+} from "@/core/shared/tools/contract"
 
-export interface WebSearchResult {
-  title: string
-  url: string
-  snippet: string
-  source: string
-}
+export const WebSearchResultSchema = z.object({
+  title: z.string(),
+  url: z.string(),
+  snippet: z.string(),
+  source: z.string(),
+})
+
+export type WebSearchResult = z.infer<typeof WebSearchResultSchema>
 
 export type WebSearchProvider =
   | "auto"
@@ -45,6 +58,8 @@ export interface WebSearchParams {
   keys?: WebSearchKeys
   /** Instance SearXNG milik pengguna. Default: SearXNG internal platform. */
   searxngUrl?: string
+  /** Sinyal pembatalan run; request yang sedang berjalan ikut dibatalkan. */
+  signal?: AbortSignal
 }
 
 /**
@@ -212,14 +227,14 @@ function isResultsRelevant(query: string, results: WebSearchResult[]): boolean {
   return matchRatio >= 0.6
 }
 
-async function fetchBingHtml(queryText: string, language: string): Promise<WebSearchResult[]> {
+async function fetchBingHtml(queryText: string, language: string, signal?: AbortSignal): Promise<WebSearchResult[]> {
   try {
     const langParam = language === "en" ? "en" : "id"
     const url = `https://www.bing.com/search?q=${encodeURIComponent(queryText)}&setlang=${langParam}`
 
     const res = await fetch(url, {
       headers: getRandomBrowserHeaders(),
-      signal: AbortSignal.timeout(8000),
+      signal: withTimeout(signal, 8000),
     })
 
     if (!res.ok) return []
@@ -260,6 +275,7 @@ async function fetchBingHtml(queryText: string, language: string): Promise<WebSe
 
     return results
   } catch {
+    signal?.throwIfAborted()
     return []
   }
 }
@@ -267,18 +283,23 @@ async function fetchBingHtml(queryText: string, language: string): Promise<WebSe
 /**
  * 1. Bing Web Live Scraper (Zero-Config dengan Relevance & Anti-Decoy Guard)
  */
-async function searchBingWebScraper(query: string, limit: number, language: string): Promise<WebSearchResult[]> {
+async function searchBingWebScraper(
+  query: string,
+  limit: number,
+  language: string,
+  signal?: AbortSignal
+): Promise<WebSearchResult[]> {
   const cleaned = extractSearchKeywords(query)
 
   // 1. Coba pencarian dengan keyword yang sudah dinormalisasi (menghindari trigger bot Bing pada tanda tanya / stop words)
-  let results = await fetchBingHtml(cleaned, language)
+  let results = await fetchBingHtml(cleaned, language, signal)
   if (results.length > 0 && isResultsRelevant(query, results)) {
     return results.slice(0, limit)
   }
 
   // 2. Jika kueri berbeda dan kueri pertama tidak relevan/kosong, coba kueri asli
   if (cleaned !== query) {
-    results = await fetchBingHtml(query, language)
+    results = await fetchBingHtml(query, language, signal)
     if (results.length > 0 && isResultsRelevant(query, results)) {
       return results.slice(0, limit)
     }
@@ -292,7 +313,12 @@ async function searchBingWebScraper(query: string, limit: number, language: stri
 /**
  * 2. Pencarian via Tavily Search API (jika API key tersedia)
  */
-async function searchWithTavily(query: string, limit: number, apiKey: string): Promise<WebSearchResult[]> {
+async function searchWithTavily(
+  query: string,
+  limit: number,
+  apiKey: string,
+  signal?: AbortSignal
+): Promise<WebSearchResult[]> {
   try {
     const res = await fetch("https://api.tavily.com/search", {
       method: "POST",
@@ -303,7 +329,7 @@ async function searchWithTavily(query: string, limit: number, apiKey: string): P
         search_depth: "basic",
         max_results: limit,
       }),
-      signal: AbortSignal.timeout(10000),
+      signal: withTimeout(signal, 10000),
     })
 
     if (!res.ok) return []
@@ -317,6 +343,7 @@ async function searchWithTavily(query: string, limit: number, apiKey: string): P
       source: "tavily",
     }))
   } catch (err) {
+    signal?.throwIfAborted()
     console.warn("[web-search] Gagal memanggil Tavily Search:", err)
     return []
   }
@@ -325,7 +352,12 @@ async function searchWithTavily(query: string, limit: number, apiKey: string): P
 /**
  * 3. Pencarian via Brave Search API (jika BRAVE_API_KEY tersedia)
  */
-async function searchWithBrave(query: string, limit: number, apiKey: string): Promise<WebSearchResult[]> {
+async function searchWithBrave(
+  query: string,
+  limit: number,
+  apiKey: string,
+  signal?: AbortSignal
+): Promise<WebSearchResult[]> {
   try {
     const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${limit}`
     const res = await fetch(url, {
@@ -334,7 +366,7 @@ async function searchWithBrave(query: string, limit: number, apiKey: string): Pr
         "Accept-Encoding": "gzip",
         "X-Subscription-Token": apiKey,
       },
-      signal: AbortSignal.timeout(10000),
+      signal: withTimeout(signal, 10000),
     })
 
     if (!res.ok) {
@@ -353,6 +385,7 @@ async function searchWithBrave(query: string, limit: number, apiKey: string): Pr
       source: "brave",
     }))
   } catch (err) {
+    signal?.throwIfAborted()
     console.warn("[web-search] Gagal memanggil Brave Search API:", err)
     return []
   }
@@ -362,7 +395,12 @@ async function searchWithBrave(query: string, limit: number, apiKey: string): Pr
  * 4. Pencarian via SearxNG Metasearch API
  * URL bisa berasal dari pengguna, jadi request wajib lewat `safeFetch` (Anti-SSRF).
  */
-async function searchWithSearxngWeb(query: string, limit: number, searxngUrl: string): Promise<WebSearchResult[]> {
+async function searchWithSearxngWeb(
+  query: string,
+  limit: number,
+  searxngUrl: string,
+  signal?: AbortSignal
+): Promise<WebSearchResult[]> {
   try {
     const base = toSearxngBaseUrl(searxngUrl)
     const url = `${base}/search?q=${encodeURIComponent(query)}&categories=general&format=json`
@@ -373,6 +411,7 @@ async function searchWithSearxngWeb(query: string, limit: number, searxngUrl: st
           ...getRandomBrowserHeaders(),
           "Accept": "application/json",
         },
+        signal,
       },
       { timeoutMs: 10000, maxBytes: 5 * 1024 * 1024, platformSearxng: true }
     )
@@ -393,6 +432,7 @@ async function searchWithSearxngWeb(query: string, limit: number, searxngUrl: st
       source: r.engine || "searxng",
     }))
   } catch (err) {
+    signal?.throwIfAborted()
     console.warn("[web-search] Gagal memanggil SearxNG Web API:", err)
     return []
   }
@@ -401,13 +441,19 @@ async function searchWithSearxngWeb(query: string, limit: number, searxngUrl: st
 /**
  * 5. Pencarian via SerpAPI (jika API key tersedia)
  */
-async function searchWithSerpApi(query: string, limit: number, apiKey: string, language: string): Promise<WebSearchResult[]> {
+async function searchWithSerpApi(
+  query: string,
+  limit: number,
+  apiKey: string,
+  language: string,
+  signal?: AbortSignal
+): Promise<WebSearchResult[]> {
   try {
     const gl = language === "en" ? "us" : "id"
     const hl = language === "en" ? "en" : "id"
     const url = `https://serpapi.com/search.json?q=${encodeURIComponent(query)}&gl=${gl}&hl=${hl}&num=${limit}&api_key=${encodeURIComponent(apiKey)}`
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+    const res = await fetch(url, { signal: withTimeout(signal, 10000) })
     if (!res.ok) return []
 
     const data = await res.json()
@@ -421,6 +467,7 @@ async function searchWithSerpApi(query: string, limit: number, apiKey: string, l
       source: "serpapi",
     }))
   } catch (err) {
+    signal?.throwIfAborted()
     console.warn("[web-search] Gagal memanggil SerpAPI:", err)
     return []
   }
@@ -429,14 +476,19 @@ async function searchWithSerpApi(query: string, limit: number, apiKey: string, l
 /**
  * 4. Pencarian via Open Knowledge Base (Wikipedia CirrusSearch Full-Text + Page Extract)
  */
-async function searchWithOpenKnowledge(query: string, limit: number, language: string): Promise<WebSearchResult[]> {
+async function searchWithOpenKnowledge(
+  query: string,
+  limit: number,
+  language: string,
+  signal?: AbortSignal
+): Promise<WebSearchResult[]> {
   try {
     // Subdomain berasal dari input LLM/pengguna: dinormalisasi agar host tetap *.wikipedia.org
     const langSubdomain = normalizeLanguage(language)
     const cleaned = extractSearchKeywords(query)
     const customUserAgent = "WPAutopostDashboard/1.0 (https://github.com/erzawansyah/wp-autopost-dashboard)"
     const fetchWikipedia = (url: string) =>
-      safeFetch(url, { headers: { "User-Agent": customUserAgent } }, { timeoutMs: 8000 })
+      safeFetch(url, { headers: { "User-Agent": customUserAgent }, signal }, { timeoutMs: 8000 })
 
     // 1. CirrusSearch: Pencarian teks lengkap Wikipedia (menemukan fakta, definisi, dan jawaban atas pertanyaan faktual)
     const searchUrl = `https://${langSubdomain}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=${limit}&utf8=&format=json`
@@ -510,6 +562,7 @@ async function searchWithOpenKnowledge(query: string, limit: number, language: s
       }
     })
   } catch (err) {
+    signal?.throwIfAborted()
     console.warn("[web-search] Gagal memanggil Open Knowledge Base:", err)
     return []
   }
@@ -518,13 +571,22 @@ async function searchWithOpenKnowledge(query: string, limit: number, language: s
 /**
  * Universal Tool: Web Search (Hybrid Multi-Provider)
  */
-export async function webSearch(params: WebSearchParams): Promise<WebSearchResult[]> {
+export async function webSearch(params: WebSearchParams): Promise<ToolOutcome<WebSearchResult[]>> {
   const query = params.query.trim()
+  if (!query) return toolFailure("invalid_input", "Kata kunci pencarian kosong.")
+
+  try {
+    return toolSuccess(await runSearchPipeline(query, params))
+  } catch (err: unknown) {
+    return failureFromError(err, { signal: params.signal })
+  }
+}
+
+async function runSearchPipeline(query: string, params: WebSearchParams): Promise<WebSearchResult[]> {
   const limit = params.limit ?? 3
   const language = params.language || "id"
   const provider = params.provider || "auto"
-
-  if (!query) return []
+  const { signal } = params
 
   // 1. API key hanya dari parameter (BYOK milik pengguna), masing-masing untuk provider-nya sendiri.
   //    Kunci milik operator/server tidak pernah dipakai sebagai cadangan.
@@ -532,47 +594,48 @@ export async function webSearch(params: WebSearchParams): Promise<WebSearchResul
   const braveKey = params.keys?.braveKey?.trim() || undefined
   const serpKey = params.keys?.serpapiKey?.trim() || undefined
   const searxngUrl = params.searxngUrl?.trim() || getPlatformSearxngUrl()
+  const openKnowledge = () => searchWithOpenKnowledge(query, limit, language, signal)
 
   if (provider === "bing_scraper") {
-    const results = await searchBingWebScraper(query, limit, language)
+    const results = await searchBingWebScraper(query, limit, language, signal)
     if (results.length > 0) return results
-    return searchWithOpenKnowledge(query, limit, language)
+    return openKnowledge()
   }
 
   if (provider === "tavily") {
     if (tavilyKey) {
-      const results = await searchWithTavily(query, limit, tavilyKey)
+      const results = await searchWithTavily(query, limit, tavilyKey, signal)
       if (results.length > 0) return results
     }
-    return searchWithOpenKnowledge(query, limit, language)
+    return openKnowledge()
   }
 
   if (provider === "brave") {
     if (braveKey) {
-      const results = await searchWithBrave(query, limit, braveKey)
+      const results = await searchWithBrave(query, limit, braveKey, signal)
       if (results.length > 0) return results
     }
-    return searchWithOpenKnowledge(query, limit, language)
+    return openKnowledge()
   }
 
   if (provider === "searxng") {
     if (searxngUrl) {
-      const results = await searchWithSearxngWeb(query, limit, searxngUrl)
+      const results = await searchWithSearxngWeb(query, limit, searxngUrl, signal)
       if (results.length > 0) return results
     }
-    return searchWithOpenKnowledge(query, limit, language)
+    return openKnowledge()
   }
 
   if (provider === "serpapi") {
     if (serpKey) {
-      const results = await searchWithSerpApi(query, limit, serpKey, language)
+      const results = await searchWithSerpApi(query, limit, serpKey, language, signal)
       if (results.length > 0) return results
     }
-    return searchWithOpenKnowledge(query, limit, language)
+    return openKnowledge()
   }
 
   if (provider === "open_knowledge") {
-    return searchWithOpenKnowledge(query, limit, language)
+    return openKnowledge()
   }
 
   // 2. Mode DEFAULT ("auto"): Pipeline Bertingkat Cerdas
@@ -580,32 +643,32 @@ export async function webSearch(params: WebSearchParams): Promise<WebSearchResul
 
   // 2.1 Coba Tavily jika API key tersedia (BYOK Utama)
   if (tavilyKey) {
-    const tavilyRes = await searchWithTavily(query, limit, tavilyKey)
+    const tavilyRes = await searchWithTavily(query, limit, tavilyKey, signal)
     if (tavilyRes.length > 0) return tavilyRes
   }
 
   // 2.2 Coba Brave Search jika API key tersedia (BYOK Privasi Tinggi)
   if (braveKey) {
-    const braveRes = await searchWithBrave(query, limit, braveKey)
+    const braveRes = await searchWithBrave(query, limit, braveKey, signal)
     if (braveRes.length > 0) return braveRes
   }
 
   // 2.3 Coba SerpAPI jika API key tersedia (Official API)
   if (serpKey) {
-    const serpRes = await searchWithSerpApi(query, limit, serpKey, language)
+    const serpRes = await searchWithSerpApi(query, limit, serpKey, language, signal)
     if (serpRes.length > 0) return serpRes
   }
 
   // 2.4 Coba SearxNG (Kedua Terakhir: Metasearch Engine Tanpa Kuota API)
   if (searxngUrl) {
-    const searxngRes = await searchWithSearxngWeb(query, limit, searxngUrl)
+    const searxngRes = await searchWithSearxngWeb(query, limit, searxngUrl, signal)
     if (searxngRes.length > 0) return searxngRes
   }
 
   // 2.5 Fallback Akhir: Bing Web Live Scraper
-  const bingScraperRes = await searchBingWebScraper(query, limit, language)
+  const bingScraperRes = await searchBingWebScraper(query, limit, language, signal)
   if (bingScraperRes.length > 0) return bingScraperRes
 
   // 2.6 Fallback Terakhir: Open Knowledge Base Wikipedia
-  return searchWithOpenKnowledge(query, limit, language)
+  return openKnowledge()
 }

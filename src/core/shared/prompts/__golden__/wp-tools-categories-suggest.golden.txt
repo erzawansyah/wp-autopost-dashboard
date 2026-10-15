@@ -1,0 +1,90 @@
+# GOLDEN prompt "wp-tools-categories-suggest" · versi 8230cd257d83
+# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
+
+===== [SYSTEM_PROMPT] dirender =====
+Kamu adalah arsitek taksonomi konten & SEO WordPress.
+Tugasmu merancang struktur KATEGORI BARU di website WordPress berdasarkan instruksi pengguna.
+Kategori baru harus relevan, logis, tidak bertabrakan/duplikasi dengan kategori yang SUDAH ADA.
+
+Daftar Kategori yang SUDAH ADA di WordPress:
+[
+  {
+    "id": 3,
+    "name": "Kesehatan",
+    "slug": "kesehatan",
+    "parent": 0
+  }
+]
+
+Pedoman:
+1. Rancang 3 - 6 kategori baru yang terstruktur dengan baik.
+2. 'name': Nama kategori formal dan rapi (Title Case, bahasa Indonesia).
+3. 'slug': Slug URL yang bersih dan SEO-friendly (lowercase dengan tanda hubung).
+4. 'parentId': ID kategori induk jika kategori ini merupakan sub-kategori dari kategori yang SUDAH ADA, atau 0 jika kategori tingkat atas.
+5. 'description': Deskripsi SEO singkat 1-2 kalimat untuk meta description arsip kategori.
+6. 'rationale': Alasan mengapa kategori ini memperkuat struktur website.
+
+===== [USER_PROMPT] dirender =====
+Instruksi Pengguna: "Persona ahli gizi yang menulis santai untuk pembaca awam."
+
+Keluarkan JSON murni persis dengan format berikut:
+{
+  "suggestions": [
+    {
+      "name": "Nama Kategori",
+      "slug": "nama-kategori",
+      "parentId": 0,
+      "parentName": "Nama Induk Kategori jika sub-kategori",
+      "description": "Deskripsi singkat arsip kategori...",
+      "rationale": "Alasan perlunya kategori ini..."
+    }
+  ]
+}
+
+===== [OUTPUT_SCHEMA] =====
+{
+  "type": "object",
+  "properties": {
+    "suggestions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "parentId": {
+            "type": "integer"
+          },
+          "parentName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "slug",
+          "parentId",
+          "description",
+          "rationale"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "suggestions"
+  ]
+}

@@ -1,3 +1,4 @@
+import { LlmUsageLedger, type LlmModelUsage } from "@/core/shared/llm/usage"
 import { ArticleSource, FeaturedImageMeta, InContentImage } from "../types/contracts"
 import { isSensitiveKey, redactSecretsInText } from "./redact"
 
@@ -13,6 +14,7 @@ export interface AgentStepEvent {
   argsPreview?: Record<string, string | number | boolean>
   /** Ringkasan 1 baris yang informatif dan terpadu (maksimal 240 karakter) */
   summary: string
+  /** Token panggilan model ini (tampilan saja; total run diambil dari ledger `RunRecorder.usage`). */
   tokens?: { prompt: number; completion: number }
   requestedTools?: string[]
   timestamp: string
@@ -21,10 +23,20 @@ export interface AgentStepEvent {
 export interface RunTelemetrySummary {
   status: "running" | "completed" | "failed"
   stopReason?: string
+  /** Langkah model agent loop (event `model_call`). */
   modelCalls: number
   toolCalls: number
+  /** Token seluruh panggilan LLM run (agent loop, subagent, pre-resolve, finalize). */
   tokensPrompt: number
   tokensCompletion: number
+  tokensTotal: number
+  /** Jumlah panggilan LLM sukses / gagal setelah retry di seluruh run. */
+  llmCalls: number
+  llmFailedCalls: number
+  /** Biaya USD menurut OpenRouter (`usage.cost`); null bila tidak dilaporkan. */
+  costUsd: number | null
+  /** Rincian token & biaya per model (model utama dan cadangan). */
+  modelUsage: LlmModelUsage[]
   durationMs: number
   wordCount: number
   sourcesCount: number
@@ -41,8 +53,9 @@ export class RunRecorder {
   private startTime: number = Date.now()
   private modelCalls: number = 0
   private toolCalls: number = 0
-  private tokensPrompt: number = 0
-  private tokensCompletion: number = 0
+
+  /** Ledger token & biaya seluruh panggilan LLM run ini (diisi gateway LLM). */
+  public readonly usage = new LlmUsageLedger()
 
   // Koleksi data terstruktur yang dikumpulkan selama agent berjalan
   public readonly sources: Map<string, ArticleSource> = new Map()
@@ -91,10 +104,6 @@ export class RunRecorder {
 
     if (event.kind === "model_call") this.modelCalls++
     if (event.kind === "tool_call" && event.status !== "deduped" && event.status !== "blocked") this.toolCalls++
-    if (event.tokens) {
-      this.tokensPrompt += event.tokens.prompt || 0
-      this.tokensCompletion += event.tokens.completion || 0
-    }
 
     this.events.push(fullEvent)
 
@@ -114,13 +123,19 @@ export class RunRecorder {
   }
 
   public getSummary(status: "running" | "completed" | "failed", stopReason?: string, wordCount: number = 0, errorMessage?: string): RunTelemetrySummary {
+    const usage = this.usage.snapshot()
     return {
       status,
       stopReason,
       modelCalls: this.modelCalls,
       toolCalls: this.toolCalls,
-      tokensPrompt: this.tokensPrompt,
-      tokensCompletion: this.tokensCompletion,
+      tokensPrompt: usage.promptTokens,
+      tokensCompletion: usage.completionTokens,
+      tokensTotal: usage.totalTokens,
+      llmCalls: usage.calls,
+      llmFailedCalls: usage.failedCalls,
+      costUsd: usage.costUsd,
+      modelUsage: usage.byModel,
       durationMs: Date.now() - this.startTime,
       wordCount,
       sourcesCount: this.sources.size,

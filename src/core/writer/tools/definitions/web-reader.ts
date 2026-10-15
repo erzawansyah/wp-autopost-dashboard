@@ -1,7 +1,15 @@
 import { z } from "zod"
 import { tool } from "@langchain/core/tools"
-import { readWebContent } from "../../../shared/tools/web-reader"
+import { readWebContent, WebReaderData, WebReaderDataSchema } from "../../../shared/tools/web-reader"
 import { ToolDefinition, ToolRuntimeContext } from "../registry"
+import { resolveToolSignal, summarizeToolOutcome, TOOL_RESPONSE_FORMAT, toToolResponse } from "../tool-response"
+
+/** Batas karakter teks halaman yang dikirim ke LLM (hemat token). */
+const READER_MAX_LENGTH = 2500
+
+function renderPage({ url, title, wordCount, content }: WebReaderData): string {
+  return `--- KONTEN HALAMAN: ${title || url} ---\nURL: ${url}\nJumlah Kata: ${wordCount}\n\nIsi Teks:\n${content}`
+}
 
 export const webReaderToolDef: ToolDefinition = {
   id: "web_reader",
@@ -28,40 +36,30 @@ export const webReaderToolDef: ToolDefinition = {
     },
   ],
 
-  summarize(result: unknown): string {
-    if (typeof result === "string" && result.startsWith("ERROR")) return result.slice(0, 150)
-    if (typeof result === "string") {
-      const match = result.match(/Jumlah Kata:\s*(\d+)/)
-      if (match) return `Membaca ${match[1]} kata dari halaman web`
-      return result.slice(0, 120)
-    }
-    return "Pembacaan web selesai"
+  summarize(outcome) {
+    return summarizeToolOutcome(outcome, WebReaderDataSchema, (page) => `Membaca ${page.wordCount} kata dari halaman web`)
   },
 
   build(ctx: ToolRuntimeContext) {
     return tool(
-      async ({ url }) => {
+      async ({ url }, config) => {
         const cleanUrl = (url || "").trim()
-        if (!cleanUrl) return "ERROR[invalid_input]: URL web tidak boleh kosong."
+        const outcome = await readWebContent({
+          url: cleanUrl,
+          maxLength: READER_MAX_LENGTH,
+          signal: resolveToolSignal(ctx, config),
+        })
 
-        try {
-          const res = await readWebContent({ url: cleanUrl, maxLength: 2500 })
-          if (!res.ok || !res.content) {
-            return `ERROR[read_failed]: Gagal membaca URL ${cleanUrl}: ${res.error || "Halaman tidak dapat diakses."}`
-          }
-
+        if (outcome.ok) {
           ctx.recorder.trackSource({
-            title: res.title || cleanUrl,
+            title: outcome.data.title || cleanUrl,
             url: cleanUrl,
-            snippet: res.content.slice(0, 200),
+            snippet: outcome.data.content.slice(0, 200),
             readFull: true,
           })
-
-          return `--- KONTEN HALAMAN: ${res.title || cleanUrl} ---\nURL: ${cleanUrl}\nJumlah Kata: ${res.wordCount}\n\nIsi Teks:\n${res.content}`
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : "Kesalahan koneksi"
-          return `ERROR[read_exception]: Gagal membaca isi konten web dari ${cleanUrl}: ${msg}`
         }
+
+        return toToolResponse(outcome, renderPage, cleanUrl ? `Gagal membaca URL ${cleanUrl}` : undefined)
       },
       {
         name: "web_reader",
@@ -70,6 +68,7 @@ export const webReaderToolDef: ToolDefinition = {
         schema: z.object({
           url: z.string().describe("URL lengkap artikel yang ingin dibaca isinya"),
         }),
+        responseFormat: TOOL_RESPONSE_FORMAT,
       }
     )
   },

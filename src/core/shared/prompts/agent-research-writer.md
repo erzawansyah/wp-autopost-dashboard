@@ -1,7 +1,7 @@
 ---
-description: Alur kerja dan instruksi system prompt untuk profil agen Research Writer (Standard Engine)
+description: Alur kerja dan instruksi system prompt untuk profil agen Research Writer (mode standard)
 used_by:
-  - src/core/writer/presets/registry.ts
+  - src/core/writer/profiles/builtin.ts
 variables:
   - key: siteName
     desc: Nama website WordPress target atau brand publikasi (opsional)
@@ -9,12 +9,6 @@ variables:
     desc: Alamat URL website WordPress target (opsional)
   - key: authorName
     desc: Nama persona penulis artikel E-E-A-T (opsional)
-  - key: authorBio
-    desc: Biografi singkat atau bidang keahlian penulis (opsional)
-  - key: categoryName
-    desc: Kategori WordPress artikel (opsional)
-  - key: language
-    desc: Bahasa penulisan artikel (opsional)
 ---
 
 [SYSTEM_PROMPT]

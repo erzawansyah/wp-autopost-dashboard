@@ -1,0 +1,18 @@
+# GOLDEN prompt "agent-user-prompt" · versi 950198de6a21
+# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
+
+===== [USER_PROMPT] dirender =====
+Tuliskan artikel mendalam, komprehensif, mengalir alami, dan tuntas dengan ketentuan berikut:
+- Topik / Kata Kunci Utama: "manfaat kopi hitam tanpa gula untuk kesehatan"
+- Bahasa: Bahasa Indonesia
+- Target Panjang: minimal 1200 kata
+
+- Judul Artikel Wajib: "Manfaat Kopi Hitam Tanpa Gula bagi Pekerja Kantoran"
+- Target Kategori: Kesehatan
+- Tag Terkait: kopi hitam, kafein, gaya hidup sehat
+- Struktur Wajib: Rancang minimal 5 subbab (H2/H3) deskriptif dengan pembahasan multi-paragraf yang tuntas. DILARANG membuat naskah pendek atau ringkasan!
+- Catatan Khusus dari Pengguna: Sasar pekerja kantoran usia 25-40 tahun.
+- Sudut Pandang Penulis (Persona): Rina Pratama (barista dan penguji kopi bersertifikat).
+- Instruksi Tambahan: Sertakan satu tabel perbandingan kandungan kafein.
+
+Sajikan naskah lengkap dan seluruh metadata artikel sesuai instruksi alur kerja editorial.

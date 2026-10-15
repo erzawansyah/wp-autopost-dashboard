@@ -1,10 +1,13 @@
 import "server-only"
 import type { SupabaseClient, User } from "@supabase/supabase-js"
+import { ToolInputParsingException } from "@langchain/core/tools"
 import { run } from "@/core/writer"
 import { BUILTIN_PRESETS } from "@/core/writer/profiles"
 import { ToolRegistry, type ToolInputField } from "@/core/writer/tools"
 import { redactSecrets, redactSecretsInText } from "@/core/writer/runtime/redact"
 import { RunRecorder, type AgentStepEvent } from "@/core/writer/runtime/telemetry"
+import { readToolArtifact } from "@/core/writer/tools/tool-response"
+import { failureFromError, toolFailure, type ToolFailure } from "@/core/shared/tools/contract"
 import { searchRoyaltyFreeImages, type ImageSearchProvider } from "@/core/shared/tools/image-search"
 import { getKeywordSuggestions } from "@/core/shared/tools/keyword-suggestions"
 import { readWebContent } from "@/core/shared/tools/web-reader"
@@ -24,7 +27,8 @@ import { getOwnedSiteCredentials } from "@/server/services/wp-tools"
  * membawa kredensial:
  * - pesan error (bisa memuat URL request/header mentah) → `redactLabText`;
  * - log eksekusi agen (`execution`: nodeLogs berisi request/site/input) → `redactSecrets` penuh;
- * - keluaran tool generik → properti bernama rahasia saja (`scanText: false`).
+ * - keluaran tool generik (data artifact `ToolOutcome`) → properti bernama rahasia saja (`scanText: false`).
+ * Kegagalan tool (`ToolOutcome` gagal) tetap HTTP 200 `ok: false` dengan `error` teredaksi, `code`, dan `retryable`.
  * Kunci OpenRouter TIDAK diterima dari body: Lab hanya memakai kunci BYOK tersimpan milik pengguna.
  */
 
@@ -33,6 +37,12 @@ function redactLabText(value: string | undefined): string | undefined {
 }
 
 const LAB_ERROR_MAX_CHARS = 500
+
+/** Kegagalan tool bertipe → payload Lab `ok: false` (HTTP 200) dengan pesan teredaksi. */
+function labToolFailure(failure: ToolFailure, durationMs: number): LabRunResult {
+  const error = redactLabText(failure.message)
+  return { ok: false, error, code: failure.code, retryable: failure.retryable, summary: error, durationMs }
+}
 
 /** Error tak terduga saat eksekusi Lab: pesan & `cause` (untuk log server) sudah diredaksi. */
 function labExecutionError(err: unknown): ApiError {
@@ -295,7 +305,7 @@ async function executeLabTool(
 
   if (toolId === "web_search") {
     const query = text(input, "query")
-    const results = await webSearch({
+    const outcome = await webSearch({
       query,
       limit: positiveInt(input, "limit", 4, 20),
       language: text(input, "language", "id"),
@@ -308,13 +318,15 @@ async function executeLabTool(
       keys: { tavilyKey: userKeys.tavilyKey, braveKey: userKeys.braveKey, serpapiKey: userKeys.serpapiKey },
       searxngUrl: userKeys.searxngUrl,
     })
+    if (!outcome.ok) return labToolFailure(outcome, elapsed())
+    const results = outcome.data
     const output = { query, totalResults: results.length, results }
     return { ok: true, result: output, output, summary: `Ditemukan ${results.length} sumber referensi web`, durationMs: elapsed() }
   }
 
   if (toolId === "image_search") {
     const query = text(input, "query")
-    const photos = await searchRoyaltyFreeImages({
+    const outcome = await searchRoyaltyFreeImages({
       query,
       count: positiveInt(input, "count", 3, 20),
       orientation: "landscape",
@@ -323,17 +335,21 @@ async function executeLabTool(
       pexafyApiKey: userKeys.pexafyKey,
       searxngUrl: userKeys.searxngUrl,
     })
+    if (!outcome.ok) return labToolFailure(outcome, elapsed())
+    const photos = outcome.data
     const output = { query, totalPhotos: photos.length, photos }
     return { ok: true, result: output, output, summary: `Ditemukan ${photos.length} foto berkualitas tinggi`, durationMs: elapsed() }
   }
 
   if (toolId === "keyword_suggestions") {
-    const output = await getKeywordSuggestions({
+    const outcome = await getKeywordSuggestions({
       query: text(input, "query"),
       limit: positiveInt(input, "limit", 15, 50),
       language: text(input, "language", "id"),
       searxngUrl: userKeys.searxngUrl,
     })
+    if (!outcome.ok) return labToolFailure(outcome, elapsed())
+    const output = outcome.data
     return {
       ok: true,
       result: output,
@@ -345,14 +361,14 @@ async function executeLabTool(
 
   if (toolId === "web_reader") {
     const url = text(input, "url")
-    const res = await readWebContent({ url, maxLength: positiveInt(input, "maxLength", 2500, 20_000) })
-    const output = { ...res, error: redactLabText(res.error) }
+    const outcome = await readWebContent({ url, maxLength: positiveInt(input, "maxLength", 2500, 20_000) })
+    if (!outcome.ok) return labToolFailure(outcome, elapsed())
+    const output = outcome.data
     return {
-      ok: res.ok,
+      ok: true,
       result: output,
       output,
-      summary: res.ok ? `Membaca ${res.wordCount} kata dari ${res.title || url}` : output.error,
-      ...(res.ok ? {} : { error: output.error }),
+      summary: `Membaca ${output.wordCount} kata dari ${output.title || url}`,
       durationMs: elapsed(),
     }
   }
@@ -370,30 +386,26 @@ async function executeLabTool(
     recorder: new RunRecorder(),
   })
 
+  // Dipanggil sebagai tool call agar hasilnya ToolMessage lengkap dengan artifact `ToolOutcome`.
+  let message: unknown
   try {
-    const rawOutput = await toolInstance.invoke(input)
-    let parsedOutput: unknown = rawOutput
-    if (typeof rawOutput === "string") {
-      try {
-        parsedOutput = JSON.parse(rawOutput)
-      } catch {
-        parsedOutput = rawOutput
-      }
-    }
-    // Tool dibangun dengan kredensial WP & kunci BYOK: properti bernama rahasia disamarkan,
-    // sedangkan URL media/konten di keluaran dibiarkan utuh.
-    const output = redactSecrets(parsedOutput, { scanText: false })
-    return {
-      ok: true,
-      result: output,
-      output,
-      summary: toolDef.summarize ? toolDef.summarize(rawOutput) : undefined,
-      durationMs: elapsed(),
-    }
+    message = await toolInstance.invoke({ type: "tool_call", id: `lab_${toolDef.id}_${startTime}`, name: toolDef.id, args: input })
   } catch (toolErr: unknown) {
-    const message = toolErr instanceof Error ? toolErr.message : "Kesalahan eksekusi tool"
-    return { ok: false, error: redactLabText(message), durationMs: elapsed() }
+    const failure =
+      toolErr instanceof ToolInputParsingException
+        ? toolFailure("invalid_input", toolErr.message)
+        : failureFromError(toolErr)
+    return labToolFailure(failure, elapsed())
   }
+
+  const outcome = readToolArtifact(message)
+  if (!outcome) throw new Error(`Tool '${toolDef.id}' tidak mengembalikan artifact ToolOutcome.`)
+  if (!outcome.ok) return labToolFailure(outcome, elapsed())
+
+  // Tool dibangun dengan kredensial WP & kunci BYOK: properti bernama rahasia disamarkan,
+  // sedangkan URL media/konten di keluaran dibiarkan utuh.
+  const output = redactSecrets(outcome.data, { scanText: false })
+  return { ok: true, result: output, output, summary: toolDef.summarize(outcome), durationMs: elapsed() }
 }
 
 export async function runLabAgentProfile(

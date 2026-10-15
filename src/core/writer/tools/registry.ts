@@ -1,6 +1,7 @@
 import { StructuredTool } from "@langchain/core/tools"
 import { DecryptedUserKeys } from "@/types/settings"
 import { RunRecorder } from "../runtime/telemetry"
+import type { ToolArtifact } from "./tool-response"
 
 export type ToolRequirement =
   | { type: "wp_site"; label: string }
@@ -16,6 +17,11 @@ export interface ToolRuntimeContext {
   }
   language: string
   recorder: RunRecorder
+  /**
+   * Sinyal pembatalan run (timeout/abort agen). Digabung dengan `config.signal` LangChain dan
+   * diteruskan ke setiap fetch tool sehingga request yang sedang berjalan ikut dibatalkan.
+   */
+  signal?: AbortSignal
 }
 
 export interface ToolInputField {
@@ -37,10 +43,16 @@ export interface ToolDefinition {
   readonly defaultLimit: number
   /** Deklarasi kolom input form pengujian lab & runtime UI */
   readonly inputFields?: ToolInputField[]
-  /** Membangun instance LangChain StructuredTool yang siap diinjeksi ke agent */
+  /**
+   * Membangun instance LangChain StructuredTool (`responseFormat: "content_and_artifact"`) yang siap
+   * diinjeksi ke agent: konten teks untuk LLM + artifact `ToolOutcome` untuk guard/telemetri.
+   */
   build(ctx: ToolRuntimeContext): StructuredTool
-  /** Menghasilkan ringkasan padat satu baris untuk telemetri log (maks 240 karakter) */
-  summarize(result: unknown): string
+  /**
+   * Ringkasan padat satu baris dari artifact `ToolOutcome` untuk telemetri log (maks 240 karakter).
+   * Data sukses dibaca lewat schema zod keluaran tool di berkas definisinya (`summarizeToolOutcome`).
+   */
+  summarize(outcome: ToolArtifact): string
 }
 
 class ToolRegistryImpl {

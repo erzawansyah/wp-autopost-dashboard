@@ -1,9 +1,10 @@
 import "server-only";
-import { ChatOpenRouter } from "@langchain/openrouter";
 import { HumanMessage } from "@langchain/core/messages";
 import { StructuredTool } from "@langchain/core/tools";
-import { MISSING_OPENROUTER_KEY_MESSAGE, resolveOpenRouterKey } from "@/lib/ai/platform-keys";
+import { MISSING_OPENROUTER_KEY_MESSAGE } from "@/lib/ai/platform-keys";
 import { DecryptedUserKeys } from "@/types/settings";
+import { classifyLlmError, type LlmErrorKind } from "@/core/shared/llm/errors";
+import { createLlmGateway } from "@/core/shared/llm/gateway";
 import {
   WriterRequest,
   GeneratedArticle,
@@ -26,14 +27,7 @@ import { postprocessArticle } from "./postprocess";
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
 import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
 import { preResolveTaxonomyAndAuthor } from "./pre-resolve";
-import { DEFAULT_AI_MODEL } from "@/lib/ai/settings";
-import { serverEnv } from "@/lib/env/server";
 import { getLanguageDisplayName } from "@/lib/constants/languages";
-import { getOpenRouterReasoningConfig, ReasoningEffort } from "@/lib/ai/reasoning";
-import {
-  createTenantLangSmithTracer,
-  flushLangSmithTracer,
-} from "@/core/shared/langsmith";
 import "../tools"; // Pastikan seluruh tool terdaftar ke registry
 
 export interface RunAgentOptions {
@@ -52,8 +46,30 @@ export interface RunAgentResult {
   enrichment: WpEnrichment;
   recorder: RunRecorder;
   stopReason: string;
+  /** Model utama hasil resolusi gateway LLM. */
+  model: string;
   error?: WriterError;
 }
+
+/**
+ * Penolakan LLM yang tidak akan pulih dengan mengulang (kunci ditolak / kredit habis):
+ * finalize call dilewati dan error ditandai non-retryable agar antrean tidak membuang token.
+ */
+const NON_RECOVERABLE_LLM_ERRORS: Partial<
+  Record<LlmErrorKind, { stopReason: string; code: string; message: string }>
+> = {
+  auth: {
+    stopReason: "llm_auth_failed",
+    code: "LLM_AUTH_FAILED",
+    message:
+      "Kunci API OpenRouter ditolak (HTTP 401/403). Periksa kunci BYOK Anda di menu Pengaturan ➔ Kunci API (/settings/keys).",
+  },
+  quota: {
+    stopReason: "llm_quota_exhausted",
+    code: "LLM_QUOTA_EXHAUSTED",
+    message: "Kredit atau kuota akun OpenRouter Anda habis. Isi ulang kredit OpenRouter lalu jalankan ulang.",
+  },
+};
 
 export async function runAgentWriter(
   options: RunAgentOptions,
@@ -70,6 +86,13 @@ export async function runAgentWriter(
   const language = request.content.language || "id";
   const targetWordCount =
     request.content.wordCountTarget || limits.minWordCount || 800;
+
+  // Sinyal agent loop (model & tools): batal saat run dibatalkan dari luar ATAU timeout loop
+  // tercapai (timer dimulai tepat sebelum loop). Pre-resolve & finalize hanya terikat sinyal luar.
+  const loopController = new AbortController();
+  const abortLoop = () => loopController.abort(abortSignal?.reason);
+  if (abortSignal?.aborted) abortLoop();
+  else abortSignal?.addEventListener("abort", abortLoop, { once: true });
 
   // 1. Kredensial WordPress
   const site = request.site;
@@ -114,188 +137,168 @@ export async function runAgentWriter(
         wpCredentials,
         language,
         recorder,
+        signal: loopController.signal,
       });
     })
     .filter(Boolean) as StructuredTool[];
 
-  // 3. Inisialisasi Kredensial AI & Validasi API Key
-  const resolvedApiKey = resolveOpenRouterKey(request.apiKey || userKeys.openrouterKey);
+  // 3. Gateway LLM run: kunci BYOK, pemilihan model, retry/fallback, token & biaya, tracer tenant
+  const gateway = createLlmGateway({
+    apiKey: request.apiKey || userKeys.openrouterKey,
+    modelCandidates: [request.model, userKeys.defaultAiModel, profile.model],
+    temperature: profile.temperature,
+    reasoningEffort:
+      request.reasoningEffort || profile.reasoningEffort || userKeys.reasoningEffort,
+    tracing: userKeys,
+    usage: recorder.usage,
+    signal: abortSignal,
+    onModelFallback: ({ from, to, kind, status }) =>
+      recorder.recordEvent({
+        kind: "guard",
+        tool: "model_fallback",
+        status: "error",
+        durationMs: 1,
+        summary: `Model '${from}' gagal (${status ? `HTTP ${status}, ` : ""}${kind}); beralih ke model cadangan '${to}'.`,
+        argsPreview: { from, to },
+      }),
+  });
+  const selectedModel = gateway.model;
 
-  if (!resolvedApiKey) {
-    const errorMsg = MISSING_OPENROUTER_KEY_MESSAGE;
-    recorder.recordEvent({
-      kind: "guard",
-      status: "error",
-      durationMs: 0,
-      summary: errorMsg,
-    });
-    return {
-      success: false,
-      sources: [],
-      enrichment: { categories: [], tags: [] },
-      recorder,
-      stopReason: "missing_api_key",
-      error: {
+  const failure = (
+    stopReason: string,
+    error: WriterError,
+  ): RunAgentResult => ({
+    success: false,
+    sources: Array.from(recorder.sources.values()),
+    enrichment: { categories: [], tags: [] },
+    recorder,
+    stopReason,
+    model: selectedModel,
+    error,
+  });
+
+  try {
+    if (!gateway.hasKey) {
+      recorder.recordEvent({
+        kind: "guard",
+        status: "error",
+        durationMs: 0,
+        summary: MISSING_OPENROUTER_KEY_MESSAGE,
+      });
+      return failure("missing_api_key", {
         code: "MISSING_API_KEY",
-        message: errorMsg,
+        message: MISSING_OPENROUTER_KEY_MESSAGE,
         node: "llm_initialization",
         retryable: false,
-      },
-    };
-  }
+      });
+    }
 
-  const env = serverEnv();
-  const selectedModel =
-    request.model ||
-    userKeys.defaultAiModel ||
-    profile.model ||
-    env.OPENROUTER_DEFAULT_MODEL ||
-    DEFAULT_AI_MODEL;
+    if (gateway.tracingProject) {
+      recorder.recordEvent({
+        kind: "guard",
+        status: "ok",
+        durationMs: 1,
+        summary: `LangSmith Tracing aktif (Project: ${gateway.tracingProject})`,
+      });
+    }
 
-  // 4. Pre-Resolution: Resolusi Taksonomi & Author WordPress di latar belakang via LLM
-  const preResolved = await preResolveTaxonomyAndAuthor({
-    wpCredentials,
-    requestedAuthorId: request.publishing.authorId,
-    requestedCategoryIds: request.publishing.categoryIds,
-    requestedTagNames: request.publishing.tagNames,
-    keyword,
-    language,
-    brief: request.content.brief,
-    apiKey: resolvedApiKey,
-    model: selectedModel,
-    recorder,
-  });
+    // 4. Pre-Resolution: Resolusi Taksonomi & Author WordPress di latar belakang via LLM
+    const preResolved = await preResolveTaxonomyAndAuthor({
+      wpCredentials,
+      requestedAuthorId: request.publishing.authorId,
+      requestedCategoryIds: request.publishing.categoryIds,
+      requestedTagNames: request.publishing.tagNames,
+      keyword,
+      language,
+      brief: request.content.brief,
+      gateway,
+      signal: abortSignal,
+      recorder,
+    });
 
-  const effectiveReasoningEffort: ReasoningEffort =
-    (request.reasoningEffort as ReasoningEffort) ||
-    (profile.reasoningEffort as ReasoningEffort) ||
-    (userKeys.reasoningEffort as ReasoningEffort) ||
-    "low";
+    // 5. Prompting
+    const siteUrl = request.site?.baseUrl || "";
+    let siteName = request.site?.siteName || "";
+    if (!siteName && siteUrl) {
+      try {
+        const parsed = new URL(siteUrl);
+        siteName = parsed.hostname.replace(/^www\./, "");
+      } catch {}
+    }
 
-  const llm = new ChatOpenRouter({
-    apiKey: resolvedApiKey,
-    model: selectedModel,
-    temperature: profile.temperature ?? 0.95,
-    maxTokens: 16384,
-    // Konfigurasi reasoning bertingkat (low, medium, high) OpenRouter terstandardisasi
-    modelKwargs: { reasoning: getOpenRouterReasoningConfig(effectiveReasoningEffort) },
-    siteUrl: env.OPENROUTER_SITE_URL || "http://localhost:3000",
-    siteName: env.OPENROUTER_APP_NAME || "Panitera",
-  });
+    const systemPrompt = buildSystemPrompt(profile.workflowPrompt, {
+      siteName,
+      siteUrl,
+      authorName: preResolved.author?.name,
+      authorBio: preResolved.author?.bio,
+      categoryName:
+        preResolved.categoryNames.length > 0
+          ? preResolved.categoryNames.join(", ")
+          : undefined,
+      language: getLanguageDisplayName(language),
+    });
+    const userPromptText = buildUserPrompt({
+      keyword,
+      title: request.content.title,
+      language,
+      wordCountTarget: targetWordCount,
+      brief: request.content.brief,
+      author: preResolved.author
+        ? { name: preResolved.author.name, bio: preResolved.author.bio }
+        : undefined,
+      categoryName:
+        preResolved.categoryNames.length > 0
+          ? preResolved.categoryNames.join(", ")
+          : undefined,
+      tagsList:
+        preResolved.tagNames.length > 0
+          ? preResolved.tagNames.join(", ")
+          : undefined,
+      customInstructions: request.customInstructions,
+      hasTools: activeTools.length > 0,
+    });
 
-  // 5. Prompting
-  const siteUrl = request.site?.baseUrl || "";
-  let siteName = request.site?.siteName || "";
-  if (!siteName && siteUrl) {
+    // 6. Bangun Writer Agent
+    let agent: Awaited<ReturnType<typeof buildWriterAgent>>;
     try {
-      const parsed = new URL(siteUrl);
-      siteName = parsed.hostname.replace(/^www\./, "");
-    } catch {}
-  }
-
-  const systemPrompt = buildSystemPrompt(profile.workflowPrompt, {
-    siteName,
-    siteUrl,
-    authorName: preResolved.author?.name,
-    authorBio: preResolved.author?.bio,
-    categoryName:
-      preResolved.categoryNames.length > 0
-        ? preResolved.categoryNames.join(", ")
-        : undefined,
-    language: getLanguageDisplayName(language),
-  });
-  const userPromptText = buildUserPrompt({
-    keyword,
-    title: request.content.title,
-    language,
-    wordCountTarget: targetWordCount,
-    brief: request.content.brief,
-    author: preResolved.author
-      ? { name: preResolved.author.name, bio: preResolved.author.bio }
-      : undefined,
-    categoryName:
-      preResolved.categoryNames.length > 0
-        ? preResolved.categoryNames.join(", ")
-        : undefined,
-    tagsList:
-      preResolved.tagNames.length > 0
-        ? preResolved.tagNames.join(", ")
-        : undefined,
-    customInstructions: request.customInstructions,
-    hasTools: activeTools.length > 0,
-  });
-
-  // 5. Bangun Writer Agent
-  let agent: Awaited<ReturnType<typeof buildWriterAgent>> | null = null;
-  try {
-    agent = await buildWriterAgent({
-      mode: profile.mode,
-      model: llm,
-      tools: activeTools,
-      systemPrompt,
-      limits,
-      recorder,
-      skills: profile.skills,
-      userId: options.userId || request.userId,
-    });
-  } catch (agentBuildErr: unknown) {
-    const errText =
-      agentBuildErr instanceof Error
-        ? agentBuildErr.message
-        : String(agentBuildErr);
-    recorder.recordEvent({
-      kind: "guard",
-      status: "error",
-      durationMs: 1,
-      summary: `Gagal menginisialisasi agent: ${errText}`,
-    });
-    return {
-      success: false,
-      sources: [],
-      enrichment: { categories: [], tags: [] },
-      recorder,
-      stopReason: "agent_build_failed",
-      error: {
+      agent = await buildWriterAgent({
+        mode: profile.mode,
+        gateway,
+        tools: activeTools,
+        systemPrompt,
+        limits,
+        recorder,
+        skills: profile.skills,
+        userId: options.userId || request.userId,
+      });
+    } catch (agentBuildErr: unknown) {
+      const errText =
+        agentBuildErr instanceof Error
+          ? agentBuildErr.message
+          : String(agentBuildErr);
+      recorder.recordEvent({
+        kind: "guard",
+        status: "error",
+        durationMs: 1,
+        summary: `Gagal menginisialisasi agent: ${errText}`,
+      });
+      return failure("agent_build_failed", {
         code: "AGENT_BUILD_FAILED",
         message: `Gagal membangun agent: ${errText}`,
         retryable: false,
-      },
-    };
-  }
+      });
+    }
 
-  // 6. Timeout Controller
-  const timeoutMs = limits.timeoutSeconds * 1000;
-  const timeoutController = new AbortController();
-  const timer = setTimeout(() => {
-    timeoutController.abort();
-  }, timeoutMs);
+    // 7. Timeout agent loop
+    const timer = setTimeout(() => {
+      loopController.abort();
+    }, limits.timeoutSeconds * 1000);
 
-  if (abortSignal) {
-    abortSignal.addEventListener("abort", () => timeoutController.abort(), {
-      once: true,
-    });
-  }
+    let rawOutput: Partial<ArticleOutput> | null = null;
+    let stopReason = "completed";
+    const threadId = `agent-run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-  let rawOutput: Partial<ArticleOutput> | null = null;
-  let stopReason = "completed";
-  const threadId = `agent-run-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-
-  // Tracer LangSmith khusus run ini, hanya bila tenant memiliki API key LangSmith sendiri (BYOK).
-  // Dioper eksplisit lewat `callbacks` — tidak pernah lewat process.env — agar trace antar-tenant terisolasi.
-  const langsmithTracer = createTenantLangSmithTracer(userKeys);
-  const tracingCallbacks = langsmithTracer ? [langsmithTracer] : undefined;
-
-  if (langsmithTracer) {
-    recorder.recordEvent({
-      kind: "guard",
-      status: "ok",
-      durationMs: 1,
-      summary: `LangSmith Tracing aktif (Project: ${langsmithTracer.projectName})`,
-    });
-  }
-
-  try {
-    // 7. Eksekusi Agent Loop
+    // 8. Eksekusi Agent Loop
     try {
       const agentResult = await agent.invoke(
         {
@@ -307,7 +310,7 @@ export async function runAgentWriter(
             profile.mode === "deep"
               ? Math.max(150, Math.min(300, limits.maxModelCalls * 10 + 60))
               : Math.max(80, Math.min(200, limits.maxModelCalls * 10 + 40)),
-          signal: timeoutController.signal,
+          signal: loopController.signal,
           runName: `Panitera [${profile.mode === "deep" ? "Deep Agent" : "Standard Agent"}]: ${keyword.slice(0, 45)}`,
           tags: [profile.mode, "panitera", `lang:${language}`, siteName].filter(
             Boolean,
@@ -321,60 +324,57 @@ export async function runAgentWriter(
             mode: profile.mode,
             userId: request.userId,
           },
-          callbacks: tracingCallbacks,
+          // Tracer LangSmith tenant khusus run ini (dibuat gateway), tidak pernah lewat process.env.
+          callbacks: gateway.callbacks,
         },
       );
 
       clearTimeout(timer);
 
-      // Periksa apakah model mengembalikan structured response langsung
-      if ("structuredResponse" in agentResult && agentResult.structuredResponse) {
-        rawOutput = agentResult.structuredResponse as ArticleOutput;
-      } else {
-        // Ambil pesan terakhir dan ekstrak teks secara bersih (menghindari double JSON stringify)
-        const messages = agentResult.messages || [];
-        const lastMsg = messages[messages.length - 1];
+      // Ambil pesan terakhir dan ekstrak teks secara bersih (menghindari double JSON stringify)
+      const messages = agentResult.messages || [];
+      const lastMsg = messages[messages.length - 1];
 
-        const extractRawMessageText = (content: unknown): string => {
-          if (typeof content === "string") return content;
-          if (Array.isArray(content)) {
-            return content
-              .map((part) => {
-                if (typeof part === "string") return part;
-                if (
-                  typeof part === "object" &&
-                  part !== null &&
-                  "text" in part &&
-                  typeof (part as { text?: unknown }).text === "string"
-                ) {
-                  return (part as { text: string }).text;
-                }
-                return "";
-              })
-              .filter(Boolean)
-              .join("\n\n");
-          }
-          return "";
-        };
-
-        const rawText = extractRawMessageText(lastMsg?.content);
-
-        rawOutput = extractArticleJsonFromText(rawText);
-        if (!rawOutput?.markdownContent && rawText.length > 200) {
-          rawOutput = {
-            title: request.content.title || `Panduan Lengkap ${keyword}`,
-            excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
-            // Pulihkan literal "\n" tanpa menyentuh isi blok kode
-            markdownContent: unescapeLiteralNewlines(rawText),
-          };
+      const extractRawMessageText = (content: unknown): string => {
+        if (typeof content === "string") return content;
+        if (Array.isArray(content)) {
+          return content
+            .map((part) => {
+              if (typeof part === "string") return part;
+              if (
+                typeof part === "object" &&
+                part !== null &&
+                "text" in part &&
+                typeof (part as { text?: unknown }).text === "string"
+              ) {
+                return (part as { text: string }).text;
+              }
+              return "";
+            })
+            .filter(Boolean)
+            .join("\n\n");
         }
+        return "";
+      };
+
+      const rawText = extractRawMessageText(lastMsg?.content);
+
+      rawOutput = extractArticleJsonFromText(rawText);
+      if (!rawOutput?.markdownContent && rawText.length > 200) {
+        rawOutput = {
+          title: request.content.title || `Panduan Lengkap ${keyword}`,
+          excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
+          // Pulihkan literal "\n" tanpa menyentuh isi blok kode
+          markdownContent: unescapeLiteralNewlines(rawText),
+        };
       }
     } catch (invokeErr: unknown) {
       clearTimeout(timer);
       const errText =
         invokeErr instanceof Error ? invokeErr.message : String(invokeErr);
+      const llmRejection = NON_RECOVERABLE_LLM_ERRORS[classifyLlmError(invokeErr).kind];
       const isTimeout =
-        timeoutController.signal.aborted ||
+        loopController.signal.aborted ||
         errText.includes("abort") ||
         errText.includes("timeout");
       const isLimit =
@@ -382,11 +382,13 @@ export async function runAgentWriter(
         errText.includes("ToolCallLimitExceededError") ||
         errText.includes("recursionLimit");
 
-      stopReason = isTimeout
-        ? "timeout_exceeded"
-        : isLimit
-          ? "limit_reached"
-          : "agent_loop_interrupted";
+      stopReason = llmRejection
+        ? llmRejection.stopReason
+        : isTimeout
+          ? "timeout_exceeded"
+          : isLimit
+            ? "limit_reached"
+            : "agent_loop_interrupted";
 
       recorder.recordEvent({
         kind: "guard",
@@ -394,9 +396,19 @@ export async function runAgentWriter(
         durationMs: 1,
         summary: `Eksekusi agent terhenti (${stopReason}): ${errText.slice(0, 120)}`,
       });
+
+      // Kunci ditolak / kredit habis: finalize call pasti ditolak juga, jadi langsung gagal permanen.
+      if (llmRejection) {
+        return failure(`failed_${stopReason}`, {
+          code: llmRejection.code,
+          message: llmRejection.message,
+          node: "agent_loop",
+          retryable: false,
+        });
+      }
     }
 
-    // 8. Evaluasi Kelengkapan Naskah & Trigger Single Finalize Call jika diperlukan
+    // 9. Evaluasi Kelengkapan Naskah & Trigger Single Finalize Call jika diperlukan
     const rawWords = rawOutput?.markdownContent
       ? rawOutput.markdownContent.split(/\s+/).filter(Boolean).length
       : 0;
@@ -405,13 +417,14 @@ export async function runAgentWriter(
       !rawOutput?.markdownContent ||
       rawWords < Math.max(250, Math.round(limits.minWordCount * 0.6));
 
-    if (needsFinalize) {
+    // Run yang dibatalkan dari luar (worker berhenti/lease hilang) tidak lagi memanggil LLM.
+    if (needsFinalize && !abortSignal?.aborted) {
       console.log(
         `[runAgentWriter] Naskah belum lengkap (${rawWords} kata, stopReason: ${stopReason}). Menjalankan Single Finalize Call...`,
       );
 
       const finalizeResult = await executeSingleFinalizeCall({
-        llm,
+        gateway,
         systemPrompt,
         keyword,
         language,
@@ -423,7 +436,7 @@ export async function runAgentWriter(
         customInstructions: request.customInstructions,
         recorder,
         reason: stopReason,
-        callbacks: tracingCallbacks,
+        signal: abortSignal,
       });
 
       if (finalizeResult && finalizeResult.markdownContent) {
@@ -435,7 +448,7 @@ export async function runAgentWriter(
       }
     }
 
-    // 9. Hasil Akhir
+    // 10. Hasil Akhir
     if (!rawOutput?.markdownContent || rawOutput.markdownContent.length < 200) {
       const finalErrorMsg = `Agent gagal menghasilkan naskah artikel yang memenuhi kriteria (${stopReason}).`;
       recorder.recordEvent({
@@ -445,21 +458,14 @@ export async function runAgentWriter(
         summary: finalErrorMsg,
       });
 
-      return {
-        success: false,
-        sources: Array.from(recorder.sources.values()),
-        enrichment: { categories: [], tags: [] },
-        recorder,
-        stopReason: `failed_${stopReason}`,
-        error: {
-          code: "GENERATION_FAILED",
-          message: finalErrorMsg,
-          retryable: true,
-        },
-      };
+      return failure(`failed_${stopReason}`, {
+        code: "GENERATION_FAILED",
+        message: finalErrorMsg,
+        retryable: true,
+      });
     }
 
-    // 10. Postprocessing ke Native WordPress Gutenberg Blocks (Global & Tersembunyi dari User)
+    // 11. Postprocessing ke Native WordPress Gutenberg Blocks (Global & Tersembunyi dari User)
     const generatedArticle = postprocessArticle({
       rawTitle:
         rawOutput.title || request.content.title || `Panduan Lengkap ${keyword}`,
@@ -518,8 +524,10 @@ export async function runAgentWriter(
       enrichment,
       recorder,
       stopReason,
+      model: selectedModel,
     };
   } finally {
-    await flushLangSmithTracer(langsmithTracer);
+    abortSignal?.removeEventListener("abort", abortLoop);
+    await gateway.flush();
   }
 }

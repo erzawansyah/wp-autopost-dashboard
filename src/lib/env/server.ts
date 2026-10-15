@@ -85,7 +85,7 @@ const serverEnvObject = publicEnvSchema.extend({
   OPENROUTER_SITE_URL: envText,
   /** Model default runtime Agent Profile, worker, dan pengaturan pengguna. */
   OPENROUTER_DEFAULT_MODEL: envText,
-  /** Model default `callOpenRouterJson` (WP Tools). */
+  /** Model default WP Tools (gateway LLM `completeJson`). */
   DEFAULT_AI_MODEL: envText,
   /** Kill switch operator: `"false"` mematikan seluruh tracing LangSmith (termasuk BYOK tenant). */
   LANGSMITH_TRACING: envText,

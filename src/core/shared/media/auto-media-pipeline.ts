@@ -11,6 +11,8 @@ export interface ProcessMediaParams {
   markdownContent: string
   featuredImageUrl?: string | null
   articleTitle: string
+  /** Sinyal pembatalan: bila abort, unggahan yang berjalan dibatalkan dan sisa gambar dilewati. */
+  signal?: AbortSignal
 }
 
 export interface ProcessMediaResult {
@@ -30,6 +32,9 @@ export interface ProcessMediaResult {
  * 3. Mengunduh dan mengunggah gambar tersebut langsung ke WordPress Media Library via REST API (/wp-json/wp/v2/media).
  * 4. Mengganti link eksternal di badan naskah dengan URL resmi WordPress (/wp-content/uploads/...) beserta atribut block Gutenberg {id=...}.
  * 5. Menghasilkan Gutenberg HTML resmi tanpa hotlink eksternal mentah.
+ *
+ * Kegagalan unggah per gambar (`ToolOutcome` gagal) tidak menggagalkan pipeline: URL eksternal
+ * dibiarkan apa adanya dan kegagalannya dicatat ke log server (pesan sudah tersanitasi).
  */
 export async function processAndSyncArticleMedia(
   params: ProcessMediaParams
@@ -44,6 +49,7 @@ export async function processAndSyncArticleMedia(
     markdownContent,
     featuredImageUrl,
     articleTitle,
+    signal,
   } = params
 
   let updatedMarkdown = markdownContent || ""
@@ -71,26 +77,25 @@ export async function processAndSyncArticleMedia(
   if (resolvedFeaturedImageUrl && resolvedFeaturedImageUrl.startsWith("http")) {
     const isAlreadyOnWp = wpHostname && resolvedFeaturedImageUrl.toLowerCase().includes(wpHostname)
     if (!isAlreadyOnWp) {
-      try {
-        const uploadRes = await uploadMediaToWordPress({
-          baseUrl,
-          username,
-          applicationPassword,
-          siteId,
-          userId,
-          postId,
-          imageUrl: resolvedFeaturedImageUrl,
-          altText: articleTitle,
-          title: `Gambar Sampul - ${articleTitle}`,
-        })
+      const uploadRes = await uploadMediaToWordPress({
+        baseUrl,
+        username,
+        applicationPassword,
+        siteId,
+        userId,
+        postId,
+        imageUrl: resolvedFeaturedImageUrl,
+        altText: articleTitle,
+        title: `Gambar Sampul - ${articleTitle}`,
+        signal,
+      })
 
-        if (uploadRes.ok && uploadRes.mediaId && uploadRes.sourceUrl) {
-          resolvedFeaturedMediaId = uploadRes.mediaId
-          resolvedFeaturedImageUrl = uploadRes.sourceUrl
-          if (!uploadRes.isCached) uploadedCount++
-        }
-      } catch (featErr) {
-        console.warn("[auto-media-pipeline] Gagal mengunggah Featured Image ke WP:", featErr)
+      if (uploadRes.ok) {
+        resolvedFeaturedMediaId = uploadRes.data.mediaId
+        resolvedFeaturedImageUrl = uploadRes.data.sourceUrl
+        if (!uploadRes.data.isCached) uploadedCount++
+      } else {
+        console.warn(`[auto-media-pipeline] Gagal mengunggah Featured Image ke WP [${uploadRes.code}]: ${uploadRes.message}`)
       }
     }
   }
@@ -113,38 +118,36 @@ export async function processAndSyncArticleMedia(
 
   // Unggah masing-masing gambar ke WordPress dan ganti URL-nya di naskah
   for (const [externalUrl, { alt }] of urlToUploadMap.entries()) {
-    try {
-      const uploadRes = await uploadMediaToWordPress({
-        baseUrl,
-        username,
-        applicationPassword,
-        siteId,
-        userId,
-        postId,
-        imageUrl: externalUrl,
-        altText: alt,
-        title: alt,
-      })
+    if (signal?.aborted) break
 
-      if (uploadRes.ok && uploadRes.mediaId && uploadRes.sourceUrl) {
-        // Ganti seluruh kemunculan link eksternal dengan URL WordPress dan penanda id
-        const cleanWpUrl = uploadRes.sourceUrl
-        const mediaId = uploadRes.mediaId
+    const uploadRes = await uploadMediaToWordPress({
+      baseUrl,
+      username,
+      applicationPassword,
+      siteId,
+      userId,
+      postId,
+      imageUrl: externalUrl,
+      altText: alt,
+      title: alt,
+      signal,
+    })
 
-        // Regex untuk menggantikan gambar spesifik ini
-        const targetPattern = new RegExp(
-          `!\\[([^\\]]*)\\]\\(${escapeRegExp(externalUrl)}\\)(?:\\{[^}]*\\})?`,
-          "g"
-        )
-        updatedMarkdown = updatedMarkdown.replace(
-          targetPattern,
-          `![$1](${cleanWpUrl}){id=${mediaId}}`
-        )
-        if (!uploadRes.isCached) uploadedCount++
-      }
-    } catch (inlineErr) {
-      console.warn(`[auto-media-pipeline] Gagal mengunggah gambar inline "${externalUrl}":`, inlineErr)
+    if (!uploadRes.ok) {
+      console.warn(`[auto-media-pipeline] Gagal mengunggah gambar inline [${uploadRes.code}]: ${uploadRes.message}`)
+      continue
     }
+
+    // Ganti seluruh kemunculan link eksternal dengan URL WordPress dan penanda id
+    const { sourceUrl: cleanWpUrl, mediaId, isCached } = uploadRes.data
+
+    // Regex untuk menggantikan gambar spesifik ini
+    const targetPattern = new RegExp(
+      `!\\[([^\\]]*)\\]\\(${escapeRegExp(externalUrl)}\\)(?:\\{[^}]*\\})?`,
+      "g"
+    )
+    updatedMarkdown = updatedMarkdown.replace(targetPattern, `![$1](${cleanWpUrl}){id=${mediaId}}`)
+    if (!isCached) uploadedCount++
   }
 
   // 3. Konversi naskah Markdown yang telah diselaraskan ke Native WordPress Gutenberg Blocks

@@ -3,6 +3,7 @@ import {
   WriterRequest,
   WriterResult,
   NodeExecutionLog,
+  ExecutionTrace,
 } from "./types/contracts"
 import { AgentProfile } from "./types/profile"
 import { DecryptedUserKeys } from "@/types/settings"
@@ -145,28 +146,33 @@ export async function run(
     ...stepEvents.map((e) => e.tool || e.kind).filter(Boolean),
   ]
 
+  const execution: ExecutionTrace = {
+    engine: profile.ref,
+    agentProfileRef: profile.ref,
+    nodesExecuted,
+    nodeLogs: convertedNodeLogs,
+    stepEvents,
+    durationMs: Date.now() - startTime,
+    retries: 0,
+    tokenUsage: {
+      prompt: summary.tokensPrompt,
+      completion: summary.tokensCompletion,
+      total: summary.tokensTotal,
+    },
+    costUsd: summary.costUsd,
+    llmCalls: summary.llmCalls,
+    modelUsage: summary.modelUsage,
+    modelUsed: agentRunResult.model,
+    warnings: [],
+  }
+
   if (!agentRunResult.success || !agentRunResult.article) {
     return {
       success: false,
       status: "failed",
       sources: agentRunResult.sources,
       agentRun: summary,
-      execution: {
-        engine: profile.ref,
-        agentProfileRef: profile.ref,
-        nodesExecuted,
-        nodeLogs: convertedNodeLogs,
-        stepEvents,
-        durationMs: Date.now() - startTime,
-        retries: 0,
-        tokenUsage: {
-          prompt: summary.tokensPrompt,
-          completion: summary.tokensCompletion,
-          total: summary.tokensPrompt + summary.tokensCompletion,
-        },
-        modelUsed: profile.model || request.model || "default",
-        warnings: [],
-      },
+      execution,
       error: agentRunResult.error || {
         code: "GENERATION_FAILED",
         message: "Agent gagal menghasilkan naskah artikel",
@@ -182,22 +188,7 @@ export async function run(
     sources: agentRunResult.sources,
     enrichment: agentRunResult.enrichment,
     agentRun: summary,
-    execution: {
-      engine: profile.ref,
-      agentProfileRef: profile.ref,
-      nodesExecuted,
-      nodeLogs: convertedNodeLogs,
-      stepEvents,
-      durationMs: Date.now() - startTime,
-      retries: 0,
-      tokenUsage: {
-        prompt: summary.tokensPrompt,
-        completion: summary.tokensCompletion,
-        total: summary.tokensPrompt + summary.tokensCompletion,
-      },
-      modelUsed: profile.model || request.model || "default",
-      warnings: [],
-    },
+    execution,
   }
 }
 

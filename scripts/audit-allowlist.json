@@ -13,42 +13,6 @@
   },
   "entries": [
     {
-      "check": "hardcoded-prompt",
-      "file": "src/core/writer/runtime/build-agent.ts",
-      "max": 1,
-      "reason": "Pesan sistem 'write_file dinonaktifkan' dari guard runtime; pindahkan ke prompt system-*.md saat refactor writer."
-    },
-    {
-      "check": "hardcoded-prompt",
-      "file": "src/core/writer/runtime/finalize.ts",
-      "max": 2,
-      "reason": "Instruksi sintesis finalize & baris persona masih dirakit di kode; target: pindah penuh ke system-finalize.md (variabel {{...}})."
-    },
-    {
-      "check": "hardcoded-prompt",
-      "file": "src/core/writer/runtime/loop-guard.ts",
-      "max": 1,
-      "reason": "Pesan peringatan anti-loop yang disuntikkan ke LLM; pindahkan ke prompt system-*.md saat refactor guard."
-    },
-    {
-      "check": "hardcoded-prompt",
-      "file": "src/core/writer/runtime/output-schema.ts",
-      "max": 1,
-      "reason": "Deskripsi field skema structured output (.describe) yang dikirim ke LLM; pertimbangkan [OUTPUT_FORMAT] di prompt .md."
-    },
-    {
-      "check": "hardcoded-prompt",
-      "file": "src/core/writer/runtime/prompt-builder.ts",
-      "max": 1,
-      "reason": "Baris persona penulis dirakit dinamis; pindahkan ke agent-user-prompt.md sebagai variabel."
-    },
-    {
-      "check": "hardcoded-prompt",
-      "file": "src/lib/ai/completion.ts",
-      "max": 2,
-      "reason": "Sufiks paksa-raw-JSON pada system message OpenRouter (2 jalur: json_schema & fallback json_object); pindahkan ke system-*.md."
-    },
-    {
       "check": "legacy-term",
       "file": "src/app/api/batches/route.ts",
       "max": 4,
@@ -165,7 +129,7 @@
     {
       "check": "legacy-term",
       "file": "src/core/writer/writer.ts",
-      "max": 4,
+      "max": 3,
       "reason": "Kompatibilitas payload lama: field `engine` dipetakan ke Agent Profile via LEGACY_ENGINE_MAP. Hapus setelah item antrean/batch lama dimigrasi ke agentProfileRef."
     }
   ]

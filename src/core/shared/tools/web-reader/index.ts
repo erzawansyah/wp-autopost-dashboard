@@ -2,26 +2,37 @@
  * Universal Tool: Web Reader (URL Content Extractor)
  * Membaca dan mengekstrak isi teks bersih dari sebuah halaman web / URL.
  * Dilengkapi proteksi SSRF (`safeFetch`), pembersihan tag skrip/iklan/navigasi, dan pembatasan panjang konten.
+ * Hasil berupa `ToolOutcome` (lihat `../contract`); pembatalan lewat `signal`.
  */
 
-import { ResponseTooLargeError, safeFetch, SsrfBlockedError } from "@/lib/net/safe-fetch"
+import { z } from "zod"
+import { safeFetch } from "@/lib/net/safe-fetch"
+import {
+  failureFromError,
+  failureFromHttpStatus,
+  toolFailure,
+  toolSuccess,
+  type ToolOutcome,
+} from "@/core/shared/tools/contract"
 
 /** Batas ukuran HTML mentah yang diunduh (byte). */
 const MAX_HTML_BYTES = 3 * 1024 * 1024
 
-export interface WebReaderResult {
-  ok: boolean
-  url: string
-  title?: string
-  content?: string
-  wordCount?: number
-  error?: string
-}
+export const WebReaderDataSchema = z.object({
+  url: z.string(),
+  title: z.string().optional(),
+  content: z.string(),
+  wordCount: z.number().int().nonnegative(),
+})
+
+export type WebReaderData = z.infer<typeof WebReaderDataSchema>
 
 export interface WebReaderParams {
   url: string
   maxLength?: number
   timeoutMs?: number
+  /** Sinyal pembatalan run; request yang sedang berjalan ikut dibatalkan. */
+  signal?: AbortSignal
 }
 
 /**
@@ -82,16 +93,15 @@ function extractCleanText(html: string, maxLength: number): { title?: string; te
 
 /**
  * Universal Tool: Web Reader
- * Mengambil dan membaca konten teks dari URL tujuan
+ * Mengambil dan membaca konten teks dari URL tujuan.
  */
-export async function readWebContent(params: WebReaderParams): Promise<WebReaderResult> {
+export async function readWebContent(params: WebReaderParams): Promise<ToolOutcome<WebReaderData>> {
   const url = params.url?.trim()
   const maxLength = params.maxLength ?? 3000
   const timeoutMs = params.timeoutMs ?? 15000
+  const { signal } = params
 
-  if (!url) {
-    return { ok: false, url: "", error: "URL tidak boleh kosong." }
-  }
+  if (!url) return toolFailure("invalid_input", "URL tidak boleh kosong.")
 
   try {
     const res = await safeFetch(
@@ -102,37 +112,27 @@ export async function readWebContent(params: WebReaderParams): Promise<WebReader
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
           Accept: "text/html,application/xhtml+xml,text/plain",
         },
+        signal,
       },
       { timeoutMs, maxBytes: MAX_HTML_BYTES }
     )
 
     if (!res.ok) {
       await res.body?.cancel()
-      return { ok: false, url, error: `Server tujuan merespons HTTP ${res.status}.` }
+      return failureFromHttpStatus(res.status, "Server tujuan")
     }
 
     const html = await res.text()
     const { title, text } = extractCleanText(html, maxLength)
-    const wordCount = text.trim().split(/\s+/).filter(Boolean).length
+    if (!text) return toolFailure("unsupported_content", "Halaman tidak memuat teks yang dapat dibaca.")
 
-    return {
-      ok: true,
+    return toolSuccess({
       url,
       title: title || undefined,
       content: text,
-      wordCount,
-    }
+      wordCount: text.split(/\s+/).filter(Boolean).length,
+    })
   } catch (err: unknown) {
-    if (err instanceof SsrfBlockedError) {
-      return { ok: false, url, error: `Akses ke URL ini ditolak demi keamanan (SSRF protection): ${err.message}` }
-    }
-    if (err instanceof ResponseTooLargeError) {
-      return { ok: false, url, error: `Halaman terlalu besar untuk dibaca (maksimal ${MAX_HTML_BYTES / (1024 * 1024)} MB).` }
-    }
-    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
-      return { ok: false, url, error: "Batas waktu request tercapai (timeout)." }
-    }
-    const msg = err instanceof Error ? err.message : "Gagal membaca konten web"
-    return { ok: false, url, error: msg }
+    return failureFromError(err, { signal, sizeLimit: `${MAX_HTML_BYTES / (1024 * 1024)} MB` })
   }
 }

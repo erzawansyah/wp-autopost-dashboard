@@ -1,11 +1,14 @@
-import {
-  describeWpNetworkError,
-  makeAuthHeader,
-  normalizeAndValidateWpUrl,
-  wpFetch,
-} from "@/lib/wordpress/client"
-import { ResponseTooLargeError, safeFetch } from "@/lib/net/safe-fetch"
+import { z } from "zod"
+import { makeAuthHeader, normalizeAndValidateWpUrl, wpFetch } from "@/lib/wordpress/client"
+import { safeFetch } from "@/lib/net/safe-fetch"
 import { findExistingUploadedMedia, recordUploadedMedia } from "@/core/shared/media/media-repository"
+import {
+  failureFromError,
+  failureFromHttpStatus,
+  toolFailure,
+  toolSuccess,
+  type ToolOutcome,
+} from "@/core/shared/tools/contract"
 
 export interface UploadMediaParams {
   imageUrl: string
@@ -20,19 +23,21 @@ export interface UploadMediaParams {
   userId?: string
   postId?: string | null
   timeoutMs?: number
+  /** Sinyal pembatalan run; unduhan gambar & unggahan ke WordPress ikut dibatalkan. */
+  signal?: AbortSignal
 }
 
-export interface UploadMediaResult {
-  ok: boolean
-  mediaId: number
-  sourceUrl: string
-  title?: string
-  altText?: string
-  caption?: string
-  isSimulated?: boolean
-  isCached?: boolean
-  error?: string
-}
+export const UploadedMediaSchema = z.object({
+  mediaId: z.number().int().positive(),
+  sourceUrl: z.string(),
+  title: z.string().optional(),
+  altText: z.string().optional(),
+  caption: z.string().optional(),
+  /** `true` bila diambil dari cache deduplikasi `uploaded_media` tanpa mengunggah ulang. */
+  isCached: z.boolean().optional(),
+})
+
+export type UploadedMedia = z.infer<typeof UploadedMediaSchema>
 
 function sanitizeFilename(name: string): string {
   const clean = name
@@ -80,19 +85,23 @@ function isImageLikeContentType(contentType: string): boolean {
  * Universal Tool: uploadMediaToWordPress (upload_media)
  * Mengunduh gambar dari URL dan mengunggahnya ke WordPress Media Library via REST API standar (/wp-json/wp/v2/media).
  * Dilengkapi dengan Cache Deduplikasi (tabel `uploaded_media`) agar tidak mengunggah ulang gambar yang sama.
+ * Hasil berupa `ToolOutcome` (tidak melempar untuk kegagalan jaringan/HTTP/validasi).
  */
-export async function uploadMediaToWordPress(
-  params: UploadMediaParams
-): Promise<UploadMediaResult> {
+export async function uploadMediaToWordPress(params: UploadMediaParams): Promise<ToolOutcome<UploadedMedia>> {
   const imageUrl = params.imageUrl?.trim()
   if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
-    return {
-      ok: false,
-      mediaId: 0,
-      sourceUrl: "",
-      error: "URL gambar tidak valid atau kosong.",
-    }
+    return toolFailure("invalid_input", "URL gambar tidak valid atau kosong.")
   }
+
+  try {
+    return await uploadValidatedImage(imageUrl, params)
+  } catch (err: unknown) {
+    return failureFromError(err, { signal: params.signal, sizeLimit: `${MAX_IMAGE_BYTES / (1024 * 1024)} MB` })
+  }
+}
+
+async function uploadValidatedImage(imageUrl: string, params: UploadMediaParams): Promise<ToolOutcome<UploadedMedia>> {
+  const { signal } = params
 
   // 0. Cek Cache Deduplikasi Media di Database Supabase (per pemilik + situs; tanpa keduanya cache dilewati)
   if (params.userId && params.siteId) {
@@ -102,208 +111,162 @@ export async function uploadMediaToWordPress(
       sourceUrl: imageUrl,
     })
     if (cached) {
-      return {
-        ok: true,
+      return toolSuccess({
         mediaId: cached.imageId,
         sourceUrl: cached.siteUrl,
         title: cached.metadata?.title || params.title || "Foto Terupload",
         altText: cached.metadata?.alt || params.altText,
         caption: cached.metadata?.caption || params.caption,
         isCached: true,
-      }
+      })
     }
   }
 
-  // Jika kredensial WordPress tidak tersedia (misal diuji di Lab Standalone), berikan respons fallback/simulasi
   if (!params.baseUrl || !params.username || !params.applicationPassword) {
-    const mockId = Math.floor(1000 + Math.random() * 9000)
-    return {
-      ok: true,
-      mediaId: mockId,
-      sourceUrl: imageUrl,
-      title: params.title || "Foto Ilustrasi",
-      altText: params.altText,
-      caption: params.caption,
-      isSimulated: true,
-    }
+    return toolFailure(
+      "missing_credentials",
+      "Website WordPress tujuan tidak terhubung atau kredensial kosong. Tidak dapat mengunggah media."
+    )
   }
 
   const { valid, normalizedUrl, error: urlError } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
-    return {
-      ok: false,
-      mediaId: 0,
-      sourceUrl: "",
-      error: urlError || "URL WordPress tidak valid.",
-    }
+    return toolFailure("missing_credentials", urlError || "URL WordPress tidak valid.")
   }
 
   const timeoutMs = params.timeoutMs ?? 25000
 
-  try {
-    // 1. Unduh buffer gambar dari URL asal (URL pilihan LLM → wajib Anti-SSRF + batas ukuran)
-    const imageRes = await safeFetch(
-      imageUrl,
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-          Accept: "image/*,*/*",
-        },
+  // 1. Unduh buffer gambar dari URL asal (URL pilihan LLM → wajib Anti-SSRF + batas ukuran)
+  const imageRes = await safeFetch(
+    imageUrl,
+    {
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+        Accept: "image/*,*/*",
       },
-      { timeoutMs, maxBytes: MAX_IMAGE_BYTES }
+      signal,
+    },
+    { timeoutMs, maxBytes: MAX_IMAGE_BYTES }
+  )
+
+  if (!imageRes.ok) {
+    await imageRes.body?.cancel()
+    return failureFromHttpStatus(imageRes.status, "Server gambar asal")
+  }
+
+  const contentType = imageRes.headers.get("content-type") || ""
+  if (!isImageLikeContentType(contentType)) {
+    await imageRes.body?.cancel()
+    return toolFailure(
+      "unsupported_content",
+      `URL tidak mengarah ke berkas gambar (Content-Type: ${contentType.split(";")[0]}).`
     )
+  }
 
-    if (!imageRes.ok) {
-      await imageRes.body?.cancel()
-      return {
-        ok: false,
-        mediaId: 0,
-        sourceUrl: imageUrl,
-        error: `Gagal mengunduh gambar asal dari URL (Status HTTP: ${imageRes.status})`,
-      }
-    }
+  const imageBytes = new Uint8Array(await imageRes.arrayBuffer())
+  if (imageBytes.byteLength === 0) {
+    return toolFailure("unsupported_content", "Buffer gambar kosong (0 byte).")
+  }
 
-    const contentType = imageRes.headers.get("content-type") || ""
-    if (!isImageLikeContentType(contentType)) {
-      await imageRes.body?.cancel()
-      return {
-        ok: false,
-        mediaId: 0,
-        sourceUrl: imageUrl,
-        error: `URL tidak mengarah ke berkas gambar (Content-Type: ${contentType.split(";")[0]}).`,
-      }
-    }
+  const imageType = detectImageType(imageBytes)
+  if (!imageType) {
+    return toolFailure("unsupported_content", "Berkas dari URL bukan gambar yang didukung (JPEG, PNG, GIF, WebP, AVIF).")
+  }
+  const { mime, ext } = imageType
 
-    const imageBytes = new Uint8Array(await imageRes.arrayBuffer())
+  const rawFilename = params.filename || params.altText || params.title || "foto-artikel"
+  const finalFilename = `${sanitizeFilename(rawFilename)}-${Date.now().toString().slice(-4)}.${ext}`
+  const authorization = makeAuthHeader(params.username, params.applicationPassword)
 
-    if (imageBytes.byteLength === 0) {
-      return {
-        ok: false,
-        mediaId: 0,
-        sourceUrl: imageUrl,
-        error: "Buffer gambar kosong (0 byte).",
-      }
-    }
+  // 2. Upload biner gambar ke endpoint WordPress REST API /wp-json/wp/v2/media.
+  //    Galat setelah request terkirim (timeout/5xx/jaringan) bisa saja sudah membuat media di WordPress,
+  //    jadi ditandai tidak layak diulang agar agen tidak menggandakan media.
+  let uploadRes: Response
+  try {
+    uploadRes = await wpFetch(
+      `${normalizedUrl}/wp-json/wp/v2/media`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: authorization,
+          "Content-Disposition": `attachment; filename="${finalFilename}"`,
+          "Content-Type": mime,
+          "User-Agent": "WP-Autopost-Dashboard/1.0",
+          Accept: "application/json",
+        },
+        body: imageBytes,
+        signal,
+      },
+      { timeoutMs }
+    )
+  } catch (uploadErr: unknown) {
+    return { ...failureFromError(uploadErr, { signal }), retryable: false }
+  }
 
-    const imageType = detectImageType(imageBytes)
-    if (!imageType) {
-      return {
-        ok: false,
-        mediaId: 0,
-        sourceUrl: imageUrl,
-        error: "Berkas dari URL bukan gambar yang didukung (JPEG, PNG, GIF, WebP, AVIF).",
-      }
-    }
-    const { mime, ext } = imageType
+  if (!uploadRes.ok) {
+    const errBody: unknown = await uploadRes.json().catch(() => null)
+    const detail =
+      typeof errBody === "object" && errBody !== null && "message" in errBody && typeof errBody.message === "string"
+        ? errBody.message
+        : undefined
+    const failure = failureFromHttpStatus(uploadRes.status, "WordPress (upload media)", { credentialed: true, detail })
+    return uploadRes.status >= 500 ? { ...failure, retryable: false } : failure
+  }
 
-    const rawFilename = params.filename || params.altText || params.title || "foto-artikel"
-    const safeBaseName = sanitizeFilename(rawFilename)
-    const finalFilename = `${safeBaseName}-${Date.now().toString().slice(-4)}.${ext}`
+  const mediaData = await uploadRes.json()
+  const mediaId = Number(mediaData.id)
+  if (!Number.isInteger(mediaId) || mediaId <= 0) {
+    return toolFailure("upstream_error", "WordPress tidak mengembalikan ID media yang valid.", false)
+  }
+  const wpSourceUrl = mediaData.source_url || imageUrl
 
-    // 2. Upload biner gambar ke endpoint WordPress REST API /wp-json/wp/v2/media
-    let uploadRes: Response
+  // 3. Update metadata alt_text, caption, dan title jika ada
+  if (params.altText || params.caption || params.title) {
     try {
-      uploadRes = await wpFetch(
-        `${normalizedUrl}/wp-json/wp/v2/media`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: makeAuthHeader(params.username, params.applicationPassword),
-            "Content-Disposition": `attachment; filename="${finalFilename}"`,
-            "Content-Type": mime,
-            "User-Agent": "WP-Autopost-Dashboard/1.0",
-            Accept: "application/json",
-          },
-          body: imageBytes,
+      const metaRes = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/media/${mediaId}`, {
+        method: "POST",
+        headers: {
+          Authorization: authorization,
+          "Content-Type": "application/json",
+          "User-Agent": "WP-Autopost-Dashboard/1.0",
         },
-        { timeoutMs }
-      )
-    } catch (uploadErr: unknown) {
-      return {
-        ok: false,
-        mediaId: 0,
-        sourceUrl: imageUrl,
-        error: describeWpNetworkError(uploadErr, "Gagal menghubungi WordPress saat mengunggah media."),
-      }
-    }
-
-    if (!uploadRes.ok) {
-      const errBody = await uploadRes.json().catch(() => null)
-      const errDetail = errBody?.message || `Status HTTP ${uploadRes.status}`
-      return {
-        ok: false,
-        mediaId: 0,
-        sourceUrl: imageUrl,
-        error: `WordPress menolak upload media: ${errDetail}`,
-      }
-    }
-
-    const mediaData = await uploadRes.json()
-    const mediaId = Number(mediaData.id)
-    const wpSourceUrl = mediaData.source_url || imageUrl
-
-    // 3. Update metadata alt_text, caption, dan title jika ada
-    if (params.altText || params.caption || params.title) {
-      try {
-        const metaRes = await wpFetch(`${normalizedUrl}/wp-json/wp/v2/media/${mediaId}`, {
-          method: "POST",
-          headers: {
-            Authorization: makeAuthHeader(params.username, params.applicationPassword),
-            "Content-Type": "application/json",
-            "User-Agent": "WP-Autopost-Dashboard/1.0",
-          },
-          body: JSON.stringify({
-            alt_text: params.altText || undefined,
-            caption: params.caption || undefined,
-            title: params.title || undefined,
-          }),
-        })
-        await metaRes.body?.cancel()
-      } catch {
-        // Abaikan kegagalan update metadata sekunder jika file utama sudah terunggah
-      }
-    }
-
-    // 4. Rekam ke Cache Deduplikasi Media di Database Supabase
-    if (params.userId && params.siteId && wpSourceUrl && mediaId) {
-      void recordUploadedMedia({
-        userId: params.userId,
-        siteId: params.siteId,
-        postId: params.postId,
-        sourceUrl: imageUrl,
-        siteUrl: wpSourceUrl,
-        imageId: mediaId,
-        metadata: {
-          alt: params.altText,
-          caption: params.caption,
-          title: params.title,
-          mime,
-        },
+        body: JSON.stringify({
+          alt_text: params.altText || undefined,
+          caption: params.caption || undefined,
+          title: params.title || undefined,
+        }),
+        signal,
       })
-    }
-
-    return {
-      ok: true,
-      mediaId,
-      sourceUrl: wpSourceUrl,
-      title: params.title || mediaData.title?.rendered,
-      altText: params.altText,
-      caption: params.caption,
-      isSimulated: false,
-    }
-  } catch (err: unknown) {
-    const msg =
-      err instanceof ResponseTooLargeError
-        ? `Ukuran gambar melebihi batas ${MAX_IMAGE_BYTES / (1024 * 1024)} MB.`
-        : err instanceof Error
-          ? err.message
-          : "Kesalahan tidak terduga saat mengunggah media"
-    return {
-      ok: false,
-      mediaId: 0,
-      sourceUrl: imageUrl,
-      error: msg,
+      await metaRes.body?.cancel()
+    } catch {
+      // Abaikan kegagalan update metadata sekunder jika file utama sudah terunggah
     }
   }
+
+  // 4. Rekam ke Cache Deduplikasi Media di Database Supabase
+  if (params.userId && params.siteId && wpSourceUrl) {
+    void recordUploadedMedia({
+      userId: params.userId,
+      siteId: params.siteId,
+      postId: params.postId,
+      sourceUrl: imageUrl,
+      siteUrl: wpSourceUrl,
+      imageId: mediaId,
+      metadata: {
+        alt: params.altText,
+        caption: params.caption,
+        title: params.title,
+        mime,
+      },
+    })
+  }
+
+  return toolSuccess({
+    mediaId,
+    sourceUrl: wpSourceUrl,
+    title: params.title || mediaData.title?.rendered,
+    altText: params.altText,
+    caption: params.caption,
+  })
 }

@@ -1,0 +1,101 @@
+# GOLDEN prompt "wp-tools-link-recommend" · versi a22730b77ab7
+# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
+
+===== [SYSTEM_PROMPT] dirender =====
+Kamu adalah pakar Internal Link Building SEO tingkat lanjut.
+Kami memiliki ARTIKEL BARU yang baru saja diterbitkan:
+URL: https://kopinusantara.example/manfaat-kopi-hitam/
+Topik Utama: Manfaat kesehatan kopi hitam tanpa gula dan batas aman konsumsi kafein harian.
+Keyword: manfaat kopi hitam
+
+Kami telah mengumpulkan cuplikan naskah dari artikel-artikel LAMA yang sudah terbit di situs WordPress pengguna.
+Tugasmu adalah membedah naskah artikel lama tersebut, mencari kalimat atau paragraf spesifik yang paling pas untuk disisipkan tautan menuju ARTIKEL BARU tersebut.
+
+Pedoman Penting:
+1. 'anchorText': Wajib teks yang mengalir alami dalam bahasa Indonesia (bisa exact match, partial match, atau variasi kontekstual). JANGAN membuat anchor kaku seperti "klik disini".
+2. 'sentenceOriginal': Cuplikan kalimat ASLI (1-2 kalimat) yang benar-benar ada di dalam 'sampleExcerpt' artikel lama tersebut.
+3. 'sentenceWithLink': Kalimat yang sama persis dengan 'sentenceOriginal', namun bagian anchor text telah dibungkus tautan HTML persis: <a href="https://kopinusantara.example/manfaat-kopi-hitam/">anchorText</a>.
+4. 'relevanceReason': Alasan singkat 1 kalimat dalam bahasa Indonesia mengapa tautan ini menambah nilai bagi pembaca artikel lama tersebut.
+5. 'relevanceScore': Skor relevansi angka 50 - 100.
+6. HANYA rekomendasikan artikel lama yang benar-benar relevan secara topikal.
+
+===== [USER_PROMPT] dirender =====
+ARTIKEL LAMA:
+[
+  {
+    "postId": 41,
+    "postTitle": "Cara Menyeduh Kopi Tubruk",
+    "postLink": "https://kopinusantara.example/kopi-tubruk/",
+    "sampleExcerpt": "Kopi tubruk diseduh langsung dengan air panas. Banyak orang menikmatinya tanpa gula agar rasa aslinya terasa."
+  }
+]
+
+Keluarkan JSON murni persis dengan format berikut:
+{
+  "recommendations": [
+    {
+      "postId": 123,
+      "postTitle": "Judul Postingan Lama",
+      "postLink": "https://...",
+      "anchorText": "nama anchor",
+      "sentenceOriginal": "kalimat asli...",
+      "sentenceWithLink": "kalimat asli dengan <a href=\"https://kopinusantara.example/manfaat-kopi-hitam/\">nama anchor</a>...",
+      "relevanceReason": "alasan relevansi",
+      "relevanceScore": 92
+    }
+  ]
+}
+
+===== [OUTPUT_SCHEMA] =====
+{
+  "type": "object",
+  "properties": {
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "postId": {
+            "type": "integer"
+          },
+          "postTitle": {
+            "type": "string"
+          },
+          "postLink": {
+            "type": "string"
+          },
+          "anchorText": {
+            "type": "string"
+          },
+          "sentenceOriginal": {
+            "type": "string"
+          },
+          "sentenceWithLink": {
+            "type": "string"
+          },
+          "relevanceReason": {
+            "type": "string"
+          },
+          "relevanceScore": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "postId",
+          "postTitle",
+          "postLink",
+          "anchorText",
+          "sentenceOriginal",
+          "sentenceWithLink",
+          "relevanceReason",
+          "relevanceScore"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "recommendations"
+  ]
+}

@@ -9,7 +9,8 @@ import {
   WPCategoryItem,
 } from "@/lib/wordpress/client"
 import { sanitizeTermNames, toPlainText } from "@/lib/wordpress/plain-text"
-import { callOpenRouterJson } from "@/lib/ai/completion"
+import { describeLlmError } from "@/core/shared/llm/errors"
+import type { LlmGateway } from "@/core/shared/llm/gateway"
 import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { RunRecorder } from "./telemetry"
 
@@ -25,8 +26,10 @@ export interface PreResolveOptions {
   keyword?: string
   language?: string
   brief?: string
-  apiKey?: string
-  model?: string
+  /** Gateway LLM run; resolusi LLM dilewati (fallback heuristik) bila tanpa gateway berkunci. */
+  gateway?: LlmGateway
+  /** Sinyal pembatalan eksternal run untuk request WordPress & LLM pre-resolve. */
+  signal?: AbortSignal
   recorder?: RunRecorder
 }
 
@@ -44,7 +47,7 @@ export interface PreResolvedContext {
 }
 
 /**
- * Pre-Resolution Engine untuk Taksonomi (Kategori & Tag) dan Penulis WordPress.
+ * Pre-Flight Resolver untuk Taksonomi (Kategori & Tag) dan Penulis WordPress.
  * Dijalankan di latar belakang SEBELUM AI Agent mulai menulis naskah artikel.
  *
  * Menggunakan LLM (system-resolve-taxonomy-author.md) untuk menganalisis topik dan
@@ -61,8 +64,8 @@ export async function preResolveTaxonomyAndAuthor(
     keyword = "",
     language = "id",
     brief = "",
-    apiKey,
-    model,
+    gateway,
+    signal,
     recorder,
   } = options
   // Nama tag selalu teks polos berbatas panjang (input pengguna maupun keluaran LLM)
@@ -118,6 +121,7 @@ export async function preResolveTaxonomyAndAuthor(
             Accept: "application/json",
             "User-Agent": "WP-Autopost-Dashboard/1.0",
           },
+          signal,
         },
         { timeoutMs: 10_000 }
       )
@@ -163,7 +167,7 @@ export async function preResolveTaxonomyAndAuthor(
 
   const nonAdminUsers = users.filter((u) => !isTechnicalAdminUser(u))
 
-  if (apiKey && (users.length > 0 || existingCategories.length > 0)) {
+  if (gateway?.hasKey && (users.length > 0 || existingCategories.length > 0)) {
     const llmStart = Date.now()
     try {
       const { systemPrompt, userPromptTemplate, outputSchema } = loadSectionedPrompt("system-resolve-taxonomy-author.md")
@@ -207,13 +211,14 @@ export async function preResolveTaxonomyAndAuthor(
           rationale?: string
         }
 
-        const llmResult = await callOpenRouterJson<LlmTaxonomyResolution>({
-          apiKey,
-          model,
+        const llmResult = await gateway.completeJson<LlmTaxonomyResolution>({
           systemPrompt,
           userPrompt: renderedUserPrompt,
           jsonSchema: outputSchema,
           temperature: 0.3,
+          signal,
+          runName: `Panitera Pre-Resolve: ${keyword.slice(0, 40)}`,
+          tags: ["pre_resolve", "panitera"],
         })
 
         if (llmResult) {
@@ -290,7 +295,7 @@ export async function preResolveTaxonomyAndAuthor(
         tool: "pre_resolve_llm",
         status: "error",
         durationMs: Date.now() - llmStart,
-        summary: `Resolusi LLM dilewati/gagal, beralih ke fallback heuristik. Info: ${
+        summary: `Resolusi LLM dilewati/gagal [${describeLlmError(llmErr)}], beralih ke fallback heuristik. Info: ${
           llmErr instanceof Error ? llmErr.message : String(llmErr)
         }`,
       })

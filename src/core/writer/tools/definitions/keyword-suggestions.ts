@@ -1,7 +1,21 @@
 import { z } from "zod"
 import { tool } from "@langchain/core/tools"
-import { getKeywordSuggestions } from "../../../shared/tools/keyword-suggestions"
+import {
+  getKeywordSuggestions,
+  KeywordSuggestionsResult,
+  KeywordSuggestionsResultSchema,
+} from "../../../shared/tools/keyword-suggestions"
 import { ToolDefinition, ToolRuntimeContext } from "../registry"
+import { resolveToolSignal, summarizeToolOutcome, TOOL_RESPONSE_FORMAT, toToolResponse } from "../tool-response"
+
+function renderSuggestions({ query, suggestions }: KeywordSuggestionsResult): string {
+  if (suggestions.length === 0) {
+    return `Tidak ditemukan saran kata kunci penelusuran untuk "${query}". Anda dapat melanjutkan penulisan berdasarkan pengetahuan internal atau menggunakan tool web_search.`
+  }
+
+  const formatted = suggestions.map((s, idx) => `${idx + 1}. ${s}`).join("\n")
+  return `Ditemukan ${suggestions.length} saran kata kunci penelusuran & LSI untuk "${query}":\n\n${formatted}\n\nTips: Integrasikan kata-kata kunci di atas sebagai inspirasi subbab (H2/H3) atau topik bahasan yang mengalir alami di dalam naskah artikel.`
+}
 
 export const keywordSuggestionsToolDef: ToolDefinition = {
   id: "keyword_suggestions",
@@ -29,46 +43,24 @@ export const keywordSuggestionsToolDef: ToolDefinition = {
     },
   ],
 
-  summarize(result: unknown): string {
-    if (typeof result === "string" && result.startsWith("ERROR")) return result.slice(0, 150)
-    if (typeof result === "string") {
-      const match = result.match(/Ditemukan (\d+) saran/)
-      if (match) return `Menemukan ${match[1]} saran kata kunci & LSI`
-      return result.slice(0, 120)
-    }
-    return "Pengambilan saran kata kunci selesai"
+  summarize(outcome) {
+    return summarizeToolOutcome(outcome, KeywordSuggestionsResultSchema, ({ suggestions }) =>
+      suggestions.length > 0 ? `Menemukan ${suggestions.length} saran kata kunci & LSI` : "Tidak ada saran kata kunci"
+    )
   },
 
   build(ctx: ToolRuntimeContext) {
     return tool(
-      async ({ query, limit = 15, language }) => {
-        const cleanQuery = (query || "").trim()
-        if (!cleanQuery) return "ERROR[invalid_input]: Kata kunci (query) tidak boleh kosong."
+      async ({ query, limit = 15, language }, config) => {
+        const outcome = await getKeywordSuggestions({
+          query: (query || "").trim(),
+          limit: limit || 15,
+          language: language || ctx.language || "id",
+          searxngUrl: ctx.userKeys.searxngUrl,
+          signal: resolveToolSignal(ctx, config),
+        })
 
-        try {
-          const lang = language || ctx.language || "id"
-          const searxngUrl = ctx.userKeys.searxngUrl
-
-          const res = await getKeywordSuggestions({
-            query: cleanQuery,
-            limit: limit || 15,
-            language: lang,
-            searxngUrl,
-          })
-
-          if (res.suggestions.length === 0) {
-            return `Tidak ditemukan saran kata kunci penelusuran untuk "${cleanQuery}". Anda dapat melanjutkan penulisan berdasarkan pengetahuan internal atau menggunakan tool web_search.`
-          }
-
-          const formatted = res.suggestions
-            .map((s, idx) => `${idx + 1}. ${s}`)
-            .join("\n")
-
-          return `Ditemukan ${res.suggestions.length} saran kata kunci penelusuran & LSI untuk "${cleanQuery}":\n\n${formatted}\n\nTips: Integrasikan kata-kata kunci di atas sebagai inspirasi subbab (H2/H3) atau topik bahasan yang mengalir alami di dalam naskah artikel.`
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : "Kesalahan jaringan"
-          return `ERROR[keyword_suggestions_failed]: Gagal mengambil saran kata kunci: ${msg}`
-        }
+        return toToolResponse(outcome, renderSuggestions, "Gagal mengambil saran kata kunci")
       },
       {
         name: "keyword_suggestions",
@@ -83,6 +75,7 @@ export const keywordSuggestionsToolDef: ToolDefinition = {
             .describe("Batas jumlah saran kata kunci yang diinginkan (default: 15, maks: 25)"),
           language: z.string().optional().describe("Bahasa penelusuran (id/en, default mengikuti bahasa artikel)"),
         }),
+        responseFormat: TOOL_RESPONSE_FORMAT,
       }
     )
   },

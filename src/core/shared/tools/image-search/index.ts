@@ -19,8 +19,12 @@
  *
  * URL gambar hasil pencarian dan instance SearXNG (bisa diisi pengguna) selalu diakses
  * lewat `safeFetch` (Anti-SSRF); API pihak ketiga ber-host tetap memakai `fetch` + timeout.
+ *
+ * Kegagalan satu provider diabaikan (fallback berikutnya berjalan); hasil berupa `ToolOutcome`.
+ * Pembatalan run (`signal`) menghentikan seluruh rantai termasuk verifikasi gambar → `aborted`.
  */
 
+import { z } from "zod"
 import { getPlatformKey, resolvePlatformFallbackKey } from "@/lib/ai/platform-keys"
 import {
   getPlatformSearxngUrl,
@@ -29,16 +33,25 @@ import {
   SsrfBlockedError,
   toSearxngBaseUrl,
 } from "@/lib/net/safe-fetch"
+import {
+  failureFromError,
+  toolFailure,
+  toolSuccess,
+  withTimeout,
+  type ToolOutcome,
+} from "@/core/shared/tools/contract"
 
-export interface ImageSearchResult {
-  url: string
-  alt: string
-  caption?: string
-  credit?: string
-  width?: number
-  height?: number
-  source: "bing" | "pexafy" | "searxng" | "curated"
-}
+export const ImageSearchResultSchema = z.object({
+  url: z.string(),
+  alt: z.string(),
+  caption: z.string().optional(),
+  credit: z.string().optional(),
+  width: z.number().optional(),
+  height: z.number().optional(),
+  source: z.enum(["bing", "pexafy", "searxng", "curated"]),
+})
+
+export type ImageSearchResult = z.infer<typeof ImageSearchResultSchema>
 
 export type ImageSearchProvider =
   | "auto"
@@ -56,6 +69,8 @@ export interface ImageSearchParams {
   provider?: ImageSearchProvider
   pexafyApiKey?: string
   searxngUrl?: string
+  /** Sinyal pembatalan run; request yang sedang berjalan ikut dibatalkan. */
+  signal?: AbortSignal
 }
 
 const DEFAULT_MIN_WIDTH = 1280
@@ -218,7 +233,11 @@ function getRandomBrowserHeaders(type: "page" | "image" = "page"): Record<string
  * Menguji apakah URL gambar aktif (200 OK / 206 Partial Content), responsif dalam batas timeout,
  * bertipe MIME image yang sah, dan bukan file kosong atau error page HTML.
  */
-export async function verifyImageAccessible(url: string, timeoutMs = 3000): Promise<boolean> {
+export async function verifyImageAccessible(
+  url: string,
+  options: { timeoutMs?: number; signal?: AbortSignal } = {}
+): Promise<boolean> {
+  const timeoutMs = options.timeoutMs ?? 3000
   if (!url || typeof url !== "string" || !/^https?:\/\//i.test(url)) {
     return false
   }
@@ -230,7 +249,8 @@ export async function verifyImageAccessible(url: string, timeoutMs = 3000): Prom
     return false
   }
 
-  const signal = AbortSignal.timeout(timeoutMs)
+  // Satu anggaran waktu untuk HEAD + GET cadangan, sekaligus ikut batal bila run dibatalkan.
+  const signal = withTimeout(options.signal, timeoutMs)
   // Selalu sertakan Referer dari origin domain gambar agar tidak diblokir proteksi anti-hotlink
   const requestHeaders: Record<string, string> = {
     ...getRandomBrowserHeaders("image"),
@@ -310,12 +330,18 @@ export async function verifyImageAccessible(url: string, timeoutMs = 3000): Prom
 /**
  * 1. Bing Image Search API Resmi (Microsoft Azure)
  */
-async function searchBingOfficialApi(query: string, count: number, apiKey: string, minWidth: number): Promise<ImageSearchResult[]> {
+async function searchBingOfficialApi(
+  query: string,
+  count: number,
+  apiKey: string,
+  minWidth: number,
+  signal?: AbortSignal
+): Promise<ImageSearchResult[]> {
   try {
     const url = `https://api.bing.microsoft.com/v7.0/images/search?q=${encodeURIComponent(query)}&count=${count * 3}&aspect=Wide&imageType=Photo&license=ShareCommercially&safeSearch=Moderate`
     const res = await fetch(url, {
       headers: { "Ocp-Apim-Subscription-Key": apiKey },
-      signal: AbortSignal.timeout(THIRD_PARTY_TIMEOUT_MS),
+      signal: withTimeout(signal, THIRD_PARTY_TIMEOUT_MS),
     })
 
     if (!res.ok) return []
@@ -329,7 +355,8 @@ async function searchBingOfficialApi(query: string, count: number, apiKey: strin
       const itemWidth = item.width ? Number(item.width) : 0
       if (itemWidth > 0 && itemWidth < minWidth) continue
 
-      const isLive = await verifyImageAccessible(item.contentUrl)
+      const isLive = await verifyImageAccessible(item.contentUrl, { signal })
+      signal?.throwIfAborted()
       if (!isLive) continue
 
       results.push({
@@ -345,6 +372,7 @@ async function searchBingOfficialApi(query: string, count: number, apiKey: strin
 
     return results
   } catch (err) {
+    signal?.throwIfAborted()
     console.warn("[image-search] Gagal memanggil Bing Official API:", err)
     return []
   }
@@ -353,14 +381,19 @@ async function searchBingOfficialApi(query: string, count: number, apiKey: strin
 /**
  * 2. Bing Async Scraper (Zero-Config, Creative Commons + Wide + minWidth >= 1280 + Live Verification)
  */
-async function searchBingAsyncScraper(query: string, count: number, minWidth: number): Promise<ImageSearchResult[]> {
+async function searchBingAsyncScraper(
+  query: string,
+  count: number,
+  minWidth: number,
+  signal?: AbortSignal
+): Promise<ImageSearchResult[]> {
   try {
     // Parameter filter Bing: Wide, Photo, Creative Commons, Large imagesize
     const url = `https://www.bing.com/images/async?q=${encodeURIComponent(query)}&async=content&first=1&count=40&qft=+filterui:aspect-wide+filterui:photo-photo+filterui:license-L2_L3_L4_L5_L6_L7+filterui:imagesize-large`
 
     const res = await fetch(url, {
       headers: getRandomBrowserHeaders("page"),
-      signal: AbortSignal.timeout(THIRD_PARTY_TIMEOUT_MS),
+      signal: withTimeout(signal, THIRD_PARTY_TIMEOUT_MS),
     })
 
     if (!res.ok) return []
@@ -403,7 +436,8 @@ async function searchBingAsyncScraper(query: string, count: number, minWidth: nu
         }
 
         // 2. LAPISAN VERIFIKASI AKSESIBILITAS: Pastikan gambar dapat diakses secara live
-        const isLive = await verifyImageAccessible(mediaUrl, 2500)
+        const isLive = await verifyImageAccessible(mediaUrl, { timeoutMs: 2500, signal })
+        signal?.throwIfAborted()
         if (!isLive) {
           continue
         }
@@ -426,12 +460,14 @@ async function searchBingAsyncScraper(query: string, count: number, minWidth: nu
           source: "bing" as const,
         })
       } catch {
+        signal?.throwIfAborted()
         // Abaikan parse error per item
       }
     }
 
     return results
   } catch (err) {
+    signal?.throwIfAborted()
     console.warn("[image-search] Gagal memanggil Bing Async Scraper:", err)
     return []
   }
@@ -444,7 +480,8 @@ async function searchWithPexafy(
   query: string,
   count: number,
   apiKey: string,
-  minWidth: number
+  minWidth: number,
+  signal?: AbortSignal
 ): Promise<ImageSearchResult[]> {
   try {
     const url = `https://api.pexafy.com/api/v1/search/photos?q=${encodeURIComponent(query)}&per_page=${Math.max(count, 10)}&orientation=landscape`
@@ -453,7 +490,7 @@ async function searchWithPexafy(
         "x-api-key": apiKey,
         "Accept": "application/json",
       },
-      signal: AbortSignal.timeout(THIRD_PARTY_TIMEOUT_MS),
+      signal: withTimeout(signal, THIRD_PARTY_TIMEOUT_MS),
     })
 
     if (!res.ok) {
@@ -474,7 +511,8 @@ async function searchWithPexafy(
       const mediaUrl = item.urls?.regular || item.preview_url_large || item.source_image_url
       if (!mediaUrl || typeof mediaUrl !== "string" || !mediaUrl.startsWith("http")) continue
 
-      const isLive = await verifyImageAccessible(mediaUrl, 2500)
+      const isLive = await verifyImageAccessible(mediaUrl, { timeoutMs: 2500, signal })
+      signal?.throwIfAborted()
       if (!isLive) continue
 
       const alt = item.alt_description || query
@@ -494,6 +532,7 @@ async function searchWithPexafy(
 
     return results
   } catch (err) {
+    signal?.throwIfAborted()
     console.warn("[image-search] Gagal memanggil Pexafy API:", err)
     return []
   }
@@ -506,7 +545,8 @@ async function searchWithSearxngImages(
   query: string,
   count: number,
   searxngUrl: string,
-  minWidth: number
+  minWidth: number,
+  signal?: AbortSignal
 ): Promise<ImageSearchResult[]> {
   try {
     const base = toSearxngBaseUrl(searxngUrl)
@@ -514,7 +554,7 @@ async function searchWithSearxngImages(
     // URL SearXNG bisa diisi pengguna → wajib Anti-SSRF (hanya endpoint /search SearXNG platform yang tepercaya)
     const res = await safeFetch(
       url,
-      { headers: getRandomBrowserHeaders("page") },
+      { headers: getRandomBrowserHeaders("page"), signal },
       { timeoutMs: THIRD_PARTY_TIMEOUT_MS, platformSearxng: true }
     )
 
@@ -563,7 +603,8 @@ async function searchWithSearxngImages(
 
       if (width > 0 && width < minWidth) continue
 
-      const isLive = await verifyImageAccessible(mediaUrl, 3000)
+      const isLive = await verifyImageAccessible(mediaUrl, { timeoutMs: 3000, signal })
+      signal?.throwIfAborted()
       if (!isLive) continue
 
       const title = item.title || query
@@ -582,6 +623,7 @@ async function searchWithSearxngImages(
 
     return results
   } catch (err) {
+    signal?.throwIfAborted()
     console.warn("[image-search] Gagal memanggil SearxNG Image API:", err)
     return []
   }
@@ -615,53 +657,67 @@ function getCuratedUnsplashImages(query: string, count: number): ImageSearchResu
 /**
  * Universal Tool: Cari Foto Berkualitas Tinggi Bebas Royalti (Hybrid Engine)
  */
-export async function searchRoyaltyFreeImages(params: ImageSearchParams): Promise<ImageSearchResult[]> {
-  const count = params.count || 1
+export async function searchRoyaltyFreeImages(params: ImageSearchParams): Promise<ToolOutcome<ImageSearchResult[]>> {
   const query = params.query.trim()
+  if (!query) return toolFailure("invalid_input", "Kata kunci pencarian foto kosong.")
+
+  try {
+    return toolSuccess(await runImagePipeline(query, params))
+  } catch (err: unknown) {
+    return failureFromError(err, { signal: params.signal })
+  }
+}
+
+async function runImagePipeline(query: string, params: ImageSearchParams): Promise<ImageSearchResult[]> {
+  const count = params.count || 1
   const minWidth = params.minWidth || DEFAULT_MIN_WIDTH
   const provider = params.provider || "auto"
-
-  if (!query) return []
+  const { signal } = params
 
   // Kunci BYOK pengguna; kunci platform hanya menjadi cadangan bila operator mengizinkan.
   const pexafyKey = resolvePlatformFallbackKey(params.pexafyApiKey, "PEXAFY_API_KEY")
   // Bing Official API tidak punya padanan BYOK: kunci platform hanya dipakai bila diizinkan.
   const bingApiKey = getPlatformKey("BING_SEARCH_API_KEY", "BING_API_KEY")
   const searxngUrl = params.searxngUrl || getPlatformSearxngUrl()
+  // Katalog kurasi tanpa jaringan: tetap tidak dipakai bila run sudah dibatalkan.
+  const curated = () => {
+    signal?.throwIfAborted()
+    return getCuratedUnsplashImages(query, count)
+  }
 
   // 1. Eksekusi jika pengguna memilih METODE SPESIFIK:
   if (provider === "pexafy") {
     if (pexafyKey) {
-      const results = await searchWithPexafy(query, count, pexafyKey, minWidth)
+      const results = await searchWithPexafy(query, count, pexafyKey, minWidth, signal)
       if (results.length > 0) return results
     }
-    return getCuratedUnsplashImages(query, count)
+    return curated()
   }
 
   if (provider === "searxng") {
     if (searxngUrl) {
-      const results = await searchWithSearxngImages(query, count, searxngUrl, minWidth)
+      const results = await searchWithSearxngImages(query, count, searxngUrl, minWidth, signal)
       if (results.length > 0) return results
     }
-    return getCuratedUnsplashImages(query, count)
+    return curated()
   }
 
   if (provider === "bing_api") {
     if (bingApiKey) {
-      const results = await searchBingOfficialApi(query, count, bingApiKey, minWidth)
+      const results = await searchBingOfficialApi(query, count, bingApiKey, minWidth, signal)
       if (results.length > 0) return results
     }
-    return getCuratedUnsplashImages(query, count)
+    return curated()
   }
 
   if (provider === "bing_scraper") {
-    const results = await searchBingAsyncScraper(query, count, minWidth)
+    const results = await searchBingAsyncScraper(query, count, minWidth, signal)
     if (results.length > 0) return results
-    return getCuratedUnsplashImages(query, count)
+    return curated()
   }
 
   if (provider === "curated") {
-    return getCuratedUnsplashImages(query, count)
+    return curated()
   }
 
   // 2. Mode DEFAULT ("auto"): Pipeline Bertingkat Cerdas
@@ -669,26 +725,26 @@ export async function searchRoyaltyFreeImages(params: ImageSearchParams): Promis
 
   // 2.1 Coba Pexafy jika ada API key
   if (pexafyKey) {
-    const pexafyResults = await searchWithPexafy(query, count, pexafyKey, minWidth)
+    const pexafyResults = await searchWithPexafy(query, count, pexafyKey, minWidth, signal)
     if (pexafyResults.length > 0) return pexafyResults
   }
 
   // 2.2 Coba Bing Official API jika kunci platform diizinkan
   if (bingApiKey) {
-    const bingApiResults = await searchBingOfficialApi(query, count, bingApiKey, minWidth)
+    const bingApiResults = await searchBingOfficialApi(query, count, bingApiKey, minWidth, signal)
     if (bingApiResults.length > 0) return bingApiResults
   }
 
   // 2.3 Coba SearxNG Images (Kedua Terakhir: Metasearch Engine Tanpa Kuota API)
   if (searxngUrl) {
-    const searxngResults = await searchWithSearxngImages(query, count, searxngUrl, minWidth)
+    const searxngResults = await searchWithSearxngImages(query, count, searxngUrl, minWidth, signal)
     if (searxngResults.length > 0) return searxngResults
   }
 
   // 2.4 Coba Bing Async Scraper (Creative Commons, Wide Landscape, minWidth >= 1280px, Live Verified)
-  const bingScraperResults = await searchBingAsyncScraper(query, count, minWidth)
+  const bingScraperResults = await searchBingAsyncScraper(query, count, minWidth, signal)
   if (bingScraperResults.length > 0) return bingScraperResults
 
   // 2.5 Fallback Terakhir: Unsplash Curated CDN (lebar 1280px)
-  return getCuratedUnsplashImages(query, count)
+  return curated()
 }

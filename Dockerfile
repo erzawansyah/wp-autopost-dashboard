@@ -56,8 +56,8 @@ RUN addgroup --system --gid 1001 nodejs && \
 # Copy public directory & static build assets
 COPY --from=builder /app/public ./public
 
-# Copy core prompt templates required by dynamic prompt loaders at runtime
-COPY --from=builder --chown=nextjs:nodejs /app/src/core ./src/core
+# Prompt LLM tidak lagi dibaca dari disk: `npm run build` (prebuild → scripts/build-prompts.ts) mengompilasi
+# src/core/shared/prompts/*.md ke registry.generated.ts yang dibundel ke .next/standalone, jadi src/ tidak disalin.
 
 # Automatically leverage output traces to reduce image size
 # https://nextjs.org/docs/advanced-features/output-file-tracing

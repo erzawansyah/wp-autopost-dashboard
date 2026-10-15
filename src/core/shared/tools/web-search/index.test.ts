@@ -6,7 +6,8 @@ vi.mock("@/lib/net/safe-fetch", async (importOriginal) => ({
   safeFetch: safeFetchMock,
 }))
 
-import { webSearch } from "./index"
+import { toolOutcomeSchema } from "@/core/shared/tools/contract"
+import { webSearch, WebSearchResultSchema } from "./index"
 
 const fetchMock = vi.fn()
 
@@ -49,9 +50,10 @@ describe("webSearch BYOK key routing", () => {
       return new Response("", { status: 503 })
     })
 
-    const results = await webSearch({ query: "tren ai", provider: "auto", keys: { braveKey: "brave-key-123" } })
+    const outcome = await webSearch({ query: "tren ai", provider: "auto", keys: { braveKey: "brave-key-123" } })
 
-    expect(results[0]?.source).toBe("brave")
+    const parsed = toolOutcomeSchema(WebSearchResultSchema.array()).parse(outcome)
+    expect(parsed.ok && parsed.data[0]?.source).toBe("brave")
     const urls = fetchMock.mock.calls.map(([input]) => requestUrl(input))
     expect(urls.some((u) => u.startsWith("https://api.tavily.com"))).toBe(false)
     const braveCall = fetchMock.mock.calls.find(([input]) => requestUrl(input).startsWith("https://api.search.brave.com/"))
@@ -88,9 +90,9 @@ describe("webSearch outbound safety", () => {
       return new Response("", { status: 503 })
     })
 
-    const results = await webSearch({ query: "tren ai", provider: "searxng", searxngUrl: "https://searx.example.org/" })
+    const outcome = await webSearch({ query: "tren ai", provider: "searxng", searxngUrl: "https://searx.example.org/" })
 
-    expect(results).toHaveLength(1)
+    expect(outcome.ok && outcome.data).toHaveLength(1)
     expect(requestUrl(safeFetchMock.mock.calls[0]?.[0])).toMatch(/^https:\/\/searx\.example\.org\/search\?q=/)
     expect(fetchMock.mock.calls.some(([input]) => requestUrl(input).includes("searx.example.org"))).toBe(false)
   })
@@ -110,5 +112,44 @@ describe("webSearch outbound safety", () => {
     for (const [input] of safeFetchMock.mock.calls) {
       expect(new URL(requestUrl(input)).hostname).toBe("id.wikipedia.org")
     }
+  })
+})
+
+describe("webSearch kontrak ToolOutcome & pembatalan", () => {
+  it("kueri kosong → invalid_input tanpa request keluar", async () => {
+    expect(await webSearch({ query: "   " })).toMatchObject({ ok: false, code: "invalid_input", retryable: false })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(safeFetchMock).not.toHaveBeenCalled()
+  })
+
+  it("seluruh provider gagal → tetap sukses dengan hasil kosong (fallback, bukan kegagalan tool)", async () => {
+    expect(await webSearch({ query: "tren ai", provider: "auto" })).toEqual({ ok: true, data: [] })
+  })
+
+  it("abort sinyal run menghentikan rantai fallback → aborted", async () => {
+    const controller = new AbortController()
+    // Provider pertama (Tavily) menggantung sampai sinyalnya dibatalkan.
+    fetchMock.mockImplementation(
+      (_input: unknown, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true })
+        })
+    )
+
+    const pending = webSearch({ query: "tren ai", provider: "auto", keys: { tavilyKey: "tvly-1" }, signal: controller.signal })
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    controller.abort()
+
+    expect(await pending).toMatchObject({ ok: false, code: "aborted", retryable: false })
+    // Tidak ada provider cadangan (SearXNG/Bing/Wikipedia) yang dipanggil setelah pembatalan.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(safeFetchMock).not.toHaveBeenCalled()
+  })
+
+  it("sinyal run diteruskan ke safeFetch SearXNG", async () => {
+    const controller = new AbortController()
+    await webSearch({ query: "tren ai", provider: "searxng", signal: controller.signal })
+    const init = safeFetchMock.mock.calls[0]?.[1] as RequestInit | undefined
+    expect(init?.signal).toBe(controller.signal)
   })
 })

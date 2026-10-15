@@ -1,7 +1,10 @@
-import { createMiddleware } from "langchain"
+import { createMiddleware, ToolInvocationError } from "langchain"
 import { ToolMessage } from "@langchain/core/messages"
+import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
+import { failureFromError, toolFailure, type ToolErrorCode, type ToolFailure } from "@/core/shared/tools/contract"
 import { RunRecorder } from "./telemetry"
 import { ToolRegistry } from "../tools/registry"
+import { formatToolFailure, readToolArtifact, type ToolArtifact } from "../tools/tool-response"
 import { AgentLimits } from "../types/profile"
 
 export interface LoopGuardOptions {
@@ -12,12 +15,74 @@ export interface LoopGuardOptions {
 }
 
 /**
- * Middleware Loop Guard, Circuit Breaker & Quota Limiter (Unified Tool Guard):
- * 1. Menegakkan kuota pemanggilan per-tool dan batas global tanpa menambah node graf ekstra
- * 2. Mencegah panggilan duplikat identik (deduplication)
- * 3. Memutus rantai loop jika sebuah tool gagal berulang kali (circuit breaker)
- * 4. Mencegah agent loop tanpa henti saat tool pihak ketiga error/down
- * 5. Mencatat log setiap panggilan tool ke RunRecorder
+ * Kegagalan tingkat-tool: tool mustahil berhasil selama sisa run (kredensial tidak tersedia atau ditolak),
+ * jadi circuit breaker langsung terbuka tanpa menunggu kegagalan berikutnya. Kegagalan lain (URL 404,
+ * SSRF, timeout, dll.) bersifat per-argumen dan tetap dihitung menuju ambang `maxConsecutiveFailures`.
+ */
+const TOOL_LEVEL_FAILURE_CODES: ReadonlySet<ToolErrorCode> = new Set<ToolErrorCode>([
+  "missing_credentials",
+  "unauthorized",
+])
+
+type ArgsPreview = Record<string, string | number | boolean>
+
+/** Hasil sukses yang disimpan untuk deduplikasi panggilan identik. */
+interface CachedToolResult {
+  content: string
+  artifact?: ToolArtifact
+}
+
+function messageText(message: ToolMessage): string {
+  return typeof message.content === "string" ? message.content : JSON.stringify(message.content)
+}
+
+/** Pemberitahuan panggilan yang diblokir guard (prompt `system-tool-guard-blocked.md`). */
+function renderBlockedNotice(reason: string, target: string): string {
+  const template = loadPrompt("system-tool-guard-blocked.md", "PERINGATAN: {{reason}} Selesaikan naskah dengan data yang ada.", "system")
+  return renderPrompt(template, { reason, target })
+}
+
+/** Balasan panggilan identik yang di-deduplikasi (prompt `system-tool-guard-deduped.md`). */
+function renderDedupedNotice(cachedContent: string): string {
+  const template = loadPrompt("system-tool-guard-deduped.md", "[HASIL TERSIMPAN]: {{cachedContent}}", "system")
+  return renderPrompt(template, { cachedContent })
+}
+
+/**
+ * Outcome hasil tool, dibaca dari data terstruktur (bukan parsing teks "ERROR[...]"):
+ * 1. Universal Tools → artifact `ToolOutcome`;
+ * 2. tool di luar kontrak (mis. tool bawaan Deep Agent) → gagal bila `ToolMessage.status === "error"`;
+ * 3. hasil berupa `Command` (pembaruan state Deep Agent) → sukses tanpa artifact.
+ */
+function readOutcome(result: unknown): { artifact?: ToolArtifact; failure?: ToolFailure } {
+  const artifact = readToolArtifact(result)
+  if (artifact) return { artifact, failure: artifact.ok ? undefined : artifact }
+  if (ToolMessage.isInstance(result) && result.status === "error") {
+    const failure = toolFailure("upstream_error", messageText(result))
+    return { artifact: failure, failure }
+  }
+  return {}
+}
+
+/** Galat yang dilempar eksekusi tool → kegagalan bertipe (argumen tidak lolos schema → `invalid_input`). */
+function failureFromThrown(err: unknown): ToolFailure {
+  if (ToolInvocationError.isInstance(err)) {
+    return toolFailure("invalid_input", `Argumen tool tidak valid: ${err.toolError.message}`)
+  }
+  return failureFromError(err)
+}
+
+/**
+ * Middleware Loop Guard, Circuit Breaker & Quota Limiter (Unified Tool Guard). Empat jaminan
+ * (`.claude/rules/writer-components-standard.md` §5) bersama `guards.ts` & `finalize.ts`:
+ * 1. Kuota global & per-tool ditegakkan tanpa menambah node graf ekstra (panggilan diblokir → artifact
+ *    `quota_exceeded`, tidak dihitung sebagai kegagalan tool).
+ * 2. Panggilan identik dengan panggilan sukses sebelumnya di-deduplikasi (hasil lama + artifact lama).
+ * 3. Circuit breaker: tool dinonaktifkan setelah `maxConsecutiveFailures` kegagalan berturut-turut, atau
+ *    langsung pada kegagalan tingkat-tool (`TOOL_LEVEL_FAILURE_CODES`). Panggilan berikutnya → `circuit_open`.
+ *    Kegagalan dibaca dari artifact `ToolOutcome` (`ok: false`), bukan dari teks "ERROR[...]".
+ * 4. Setiap panggilan dicatat ke RunRecorder (ringkasan dari `ToolDefinition.summarize(outcome)`).
+ * Pembatalan run (`runtime.signal` abort) tidak dihitung sebagai kegagalan: galatnya diteruskan agar run berhenti.
  */
 export function createLoopGuardMiddleware(
   options: LoopGuardOptions = {},
@@ -25,7 +90,7 @@ export function createLoopGuardMiddleware(
 ) {
   const maxFailures = options.maxConsecutiveFailures ?? 2
   const limits = options.limits
-  const callCache = new Map<string, string>()
+  const callCache = new Map<string, CachedToolResult>()
   const failureCount = new Map<string, number>()
   const toolCallCounts = new Map<string, number>()
   let totalToolCalls = 0
@@ -39,93 +104,77 @@ export function createLoopGuardMiddleware(
       const toolId = toolCall.id || `call_${Date.now()}`
       const toolDef = ToolRegistry.get(toolName)
       const argsObj = (toolCall.args || {}) as Record<string, unknown>
+      const argsPreview = argsObj as ArgsPreview
+
+      /** Panggilan ditolak sebelum dieksekusi: pemberitahuan untuk LLM + artifact kegagalan bertipe. */
+      const rejectCall = (
+        failure: ToolFailure,
+        target: string,
+        status: "blocked" | "disabled",
+        summary: string
+      ): ToolMessage => {
+        recorder.recordEvent({ kind: "guard", tool: toolName, status, durationMs: 1, argsPreview, summary })
+        return new ToolMessage({
+          content: renderBlockedNotice(failure.message, target),
+          tool_call_id: toolId,
+          name: toolName,
+          status: "error",
+          artifact: failure,
+        })
+      }
 
       // 1. Quota Check (Global): Apakah kuota total panggilan tool sudah tercapai?
       const maxToolCalls = limits?.maxToolCalls ?? 0
       if (maxToolCalls > 0 && totalToolCalls >= maxToolCalls) {
-        const limitMsg = `PERINGATAN: Batas total panggilan tool sistem (${maxToolCalls} kali) telah tercapai. JANGAN memanggil tool lagi. Segera susun dan selesaikan naskah artikel utuh berdasarkan seluruh data yang telah Anda kumpulkan.`
-
-        recorder.recordEvent({
-          kind: "guard",
-          tool: toolName,
-          status: "blocked",
-          durationMs: 1,
-          argsPreview: argsObj as Record<string, string | number | boolean>,
-          summary: `Tool '${toolName}' diblokir: batas total tool calls (${maxToolCalls}) tercapai`,
-        })
-
-        return new ToolMessage({
-          content: limitMsg,
-          tool_call_id: toolId,
-          name: toolName,
-          status: "error",
-        })
+        return rejectCall(
+          toolFailure("quota_exceeded", `Batas total panggilan tool sistem (${maxToolCalls} kali) telah tercapai.`),
+          "tool apa pun",
+          "blocked",
+          `Tool '${toolName}' diblokir: batas total tool calls (${maxToolCalls}) tercapai`
+        )
       }
 
       // 2. Quota Check (Per-Tool): Apakah kuota panggilan untuk tool ini sudah tercapai?
       const perToolLimit = limits?.perTool?.[toolName]
       const currentToolCount = toolCallCounts.get(toolName) || 0
       if (typeof perToolLimit === "number" && perToolLimit > 0 && currentToolCount >= perToolLimit) {
-        const limitMsg = `PERINGATAN: Batas pemanggilan tool '${toolName}' (${perToolLimit} kali) telah tercapai. JANGAN memanggil '${toolName}' lagi. Lanjutkan penulisan naskah artikel menggunakan data dan konteks yang sudah tersedia.`
-
-        recorder.recordEvent({
-          kind: "guard",
-          tool: toolName,
-          status: "blocked",
-          durationMs: 1,
-          argsPreview: argsObj as Record<string, string | number | boolean>,
-          summary: `Tool '${toolName}' diblokir: batas per-tool (${perToolLimit}) tercapai`,
-        })
-
-        return new ToolMessage({
-          content: limitMsg,
-          tool_call_id: toolId,
-          name: toolName,
-          status: "error",
-        })
+        return rejectCall(
+          toolFailure("quota_exceeded", `Batas pemanggilan tool '${toolName}' (${perToolLimit} kali) telah tercapai.`),
+          `tool '${toolName}'`,
+          "blocked",
+          `Tool '${toolName}' diblokir: batas per-tool (${perToolLimit}) tercapai`
+        )
       }
 
       // 3. Circuit Breaker Check: Apakah tool sudah dinonaktifkan karena gagal berulang kali?
       if (disabledTools.has(toolName)) {
-        const disabledMsg = `PERINGATAN: Tool '${toolName}' telah dinonaktifkan sementara karena mengalami kegagalan berulang kali. JANGAN memanggil tool '${toolName}' lagi. Lanjutkan penulisan naskah artikel menggunakan data dan konteks yang sudah tersedia.`
-
-        recorder.recordEvent({
-          kind: "guard",
-          tool: toolName,
-          status: "disabled",
-          durationMs: 1,
-          argsPreview: argsObj as Record<string, string | number | boolean>,
-          summary: `Tool '${toolName}' diblokir oleh Circuit Breaker (gagal >= ${maxFailures}x)`,
-        })
-
-        return new ToolMessage({
-          content: disabledMsg,
-          tool_call_id: toolId,
-          name: toolName,
-        })
+        return rejectCall(
+          toolFailure("circuit_open", `Tool '${toolName}' telah dinonaktifkan sementara karena mengalami kegagalan berulang kali.`),
+          `tool '${toolName}'`,
+          "disabled",
+          `Tool '${toolName}' diblokir oleh Circuit Breaker (gagal >= ${maxFailures}x)`
+        )
       }
 
-      // 4. Deduplication Check: Apakah argumen persis sama pernah dipanggil sebelumnya?
+      // 4. Deduplication Check: Apakah argumen persis sama pernah dipanggil sebelumnya (dan sukses)?
       const normalizedArgs = JSON.stringify(argsObj, Object.keys(argsObj).sort())
       const cacheKey = `${toolName}:${normalizedArgs}`
-
-      if (callCache.has(cacheKey)) {
-        const cachedContent = callCache.get(cacheKey)!
-        const dedupeMsg = `[HASIL TERSIMPAN DARI PANGGILAN SEBELUMNYA]:\n${cachedContent}\n\nCatatan: Anda sudah pernah memanggil tool ini dengan parameter yang persis sama. Gunakan hasil di atas tanpa memanggil ulang.`
-
+      const cached = callCache.get(cacheKey)
+      if (cached) {
         recorder.recordEvent({
           kind: "guard",
           tool: toolName,
           status: "deduped",
           durationMs: 1,
-          argsPreview: argsObj as Record<string, string | number | boolean>,
+          argsPreview,
           summary: `Panggilan '${toolName}' di-deduplikasi (argumen identik)`,
         })
 
         return new ToolMessage({
-          content: dedupeMsg,
+          content: renderDedupedNotice(cached.content),
           tool_call_id: toolId,
           name: toolName,
+          artifact: cached.artifact,
         })
       }
 
@@ -135,69 +184,87 @@ export function createLoopGuardMiddleware(
 
       // 5. Eksekusi Tool Sebenarnya dengan Stopwatch & Error Boundary
       const start = Date.now()
-      let resultMsg: Awaited<ReturnType<typeof handler>>
-      let isError = false
-      let rawContent = ""
+      let result: Awaited<ReturnType<typeof handler>>
+      let artifact: ToolArtifact | undefined
+      let failure: ToolFailure | undefined
 
       try {
-        resultMsg = await handler(request)
-        const msgContent =
-          resultMsg && typeof resultMsg === "object" && "content" in resultMsg
-            ? (resultMsg as { content?: unknown }).content
-            : undefined
-        rawContent = typeof msgContent === "string" ? msgContent : JSON.stringify(msgContent || "")
-        if (rawContent.startsWith("ERROR[") || rawContent.includes("ERROR:")) {
-          isError = true
+        result = await handler(request)
+        const outcome = readOutcome(result)
+        artifact = outcome.artifact
+        failure = outcome.failure
+        // Status pesan diselaraskan dengan artifact agar provider/konsumen melihat kegagalan yang sama.
+        if (failure && ToolMessage.isInstance(result) && result.status !== "error") {
+          result = new ToolMessage({
+            content: result.content,
+            tool_call_id: result.tool_call_id,
+            name: result.name,
+            status: "error",
+            artifact: result.artifact,
+          })
         }
       } catch (err: unknown) {
-        isError = true
-        const errText = err instanceof Error ? err.message : String(err)
-        rawContent = `ERROR[tool_execution_exception]: ${errText}`
-        resultMsg = new ToolMessage({
-          content: rawContent,
+        // Run dibatalkan (timeout/abort): bukan kegagalan tool, biarkan galat menghentikan run.
+        if (request.runtime.signal?.aborted) throw err
+        failure = failureFromThrown(err)
+        artifact = failure
+        result = new ToolMessage({
+          content: formatToolFailure(failure),
           tool_call_id: toolId,
           name: toolName,
+          status: "error",
+          artifact: failure,
         })
       }
 
       const durationMs = Date.now() - start
 
-      // 4. Update Circuit Breaker State
-      if (isError) {
+      // 6. Update Circuit Breaker State
+      if (failure) {
         const currentFailures = (failureCount.get(toolName) || 0) + 1
         failureCount.set(toolName, currentFailures)
 
-        if (currentFailures >= maxFailures) {
+        const toolLevel = TOOL_LEVEL_FAILURE_CODES.has(failure.code)
+        if (currentFailures >= maxFailures || toolLevel) {
           disabledTools.add(toolName)
           recorder.recordEvent({
             kind: "guard",
             tool: toolName,
             status: "blocked",
             durationMs: 1,
-            summary: `Circuit breaker aktif: Tool '${toolName}' dimatikan karena gagal ${currentFailures}x berturut-turut`,
+            summary: toolLevel
+              ? `Circuit breaker aktif: Tool '${toolName}' dimatikan karena kegagalan tingkat-tool [${failure.code}]`
+              : `Circuit breaker aktif: Tool '${toolName}' dimatikan karena gagal ${currentFailures}x berturut-turut`,
           })
         }
       } else {
-        // Reset counter jika berhasil
+        // Reset counter jika berhasil; hanya ToolMessage (bukan Command) yang dapat diputar ulang.
         failureCount.set(toolName, 0)
-        callCache.set(cacheKey, rawContent)
+        if (ToolMessage.isInstance(result)) {
+          callCache.set(cacheKey, { content: messageText(result), artifact })
+        }
       }
 
-      // 5. Catat ke RunRecorder
-      const summaryText = toolDef
-        ? toolDef.summarize(rawContent)
-        : rawContent.slice(0, 150)
+      // 7. Catat ke RunRecorder (ringkasan dari outcome; tool di luar registry memakai teks/kode kegagalan)
+      const summaryText =
+        toolDef && artifact
+          ? toolDef.summarize(artifact)
+          : failure
+            ? `Gagal [${failure.code}]: ${failure.message}`
+            : ToolMessage.isInstance(result)
+              ? messageText(result).slice(0, 150)
+              : `Tool '${toolName}' selesai`
 
       recorder.recordEvent({
         kind: "tool_call",
         tool: toolName,
-        status: isError ? "error" : "ok",
+        status: failure ? "error" : "ok",
         durationMs,
-        argsPreview: argsObj as Record<string, string | number | boolean>,
+        argsPreview,
         summary: summaryText,
       })
 
-      return resultMsg
+      return result
     },
   })
 }

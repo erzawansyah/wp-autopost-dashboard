@@ -1,21 +1,21 @@
-import { z } from "zod"
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner"
 
-export const ArticleOutputSchema = z.object({
-  title: z.string().describe("Judul artikel maksimal 60 karakter, lugas, padat, dan memuat kata kunci."),
-  excerpt: z.string().describe("Cuplikan persuasif 130-160 karakter untuk deskripsi meta WordPress."),
-  markdownContent: z
-    .string()
-    .describe(
-      "Naskah artikel UTUH, PANJANG, dan MENDALAM dalam format Markdown murni. Wajib memiliki pembuka yang kuat, minimal 5 subbab H2/H3 berbobot dengan beberapa paragraf per subbab, tuntas, tanpa singkatan, dan memenuhi target panjang minimal kata (minimal 600-1200 kata). DILARANG menulis rangkuman pendek atau placeholder."
-    ),
-  categoryIds: z.array(z.number().int()).optional().describe("Daftar ID kategori WordPress yang dipilih."),
-  tagNames: z.array(z.string()).optional().describe("Daftar nama tag WordPress yang cocok atau baru."),
-  authorId: z.number().int().optional().describe("ID author WordPress yang dipilih sebagai persona penulis."),
-  featuredMediaId: z.number().int().optional().describe("ID media WordPress yang dijadikan foto sampul utama."),
-})
-
-export type ArticleOutput = z.infer<typeof ArticleOutputSchema>
+/**
+ * Bentuk naskah hasil agent/finalize setelah diekstrak dari teks model (Markdown-first; agen tidak
+ * memakai structured output sehingga tidak ada skema yang dikirim ke LLM).
+ */
+export interface ArticleOutput {
+  /** Judul artikel (maksimal 60 karakter setelah postprocess). */
+  title: string
+  /** Cuplikan meta deskripsi WordPress. */
+  excerpt: string
+  /** Naskah utuh dalam Markdown murni. */
+  markdownContent: string
+  categoryIds?: number[]
+  tagNames?: string[]
+  authorId?: number
+  featuredMediaId?: number
+}
 
 /**
  * Normalisasi objek hasil ekstraksi agar key-key varian (content, body, article)

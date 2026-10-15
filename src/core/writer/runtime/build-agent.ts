@@ -2,11 +2,21 @@ import { createAgent } from "langchain"
 import { createDeepAgent, StoreBackend } from "deepagents"
 import { InMemoryStore, MemorySaver } from "@langchain/langgraph"
 import { StructuredTool } from "@langchain/core/tools"
-import { BaseChatModel } from "@langchain/core/language_models/chat_models"
+import type { LlmGateway } from "@/core/shared/llm/gateway"
+import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { AgentMode, AgentLimits } from "../types/profile"
 import { RunRecorder } from "./telemetry"
 import { buildGuardMiddlewareStack } from "./guards"
 import { resolveSkillsForAgent } from "./resolve-skills"
+
+const READONLY_FS_FALLBACK = "Operasi {{operation}} ditolak: filesystem agen bersifat read-only."
+
+/** Pesan penolakan operasi berkas (`system-readonly-filesystem.md`) yang dikembalikan ke agen. */
+function readOnlyFilesystemError(operation: string): { error: string } {
+  return {
+    error: renderPrompt(loadPrompt("system-readonly-filesystem.md", READONLY_FS_FALLBACK, "system"), { operation }),
+  }
+}
 
 /**
  * Backend Store Read-Only untuk Skills DeepAgent:
@@ -15,19 +25,20 @@ import { resolveSkillsForAgent } from "./resolve-skills"
  */
 class ReadOnlyStoreBackend extends StoreBackend {
   async write() {
-    return { error: "PEMBERITAHUAN SISTEM: Tool write_file dinonaktifkan. Anda DILARANG menulis draf ke berkas virtual. Segera sajikan seluruh naskah artikel lengkap dan tuntas langsung sebagai pesan teks respons akhir Anda." }
+    return readOnlyFilesystemError("write_file")
   }
   async edit() {
-    return { error: "PEMBERITAHUAN SISTEM: Tool edit_file dinonaktifkan. Segera sajikan seluruh naskah artikel lengkap dan tuntas langsung sebagai pesan teks respons akhir Anda." }
+    return readOnlyFilesystemError("edit_file")
   }
   async delete() {
-    return { error: "Izin ditolak: Deep Writer Agent dilarang menghapus berkas." }
+    return readOnlyFilesystemError("delete")
   }
 }
 
 export interface BuildAgentParams {
   mode: AgentMode
-  model: BaseChatModel
+  /** Gateway LLM run: model utama + middleware fallback model. */
+  gateway: LlmGateway
   tools: StructuredTool[]
   systemPrompt: string
   limits: AgentLimits
@@ -37,8 +48,11 @@ export interface BuildAgentParams {
 }
 
 export async function buildWriterAgent(params: BuildAgentParams) {
-  const { mode, model, tools, systemPrompt, limits, recorder, skills = [], userId } = params
-  const middleware = buildGuardMiddlewareStack(limits, recorder)
+  const { mode, gateway, tools, systemPrompt, limits, recorder, skills = [], userId } = params
+  const model = gateway.agentModel()
+  // Fallback model dipasang paling dalam (setelah guard) agar telemetri & batas model call menghitung
+  // satu langkah logis meski model cadangan ikut dicoba. Retry transien terjadi di AsyncCaller model.
+  const middleware = [...buildGuardMiddlewareStack(limits, recorder), gateway.modelFallbackMiddleware()]
   const checkpointer = new MemorySaver()
 
   if (mode === "deep") {

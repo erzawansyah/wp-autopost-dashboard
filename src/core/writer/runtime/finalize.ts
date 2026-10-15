@@ -1,12 +1,16 @@
-import { BaseChatModel } from "@langchain/core/language_models/chat_models"
-import type { Callbacks } from "@langchain/core/callbacks/manager"
 import { getLanguageDisplayName } from "@/lib/constants/languages"
-import { ArticleOutput, extractArticleJsonFromText } from "./output-schema"
-import { RunRecorder } from "./telemetry"
+import { describeLlmError } from "@/core/shared/llm/errors"
+import { LLM_GATEWAY_SETTINGS, type LlmGateway } from "@/core/shared/llm/gateway"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
+import { ArticleOutput, extractArticleJsonFromText } from "./output-schema"
+import { buildAuthorPersonaLine } from "./prompt-builder"
+import { RunRecorder } from "./telemetry"
+
+const FINALIZE_PROMPT_FALLBACK = 'Susun naskah artikel lengkap tentang "{{keyword}}" dari data riset berikut: {{factsList}}'
+const FINALIZE_OUTPUT_FALLBACK = "Awali dengan baris TITLE: dan EXCERPT:, lalu --- dan naskah Markdown."
 
 export interface FinalizeCallParams {
-  llm: BaseChatModel
+  gateway: LlmGateway
   systemPrompt: string
   keyword: string
   language: string
@@ -16,7 +20,11 @@ export interface FinalizeCallParams {
   customInstructions?: string
   recorder: RunRecorder
   reason: string
-  callbacks?: Callbacks
+  /**
+   * Sinyal pembatalan eksternal run (worker/request). Sengaja bukan sinyal timeout agent loop:
+   * finalize justru dijalankan setelah loop terhenti karena batas/timeout.
+   */
+  signal?: AbortSignal
 }
 
 /**
@@ -29,7 +37,7 @@ export async function executeSingleFinalizeCall(
   params: FinalizeCallParams
 ): Promise<ArticleOutput | null> {
   const start = Date.now()
-  const { llm, systemPrompt, keyword, language, targetWordCount, recorder } = params
+  const { gateway, systemPrompt, keyword, language, targetWordCount, recorder } = params
 
   // Siapkan digest ringkas dari data yang sudah dikumpulkan oleh agent (hemat token)
   const factsList = Array.from(recorder.sources.values())
@@ -42,41 +50,11 @@ export async function executeSingleFinalizeCall(
     .join("\n\n")
 
   const briefText = params.brief ? `- Catatan Khusus Pengguna: ${params.brief}` : ""
-  const authorText = params.author
-    ? `- Sudut Pandang Penulis (Persona): Tulis naskah dari sudut pandang ${params.author.name}${params.author.bio ? ` (${params.author.bio})` : ""}. (DILARANG menulis byline teks 'Penulis: ...' ke naskah).`
-    : ""
   const instructionsText = params.customInstructions
     ? `- Instruksi Tambahan: ${params.customInstructions}`
     : ""
 
-  const finalizeTemplate = loadPrompt(
-    "system-finalize.md",
-    `SINTESIS FINAL NASKAH ARTIKEL:
-Proses pengumpulan data dan media telah selesai ({{reason}}). Sekarang susun artikel lengkap, mendalam, dan berkualitas editorial tinggi dalam naskah utuh.
-
-=== DATA RISET AKTUAL DARI TOOLS ===
-{{factsList}}
-
-=== GAMBAR YANG TELAH DIUNGGAH KE WORDPRESS ===
-{{mediaEmbeds}}
-
-=== KETENTUAN PENULISAN ===
-- Topik: "{{keyword}}"
-- Bahasa: {{language}}
-- Target Panjang: minimal {{targetWordCount}} kata
-- Struktur: Wajib minimal 5 subbab (H2/H3) deskriptif dengan ulasan mendalam per subbab. DILARANG membuat naskah pendek atau ringkasan!
-{{briefText}}
-{{authorText}}
-{{instructionsText}}
-
-ATURAN STRICT:
-1. DILARANG ada angka sitasi akademis seperti [1], [2], [^1]. Integrasikan fakta langsung secara mengalir.
-2. DILARANG membuat section "Referensi" atau "Daftar Pustaka" di akhir naskah.
-3. DILARANG penomoran subbab (seperti "## 1. ...") dan DILARANG ada judul "Kesimpulan".
-4. Sajikan naskah lengkap dari pembuka hingga solusi praktis.`
-  )
-
-  const finalizeUserPrompt = renderPrompt(finalizeTemplate, {
+  const finalizeUserPrompt = renderPrompt(loadPrompt("system-finalize.md", FINALIZE_PROMPT_FALLBACK), {
     reason: params.reason,
     factsList: factsList || `Topik: "${keyword}"`,
     mediaEmbeds: mediaEmbeds || "Tidak ada gambar subbab tambahan.",
@@ -84,24 +62,23 @@ ATURAN STRICT:
     language: getLanguageDisplayName(language),
     targetWordCount: Math.max(600, targetWordCount),
     briefText,
-    authorText,
+    authorText: buildAuthorPersonaLine(params.author),
     instructionsText,
   })
+  // Format Markdown-First Universal: aman untuk semua model (termasuk model penalaran tanpa risiko error tool_choice)
+  const outputFormat = loadPrompt("system-finalize-output.md", FINALIZE_OUTPUT_FALLBACK, "user")
 
   try {
     let structuredResult: ArticleOutput | null = null
 
-    // Format Markdown-First Universal: Aman untuk semua model AI (termasuk model thinking/reasoning tanpa risiko error tool_choice)
-    const directPrompt = `${finalizeUserPrompt}\n\nFORMAT OUTPUT:\nTITLE: [Judul artikel maksimal 60 karakter]\nEXCERPT: [Ringkasan meta deskripsi 130-160 karakter]\n---\n[Naskah artikel lengkap dalam format Markdown murni]`
-
-    const directRes = await llm.invoke(
+    const directRes = await gateway.invoke(
       [
         { role: "system", content: systemPrompt },
-        { role: "user", content: directPrompt },
+        { role: "user", content: `${finalizeUserPrompt}\n\n${outputFormat}` },
       ],
       {
-        callbacks: params.callbacks,
-        signal: AbortSignal.timeout(120_000),
+        signal: params.signal,
+        timeoutMs: LLM_GATEWAY_SETTINGS.finalizeTimeoutMs,
         runName: `Panitera Finalize: ${keyword.slice(0, 40)}`,
         tags: ["finalize", "panitera"],
         metadata: {
@@ -161,7 +138,7 @@ ATURAN STRICT:
       kind: "finalize",
       status: "error",
       durationMs,
-      summary: `Finalize call exception: ${msg.slice(0, 100)}`,
+      summary: `Finalize call exception [${describeLlmError(err)}]: ${msg.slice(0, 100)}`,
     })
     return null
   }

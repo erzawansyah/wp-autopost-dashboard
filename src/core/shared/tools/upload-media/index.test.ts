@@ -9,7 +9,8 @@ const mediaCache = vi.hoisted(() => ({
 
 vi.mock("@/core/shared/media/media-repository", () => mediaCache)
 
-import { detectImageType, uploadMediaToWordPress } from "@/core/shared/tools/upload-media"
+import { toolOutcomeSchema } from "@/core/shared/tools/contract"
+import { detectImageType, UploadedMediaSchema, uploadMediaToWordPress } from "@/core/shared/tools/upload-media"
 
 beforeEach(() => {
   mediaCache.findExistingUploadedMedia.mockReset().mockResolvedValue(null)
@@ -48,6 +49,8 @@ describe("uploadMediaToWordPress", () => {
   let server: http.Server
   let base: string
   const uploads: Array<{ contentType?: string; size: number }> = []
+  /** Respons endpoint media WordPress untuk test berikutnya (default: 201 sukses). */
+  let wpMediaReply: { status: number; body: unknown } | null = null
 
   beforeAll(async () => {
     server = http.createServer((req, res) => {
@@ -60,8 +63,16 @@ describe("uploadMediaToWordPress", () => {
           res.writeHead(200, { "content-type": "image/jpeg" }).end("<html>bukan gambar</html>")
         } else if (req.url === "/page") {
           res.writeHead(200, { "content-type": "text/html" }).end("<html></html>")
+        } else if (req.url === "/missing.png") {
+          res.writeHead(404).end()
+        } else if (req.url === "/slow.png") {
+          // Tidak pernah merespons: hanya timeout atau abort yang mengakhiri unduhan.
         } else if (req.url === "/wp-json/wp/v2/media" && req.method === "POST") {
           uploads.push({ contentType: req.headers["content-type"], size: Buffer.concat(chunks).length })
+          if (wpMediaReply) {
+            res.writeHead(wpMediaReply.status, { "content-type": "application/json" }).end(JSON.stringify(wpMediaReply.body))
+            return
+          }
           res.writeHead(201, { "content-type": "application/json" }).end(
             JSON.stringify({ id: 77, source_url: `${base}/wp-content/uploads/img.png`, title: { rendered: "img" } })
           )
@@ -75,6 +86,7 @@ describe("uploadMediaToWordPress", () => {
   })
 
   afterAll(() => {
+    server.closeAllConnections()
     server.close()
     vi.unstubAllEnvs()
   })
@@ -85,8 +97,22 @@ describe("uploadMediaToWordPress", () => {
       baseUrl: "https://example.com",
       ...wpCredentials,
     })
-    expect(result.ok).toBe(false)
+    expect(result).toMatchObject({ ok: false, code: "blocked_ssrf", retryable: false })
+    expect(JSON.stringify(result)).not.toContain("169.254")
     expect(uploads).toHaveLength(0)
+  })
+
+  it("tanpa kredensial WordPress → missing_credentials tanpa request keluar", async () => {
+    const result = await uploadMediaToWordPress({ imageUrl: "https://images.example.com/a.jpg", baseUrl: "https://wp.test" })
+    expect(result).toMatchObject({ ok: false, code: "missing_credentials", retryable: false })
+    expect(uploads).toHaveLength(0)
+  })
+
+  it("URL gambar kosong/non-http → invalid_input", async () => {
+    expect(await uploadMediaToWordPress({ imageUrl: "ftp://x/y.png", ...wpCredentials })).toMatchObject({
+      ok: false,
+      code: "invalid_input",
+    })
   })
 
   describe("dengan ALLOW_PRIVATE_NETWORK_FETCH (khusus dev/test)", () => {
@@ -96,7 +122,8 @@ describe("uploadMediaToWordPress", () => {
 
     it("mengunggah gambar valid dengan MIME hasil deteksi magic bytes", async () => {
       const result = await uploadMediaToWordPress({ imageUrl: `${base}/img.png`, baseUrl: base, ...wpCredentials })
-      expect(result).toMatchObject({ ok: true, mediaId: 77 })
+      const parsed = toolOutcomeSchema(UploadedMediaSchema).parse(result)
+      expect(parsed).toMatchObject({ ok: true, data: { mediaId: 77, sourceUrl: `${base}/wp-content/uploads/img.png` } })
       expect(uploads.at(-1)).toEqual({ contentType: "image/png", size: PNG.length })
     })
 
@@ -140,21 +167,67 @@ describe("uploadMediaToWordPress", () => {
         userId: "user-1",
       })
 
-      expect(result).toMatchObject({ ok: true, mediaId: 12, isCached: true })
+      expect(result).toMatchObject({ ok: true, data: { mediaId: 12, isCached: true } })
       expect(uploads).toHaveLength(0)
     })
 
     it("menolak Content-Type non-gambar sebelum mengunggah", async () => {
       uploads.length = 0
       const result = await uploadMediaToWordPress({ imageUrl: `${base}/page`, baseUrl: base, ...wpCredentials })
-      expect(result.ok).toBe(false)
+      expect(result).toMatchObject({ ok: false, code: "unsupported_content" })
       expect(uploads).toHaveLength(0)
     })
 
     it("menolak body yang bukan gambar walau Content-Type mengaku image/*", async () => {
       uploads.length = 0
       const result = await uploadMediaToWordPress({ imageUrl: `${base}/fake.jpg`, baseUrl: base, ...wpCredentials })
-      expect(result.ok).toBe(false)
+      expect(result).toMatchObject({ ok: false, code: "unsupported_content" })
+      expect(uploads).toHaveLength(0)
+    })
+
+    it("gambar asal 404 → not_found", async () => {
+      const result = await uploadMediaToWordPress({ imageUrl: `${base}/missing.png`, baseUrl: base, ...wpCredentials })
+      expect(result).toMatchObject({ ok: false, code: "not_found", retryable: false })
+    })
+
+    it("WordPress menolak kredensial → unauthorized (kegagalan tingkat-tool)", async () => {
+      wpMediaReply = { status: 401, body: { message: "Sorry, you are not allowed to upload files." } }
+      try {
+        const result = await uploadMediaToWordPress({ imageUrl: `${base}/img.png`, baseUrl: base, ...wpCredentials })
+        expect(result).toMatchObject({ ok: false, code: "unauthorized", retryable: false })
+        if (result.ok) throw new Error("harus gagal")
+        expect(result.message).toContain("not allowed to upload")
+        expect(result.message).not.toContain("abcd efgh")
+      } finally {
+        wpMediaReply = null
+      }
+    })
+
+    it("WordPress 5xx → upstream_error yang TIDAK layak diulang (media mungkin sudah dibuat)", async () => {
+      wpMediaReply = { status: 503, body: {} }
+      try {
+        const result = await uploadMediaToWordPress({ imageUrl: `${base}/img.png`, baseUrl: base, ...wpCredentials })
+        expect(result).toMatchObject({ ok: false, code: "upstream_error", retryable: false })
+      } finally {
+        wpMediaReply = null
+      }
+    })
+
+    it("abort sinyal run membatalkan unduhan yang sedang berjalan → aborted", async () => {
+      uploads.length = 0
+      const controller = new AbortController()
+      const started = Date.now()
+      const pending = uploadMediaToWordPress({
+        imageUrl: `${base}/slow.png`,
+        baseUrl: base,
+        ...wpCredentials,
+        timeoutMs: 10_000,
+        signal: controller.signal,
+      })
+      setTimeout(() => controller.abort(), 50)
+
+      expect(await pending).toMatchObject({ ok: false, code: "aborted" })
+      expect(Date.now() - started).toBeLessThan(5_000)
       expect(uploads).toHaveLength(0)
     })
   })

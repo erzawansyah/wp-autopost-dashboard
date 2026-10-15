@@ -1,18 +1,24 @@
-import fs from "fs"
-import path from "path"
+import { AsyncLocalStorage } from "node:async_hooks"
+import { PROMPT_REGISTRY, type PromptRegistryEntry } from "./registry.generated"
 
 /**
  * Utilitas Pemuatan & Interpolasi Prompt Panitera
- * Mendukung arsitektur fleksibel:
- * 1. YAML frontmatter metadata (description, used_by list, variables list of { key, desc })
- * 2. Tag terstruktur:
- *    [SYSTEM_PROMPT] ... [/SYSTEM_PROMPT]
- *    [USER_PROMPT] ... [/USER_PROMPT]
- *    [OUTPUT_FORMAT] ... [/OUTPUT_FORMAT]   <- Contoh JSON visual (key berakhiran '?' = opsional/nullable)
- *    [OUTPUT_SCHEMA] ... [/OUTPUT_SCHEMA]   <- Formal JSON Schema standar (opsional)
+ *
+ * Sumber prompt adalah berkas `.md` di folder ini (format: `.claude/rules/prompt-management.md`):
+ * frontmatter (`description`, `used_by`, `variables`) + section `[SYSTEM_PROMPT]`, `[USER_PROMPT]`,
+ * `[OUTPUT_FORMAT]` (contoh JSON, key berakhiran `?` = opsional/nullable), `[OUTPUT_SCHEMA]` (opsional).
+ * Berkas dikompilasi & divalidasi oleh `scripts/build-prompts.ts` menjadi `registry.generated.ts` yang
+ * dibundel Next.js, sehingga runtime tidak membaca disk. Setelah mengubah/menambah berkas `.md`, jalankan
+ * `npm run prompts:build` (otomatis juga sebelum `npm run build`); `registry.test.ts` gagal bila lupa.
+ *
+ * Nama prompt ditulis persis, dengan atau tanpa `.md` (`"system-guardrail.md"` ≡ `"system-guardrail"`).
+ * Nama yang tidak terdaftar melempar error — kecuali `loadPrompt(file, fallback)` dengan fallback satu
+ * kalimat keselamatan.
+ *
+ * Versi prompt (`version`: 12 heksa sha256 isi yang dikirim ke LLM) tersedia lewat `getPromptVersion()` dan
+ * field `version` hasil `loadSectionedPrompt`/`loadParsedPrompt`. Untuk mencatat seluruh prompt yang dimuat
+ * sebuah run (mis. ke `agent_runs`), bungkus run dengan `createPromptVersionTracker().run(...)`.
  */
-
-const PROMPTS_DIR = path.join(process.cwd(), "src", "core", "shared", "prompts")
 
 export interface PromptVariableMeta {
   key: string
@@ -33,6 +39,8 @@ export interface SectionedPrompt {
   metadata?: PromptMetadata
   outputFormat?: string
   outputSchema?: Record<string, unknown>
+  /** Versi isi prompt, sama dengan `getPromptVersion(nama)`. */
+  version: string
 }
 
 export interface ParsedPromptFile {
@@ -42,416 +50,134 @@ export interface ParsedPromptFile {
   outputFormat?: string
   outputSchema?: Record<string, unknown>
   body: string
+  /** Versi isi prompt, sama dengan `getPromptVersion(nama)`. */
+  version: string
 }
 
-function unquote(str: string): string {
-  let s = str.trim()
-  if ((s.startsWith('"') && s.endsWith('"')) || (s.startsWith("'") && s.endsWith("'"))) {
-    s = s.slice(1, -1)
+/** Pencatat versi prompt yang dimuat selama satu run. */
+export interface PromptVersionTracker {
+  /**
+   * Menjalankan `fn`; setiap prompt yang dimuat di dalamnya — termasuk lintas `await` — tercatat.
+   * Tracker bersarang ikut mencatat ke seluruh tracker luar yang aktif.
+   */
+  run<T>(fn: () => T): T
+  /** `{ "nama-prompt": "versi" }` terurut nama; prompt yang jatuh ke fallback bernilai `"fallback"`. */
+  versions(): Record<string, string>
+}
+
+/** Penanda versi untuk `loadPrompt(file, fallback)` yang memakai fallback (nama tidak terdaftar). */
+export const FALLBACK_PROMPT_VERSION = "fallback"
+
+const trackerScope = new AsyncLocalStorage<ReadonlyArray<Map<string, string>>>()
+
+function recordPromptVersion(name: string, version: string): void {
+  for (const loaded of trackerScope.getStore() ?? []) loaded.set(name, version)
+}
+
+export function createPromptVersionTracker(): PromptVersionTracker {
+  const loaded = new Map<string, string>()
+  return {
+    run<T>(fn: () => T): T {
+      return trackerScope.run([...(trackerScope.getStore() ?? []), loaded], fn)
+    },
+    versions(): Record<string, string> {
+      return Object.fromEntries([...loaded].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    },
   }
-  return s.trim()
+}
+
+function normalizePromptName(filename: string): string {
+  const trimmed = filename.trim()
+  return trimmed.endsWith(".md") ? trimmed.slice(0, -3) : trimmed
+}
+
+function findEntry(filename: string): PromptRegistryEntry | undefined {
+  const name = normalizePromptName(filename)
+  return Object.hasOwn(PROMPT_REGISTRY, name) ? PROMPT_REGISTRY[name] : undefined
+}
+
+function unknownPromptMessage(filename: string): string {
+  return `[prompts/loader] Prompt "${filename}" tidak terdaftar. Pastikan src/core/shared/prompts/${normalizePromptName(filename)}.md ada, lalu jalankan \`npm run prompts:build\`.`
+}
+
+function requireEntry(filename: string): PromptRegistryEntry {
+  const entry = findEntry(filename)
+  if (!entry) throw new Error(unknownPromptMessage(filename))
+  recordPromptVersion(entry.name, entry.version)
+  return entry
+}
+
+/** Salinan baru per pemanggilan agar mutasi oleh pemanggil tidak mengubah registry bersama. */
+function toMetadata(entry: PromptRegistryEntry): PromptMetadata {
+  return {
+    description: entry.description,
+    used_by: [...entry.usedBy],
+    usedBy: [...entry.usedBy],
+    variables: entry.variables.map((v) => ({ key: v.key, desc: v.desc })),
+  }
+}
+
+function cloneSchema(schema: PromptRegistryEntry["outputSchema"]): Record<string, unknown> | undefined {
+  return schema ? structuredClone(schema) : undefined
 }
 
 /**
- * Menghasilkan JSON Schema standar dari contoh JSON
- * Kunci yang berakhiran '?' otomatis dianggap opsional (tidak masuk required, dan tipe mengizinkan null)
+ * Versi isi prompt (12 heksa pertama sha256), mis. untuk dicatat bersama hasil run.
+ * Melempar error bila nama tidak terdaftar.
  */
-export function inferJsonSchemaFromExample(example: unknown): Record<string, unknown> {
-  if (example === null || example === undefined) {
-    return { type: ["string", "null"] }
-  }
-
-  if (typeof example === "string") {
-    return { type: "string" }
-  }
-
-  if (typeof example === "number") {
-    return Number.isInteger(example) ? { type: "integer" } : { type: "number" }
-  }
-
-  if (typeof example === "boolean") {
-    return { type: "boolean" }
-  }
-
-  if (Array.isArray(example)) {
-    return {
-      type: "array",
-      items: example.length > 0 ? inferJsonSchemaFromExample(example[0]) : { type: "string" },
-    }
-  }
-
-  if (typeof example === "object") {
-    const properties: Record<string, unknown> = {}
-    const required: string[] = []
-
-    for (const [rawKey, rawVal] of Object.entries(example)) {
-      const isOptional = rawKey.endsWith("?")
-      const cleanKey = isOptional ? rawKey.slice(0, -1).trim() : rawKey.trim()
-
-      const childSchema = inferJsonSchemaFromExample(rawVal)
-
-      if (isOptional) {
-        if (typeof childSchema.type === "string") {
-          childSchema.type = [childSchema.type, "null"]
-        } else if (Array.isArray(childSchema.type) && !childSchema.type.includes("null")) {
-          childSchema.type.push("null")
-        }
-      } else {
-        required.push(cleanKey)
-      }
-
-      properties[cleanKey] = childSchema
-    }
-
-    const schema: Record<string, unknown> = {
-      type: "object",
-      properties,
-      additionalProperties: false,
-    }
-
-    if (required.length > 0) {
-      schema.required = required
-    }
-
-    return schema
-  }
-
-  return { type: "string" }
+export function getPromptVersion(filename: string): string {
+  const entry = findEntry(filename)
+  if (!entry) throw new Error(unknownPromptMessage(filename))
+  return entry.version
 }
 
 /**
- * Menghapus akhiran '?' dari kunci-kunci objek untuk menghasilkan JSON bersih ramah prompt
- */
-export function cleanExampleForPrompt(example: unknown): unknown {
-  if (Array.isArray(example)) {
-    return example.map(cleanExampleForPrompt)
-  }
-  if (typeof example === "object" && example !== null) {
-    const cleaned: Record<string, unknown> = {}
-    for (const [key, val] of Object.entries(example)) {
-      const cleanKey = key.endsWith("?") ? key.slice(0, -1).trim() : key.trim()
-      cleaned[cleanKey] = cleanExampleForPrompt(val)
-    }
-    return cleaned
-  }
-  return example
-}
-
-/**
- * Mem-parse frontmatter YAML pada awal file
- */
-export function parsePromptFrontmatter(rawContent: string): { metadata: PromptMetadata; body: string } {
-  const trimmed = rawContent.trim()
-  if (!trimmed.startsWith("---")) {
-    return { metadata: {}, body: trimmed }
-  }
-
-  const match = trimmed.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/)
-  if (!match) {
-    return { metadata: {}, body: trimmed }
-  }
-
-  const yamlBlock = match[1]
-  const body = match[2].trim()
-  const metadata: PromptMetadata = {
-    used_by: [],
-    usedBy: [],
-    variables: [],
-  }
-
-  const lines = yamlBlock.split(/\r?\n/)
-  let currentSection: "none" | "used_by" | "variables" = "none"
-  let currentVarObj: PromptVariableMeta | null = null
-
-  for (const rawLine of lines) {
-    const line = rawLine.trimEnd()
-    if (!line.trim() || line.trim().startsWith("#")) continue
-
-    const topKeyMatch = line.match(/^([a-zA-Z0-9_\-]+):\s*(.*)$/)
-    if (topKeyMatch && !line.startsWith(" ") && !line.startsWith("\t") && !line.startsWith("-")) {
-      const rawKey = topKeyMatch[1].toLowerCase().replace(/-/g, "_")
-      const inlineVal = topKeyMatch[2].trim()
-
-      if (rawKey === "description" || rawKey === "desc") {
-        currentSection = "none"
-        metadata.description = unquote(inlineVal)
-      } else if (rawKey === "used_by" || rawKey === "usedby") {
-        currentSection = "used_by"
-        if (inlineVal) {
-          const items = inlineVal.split(",").map((s) => unquote(s.trim())).filter(Boolean)
-          metadata.used_by = items
-          metadata.usedBy = items
-        }
-      } else if (rawKey === "variables" || rawKey === "vars") {
-        currentSection = "variables"
-        if (inlineVal) {
-          const cleaned = inlineVal.replace(/^\[/, "").replace(/\]$/, "")
-          metadata.variables = cleaned
-            .split(",")
-            .map((s) => ({ key: unquote(s.trim()), desc: "" }))
-            .filter((v) => v.key)
-        }
-      } else {
-        currentSection = "none"
-        metadata[rawKey] = unquote(inlineVal)
-      }
-      continue
-    }
-
-    if (currentSection === "used_by") {
-      const itemMatch = line.match(/^\s*-\s+(.*)$/)
-      if (itemMatch) {
-        const item = unquote(itemMatch[1].trim())
-        if (item) {
-          metadata.used_by?.push(item)
-          metadata.usedBy?.push(item)
-        }
-      }
-      continue
-    }
-
-    if (currentSection === "variables") {
-      const newVarKeyMatch = line.match(/^\s*-\s+key:\s*(.*)$/i)
-      if (newVarKeyMatch) {
-        currentVarObj = { key: unquote(newVarKeyMatch[1].trim()), desc: "" }
-        metadata.variables?.push(currentVarObj)
-        continue
-      }
-
-      const simpleVarMatch = line.match(/^\s*-\s+([a-zA-Z0-9_]+)$/)
-      if (simpleVarMatch && !line.includes(":")) {
-        currentVarObj = { key: unquote(simpleVarMatch[1].trim()), desc: "" }
-        metadata.variables?.push(currentVarObj)
-        continue
-      }
-
-      const descMatch = line.match(/^\s+desc(?:ription)?:\s*(.*)$/i)
-      if (descMatch && currentVarObj) {
-        currentVarObj.desc = unquote(descMatch[1].trim())
-        continue
-      }
-
-      const subKeyMatch = line.match(/^\s+key:\s*(.*)$/i)
-      if (subKeyMatch && currentVarObj) {
-        currentVarObj.key = unquote(subKeyMatch[1].trim())
-        continue
-      }
-    }
-  }
-
-  return { metadata, body }
-}
-
-/**
- * Mencari path file prompt di disk dengan toleransi variasi prefix
- */
-function findPromptFilePath(filename: string): string | null {
-  const cleanName = filename.trim()
-
-  let p = path.join(PROMPTS_DIR, cleanName)
-  if (fs.existsSync(p)) return p
-
-  if (!cleanName.endsWith(".md")) {
-    p = path.join(PROMPTS_DIR, `${cleanName}.md`)
-    if (fs.existsSync(p)) return p
-  }
-
-  // 3. Resolusi untuk prefix agent- (dan backwards compatibility untuk preset-)
-  if (cleanName.startsWith("preset-")) {
-    const agentName = cleanName.replace(/^preset-/, "agent-")
-    const agentPath = path.join(PROMPTS_DIR, agentName.endsWith(".md") ? agentName : `${agentName}.md`)
-    if (fs.existsSync(agentPath)) return agentPath
-  }
-
-  if (cleanName === "user-prompt" || cleanName === "user-prompt.md") {
-    const agentUserPath = path.join(PROMPTS_DIR, "agent-user-prompt.md")
-    if (fs.existsSync(agentUserPath)) return agentUserPath
-  }
-
-  if (!cleanName.startsWith("agent-") && !cleanName.startsWith("system-") && !cleanName.startsWith("wp-tools-")) {
-    const agentPath = path.join(PROMPTS_DIR, `agent-${cleanName}${cleanName.endsWith(".md") ? "" : ".md"}`)
-    if (fs.existsSync(agentPath)) return agentPath
-  }
-
-  // 4. Jika untuk tools (prefix wp-tools-)
-  if (!cleanName.startsWith("wp-tools-")) {
-    const wpPath = path.join(PROMPTS_DIR, `wp-tools-${cleanName}`)
-    if (fs.existsSync(wpPath)) return wpPath
-
-    const unTool = cleanName.replace(/^(system-tool-|tools-)/, "")
-    const wpPath2 = path.join(PROMPTS_DIR, `wp-tools-${unTool}`)
-    if (fs.existsSync(wpPath2)) return wpPath2
-  }
-
-  // 5. Jika prefix system-
-  if (!cleanName.startsWith("system-") && !cleanName.startsWith("agent-") && !cleanName.startsWith("wp-tools-")) {
-    const sysPath = path.join(PROMPTS_DIR, `system-${cleanName}`)
-    if (fs.existsSync(sysPath)) return sysPath
-  }
-
-  // 6. Coba hilangkan prefix jika ada
-  if (cleanName.startsWith("system-") || cleanName.startsWith("wp-tools-") || cleanName.startsWith("agent-")) {
-    const base = cleanName.replace(/^(system-|wp-tools-|agent-)/, "")
-    const basePath = path.join(PROMPTS_DIR, base)
-    if (fs.existsSync(basePath)) return basePath
-
-    if (cleanName.startsWith("system-tool-")) {
-      const swapped = path.join(PROMPTS_DIR, cleanName.replace(/^system-tool-/, "wp-tools-"))
-      if (fs.existsSync(swapped)) return swapped
-    }
-  }
-
-  return null
-}
-
-function readPromptRaw(filename: string): string {
-  try {
-    const resolvedPath = findPromptFilePath(filename)
-    if (resolvedPath && fs.existsSync(resolvedPath)) {
-      return fs.readFileSync(resolvedPath, "utf-8").trim()
-    }
-  } catch (err) {
-    console.warn(`[prompts/loader] Gagal membaca file prompt ${filename} dari disk:`, err)
-  }
-  return ""
-}
-
-/**
- * Mengekstrak [SYSTEM_PROMPT], [USER_PROMPT], [OUTPUT_FORMAT], dan [OUTPUT_SCHEMA]
- */
-export function extractPromptSections(body: string): {
-  systemPrompt: string
-  userPromptTemplate: string
-  outputFormat?: string
-  outputSchema?: Record<string, unknown>
-} {
-  let systemPrompt = ""
-  let userPromptTemplate = ""
-  let outputFormat: string | undefined
-  let outputSchema: Record<string, unknown> | undefined
-
-  // 1. Tag [SYSTEM_PROMPT]
-  const sysMatch = body.match(/\[SYSTEM_PROMPT\]([\s\S]*?)\[\/SYSTEM_PROMPT\]/i)
-  if (sysMatch) {
-    systemPrompt = sysMatch[1].trim()
-  }
-
-  // 2. Tag [USER_PROMPT]
-  const userMatch = body.match(/\[USER_PROMPT\]([\s\S]*?)\[\/USER_PROMPT\]/i)
-  if (userMatch) {
-    userPromptTemplate = userMatch[1].trim()
-  }
-
-  // 3. Tag [OUTPUT_SCHEMA] (formal JSON Schema jika ada)
-  const schemaMatch = body.match(/\[OUTPUT_SCHEMA\]([\s\S]*?)\[\/OUTPUT_SCHEMA\]/i)
-  if (schemaMatch) {
-    const rawSchema = schemaMatch[1].trim()
-    try {
-      outputSchema = JSON.parse(rawSchema)
-    } catch (err) {
-      console.warn("[loader] Format [OUTPUT_SCHEMA] bukan JSON valid:", err)
-    }
-  }
-
-  // 4. Tag [OUTPUT_FORMAT] (contoh JSON visual fleksibel dengan '?')
-  const formatMatch = body.match(/\[OUTPUT_FORMAT\]([\s\S]*?)\[\/OUTPUT_FORMAT\]/i)
-  if (formatMatch) {
-    const rawFormat = formatMatch[1].trim()
-    outputFormat = rawFormat
-
-    try {
-      const parsedExample = JSON.parse(rawFormat)
-      // Infer JSON Schema otomatis jika belum disuplai lewat [OUTPUT_SCHEMA]
-      if (!outputSchema) {
-        outputSchema = inferJsonSchemaFromExample(parsedExample)
-      }
-
-      // Bersihkan tanda '?' untuk disematkan secara alami ke instruksi prompt pengguna
-      const cleanExample = cleanExampleForPrompt(parsedExample)
-      const cleanExampleStr = JSON.stringify(cleanExample, null, 2)
-
-      // Jika userPromptTemplate belum memuat instruksi JSON, sertakan secara otomatis
-      if (!userPromptTemplate.includes("Keluarkan JSON") && !userPromptTemplate.includes("JSON format")) {
-        userPromptTemplate = `${userPromptTemplate}\n\nKeluarkan JSON murni persis dengan format berikut:\n${cleanExampleStr}`.trim()
-      }
-    } catch (err) {
-      console.warn("[loader] Format [OUTPUT_FORMAT] bukan JSON valid:", err)
-    }
-  }
-
-  // Jika tag ditemukan, kembalikan langsung
-  if (systemPrompt || userPromptTemplate || outputFormat) {
-    return { systemPrompt, userPromptTemplate, outputFormat, outputSchema }
-  }
-
-  // Fallback backward-compatible
-  const legacyParts = body.split(/^---\s*$/m)
-  if (legacyParts.length >= 2) {
-    const sysPart = legacyParts[0].replace(/^#\s*SYSTEM\s*PROMPT\s*/i, "").trim()
-    const userPart = legacyParts[1].replace(/^#\s*USER\s*PROMPT\s*(?:TEMPLATE)?\s*/i, "").trim()
-    return {
-      systemPrompt: sysPart,
-      userPromptTemplate: userPart,
-    }
-  }
-
-  return { systemPrompt: body, userPromptTemplate: "" }
-}
-
-/**
- * Mem-parse file prompt secara menyeluruh: Metadata YAML + Section Tags + Output Schema
+ * Prompt utuh terkompilasi: metadata frontmatter + section + output schema (eksplisit atau hasil infer
+ * `[OUTPUT_FORMAT]`). Melempar error bila nama tidak terdaftar.
  */
 export function loadParsedPrompt(filename: string): ParsedPromptFile {
-  const raw = readPromptRaw(filename)
-  if (!raw) {
-    return { metadata: {}, systemPrompt: "", userPromptTemplate: "", body: "" }
-  }
-
-  const { metadata, body } = parsePromptFrontmatter(raw)
-  const { systemPrompt, userPromptTemplate, outputFormat, outputSchema } = extractPromptSections(body)
-
+  const entry = requireEntry(filename)
   return {
-    metadata,
-    systemPrompt,
-    userPromptTemplate,
-    outputFormat,
-    outputSchema,
-    body,
+    metadata: toMetadata(entry),
+    systemPrompt: entry.systemPrompt,
+    userPromptTemplate: entry.userPromptTemplate,
+    outputFormat: entry.outputFormat,
+    outputSchema: cloneSchema(entry.outputSchema),
+    body: entry.body,
+    version: entry.version,
   }
 }
 
 /**
- * Membaca prompt tunggal (dengan opsi memilih section 'system' atau 'user')
+ * Membaca prompt tunggal (opsional memilih section `system`/`user`). Tanpa `section`: section satu-satunya,
+ * atau body mentah bila prompt punya keduanya. Nama tidak terdaftar → `fallback` (wajib satu kalimat
+ * keselamatan, lihat prompt-management.md) atau error bila fallback kosong.
  */
 export function loadPrompt(
   filename: string,
   fallback: string = "",
   section?: "system" | "user"
 ): string {
-  const parsed = loadParsedPrompt(filename)
-  if (!parsed.body && !parsed.systemPrompt && !parsed.userPromptTemplate) {
-    return fallback.trim()
+  const entry = findEntry(filename)
+  if (!entry) {
+    const safeFallback = fallback.trim()
+    if (!safeFallback) throw new Error(unknownPromptMessage(filename))
+    console.warn(`${unknownPromptMessage(filename)} Memakai fallback.`)
+    recordPromptVersion(normalizePromptName(filename), FALLBACK_PROMPT_VERSION)
+    return safeFallback
   }
+  recordPromptVersion(entry.name, entry.version)
 
-  if (section === "system") {
-    return parsed.systemPrompt || parsed.body || fallback.trim()
-  }
-  if (section === "user") {
-    return parsed.userPromptTemplate || parsed.body || fallback.trim()
-  }
-
-  if (parsed.userPromptTemplate && !parsed.systemPrompt) {
-    return parsed.userPromptTemplate
-  }
-  if (parsed.systemPrompt && !parsed.userPromptTemplate) {
-    return parsed.systemPrompt
-  }
-
-  return parsed.body || fallback.trim()
+  if (section === "system") return entry.systemPrompt || entry.body
+  if (section === "user") return entry.userPromptTemplate || entry.body
+  if (entry.userPromptTemplate && !entry.systemPrompt) return entry.userPromptTemplate
+  if (entry.systemPrompt && !entry.userPromptTemplate) return entry.systemPrompt
+  return entry.body
 }
 
 /**
- * Membaca prompt yang memiliki bagian [SYSTEM_PROMPT], [USER_PROMPT], dan [OUTPUT_FORMAT]
+ * Membaca prompt yang memiliki bagian [SYSTEM_PROMPT], [USER_PROMPT], dan [OUTPUT_FORMAT].
+ * Melempar error bila nama tidak terdaftar.
  */
 export function loadSectionedPrompt(filename: string): SectionedPrompt {
   const parsed = loadParsedPrompt(filename)
@@ -461,23 +187,26 @@ export function loadSectionedPrompt(filename: string): SectionedPrompt {
     metadata: parsed.metadata,
     outputFormat: parsed.outputFormat,
     outputSchema: parsed.outputSchema,
+    version: parsed.version,
   }
 }
 
+const PLACEHOLDER = /\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g
+
 /**
- * Mengganti variabel template dengan format {{variableName}}
+ * Mengganti variabel template `{{namaVariabel}}` dalam satu lintasan: nilai yang memuat `{{…}}` atau pola
+ * `$&` tidak diinterpolasi ulang, placeholder tanpa nilai di `variables` dibiarkan, `null`/`undefined` → "".
+ * Baris kosong berurutan (dari variabel opsional yang kosong) dirapikan menjadi satu.
  */
 export function renderPrompt(
   template: string,
   variables: Record<string, string | number | undefined | null>
 ): string {
-  let result = template
-
-  for (const [key, val] of Object.entries(variables)) {
-    const regex = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, "g")
-    const replacement = val !== undefined && val !== null ? String(val) : ""
-    result = result.replace(regex, replacement)
-  }
+  const result = template.replace(PLACEHOLDER, (placeholder: string, key: string) => {
+    if (!Object.hasOwn(variables, key)) return placeholder
+    const val = variables[key]
+    return val !== undefined && val !== null ? String(val) : ""
+  })
 
   return result
     .split("\n")

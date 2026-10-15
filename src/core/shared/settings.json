@@ -38,5 +38,25 @@
     "minWordCount": 300,
     "maxWordCount": 5000,
     "defaultPerToolLimit": 10
+  },
+  "ai": {
+    "$description": "Default gateway LLM per run (src/core/shared/llm/gateway.ts): model cadangan, retry transien, dan parameter panggilan. Setiap nilai di-clamp ke ai.bounds.",
+    "fallbackModels": ["openai/gpt-4o-mini", "google/gemini-2.5-flash"],
+    "maxRetries": 2,
+    "agentTemperature": 0.95,
+    "agentMaxTokens": 16384,
+    "jsonTemperature": 0.4,
+    "jsonTimeoutSeconds": 35,
+    "finalizeTimeoutSeconds": 120,
+    "bounds": {
+      "maxFallbackModels": 3,
+      "maxRetries": 4,
+      "minTemperature": 0,
+      "maxTemperature": 2,
+      "minMaxTokens": 1024,
+      "maxMaxTokens": 32768,
+      "minTimeoutSeconds": 5,
+      "maxTimeoutSeconds": 300
+    }
   }
 }

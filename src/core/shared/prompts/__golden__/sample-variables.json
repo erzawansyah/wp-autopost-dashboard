@@ -1,0 +1,50 @@
+{
+  "$comment": "Nilai contoh tetap untuk golden.test.ts. `default` dipakai lintas prompt berdasarkan nama variabel; `byPrompt` menimpa per prompt. Variabel yang belum punya contoh dirender sebagai ‹nama›. Setelah mengubah berkas ini jalankan UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts.",
+  "default": {
+    "siteName": "Kopi Nusantara",
+    "siteUrl": "https://kopinusantara.example",
+    "authorName": "Rina Pratama",
+    "authorBio": " (barista dan penguji kopi bersertifikat)",
+    "keyword": "manfaat kopi hitam tanpa gula untuk kesehatan",
+    "language": "Bahasa Indonesia",
+    "targetWords": "1200",
+    "categoryInfo": "- Target Kategori: Kesehatan",
+    "tagsInfo": "- Tag Terkait: kopi hitam, kafein, gaya hidup sehat",
+    "briefNote": "- Catatan Khusus dari Pengguna: Sasar pekerja kantoran usia 25-40 tahun.",
+    "titleInstruction": "- Judul Artikel Wajib: \"Manfaat Kopi Hitam Tanpa Gula bagi Pekerja Kantoran\"",
+    "authorPersona": "- Sudut Pandang Penulis (Persona): Rina Pratama (barista dan penguji kopi bersertifikat).",
+    "customInstructions": "- Instruksi Tambahan: Sertakan satu tabel perbandingan kandungan kafein.",
+    "researchInstruction": "",
+    "reason": "batas panggilan tool tercapai",
+    "factsList": "- [web_reader] Kopi hitam tanpa gula hampir tidak mengandung kalori.\n- [web_search] Batas kafein harian yang umum dianjurkan untuk orang dewasa sehat sekitar 400 mg.",
+    "mediaEmbeds": "![Secangkir kopi hitam di meja kayu](https://kopinusantara.example/wp-content/uploads/kopi-hitam.jpg \"Kopi hitam tanpa gula\")",
+    "targetWordCount": "1200",
+    "briefText": "- Catatan Khusus Pengguna: Sasar pekerja kantoran usia 25-40 tahun.",
+    "authorText": "- Sudut Pandang Penulis (Persona): Rina Pratama.",
+    "instructionsText": "",
+    "operation": "write_file",
+    "brief": "Sasar pekerja kantoran usia 25-40 tahun.",
+    "existingCategories": "- ID: 3, Nama: \"Kesehatan\", Slug: \"kesehatan\"\n- ID: 7, Nama: \"Kuliner\", Slug: \"kuliner\"",
+    "existingAuthors": "- ID: 2, Nama: \"Rina Pratama\", Bio/Deskripsi: \"Barista dan penguji kopi\"\n- ID: 1, Nama: \"admin\", Bio/Deskripsi: \"-\" (AKUN ADMIN TEKNIS - JANGAN DIPILIH)",
+    "existingTags": "kopi, kafein, resep minuman",
+    "requestedCategory": "Otomatis oleh AI",
+    "requestedAuthor": "Otomatis oleh AI",
+    "requestedTags": "Otomatis oleh AI",
+    "existingUsers": "[\n  {\n    \"id\": 2,\n    \"name\": \"Rina Pratama\",\n    \"slug\": \"rina\",\n    \"bio\": \"Barista dan penguji kopi\"\n  }\n]",
+    "domainHost": "kopinusantara.example",
+    "userPrompt": "Persona ahli gizi yang menulis santai untuk pembaca awam.",
+    "cleanUrl": "https://kopinusantara.example/manfaat-kopi-hitam/",
+    "targetKeyword": "manfaat kopi hitam",
+    "extraInstructions": "-",
+    "topicSummary": "Manfaat kesehatan kopi hitam tanpa gula dan batas aman konsumsi kafein harian.",
+    "candidatesJson": "[\n  {\n    \"postId\": 41,\n    \"postTitle\": \"Cara Menyeduh Kopi Tubruk\",\n    \"postLink\": \"https://kopinusantara.example/kopi-tubruk/\",\n    \"sampleExcerpt\": \"Kopi tubruk diseduh langsung dengan air panas. Banyak orang menikmatinya tanpa gula agar rasa aslinya terasa.\"\n  }\n]"
+  },
+  "byPrompt": {
+    "system-resolve-taxonomy-author": {
+      "language": "id"
+    },
+    "wp-tools-categories-suggest": {
+      "existingCategories": "[\n  {\n    \"id\": 3,\n    \"name\": \"Kesehatan\",\n    \"slug\": \"kesehatan\",\n    \"parent\": 0\n  }\n]"
+    }
+  }
+}
