@@ -64,7 +64,7 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 | [`.mcp.json`](.mcp.json) | MCP Supabase (read-only), Next DevTools, Playwright — lihat README. |
 | [`.claude/settings.json`](.claude/settings.json) + [`.claude/hooks/`](.claude/hooks/) | Izin, pengaman secret, dan `npm ci` otomatis di sesi cloud. |
 | [`PRD.md`](PRD.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`DESIGN.md`](DESIGN.md) · [`MEMORY.md`](MEMORY.md) | Produk, arsitektur, design system, memori & ADR. |
-| [`docs/`](docs/) | Panduan pengguna (in-app reader `/docs`) & dokumen arsitektur writer. |
+| [`docs/`](docs/) | Dokumen arsitektur internal; panduan pengguna (in-app reader `/docs`) di `docs/guides/`. |
 
 Preferensi pribadi yang tidak perlu dibagikan ke tim: `CLAUDE.local.md` atau `.claude/settings.local.json` (keduanya di-ignore Git).
 

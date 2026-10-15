@@ -49,9 +49,6 @@ export interface DecryptedUserKeys {
   langsmithApiKey?: string
   langsmithProject?: string
   searxngUrl?: string
-  // Legacy optional properties for graceful compatibility
-  pexelsKey?: string
-  unsplashKey?: string
   searchPreferences: SearchPreferences
   notificationPrefs: NotificationPrefs
 }

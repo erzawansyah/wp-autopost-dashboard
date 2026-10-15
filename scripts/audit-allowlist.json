@@ -57,13 +57,13 @@
     {
       "check": "legacy-term",
       "file": "src/app/api/lab/registry/route.ts",
-      "max": 2,
+      "max": 1,
       "reason": "UI/API Lab masih memakai penamaan engine untuk runner Agent Profile; ganti ke Agent Profile saat refactor /lab."
     },
     {
       "check": "legacy-term",
       "file": "src/app/api/lab/run/route.ts",
-      "max": 4,
+      "max": 1,
       "reason": "UI/API Lab masih memakai penamaan engine untuk runner Agent Profile; ganti ke Agent Profile saat refactor /lab."
     },
     {

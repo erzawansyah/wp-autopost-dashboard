@@ -1,7 +1,7 @@
 ---
 description: Analisis cuplikan artikel lama untuk menentukan kalimat penyisipan internal link dan anchor text alami
 used_by:
-  - src/app/api/tools/link-building/analyze/route.ts
+  - src/server/services/wp-tools.ts
 variables:
   - key: cleanUrl
     desc: URL artikel baru sebagai target rujukan tautan internal

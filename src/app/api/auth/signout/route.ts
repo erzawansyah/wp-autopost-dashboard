@@ -1,13 +1,8 @@
-import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { defineRoute } from "@/server/http/route"
 
-export async function POST() {
-  try {
-    const supabase = await createClient()
-    await supabase.auth.signOut()
-    return NextResponse.json({ ok: true, message: "Berhasil keluar" })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Error signing out"
-    return NextResponse.json({ error: message }, { status: 500 })
-  }
-}
+// POST /api/auth/signout — akhiri sesi; bila revoke global gagal (mis. jaringan), cookie sesi lokal tetap dihapus
+export const POST = defineRoute({ auth: "public" }, async ({ supabase }) => {
+  const { error } = await supabase.auth.signOut()
+  if (error) await supabase.auth.signOut({ scope: "local" })
+  return { message: "Berhasil keluar" }
+})

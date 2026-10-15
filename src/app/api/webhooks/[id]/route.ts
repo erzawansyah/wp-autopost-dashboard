@@ -1,109 +1,19 @@
-import { NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
-import { parseWebhookEvents, validateWebhookUrl } from "@/lib/webhooks/validation"
+import { defineRoute } from "@/server/http/route"
+import { deleteWebhook, updateWebhook } from "@/server/services/webhooks"
+import { IdParamsSchema } from "@/server/validation/common"
+import { UpdateWebhookBodySchema } from "@/server/validation/webhooks"
 
-export const dynamic = "force-dynamic"
-
-interface RouteContext {
-  params: Promise<{ id: string }>
-}
-
-export async function PATCH(request: Request, context: RouteContext) {
-  try {
-    const { id } = await context.params
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
-    }
-
-    const body = await request.json().catch(() => ({}))
-    const { name, url, events, is_active } = body
-
-    const updates: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
-    }
-
-    if (typeof name === "string" && name.trim()) {
-      updates.name = name.trim()
-    }
-    if (url !== undefined) {
-      const urlCheck = await validateWebhookUrl(url)
-      if (!urlCheck.ok) {
-        return NextResponse.json({ ok: false, error: urlCheck.error }, { status: 400 })
-      }
-      updates.url = urlCheck.url
-    }
-    if (events !== undefined) {
-      const validEvents = parseWebhookEvents(events)
-      if (!validEvents) {
-        return NextResponse.json(
-          { ok: false, error: "Pilih minimal 1 event yang valid untuk webhook ini." },
-          { status: 400 }
-        )
-      }
-      updates.events = validEvents
-    }
-    if (typeof is_active === "boolean") {
-      updates.is_active = is_active
-    }
-
-    const { data, error } = await supabase
-      .from("webhooks")
-      .update(updates)
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .select("id, user_id, name, url, events, is_active, created_at, updated_at")
-      .single()
-
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      ok: true,
-      message: "Webhook berhasil diperbarui.",
-      webhook: data,
-    })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal Error"
-    return NextResponse.json({ ok: false, error: message }, { status: 500 })
+// PATCH /api/webhooks/[id] — ubah nama, URL, event, atau status aktif webhook milik pengguna
+export const PATCH = defineRoute(
+  { auth: "user", params: IdParamsSchema, body: UpdateWebhookBodySchema },
+  async ({ supabase, user, params, body }) => {
+    const webhook = await updateWebhook(supabase, user.id, params.id, body)
+    return { message: "Webhook berhasil diperbarui.", webhook }
   }
-}
+)
 
-export async function DELETE(_request: Request, context: RouteContext) {
-  try {
-    const { id } = await context.params
-    const supabase = await createClient()
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser()
-
-    if (authError || !user) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
-    }
-
-    const { error } = await supabase
-      .from("webhooks")
-      .delete()
-      .eq("id", id)
-      .eq("user_id", user.id)
-
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      ok: true,
-      message: "Webhook berhasil dihapus.",
-    })
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal Error"
-    return NextResponse.json({ ok: false, error: message }, { status: 500 })
-  }
-}
+// DELETE /api/webhooks/[id] — hapus webhook milik pengguna
+export const DELETE = defineRoute({ auth: "user", params: IdParamsSchema }, async ({ supabase, user, params }) => {
+  await deleteWebhook(supabase, user.id, params.id)
+  return { message: "Webhook berhasil dihapus." }
+})

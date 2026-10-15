@@ -1,7 +1,7 @@
 ---
 description: Ekstraksi topik artikel baru dan perumusan kueri pencarian WP REST API untuk internal link building
 used_by:
-  - src/app/api/tools/link-building/analyze/route.ts
+  - src/server/services/wp-tools.ts
 variables:
   - key: cleanUrl
     desc: URL artikel baru yang diterbitkan

@@ -5,7 +5,8 @@ import type { z } from "zod"
 import { createClient } from "@/lib/supabase/server"
 import { serverEnv } from "@/lib/env/server"
 import { verifyCronRequest } from "@/core/queue/cron-auth"
-import { ApiError, badRequest, errorResponse, toApiError, unauthorized } from "./errors"
+import { ApiError, badRequest, toApiError, unauthorized } from "./errors"
+import { errorResponse } from "./response"
 import { enforceRateLimit, type RateLimitRule } from "./rate-limit"
 
 /**
@@ -19,24 +20,26 @@ import { enforceRateLimit, type RateLimitRule } from "./rate-limit"
  *     }
  *   )
  *
- * - `auth`: "user" (sesi Supabase wajib), "cron" (header CRON_SECRET), "user-or-cron", "public".
+ * - `auth`: "user" (sesi Supabase wajib), "cron" (header CRON_SECRET), "user-or-cron",
+ *   "public" (sesi opsional; `user` bisa null), "none" (tanpa Supabase sama sekali, mis. health check).
  * - `body`/`query`/`params`: skema zod; input tidak valid → 400 `validation_failed`.
  * - Handler boleh mengembalikan objek (dibungkus `{ ok: true, ...obj }`), `Response`, atau `void`.
  * - Semua error dipetakan lewat `toApiError` (Postgres 23505 → 409, dst.) tanpa membocorkan detail internal.
  */
 
-export type RouteAuth = "user" | "cron" | "user-or-cron" | "public"
+export type RouteAuth = "user" | "cron" | "user-or-cron" | "public" | "none"
 
 type SessionClient = Awaited<ReturnType<typeof createClient>>
 
-type UserFor<A extends RouteAuth> = A extends "user" ? User : User | null
+type UserFor<A extends RouteAuth> = A extends "user" ? User : A extends "none" ? null : User | null
+type SupabaseFor<A extends RouteAuth> = A extends "none" ? null : SessionClient
 
 export interface RouteContext<A extends RouteAuth, B, Q, P> {
   request: Request
   /** Pengguna sesi. Selalu ada untuk `auth: "user"`; null untuk cron/public tanpa sesi. */
   user: UserFor<A>
-  /** Client Supabase sesi pengguna (RLS aktif). Gunakan admin client hanya untuk proses sistem. */
-  supabase: SessionClient
+  /** Client Supabase sesi pengguna (RLS aktif); null untuk `auth: "none"`. Admin client hanya untuk proses sistem. */
+  supabase: SupabaseFor<A>
   /** true jika permintaan terautentikasi sebagai cron (header CRON_SECRET). */
   isCron: boolean
   body: B
@@ -54,7 +57,7 @@ export interface RouteConfig<A extends RouteAuth, B, Q, P> {
   name?: string
 }
 
-type HandlerResult = Response | Record<string, unknown> | void
+type HandlerResult = Response | object | void
 
 type NextRouteContext = { params: Promise<Record<string, string | string[] | undefined>> }
 
@@ -86,14 +89,14 @@ export function defineRoute<A extends RouteAuth, B = undefined, Q = undefined, P
   return async (request, context) => {
     const name = config.name ?? `${request.method} ${new URL(request.url).pathname}`
     try {
-      const supabase = await createClient()
+      const supabase = config.auth === "none" ? null : await createClient()
       let user: User | null = null
       let isCron = false
 
       if (config.auth === "cron" || config.auth === "user-or-cron") {
         isCron = verifyCronRequest(request.headers, serverEnv().CRON_SECRET).ok
       }
-      if (config.auth === "user" || (config.auth === "user-or-cron" && !isCron) || config.auth === "public") {
+      if (supabase && (config.auth === "user" || (config.auth === "user-or-cron" && !isCron) || config.auth === "public")) {
         const { data, error } = await supabase.auth.getUser()
         user = error ? null : data.user
       }
@@ -115,7 +118,7 @@ export function defineRoute<A extends RouteAuth, B = undefined, Q = undefined, P
       const result = await handler({
         request,
         user: user as UserFor<A>,
-        supabase,
+        supabase: supabase as SupabaseFor<A>,
         isCron,
         body,
         query,

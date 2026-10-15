@@ -1,5 +1,4 @@
 import "server-only"
-import { NextResponse } from "next/server"
 import { ZodError } from "zod"
 import { ResponseTooLargeError, SsrfBlockedError } from "@/lib/net/safe-fetch"
 
@@ -137,14 +136,4 @@ export function toApiError(err: unknown): ApiError {
   }
   if (isPostgresLikeError(err)) return fromPostgresError(err)
   return new ApiError(500, "internal_error", "Terjadi kesalahan internal server.", { cause: err })
-}
-
-export function errorResponse(err: ApiError): NextResponse {
-  const body: { ok: false; error: string; code: ApiErrorCode; issues?: ApiIssue[] } = {
-    ok: false,
-    error: err.message,
-    code: err.code,
-  }
-  if (err.issues?.length) body.issues = err.issues
-  return NextResponse.json(body, { status: err.status, headers: err.headers })
 }

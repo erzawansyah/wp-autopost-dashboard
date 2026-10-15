@@ -1,7 +1,7 @@
 ---
 description: AI perancang persona author E-E-A-T baru WordPress yang autentik dan kredibel
 used_by:
-  - src/app/api/tools/authors/suggest/route.ts
+  - src/server/services/wp-tools.ts
 variables:
   - key: existingUsers
     desc: Daftar JSON data penulis/user yang sudah terdaftar di WordPress

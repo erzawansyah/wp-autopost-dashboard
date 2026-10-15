@@ -186,3 +186,11 @@ describe("rate limit", () => {
     expect(res.headers.get("Retry-After")).toBeTruthy()
   })
 })
+
+describe("defineRoute — auth none", () => {
+  it("tidak membuat client Supabase dan user selalu null", async () => {
+    authState.user = { id: "x" }
+    const handler = defineRoute({ auth: "none" }, async ({ user, supabase }) => ({ user, supabase }))
+    expect(await (await handler(req(), ctx())).json()).toEqual({ ok: true, user: null, supabase: null })
+  })
+})

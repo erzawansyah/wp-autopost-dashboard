@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin"
-import { AgentProfile, ensureMandatoryToolIds, resolveStoredAgentLimits } from "../types/profile"
+import { AgentProfile, ensureMandatoryToolIds, readStoredIsDefault, resolveStoredAgentLimits } from "../types/profile"
 import { getBuiltinProfile, resolveLegacyEngineToProfile } from "../profiles/builtin"
 
 /**
@@ -30,7 +30,9 @@ export async function resolveAgentProfile(
       const supabase = createAdminClient()
       const { data, error } = await supabase
         .from("agent_profiles")
-        .select("*")
+        .select(
+          "id, user_id, name, description, mode, model, temperature, workflow_prompt, tool_ids, skills, limits, based_on_preset, version, created_at, updated_at"
+        )
         .eq("id", targetRef)
         .eq("user_id", userId)
         .maybeSingle()
@@ -48,7 +50,7 @@ export async function resolveAgentProfile(
           toolIds: ensureMandatoryToolIds(Array.isArray(data.tool_ids) ? data.tool_ids : []),
           skills: Array.isArray(data.skills) ? data.skills : undefined,
           limits: resolveStoredAgentLimits(data.limits, mode),
-          isDefault: Boolean(data.is_default ?? (data.limits as Record<string, unknown> | null)?.isDefault ?? false),
+          isDefault: readStoredIsDefault(data.limits),
           basedOnPreset: data.based_on_preset || undefined,
           version: data.version || 1,
           userId: data.user_id,

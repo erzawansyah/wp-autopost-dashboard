@@ -36,7 +36,7 @@ export function WebhookList() {
   const [isDeleting, setIsDeleting] = React.useState<string | null>(null)
   const [testingId, setTestingId] = React.useState<string | null>(null)
   const [testResults, setTestResults] = React.useState<
-    Record<string, { ok: boolean; status: number; latencyMs: number; error?: string }>
+    Record<string, { ok: boolean; status?: number; latencyMs?: number; error?: string }>
   >({})
 
   // Form State
@@ -172,25 +172,19 @@ export function WebhookList() {
 
     try {
       const res = await fetch(`/api/webhooks/${id}/test`, { method: "POST" })
-      const data = await res.json()
+      const data = await res.json().catch(() => null)
+      // Sukses: { ok, status, latencyMs }. Gagal (penerima error/tidak terjangkau, 404, 429): { ok: false, error, code }.
       setTestResults((prev) => ({
         ...prev,
-        [id]: {
-          ok: data.ok,
-          status: data.status,
-          latencyMs: data.latencyMs,
-          error: data.error,
-        },
+        [id]:
+          res.ok && data?.ok
+            ? { ok: true, status: data.status, latencyMs: data.latencyMs }
+            : { ok: false, error: data?.error || "Gagal mengirim tes" },
       }))
     } catch {
       setTestResults((prev) => ({
         ...prev,
-        [id]: {
-          ok: false,
-          status: 0,
-          latencyMs: 0,
-          error: "Gagal mengirim tes",
-        },
+        [id]: { ok: false, error: "Gagal mengirim tes" },
       }))
     } finally {
       setTestingId(null)
@@ -366,9 +360,11 @@ export function WebhookList() {
                             : `Pengujian gagal: ${testResult.error || "Server tidak merespons"}`}
                         </span>
                       </div>
-                      <span className="font-mono text-[10px] opacity-80">
-                        {testResult.latencyMs}ms
-                      </span>
+                      {typeof testResult.latencyMs === "number" && (
+                        <span className="font-mono text-[10px] opacity-80">
+                          {testResult.latencyMs}ms
+                        </span>
+                      )}
                     </div>
                   )}
                 </CardContent>

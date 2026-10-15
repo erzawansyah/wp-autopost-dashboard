@@ -8,6 +8,7 @@ import {
   SYSTEM_LIMIT_BOUNDS,
   clampLimits,
   parseStoredAgentLimits,
+  readStoredIsDefault,
   resolveStoredAgentLimits,
 } from "./profile"
 
@@ -214,5 +215,20 @@ describe("parseStoredAgentLimits — baris agent_profiles tersimpan", () => {
     expect(result.perTool.web_reader).toBe(DEFAULT_DEEP_LIMITS.perTool.web_reader)
 
     expect(resolveStoredAgentLimits(undefined, "mode-tak-dikenal")).toEqual(DEFAULT_STANDARD_LIMITS)
+  })
+})
+
+describe("readStoredIsDefault — penanda default di limits JSONB", () => {
+  it("hanya true bila limits.isDefault bernilai boolean true", () => {
+    expect(readStoredIsDefault({ isDefault: true, maxModelCalls: 5 })).toBe(true)
+    expect(readStoredIsDefault({ isDefault: false })).toBe(false)
+    expect(readStoredIsDefault({ isDefault: "true" })).toBe(false)
+    expect(readStoredIsDefault({})).toBe(false)
+  })
+
+  it("nilai bukan objek dianggap bukan default", () => {
+    expect(readStoredIsDefault(null)).toBe(false)
+    expect(readStoredIsDefault(undefined)).toBe(false)
+    expect(readStoredIsDefault([true])).toBe(false)
   })
 })

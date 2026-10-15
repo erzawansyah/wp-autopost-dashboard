@@ -1,7 +1,7 @@
 ---
 description: AI perancang struktur taksonomi kategori baru WordPress yang relevan dan non-duplikatif
 used_by:
-  - src/app/api/tools/categories/suggest/route.ts
+  - src/server/services/wp-tools.ts
 variables:
   - key: existingCategories
     desc: Daftar kategori yang sudah terdaftar di website WordPress

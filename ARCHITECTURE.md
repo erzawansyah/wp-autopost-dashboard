@@ -44,12 +44,13 @@ wp-autopost-dashboard/
 │   └── settings.json                      # Izin & registrasi hooks
 ├── .workspaces/                           # Sandbox lokal (di-ignore Git): scripts, temp, assets, worklogs
 ├── CLAUDE.md                              # Konteks utama proyek untuk Claude Code
-├── docs/                                  # Dokumentasi sistem & panduan pengguna (/docs)
-│   ├── 01-memulai-panitera.md             # Panduan dasar dan konsep platform
-│   ├── 02-koneksi-wordpress.md            # Zero-plugin onboarding & Application Passwords
-│   ├── 03-manajemen-profil-agen.md        # Konsep Standard vs Deep Agent & Universal Tools
-│   ├── 04-penerbitan-dan-penjadwalan.md   # Tulis Cepat, Batch Ingestion & Smart Drip-Feed
-│   └── 05-wp-tools-dan-utilitas.md        # Link Building, Author Persona, Category Designer
+├── docs/                                  # Dokumen arsitektur internal (tidak disajikan ke pengguna)
+│   └── guides/                            # Panduan pengguna untuk reader in-app /docs (satu-satunya yang disajikan)
+│       ├── 01-memulai-panitera.md         # Panduan dasar dan konsep platform
+│       ├── 02-koneksi-wordpress.md        # Zero-plugin onboarding & Application Passwords
+│       ├── 03-manajemen-profil-agen.md    # Konsep Standard vs Deep Agent & Universal Tools
+│       ├── 04-penerbitan-dan-penjadwalan.md # Tulis Cepat, Batch Ingestion & Smart Drip-Feed
+│       └── 05-wp-tools-dan-utilitas.md    # Link Building, Author Persona, Category Designer
 ├── public/                                # Berkas statis web (favicon, ilustrasi)
 ├── searxng/                               # Konfigurasi mesin metasearch mandiri SearXNG
 │   └── settings.yml                       # Konfigurasi engine & format JSON SearXNG
@@ -586,41 +587,49 @@ Platform dilengkapi sistem webhook keluar (*outbound webhooks*) untuk mengirimka
 
 ## 9. Katalog Endpoint REST API Internal
 
-Berikut adalah daftar endpoint internal Next.js App Router (`src/app/api/`) yang aktif:
+Semua route di `src/app/api/` memakai `defineRoute` (`src/server/http/route.ts`, skill `panitera-api-route`):
 
-| Rute Endpoint | Metode | Deskripsi & Fungsi |
-| :--- | :--- | :--- |
-| `/api/agents` | GET, POST | Mengambil daftar profil agen pengguna & membuat profil agen baru |
-| `/api/agents/[id]` | GET, PUT, DELETE | Mengambil detail, memperbarui, atau mengarsipkan profil agen |
-| `/api/agents/templates` | GET | Mengambil daftar preset profil agen bawaan sistem |
-| `/api/agents/tools` | GET | Mengambil daftar tools yang terdaftar dan eligibilitasnya |
-| `/api/ai/models` | GET | Mengambil daftar model AI aktif dari OpenRouter |
-| `/api/ai/test` | POST | Menguji validitas OpenRouter API Key |
+- **Auth:** `user` (sesi Supabase wajib), `cron` (header `Authorization: Bearer <CRON_SECRET>`), `user-or-cron`, `public` (sesi opsional), `none` (tanpa Supabase).
+- **Validasi:** body/query/params lewat skema zod di `src/server/validation/`; input tidak valid → 400 `validation_failed` + `issues`.
+- **Respons:** sukses `{ ok: true, ...data }`; error `{ ok: false, error, code, issues? }`. Error Postgres dipetakan tanpa membocorkan detail (23505 → 409, 23503/23514/23502 → 422, 22P02 → 400, 42501 → 403); kegagalan layanan eksternal → 502 `upstream_failed`.
+- **Rate limit** (sliding window di memori, per pengguna): `llm` 20/menit, `outboundTest` 15/menit, `enqueue` 30/menit.
+- **Logika bisnis** di `src/server/services/<domain>.ts` dengan signature `(supabase, userId, …)`; route tetap tipis. Akses lintas pengguna → 404.
+
+| Rute Endpoint | Metode | Auth & Batasan | Deskripsi & Fungsi |
+| :--- | :--- | :--- | :--- |
+| `/api/agents` | GET, POST | user | Preset + Agent Profile kustom; POST tervalidasi zod (201) |
+| `/api/agents/[id]` | GET, PUT, DELETE | user | `[id]` = UUID atau `preset:*` (GET saja); PUT parsial; DELETE = arsip; preset → 403 |
+| `/api/agents/templates` | GET | user | Template workflow prompt profil bawaan |
+| `/api/agents/tools` | GET | user | Katalog ToolRegistry + eligibilitas; `?siteId=` opsional (milik pengguna) |
+| `/api/ai/models` | GET | user, outboundTest | Katalog model OpenRouter (`?toolsOnly=false`); kunci belum tersimpan via header `x-openrouter-key` |
+| `/api/ai/test` | POST | user, llm | Uji kunci OpenRouter (`apiKey` opsional, default kunci BYOK tersimpan); kunci ditolak → 400 |
+| `/api/auth/me` | GET | public | Status sesi pengguna saat ini |
+| `/api/auth/signout` | POST | public | Mengakhiri sesi (aman dipanggil tanpa sesi) |
 | `/api/batches` | GET, POST, DELETE | Manajemen batch ingestion masal |
-| `/api/docs` | GET | Mengambil daftar berkas dokumentasi Markdown |
-| `/api/health` | GET | Healthcheck status layanan |
-| `/api/lab/registry` | GET | Mengambil data pendukung sandbox (situs, agen, tools) |
-| `/api/lab/run` | POST | Menjalankan uji coba eksekusi agen di laboratorium |
+| `/api/docs` | GET | none | Panduan pengguna `docs/guides/0N-*.md` saja (dokumen internal di `docs/` tidak disajikan maupun ikut ke image) |
+| `/api/health` | GET | none | Healthcheck status layanan |
+| `/api/lab/registry` | GET | user + Developer Mode | Data pendukung sandbox (situs, agen, tools) |
+| `/api/lab/run` | POST | user + Developer Mode, llm | Uji eksekusi tool/agen; kegagalan eksekusi = 200 `ok:false`, keluaran diredaksi |
 | `/api/posts` | GET, DELETE | Mengambil daftar artikel & bulk delete artikel |
 | `/api/posts/quick` | POST | Eksekusi pembuatan 1 artikel instan (Tulis Cepat) |
 | `/api/posts/[id]` | GET, DELETE, PATCH | Mengambil detail artikel, log audit, atau memicu retry sync |
 | `/api/queue` | GET | Mengambil item antrean berdasarkan status dan filter |
 | `/api/queue/process` | GET, POST | Memicu eksekusi antrean worker. Cron: `Authorization: Bearer <CRON_SECRET>` (atau `x-cron-secret`), tanpa batasan tenant. Sesi pengguna: hanya POST dan hanya item milik pengguna itu. GET khusus cron. |
-| `/api/settings/user` | GET, POST | Mengambil status masking dan menyimpan kunci API BYOK |
-| `/api/settings/search/test`| POST | Pengujian koneksi ke mesin pencarian (SearXNG/Tavily/Brave) |
-| `/api/sites` | GET, POST | Mengambil daftar situs WordPress & mendaftarkan situs baru |
-| `/api/sites/[id]` | GET, PUT, DELETE | Mengambil detail situs, update setelan, atau menghapus situs |
-| `/api/sites/[id]/authors` | GET, POST | Membaca daftar author WP atau mendaftarkan author baru |
-| `/api/sites/[id]/categories`| GET | Membaca kategori situs WordPress target |
-| `/api/sites/connect` | POST | Inisialisasi redirect authorization Application Passwords |
-| `/api/sites/callback` | GET | Menerima redirect callback kredensial dari WordPress |
-| `/api/sites/test` | POST | Pengujian koneksi manual Application Password ke WordPress |
-| `/api/skills` | GET, POST | Mengambil daftar modul keahlian & membuat skill baru |
-| `/api/skills/[id]` | GET, PUT, DELETE | Mengambil detail, mengubah, atau menghapus modul keahlian |
-| `/api/tools/link-building/analyze` | POST | Menganalisis peluang internal link building pada situs WP |
-| `/api/tools/link-building/apply` | POST | Menerapkan injeksi tautan internal ke artikel lama di WP |
-| `/api/tools/authors/suggest` | POST | AI perancang rekomendasi profil author E-E-A-T |
-| `/api/tools/categories/suggest` | POST | AI perancang rekomendasi taksonomi kategori WordPress |
-| `/api/webhooks` | GET, POST | Mengambil daftar webhook & mendaftarkan webhook baru |
-| `/api/webhooks/[id]` | PUT, DELETE | Memperbarui atau menghapus konfigurasi webhook |
-| `/api/webhooks/[id]/test` | POST | Mengirim event ping pengujian ke webhook eksternal |
+| `/api/settings/user` | GET, PUT | user | Status kunci BYOK tersamar (`hasKey`) & penyimpanan kunci terenkripsi |
+| `/api/settings/search/test` | POST | user, outboundTest | Uji koneksi mesin pencarian (SearXNG/Tavily/Brave/SerpAPI) |
+| `/api/sites` | GET, POST | user, outboundTest (POST) | Daftar situs WordPress & pendaftaran situs baru; URL duplikat → 409 |
+| `/api/sites/[id]` | DELETE | user | Menghapus situs milik pengguna |
+| `/api/sites/[id]/authors` | GET, POST | user | Daftar author WP (`users`) & pendaftaran author baru |
+| `/api/sites/[id]/categories` | GET, POST | user | Kategori situs WordPress target & pembuatan kategori baru |
+| `/api/sites/connect` | POST | user, outboundTest | Inisialisasi redirect otorisasi Application Passwords (state HMAC) |
+| `/api/sites/callback` | GET | public | Callback kredensial dari WordPress; verifikasi state HMAC + sesi di handler; selalu redirect |
+| `/api/sites/test` | POST | user, outboundTest | Uji koneksi manual Application Password ke WordPress |
+| `/api/skills` | GET, POST | user | Skill sistem + milik sendiri; slug duplikat → 409 |
+| `/api/skills/[id]` | GET, PUT, DELETE | user | Detail/ubah/hapus skill; skill sistem baca-saja (403) |
+| `/api/tools/categories/suggest` | POST | user, llm | AI perancang taksonomi kategori WordPress (situs milik pengguna) |
+| `/api/tools/authors/suggest` | POST | user, llm | AI perancang profil author E-E-A-T (situs milik pengguna) |
+| `/api/tools/link-building/analyze` | POST | user, llm | Analisis peluang internal link pada situs WP |
+| `/api/tools/link-building/apply` | POST | user, outboundTest | Menyisipkan tautan internal ke artikel lama di WP |
+| `/api/webhooks` | GET, POST | user | Daftar webhook & pendaftaran webhook baru (URL divalidasi anti-SSRF) |
+| `/api/webhooks/[id]` | PATCH, DELETE | user | Memperbarui atau menghapus konfigurasi webhook |
+| `/api/webhooks/[id]/test` | POST | user, outboundTest | Kirim event ping bertanda tangan; penerima gagal → 502 |

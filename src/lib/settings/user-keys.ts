@@ -5,6 +5,13 @@ import { serverEnv } from "@/lib/env/server"
 import { DecryptedUserKeys } from "@/types/settings"
 
 /**
+ * Kolom `user_settings` yang dibaca (lihat supabase/migrations). Kunci & project LangSmith tidak punya
+ * kolom sendiri: keduanya disimpan di `notification_prefs` (`langsmith_api_key` terenkripsi, `langsmith_project`).
+ */
+const USER_KEY_COLUMNS =
+  "encrypted_openrouter_key, encrypted_tavily_key, encrypted_brave_key, encrypted_serpapi_key, encrypted_pexafy_key, searxng_url, search_preferences, notification_prefs"
+
+/**
  * Mengambil dan mendekripsi seluruh kunci API BYOK milik user dari database Supabase.
  * Server-only helper. Menggunakan Admin Client agar dapat diakses dari worker background.
  */
@@ -20,7 +27,7 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
     const supabase = createAdminClient()
     const { data, error } = await supabase
       .from("user_settings")
-      .select("*")
+      .select(USER_KEY_COLUMNS)
       .eq("user_id", userId)
       .maybeSingle()
 
@@ -38,7 +45,6 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       }
     }
 
-    const rawData = data as Record<string, unknown>
     const notifPrefs = (data.notification_prefs && typeof data.notification_prefs === "object")
       ? (data.notification_prefs as Record<string, unknown>)
       : null
@@ -54,12 +60,13 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       pexafyKey: safeDecrypt(data.encrypted_pexafy_key),
       // Hanya kunci LangSmith milik tenant ini. Sengaja TIDAK ada fallback ke env sistem
       // (LANGSMITH_API_KEY/LANGCHAIN_API_KEY) agar trace satu tenant tidak tercampur ke akun lain.
-      langsmithApiKey:
-        safeDecrypt(data.encrypted_langsmith_key) ||
-        safeDecrypt(typeof notifPrefs?.langsmith_api_key === "string" ? notifPrefs.langsmith_api_key : undefined),
+      langsmithApiKey: safeDecrypt(
+        typeof notifPrefs?.langsmith_api_key === "string" ? notifPrefs.langsmith_api_key : undefined
+      ),
       langsmithProject:
-        (typeof rawData.langsmith_project === "string" ? rawData.langsmith_project : undefined) ||
-        (typeof notifPrefs?.langsmith_project === "string" ? notifPrefs.langsmith_project : undefined),
+        typeof notifPrefs?.langsmith_project === "string" && notifPrefs.langsmith_project
+          ? notifPrefs.langsmith_project
+          : undefined,
       searxngUrl: data.searxng_url ? String(data.searxng_url).trim() : undefined,
       defaultAiModel:
         (typeof searchPrefs?.default_ai_model === "string" ? searchPrefs.default_ai_model : undefined) ||
@@ -72,7 +79,10 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       searchPreferences: (data.search_preferences as DecryptedUserKeys["searchPreferences"]) || {
         default_provider: "auto",
       },
-      notificationPrefs: (data.notification_prefs as DecryptedUserKeys["notificationPrefs"]) || {},
+      // Hanya preferensi boolean: ciphertext `langsmith_api_key` & string lain di jsonb yang sama tidak ikut terbawa.
+      notificationPrefs: Object.fromEntries(
+        Object.entries(notifPrefs ?? {}).filter(([, value]) => typeof value === "boolean")
+      ) as DecryptedUserKeys["notificationPrefs"],
     }
   } catch (err) {
     console.error(`[user-keys] Error mengambil user settings untuk ${userId}:`, err)

@@ -1,30 +1,7 @@
-import { NextResponse } from "next/server"
-import { getPresetPrompts } from "@/core/writer/profiles"
+import { defineRoute } from "@/server/http/route"
+import { listAgentPromptTemplates } from "@/server/services/agents"
 
-export async function GET() {
-  try {
-    const prompts = getPresetPrompts()
-    const templates = [
-      {
-        name: "Template Quick Writer (1-Shot)",
-        prompt: prompts.quick,
-      },
-      {
-        name: "Template Research & Media Writer",
-        prompt: prompts.research,
-      },
-      {
-        name: "Template Deep Research Agent",
-        prompt: prompts.deep,
-      },
-    ]
-
-    return NextResponse.json({ templates })
-  } catch (error) {
-    console.error("[API/agents/templates] Error loading templates:", error)
-    return NextResponse.json(
-      { error: "Gagal memuat template prompt preset" },
-      { status: 500 }
-    )
-  }
-}
+// GET /api/agents/templates - Template workflow prompt dari profil bawaan (hanya pengguna login)
+export const GET = defineRoute({ auth: "user" }, async () => {
+  return { templates: listAgentPromptTemplates() }
+})

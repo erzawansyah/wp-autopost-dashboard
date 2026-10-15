@@ -1,7 +1,7 @@
 # Cetak Biru Arsitektur System Writer (Extensible Engine Framework, Gutenberg Blocks, Markdown-First, & Style Rules)
 
 > [!NOTE] Catatan Evolusi Arsitektur
-> Dokumen ini mencatat fondasi transisi awal System Writer. Sejak implementasi **ADR-047 (Agent Profile Runtime)**, struktur engine/node kaku telah dirombak menjadi arsitektur otonom **Agent Profile Runtime** (`src/core/writer/`) yang mendukung Standard LangChain Agent & Deep Agents dengan Universal Tools. Silakan rujuk [`ARCHITECTURE.md` §5](../ARCHITECTURE.md) dan [`docs/03-manajemen-profil-agen.md`](../docs/03-manajemen-profil-agen.md) untuk spesifikasi produksi aktif.
+> Dokumen ini mencatat fondasi transisi awal System Writer. Sejak implementasi **ADR-047 (Agent Profile Runtime)**, struktur engine/node kaku telah dirombak menjadi arsitektur otonom **Agent Profile Runtime** (`src/core/writer/`) yang mendukung Standard LangChain Agent & Deep Agents dengan Universal Tools. Silakan rujuk [`ARCHITECTURE.md` §5](../ARCHITECTURE.md) dan [`docs/guides/03-manajemen-profil-agen.md`](guides/03-manajemen-profil-agen.md) untuk spesifikasi produksi aktif.
 
 Dokumen ini memutakhirkan dan memperluas rencana arsitektur `System Writer` di `wp-autopost-dashboard`. Desain ini mengakomodasi kebutuhan **ekstensibilitas tak terbatas untuk penambahan engine baru**, **dukungan Gutenberg Block asli**, **alur kerja Markdown-First**, **direktori aturan gaya bahasa (*style rules*) modular**, dan **fitur in-content image injection per subheading**.
 

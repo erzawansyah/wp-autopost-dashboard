@@ -41,6 +41,7 @@ import {
   TooltipTrigger,
 } from "@/components/atoms/tooltip"
 import {
+  AGENT_PROFILE_INPUT_BOUNDS,
   ALL_MANDATORY_TOOL_IDS,
   ensureMandatoryToolIds,
 } from "@/core/writer/types/profile"
@@ -319,8 +320,21 @@ export function AgentProfileEditor({ initialData, isEditing = false }: AgentProf
       setErrorMessage("Nama profil agen wajib diisi.")
       return
     }
+    const nameLength = name.trim().length
+    if (nameLength < AGENT_PROFILE_INPUT_BOUNDS.nameMin || nameLength > AGENT_PROFILE_INPUT_BOUNDS.nameMax) {
+      setErrorMessage(
+        `Nama profil agen harus ${AGENT_PROFILE_INPUT_BOUNDS.nameMin}–${AGENT_PROFILE_INPUT_BOUNDS.nameMax} karakter.`
+      )
+      return
+    }
     if (!workflowPrompt.trim()) {
       setErrorMessage("Alur kerja (Workflow Prompt) wajib diisi.")
+      return
+    }
+    if (workflowPrompt.trim().length > AGENT_PROFILE_INPUT_BOUNDS.workflowPromptMax) {
+      setErrorMessage(
+        `Alur kerja (Workflow Prompt) maksimal ${AGENT_PROFILE_INPUT_BOUNDS.workflowPromptMax} karakter (saat ini ${workflowPrompt.trim().length}).`
+      )
       return
     }
 

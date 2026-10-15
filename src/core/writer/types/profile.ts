@@ -7,6 +7,32 @@ export const AgentModeSchema = z.enum(["standard", "deep"], {
 
 export type AgentMode = z.infer<typeof AgentModeSchema>
 
+/**
+ * Batas input Agent Profile kustom. `nameMin/nameMax` dan `workflowPromptMax` selaras dengan CHECK
+ * `agent_profiles_name_check` & `agent_profiles_workflow_prompt_check` di migrasi baseline; sisanya
+ * batas API. Dipakai validasi server (`src/server/validation/agents.ts`) dan editor di browser.
+ */
+export const AGENT_PROFILE_INPUT_BOUNDS = {
+  nameMin: 2,
+  nameMax: 100,
+  descriptionMax: 1000,
+  workflowPromptMax: 12_000,
+  modelNameMax: 200,
+  temperatureMin: 0,
+  temperatureMax: 2,
+  maxToolIds: 20,
+  maxSkills: 20,
+} as const
+
+/**
+ * Penanda profil default disimpan di dalam JSONB `agent_profiles.limits.isDefault`
+ * (tabel tidak punya kolom `is_default`). Nilai selain `true` dianggap bukan default.
+ */
+export function readStoredIsDefault(rawLimits: unknown): boolean {
+  if (typeof rawLimits !== "object" || rawLimits === null || Array.isArray(rawLimits)) return false
+  return (rawLimits as Record<string, unknown>).isDefault === true
+}
+
 export interface AgentLimits {
   /** Maksimal pemanggilan model LLM per satu run */
   maxModelCalls: number
