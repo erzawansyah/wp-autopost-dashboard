@@ -108,7 +108,8 @@ jobs:
     timeout-minutes: 40
     env:
       # Log layanan, trace/video, dan laporan HTML (di luar checkout; lihat e2e/support/config.ts).
-      E2E_OUTPUT_DIR: ${{ runner.temp }}/e2e
+      # Konteks `runner` tidak tersedia di `env` tingkat job, jadi dipakai path tetap.
+      E2E_OUTPUT_DIR: /tmp/panitera-e2e
     steps:
       - uses: actions/checkout@v4
 
