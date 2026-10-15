@@ -37,7 +37,8 @@
     "targetKeyword": "manfaat kopi hitam",
     "extraInstructions": "-",
     "topicSummary": "Manfaat kesehatan kopi hitam tanpa gula dan batas aman konsumsi kafein harian.",
-    "candidatesJson": "[\n  {\n    \"postId\": 41,\n    \"postTitle\": \"Cara Menyeduh Kopi Tubruk\",\n    \"postLink\": \"https://kopinusantara.example/kopi-tubruk/\",\n    \"sampleExcerpt\": \"Kopi tubruk diseduh langsung dengan air panas. Banyak orang menikmatinya tanpa gula agar rasa aslinya terasa.\"\n  }\n]"
+    "candidatesJson": "[\n  {\n    \"postId\": 41,\n    \"postTitle\": \"Cara Menyeduh Kopi Tubruk\",\n    \"postLink\": \"https://kopinusantara.example/kopi-tubruk/\",\n    \"sampleExcerpt\": \"Kopi tubruk diseduh langsung dengan air panas. Banyak orang menikmatinya tanpa gula agar rasa aslinya terasa.\"\n  }\n]",
+    "limit": "24"
   },
   "byPrompt": {
     "system-resolve-taxonomy-author": {

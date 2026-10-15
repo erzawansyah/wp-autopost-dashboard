@@ -74,12 +74,20 @@ const MY_SITE = "33333333-3333-4333-8333-333333333333"
 const OTHER_SITE = "44444444-4444-4444-8444-444444444444"
 const noParams = { params: Promise.resolve({}) }
 
-function post(body: unknown) {
+function post(body: unknown, signal?: AbortSignal) {
   return new Request("http://localhost/api/tools/x", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   })
+}
+
+/** Sinyal yang diteruskan mengikuti sinyal request (Request membungkus sinyal pemanggil). */
+function followsAbort(signal: unknown, controller: AbortController): boolean {
+  if (!(signal instanceof AbortSignal) || signal.aborted) return false
+  controller.abort()
+  return signal.aborted
 }
 
 const RAW_CONTENT = "<!-- wp:paragraph -->\n<p>Kopi robusta cocok untuk espresso pagi.</p>\n<!-- /wp:paragraph -->"
@@ -259,6 +267,33 @@ describe("POST /api/tools/link-building/analyze", () => {
     expect(body.recommendations).toEqual([])
     expect(body.message).toContain("Tidak ditemukan")
     expect(mocks.completeJson).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("pembatalan request (klien memutus koneksi)", () => {
+  it("categories/suggest: gateway LLM & baca kategori WordPress terikat sinyal request", async () => {
+    mocks.completeJson.mockResolvedValue({ suggestions: [] })
+    const controller = new AbortController()
+    await suggestCategories(post({ siteId: MY_SITE, prompt: "Kategori kopi" }, controller.signal), noParams)
+
+    const gatewaySignal = mocks.createLlmGateway.mock.calls[0][0].signal
+    expect(mocks.fetchWordPressCategories.mock.calls[0][0].signal).toBe(gatewaySignal)
+    expect(followsAbort(gatewaySignal, controller)).toBe(true)
+  })
+
+  it("authors/suggest & link-building/analyze meneruskan sinyal ke gateway, users & pencarian artikel", async () => {
+    mocks.completeJson.mockResolvedValue({ suggestions: [], topicSummary: "Espresso", searchQueries: ["espresso"] })
+    mocks.searchWordPressPosts.mockResolvedValue({ ok: true, posts: [] })
+
+    const authors = new AbortController()
+    await suggestAuthors(post({ siteId: MY_SITE, prompt: "Persona" }, authors.signal), noParams)
+    expect(mocks.fetchWordPressUsers.mock.calls[0][0].signal).toBe(mocks.createLlmGateway.mock.calls[0][0].signal)
+    expect(followsAbort(mocks.createLlmGateway.mock.calls[0][0].signal, authors)).toBe(true)
+
+    const links = new AbortController()
+    await analyzeLinks(post({ siteId: MY_SITE, newArticleUrl: "https://saya.test/baru" }, links.signal), noParams)
+    expect(mocks.searchWordPressPosts.mock.calls[0][0].signal).toBe(mocks.createLlmGateway.mock.calls[1][0].signal)
+    expect(followsAbort(mocks.createLlmGateway.mock.calls[1][0].signal, links)).toBe(true)
   })
 })
 

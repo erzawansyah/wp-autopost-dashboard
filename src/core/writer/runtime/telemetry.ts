@@ -1,7 +1,7 @@
 import { LlmUsageLedger, type LlmModelUsage } from "@/core/shared/llm/usage"
 import { ArticleSource, FeaturedImageMeta, InContentImage } from "../types/contracts"
 import { isSensitiveKey, redactSecretsInText } from "@/lib/security/redact"
-import type { GenerationStep } from "./checkpoints"
+import { stripNulChars, type GenerationStep } from "./checkpoints"
 
 export type StepEventKind = "model_call" | "tool_call" | "guard" | "finalize" | "summary"
 
@@ -60,8 +60,11 @@ export class RunRecorder {
   private modelCalls: number = 0
   private toolCalls: number = 0
 
-  /** Ledger token & biaya seluruh panggilan LLM run ini (diisi gateway LLM). */
-  public readonly usage = new LlmUsageLedger()
+  /**
+   * Ledger token & biaya seluruh panggilan LLM run ini (diisi gateway LLM). Dapat dimiliki pemanggil
+   * (`usageLedger`) agar pemakaian tetap terbaca walau run melempar exception.
+   */
+  public readonly usage: LlmUsageLedger
 
   // Koleksi data terstruktur yang dikumpulkan selama agent berjalan
   public readonly sources: Map<string, ArticleSource> = new Map()
@@ -77,13 +80,15 @@ export class RunRecorder {
   // Listener opsional untuk streaming event log (misal ke database execution_logs)
   private onEventListener?: (event: AgentStepEvent) => void
 
-  constructor(onEventListener?: (event: AgentStepEvent) => void) {
+  constructor(onEventListener?: (event: AgentStepEvent) => void, usage: LlmUsageLedger = new LlmUsageLedger()) {
     this.onEventListener = onEventListener
+    this.usage = usage
   }
 
   public recordEvent(event: Omit<AgentStepEvent, "index" | "timestamp">): AgentStepEvent {
-    // Redaksi dilakukan sebelum pemotongan agar token rahasia tidak lolos sebagian.
-    const sanitizedSummary = redactSecretsInText(event.summary || "").slice(0, 240).trim()
+    // Redaksi dilakukan sebelum pemotongan agar token rahasia tidak lolos sebagian. NUL dibuang karena
+    // event diteruskan ke kolom text/jsonb Postgres (execution_logs).
+    const sanitizedSummary = redactSecretsInText(stripNulChars(event.summary || "")).slice(0, 240).trim()
     const sanitizedArgs: Record<string, string | number | boolean> = {}
 
     if (event.argsPreview && typeof event.argsPreview === "object") {
@@ -93,7 +98,7 @@ export class RunRecorder {
         // Skip potential sensitive keys
         if (isSensitiveKey(k)) continue
         if (typeof v === "string") {
-          const safe = redactSecretsInText(v)
+          const safe = redactSecretsInText(stripNulChars(v))
           sanitizedArgs[k] = safe.length > 120 ? safe.slice(0, 117) + "..." : safe
         } else if (typeof v === "number" || typeof v === "boolean") {
           sanitizedArgs[k] = v

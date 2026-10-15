@@ -10,6 +10,7 @@ import {
   classifyWordPressFailure,
   classifyWriterFailure,
   decideFailure,
+  isTransientInfrastructureError,
   retryBackoffMs,
 } from "@/core/queue/retry-policy"
 
@@ -147,5 +148,27 @@ describe("classifyWordPressFailure", () => {
     expect(classifyWordPressFailure(asWpError(refused))).toBe("transient")
     expect(classifyWordPressFailure(asWpError(dns))).toBe("transient")
     expect(classifyWordPressFailure(asWpError(reset))).toBe("uncertain")
+  })
+})
+
+describe("isTransientInfrastructureError", () => {
+  it.each([
+    ["HTTP 503", Object.assign(new Error("x"), { status: 503 })],
+    ["HTTP 429", Object.assign(new Error("x"), { statusCode: 429 })],
+    ["fetch failed", new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } })],
+    ["kode undici di cause", new Error("wrapper", { cause: { code: "UND_ERR_SOCKET" } })],
+    ["AbortError", Object.assign(new Error("aborted"), { name: "AbortError" })],
+    ["TimeoutError", Object.assign(new Error("timeout"), { name: "TimeoutError" })],
+  ])("%s → sementara", (_label, err) => {
+    expect(isTransientInfrastructureError(err)).toBe(true)
+  })
+
+  it.each([
+    ["TypeError dari kode", new TypeError("Cannot read properties of undefined")],
+    ["Error biasa", new Error("serialisasi naskah gagal")],
+    ["HTTP 400", Object.assign(new Error("x"), { status: 400 })],
+    ["bukan objek", "boom"],
+  ])("%s → bukan gangguan infrastruktur", (_label, err) => {
+    expect(isTransientInfrastructureError(err)).toBe(false)
   })
 })

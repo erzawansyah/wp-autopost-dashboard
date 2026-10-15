@@ -74,6 +74,22 @@ describe("extractArticleJsonFromText — format lain tetap berfungsi", () => {
     })
   })
 
+  it("ID & nama tag dari LLM dikoersi: hanya bilangan bulat positif aman / string tidak kosong", () => {
+    const payload = {
+      title: "Kopi",
+      markdownContent: BODY_WITH_TABLE,
+      categoryIds: [7, "12", 7, -1, 0, 1.5, "x", null, 2 ** 60, { id: 3 }],
+      tagNames: ["kopi", 5, "", "  ", null, "teh"],
+      authorId: "4",
+      featuredMediaId: -9,
+    }
+    const out = extractArticleJsonFromText(JSON.stringify(payload))
+    expect(out).toMatchObject({ categoryIds: [7, 12], tagNames: ["kopi", "teh"], authorId: 4, featuredMediaId: undefined })
+
+    const empty = extractArticleJsonFromText(JSON.stringify({ ...payload, categoryIds: ["a"], tagNames: [1], authorId: "abc" }))
+    expect(empty).toMatchObject({ categoryIds: undefined, tagNames: undefined, authorId: undefined })
+  })
+
   it("JSON fenced yang markdownContent-nya memuat blok kode tetap terbaca", () => {
     const md = `${INTRO}\n\n\`\`\`bash\nnpm install kopi\n\`\`\`\n\nPenutup artikel.`
     const text = `\`\`\`json\n${JSON.stringify({ title: "Kopi", markdownContent: md })}\n\`\`\``

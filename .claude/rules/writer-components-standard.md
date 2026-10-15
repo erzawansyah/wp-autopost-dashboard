@@ -44,7 +44,7 @@ Diimplementasikan di `runtime/loop-guard.ts` dan `runtime/guards.ts`:
 - circuit breaker: tool dinonaktifkan setelah 2× gagal berturut-turut (langsung pada `missing_credentials`/`unauthorized`);
 - kuota global & per-tool (hard limits);
 - tepat 1× emergency finalize call (`runtime/finalize.ts`, prompt `system-finalize.md`) saat batas tercapai.
-Perubahan pada guard wajib menjaga keempat jaminan ini. Kegagalan tool dideteksi dari artifact `ok: false` (bukan parsing teks "ERROR").
+Perubahan pada guard wajib menjaga keempat jaminan ini, termasuk untuk subagent Deep mode (instance guard yang sama, anggaran panggilan model per run). Kegagalan tool dideteksi dari artifact `ok: false` (bukan parsing teks "ERROR").
 
 ## 6. Queue & Idempotensi (lihat juga CLAUDE.md §Prinsip Inti)
 - Job tidak pernah dijalankan di dalam request HTTP: route hanya mencatat/menjadwalkan ulang item lalu `nudge` runner (`src/server/queue/`).
@@ -57,5 +57,5 @@ Perubahan pada guard wajib menjaga keempat jaminan ini. Kegagalan tool dideteksi
 - Run menerima `AbortSignal` dari runner (`lease_lost`, `max_duration`, `shutdown`, `claim_lost`); jangan pernah meneruskan sinyal ke POST publish WordPress yang sudah dimulai.
 
 ## 7. LLM Gateway
-- Semua panggilan LLM lewat gateway per run (`src/core/shared/llm/gateway.ts`): kunci BYOK-only, retry dengan backoff (tanpa retry untuk 400/401/402/403/kuota), fallback model hanya untuk error yang layak (`ai.fallbackModels` di `settings.json`), ledger token & biaya, tracer LangSmith per tenant. Jangan membuat `ChatOpenRouter` atau fetch ke OpenRouter di luar gateway (kecuali katalog model/verifikasi kunci di `src/server/services/ai.ts`).
+- Semua panggilan LLM lewat gateway per run (`src/core/shared/llm/gateway.ts`): kunci BYOK-only, retry dengan backoff (tanpa retry untuk 400/401/402/403/kuota), fallback model hanya untuk error yang layak (`ai.fallbackModels` di `settings.json`; model `:free` tidak pernah fallback ke model berbayar, batas harian model gratis = kuota), ledger token & biaya, tracer LangSmith per tenant. Jangan membuat `ChatOpenRouter` atau fetch ke OpenRouter di luar gateway (kecuali katalog model/verifikasi kunci di `src/server/services/ai.ts`).
 - Uji ke WordPress nyata default `status: "draft"` kecuali pengguna meminta `publish`.

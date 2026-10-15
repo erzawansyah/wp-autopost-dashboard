@@ -9,7 +9,7 @@ import {
   WPCategoryItem,
 } from "@/lib/wordpress/client"
 import { sanitizeTermNames, toPlainText } from "@/lib/wordpress/plain-text"
-import { describeLlmError } from "@/core/shared/llm/errors"
+import { classifyLlmError, describeLlmError } from "@/core/shared/llm/errors"
 import type { LlmGateway } from "@/core/shared/llm/gateway"
 import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { RunRecorder } from "./telemetry"
@@ -46,6 +46,17 @@ export interface PreResolvedContext {
   tagIds: number[]
 }
 
+/** Alasan hasil pre-resolve tidak lengkap karena gangguan (bukan karena konfigurasi situs). */
+export type PreResolveDegradation = "wp_users" | "wp_categories" | "wp_tags" | "wp_tag_create" | `llm:${string}`
+
+export interface PreResolveResult extends PreResolvedContext {
+  /**
+   * Kosong = hasil lengkap. Terisi bila LLM atau request WordPress gagal sehingga resolver jatuh ke
+   * fallback heuristik/data kosong — hasil seperti itu tidak boleh disimpan sebagai checkpoint.
+   */
+  degradedReasons: PreResolveDegradation[]
+}
+
 /**
  * Pre-Flight Resolver untuk Taksonomi (Kategori & Tag) dan Penulis WordPress.
  * Dijalankan di latar belakang SEBELUM AI Agent mulai menulis naskah artikel.
@@ -56,7 +67,7 @@ export interface PreResolvedContext {
  */
 export async function preResolveTaxonomyAndAuthor(
   options: PreResolveOptions
-): Promise<PreResolvedContext> {
+): Promise<PreResolveResult> {
   const {
     wpCredentials,
     requestedAuthorId,
@@ -71,11 +82,12 @@ export async function preResolveTaxonomyAndAuthor(
   // Nama tag selalu teks polos berbatas panjang (input pengguna maupun keluaran LLM)
   const requestedTagNames = sanitizeTermNames(options.requestedTagNames)
 
-  const result: PreResolvedContext = {
+  const result: PreResolveResult = {
     categoryIds: [...requestedCategoryIds],
     categoryNames: [],
     tagNames: [...requestedTagNames],
     tagIds: [],
+    degradedReasons: [],
   }
 
   // Jika tidak ada kredensial WordPress (misal mode sandbox lab), kembalikan data awal
@@ -109,9 +121,13 @@ export async function preResolveTaxonomyAndAuthor(
 
     if (authorRes.ok && Array.isArray(authorRes.users)) {
       users = authorRes.users
+    } else {
+      result.degradedReasons.push("wp_users")
     }
     if (catRes.ok && Array.isArray(catRes.categories)) {
       existingCategories = catRes.categories
+    } else {
+      result.degradedReasons.push("wp_categories")
     }
 
     // Ambil cuplikan tag yang sudah terdaftar di WordPress
@@ -138,12 +154,16 @@ export async function preResolveTaxonomyAndAuthor(
             slug: String(t.slug || ""),
           }))
         }
+      } else {
+        result.degradedReasons.push("wp_tags")
       }
     } catch {
-      // Abaikan jika endpoint tag tidak merespons
+      // Endpoint tag tidak merespons: lanjut tanpa cuplikan tag (hasil ditandai tidak lengkap)
+      result.degradedReasons.push("wp_tags")
     }
   } catch (fetchErr) {
     console.warn("[pre-resolve] Gagal memuat data pendukung WordPress:", fetchErr)
+    result.degradedReasons.push("wp_users", "wp_categories")
   }
 
   // 2. Eksekusi Resolusi Cerdas via LLM (system-resolve-taxonomy-author.md)
@@ -293,6 +313,7 @@ export async function preResolveTaxonomyAndAuthor(
       }
     } catch (llmErr) {
       console.warn("[pre-resolve] Gagal resolusi taksonomi via LLM, menggunakan fallback heuristik:", llmErr)
+      result.degradedReasons.push(`llm:${classifyLlmError(llmErr).kind}`)
       recorder?.recordEvent({
         kind: "guard",
         tool: "pre_resolve_llm",
@@ -441,6 +462,9 @@ export async function preResolveTaxonomyAndAuthor(
         signal,
       })
 
+      // Sebagian tag gagal dibuat/ditemukan (kegagalan per tag ditelan klien WordPress).
+      if (tagIds.length < result.tagNames.length) result.degradedReasons.push("wp_tag_create")
+
       if (tagIds && tagIds.length > 0) {
         result.tagIds = tagIds
         recorder?.recordEvent({
@@ -457,8 +481,10 @@ export async function preResolveTaxonomyAndAuthor(
       }
     } catch (tagErr) {
       console.warn("[pre-resolve] Gagal mendaftarkan tag ke WordPress:", tagErr)
+      result.degradedReasons.push("wp_tag_create")
     }
   }
 
+  result.degradedReasons = Array.from(new Set(result.degradedReasons))
   return result
 }

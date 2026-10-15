@@ -37,6 +37,37 @@ describe("classifyLlmError", () => {
     expect(classifyLlmError(err)).toMatchObject({ kind, retryable, fallbackable })
   })
 
+  it("batas harian model gratis OpenRouter (429 free-models-per-day, di pesan atau metadata) = kuota", () => {
+    expect(classifyLlmError(httpError(429, "Rate limit exceeded: free-models-per-day. Add 10 credits"))).toMatchObject({
+      kind: "quota",
+      retryable: false,
+      fallbackable: false,
+    })
+    const viaMetadata = Object.assign(new OpenRouterError("Rate limit exceeded", 429), {
+      metadata: { reason: "free-models-per-day", headers: { "X-RateLimit-Remaining": "0" } },
+    })
+    expect(classifyLlmError(viaMetadata).kind).toBe("quota")
+    expect(classifyLlmError(httpError(429, "Rate limit exceeded: free-models-per-min.")).kind).toBe("rate_limit")
+  })
+
+  it("membuka pembungkus MiddlewareError LangChain (berlapis) sampai error OpenRouter asli", () => {
+    const wrap = (inner: Error) =>
+      Object.assign(new Error(inner.message), { name: inner.name, cause: inner, "~brand": "MiddlewareError" })
+    expect(classifyLlmError(wrap(wrap(httpError(401))))).toMatchObject({ kind: "auth", status: 401, retryable: false })
+    // Deep Agent: satu lapis per middleware wrapModelCall (stack produksi ≥ 7 lapis).
+    let deep: Error = httpError(402, "Insufficient credits")
+    for (let layer = 0; layer < 10; layer++) deep = wrap(deep)
+    expect(classifyLlmError(deep)).toMatchObject({ kind: "quota", status: 402, fallbackable: false })
+    expect(classifyLlmError(wrap(wrap(httpError(402, "Insufficient credits"))))).toMatchObject({ kind: "quota", status: 402 })
+    expect(classifyLlmError(wrap(httpError(403)))).toMatchObject({ kind: "auth", status: 403 })
+    expect(classifyLlmError(wrap(httpError(503)))).toMatchObject({ kind: "server", retryable: true })
+    // Error asing yang tidak dikenali diklasifikasi dari rantai `cause` (berbatas kedalaman, aman dari siklus).
+    expect(classifyLlmError(new Error("tool gagal", { cause: httpError(402, "Insufficient credits") })).kind).toBe("quota")
+    const cyclic: Error & { cause?: unknown } = new Error("siklus")
+    cyclic.cause = cyclic
+    expect(classifyLlmError(cyclic).kind).toBe("unknown")
+  })
+
   it("membaca status dari `status` maupun `response.status`", () => {
     expect(classifyLlmError({ status: 503, message: "x" }).kind).toBe("server")
     expect(classifyLlmError({ response: { status: 401 }, message: "x" }).kind).toBe("auth")

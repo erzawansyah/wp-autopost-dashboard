@@ -13,6 +13,7 @@ import { resolveAgentProfile } from "./runtime/resolve-profile"
 import { runAgentWriter } from "./runtime/run-agent"
 import { AgentStepEvent } from "./runtime/telemetry"
 import type { GenerationCheckpointOptions } from "./runtime/checkpoints"
+import type { LlmUsageLedger } from "@/core/shared/llm/usage"
 import { redactRecord, redactSecrets } from "@/lib/security/redact"
 
 export interface WriterRunOptions {
@@ -26,6 +27,8 @@ export interface WriterRunOptions {
    * penyimpanan setiap langkah yang selesai. Tanpa opsi ini run berjalan penuh tanpa persistensi.
    */
   checkpoints?: GenerationCheckpointOptions
+  /** Ledger pemakaian LLM milik pemanggil; tetap terbaca walau `run()` melempar exception. */
+  usageLedger?: LlmUsageLedger
 }
 
 /**
@@ -121,6 +124,7 @@ export async function run(
     onEventListener: normalizedOptions.onEventListener,
     abortSignal: normalizedOptions.abortSignal,
     checkpoints: normalizedOptions.checkpoints,
+    usageLedger: normalizedOptions.usageLedger,
   })
 
   const summary = agentRunResult.recorder.getSummary(

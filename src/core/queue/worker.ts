@@ -6,6 +6,7 @@ import type { WpEnrichment, WriterResult } from "@/core/writer/types/contracts"
 import type { GenerationCheckpoint } from "@/core/writer/runtime/checkpoints"
 import { processAndSyncArticleMedia } from "@/core/shared/media/auto-media-pipeline"
 import { createPromptVersionTracker } from "@/core/shared/prompts/loader"
+import { LlmUsageLedger, type LlmUsageSnapshot } from "@/core/shared/llm/usage"
 import { resolveAgentProfile } from "@/core/writer/runtime/resolve-profile"
 import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import { AgentStepEvent } from "@/core/writer/runtime/telemetry"
@@ -30,6 +31,7 @@ import {
 } from "@/core/queue/claim-abort"
 import {
   clearGenerationCheckpoints,
+  discardDraftCheckpoint,
   loadGenerationCheckpoints,
   saveGenerationCheckpoint,
 } from "@/core/queue/checkpoints"
@@ -42,6 +44,7 @@ import {
   classifyWordPressFailure,
   classifyWriterFailure,
   decideFailure,
+  isTransientInfrastructureError,
   type FailureClass,
   type FailureDecision,
   type QueueStage,
@@ -93,6 +96,8 @@ interface ActiveClaim extends OwnedPostItem {
   state: StaleRecoverableState
   /** Hanya untuk menghitung retry berikutnya — bukan pagar. */
   retryCount: number | null
+  /** Naskah klaim ini berasal dari / menghasilkan checkpoint `draft` (lihat `discardDraftCheckpoint`). */
+  draftInUse?: boolean
 }
 
 function sleep(ms: number): Promise<void> {
@@ -158,25 +163,42 @@ function definitiveClaimLoss(signal: AbortSignal): ClaimAbortCode | null {
   return code === "shutdown" ? null : code
 }
 
+/** Sinyal turunan yang hanya batal saat klaim PASTI hilang (bukan saat shutdown). */
+function definitiveLossSignal(signal: AbortSignal): AbortSignal {
+  const controller = new AbortController()
+  const check = () => {
+    const code = definitiveClaimLoss(signal)
+    if (code) controller.abort(new ClaimAbortedError(code))
+  }
+  if (signal.aborted) check()
+  else signal.addEventListener("abort", check, { once: true })
+  return controller.signal
+}
+
 /**
  * Metrik `agent_runs` satu percobaan (sukses maupun gagal). Token, biaya, dan panggilan LLM hanya
  * pemakaian percobaan ini: langkah yang dipakai ulang dari checkpoint tercatat di `resumed_steps`
- * dan biayanya sudah tercatat pada percobaan asalnya (tidak dihitung ganda).
+ * dan biayanya sudah tercatat pada percobaan asalnya (tidak dihitung ganda). Bila writer melempar
+ * exception (tanpa ringkasan run), pemakaian diambil dari ledger milik worker.
  */
-function agentRunMetrics(result: WriterResult | null, promptVersions: Record<string, string>): Record<string, unknown> {
+function agentRunMetrics(
+  result: WriterResult | null,
+  promptVersions: Record<string, string>,
+  ledger: LlmUsageSnapshot
+): Record<string, unknown> {
   const summary = result?.agentRun
   const model = result?.execution.modelUsed
   return {
     stop_reason: summary?.stopReason ?? null,
     model_calls: summary?.modelCalls ?? 0,
     tool_calls: summary?.toolCalls ?? 0,
-    tokens_prompt: summary?.tokensPrompt ?? null,
-    tokens_completion: summary?.tokensCompletion ?? null,
-    tokens_total: summary?.tokensTotal ?? null,
-    llm_calls: summary?.llmCalls ?? 0,
-    cost_usd: summary?.costUsd ?? null,
+    tokens_prompt: summary?.tokensPrompt ?? ledger.promptTokens,
+    tokens_completion: summary?.tokensCompletion ?? ledger.completionTokens,
+    tokens_total: summary?.tokensTotal ?? ledger.totalTokens,
+    llm_calls: summary?.llmCalls ?? ledger.calls,
+    cost_usd: summary ? summary.costUsd : ledger.costUsd,
     model: model && model !== "none" ? model.slice(0, 200) : null,
-    model_usage: summary?.modelUsage ?? [],
+    model_usage: summary?.modelUsage ?? ledger.byModel,
     prompt_versions: promptVersions,
     resumed_steps: summary?.resumedSteps ?? [],
     duration_ms: summary?.durationMs ?? result?.execution.durationMs ?? null,
@@ -411,6 +433,10 @@ async function settleCrashedClaim(
     })
   } else if (current.state === "generating_content") {
     claim.state = "generating_content"
+    // Crash setelah naskah jadi (persiapan sinkronisasi) dengan naskah dari checkpoint draft: draft beracun.
+    if (claim.draftInUse && !isTransientInfrastructureError(err)) {
+      await discardPoisonDraft(supabase, claim, claim.userId, errMsg)
+    }
     await settleFailure(supabase, claim, {
       stage: "generation",
       failure: classifyThrownError(err),
@@ -465,6 +491,20 @@ async function finalizeRecordedPost(
     wpPostId: Number(post.wp_post_id) || undefined,
     wpPostUrl: post.wp_post_url || undefined,
   }
+}
+
+/** Buang checkpoint draft yang memicu exception deterministik dan catat alasannya ke log item. */
+async function discardPoisonDraft(supabase: QueueDbClient, claim: ActiveClaim, userId: string, reason: string): Promise<void> {
+  if (!(await discardDraftCheckpoint(supabase, claim))) return
+  await insertLog(supabase, {
+    postItemId: claim.id,
+    userId,
+    step: "checkpoint_discard",
+    level: "warn",
+    message:
+      "[Queue Worker] Checkpoint draft dibuang karena memicu exception tak terduga; percobaan berikutnya menulis ulang naskah " +
+      `(checkpoint pre_resolve tetap dipakai). Penyebab: ${reason.slice(0, 200)}`,
+  })
 }
 
 /**
@@ -812,9 +852,13 @@ async function executePostItem(
     const runController = new AbortController()
     const claimSignal = AbortSignal.any([context.signal, runController.signal])
     const promptTracker = createPromptVersionTracker()
+    // Ledger milik worker: token & biaya tetap tercatat walau writer melempar exception.
+    const usageLedger = new LlmUsageLedger()
+    let draftSaved = false
     const onCheckpoint = async (checkpoint: GenerationCheckpoint): Promise<boolean> => {
       const saved = await saveGenerationCheckpoint(supabase, claim, checkpoint, promptTracker.versions())
       if (!saved) runController.abort(new ClaimAbortedError("claim_lost"))
+      if (saved && checkpoint.step === "draft") draftSaved = true
       return saved
     }
 
@@ -860,6 +904,7 @@ async function executePostItem(
             onEventListener: handleStepEvent,
             abortSignal: claimSignal,
             checkpoints: { resume: storedCheckpoints, onCheckpoint },
+            usageLedger,
           }
         )
       )
@@ -874,6 +919,13 @@ async function executePostItem(
         message: aiErr instanceof Error ? aiErr.message : "Kesalahan sistem AI",
         failure: classifyThrownError(aiErr),
       }
+      // Exception tak terduga saat naskah memakai/menghasilkan checkpoint draft: langkah setelah draft
+      // deterministik, jadi draft yang sama akan gagal lagi — buang agar percobaan berikutnya menulis ulang.
+      const draftInvolved = draftSaved || storedCheckpoints.some((checkpoint) => checkpoint.step === "draft")
+      // Gangguan infrastruktur sesaat (jaringan/DB/5xx) bukan bukti draft beracun: draft dipertahankan.
+      if (draftInvolved && !claimSignal.aborted && !isTransientInfrastructureError(aiErr)) {
+        await discardPoisonDraft(supabase, claim, post.user_id, generationFailure.message)
+      }
     }
 
     const finishAgentRun = async (
@@ -885,7 +937,7 @@ async function executePostItem(
       const { error: runUpdErr } = await supabase
         .from("agent_runs")
         .update({
-          ...agentRunMetrics(writerResult, promptTracker.versions()),
+          ...agentRunMetrics(writerResult, promptTracker.versions(), usageLedger.snapshot()),
           ...(stopReason ? { stop_reason: stopReason } : {}),
           status,
           error_message: errorMessage,
@@ -932,6 +984,7 @@ async function executePostItem(
 
     resolvedEnrichment = writerResult.enrichment || null
     generated = writerResult.article
+    claim.draftInUse = draftSaved || (writerResult.agentRun?.resumedSteps ?? []).includes("draft")
     await finishAgentRun("completed", null)
   }
 
@@ -979,6 +1032,10 @@ async function executePostItem(
           markdownContent: generated.markdownContent,
           featuredImageUrl: finalFeaturedImageUrl,
           articleTitle: wpTitle,
+          // Lease pasti hilang → berhenti sebelum unggahan berikutnya (klaim baru menjalankan pipeline yang
+          // sama). Unggahan yang sedang berjalan dibiarkan selesai agar tercatat di cache, bukan jadi media yatim.
+          // Shutdown tidak menghentikan pipeline: naskah masih boleh disimpan lewat transisi berpagar.
+          haltSignal: definitiveLossSignal(context.signal),
         })
 
         finalContentHtml = mediaSyncRes.updatedContentHtml

@@ -272,6 +272,24 @@ export const PROMPT_REGISTRY: Readonly<Record<string, PromptRegistryEntry>> = {
     "systemPrompt": "IMPORTANT: Keluarkan HANYA raw JSON murni yang valid sesuai format yang diminta, tanpa kata pembuka/penutup, tanpa markdown fence, dan tanpa penjelasan di luar JSON.",
     "userPromptTemplate": ""
   },
+  "system-model-call-limit": {
+    "name": "system-model-call-limit",
+    "file": "src/core/shared/prompts/system-model-call-limit.md",
+    "version": "611797fa3e84",
+    "description": "Respons pengganti saat anggaran panggilan model run (agen utama + subagent Deep Agent) habis; mengakhiri loop agen tanpa memanggil LLM",
+    "usedBy": [
+      "src/core/writer/runtime/guards.ts"
+    ],
+    "variables": [
+      {
+        "key": "limit",
+        "desc": "Batas total panggilan model untuk satu run (maxModelCalls Agent Profile setelah clamp)"
+      }
+    ],
+    "body": "[SYSTEM_PROMPT]\nPEMBERITAHUAN SISTEM: Batas total {{limit}} panggilan model untuk run ini sudah habis, sehingga eksekusi agen dihentikan. Naskah akhir disusun dari data dan konteks yang sudah terkumpul.\n[/SYSTEM_PROMPT]",
+    "systemPrompt": "PEMBERITAHUAN SISTEM: Batas total {{limit}} panggilan model untuk run ini sudah habis, sehingga eksekusi agen dihentikan. Naskah akhir disusun dari data dan konteks yang sudah terkumpul.",
+    "userPromptTemplate": ""
+  },
   "system-readonly-filesystem": {
     "name": "system-readonly-filesystem",
     "file": "src/core/shared/prompts/system-readonly-filesystem.md",

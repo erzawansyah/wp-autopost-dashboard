@@ -1,11 +1,39 @@
-import {
-  createMiddleware,
-  modelCallLimitMiddleware,
-} from "langchain"
+import { createMiddleware } from "langchain"
 import { AIMessage } from "@langchain/core/messages"
+import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { AgentLimits } from "../types/profile"
 import { RunRecorder } from "./telemetry"
 import { createLoopGuardMiddleware } from "./loop-guard"
+
+const MODEL_CALL_LIMIT_FALLBACK = "Batas {{limit}} panggilan model untuk run ini sudah habis."
+
+/**
+ * Anggaran panggilan model per RUN (bukan per graf): penghitung ada di closure instance middleware ini,
+ * sehingga agen utama dan subagent Deep Agent yang memakai instance yang sama berbagi satu anggaran.
+ * Saat habis, panggilan model diganti respons pemberitahuan tanpa tool call (prompt
+ * `system-model-call-limit.md`) sehingga loop agen/subagent berakhir dan run masuk ke finalize call.
+ */
+function createModelCallBudgetMiddleware(limit: number, recorder: RunRecorder) {
+  let used = 0
+  return createMiddleware({
+    name: "RunModelCallBudgetMiddleware",
+    wrapModelCall: async (request, handler) => {
+      if (used >= limit) {
+        recorder.recordEvent({
+          kind: "guard",
+          tool: "model_call_limit",
+          status: "blocked",
+          durationMs: 0,
+          summary: `Panggilan model diblokir: batas ${limit} panggilan model per run tercapai`,
+        })
+        const notice = loadPrompt("system-model-call-limit.md", MODEL_CALL_LIMIT_FALLBACK, "system")
+        return new AIMessage(renderPrompt(notice, { limit }))
+      }
+      used += 1
+      return handler(request)
+    },
+  })
+}
 
 /**
  * Middleware untuk mencatat setiap panggilan model LLM ke RunRecorder
@@ -53,14 +81,22 @@ function createTelemetryMiddleware(recorder: RunRecorder) {
  * Membangun rangkaian lengkap Guard Middleware berlapis untuk agent.
  * Menggunakan pendekatan Unified Tool Guard pada wrapToolCall untuk menghindari
  * pembuatan puluhan node redundan di StateGraph LangGraph yang memicu GraphRecursionError.
+ * Seluruh state guard (anggaran model, kuota tool, dedup, circuit breaker) ada di closure instance,
+ * jadi instance yang SAMA wajib dipasang juga di subagent Deep Agent agar batas berlaku per run.
  */
 export function buildGuardMiddlewareStack(limits: AgentLimits, recorder: RunRecorder) {
-  const stack: (ReturnType<typeof createMiddleware> | ReturnType<typeof modelCallLimitMiddleware>)[] = []
+  const stack: ReturnType<typeof createMiddleware>[] = []
 
-  // 1. Lapisan terluar: Telemetri model call (wrapModelCall)
+  // 1. Lapisan terluar: anggaran panggilan model per run (panggilan yang diblokir tidak dicatat sebagai
+  //    model call). Saat habis, agen berakhir dan run masuk ke finalize call.
+  if (limits.maxModelCalls > 0) {
+    stack.push(createModelCallBudgetMiddleware(limits.maxModelCalls, recorder))
+  }
+
+  // 2. Telemetri model call (wrapModelCall)
   stack.push(createTelemetryMiddleware(recorder))
 
-  // 2. Lapisan kedua: Unified Tool Guard (Loop Guard, Deduplication, Circuit Breaker, dan Kuota Per-Tool / Global)
+  // 3. Unified Tool Guard (Loop Guard, Deduplication, Circuit Breaker, dan Kuota Per-Tool / Global)
   // Berjalan di dalam wrapToolCall pada ToolNode sehingga TIDAK menambah node StateGraph ekstra.
   stack.push(
     createLoopGuardMiddleware(
@@ -71,16 +107,6 @@ export function buildGuardMiddlewareStack(limits: AgentLimits, recorder: RunReco
       recorder
     )
   )
-
-  // 3. Batas total pemanggilan model LLM (exitBehavior: end agar run berhenti dan masuk ke finalize call)
-  if (limits.maxModelCalls > 0) {
-    stack.push(
-      modelCallLimitMiddleware({
-        runLimit: limits.maxModelCalls,
-        exitBehavior: "end",
-      })
-    )
-  }
 
   return stack
 }

@@ -114,6 +114,24 @@ export function classifyThrownError(err: unknown): FailureClass {
   return "transient"
 }
 
+const NETWORK_ERROR_CODE = /^(E[A-Z0-9_]+|UND_ERR_[A-Z_]+)$/
+
+/**
+ * true hanya untuk gangguan infrastruktur yang jelas (HTTP 429/5xx, timeout/abort, error jaringan undici
+ * `fetch failed` / kode `ECONN*`, `ENOTFOUND`, `UND_ERR_*`). Exception lain (TypeError/RangeError dari kode,
+ * error buatan sendiri) dianggap deterministik. Dipakai untuk membedakan draft beracun dari gangguan sesaat.
+ */
+export function isTransientInfrastructureError(err: unknown, depth = 0): boolean {
+  if (typeof err !== "object" || err === null || depth > 4) return false
+  const status = readStatus(err)
+  if (status !== undefined) return status === 429 || status >= 500
+  const record = err as { name?: unknown; code?: unknown; message?: unknown; cause?: unknown }
+  if (record.name === "AbortError" || record.name === "TimeoutError") return true
+  if (typeof record.code === "string" && NETWORK_ERROR_CODE.test(record.code)) return true
+  if (record.message === "fetch failed") return true
+  return isTransientInfrastructureError(record.cause, depth + 1)
+}
+
 /**
  * Pasti belum diproses WordPress: dibatasi laju, mode pemeliharaan, atau koneksi tidak pernah terbentuk.
  * Kode jaringan undici (`err.cause.code`) ikut tertulis di pesan lewat `describeWpNetworkError`.

@@ -53,17 +53,28 @@ export async function getOwnedSiteCredentials(
   return { baseUrl: site.base_url, username: site.wp_username, applicationPassword }
 }
 
+/** Opsi request WP Tools: sinyal pembatalan request HTTP (klien memutus koneksi). */
+export interface WpToolRequestOptions {
+  signal?: AbortSignal
+}
+
 /**
  * Gateway LLM per request dengan kunci OpenRouter BYOK pengguna (kunci platform hanya bila
  * `PLATFORM_KEY_ALLOWED=true`) dan model `DEFAULT_AI_MODEL` WP Tools; tanpa kunci → 400.
+ * Seluruh panggilan LLM terikat `signal` request (dibatalkan saat klien memutus koneksi).
  * Trace LangSmith tenant dikirim tuntas setelah `run` selesai.
  */
-async function withUserLlm<T>(userId: string, run: (llm: LlmGateway) => Promise<T>): Promise<T> {
+async function withUserLlm<T>(
+  userId: string,
+  signal: AbortSignal | undefined,
+  run: (llm: LlmGateway) => Promise<T>
+): Promise<T> {
   const userKeys = await getUserDecryptedKeys(userId)
   const llm = createLlmGateway({
     apiKey: userKeys.openrouterKey,
     modelCandidates: [serverEnv().DEFAULT_AI_MODEL],
     tracing: userKeys,
+    signal,
   })
   if (!llm.hasKey) throw badRequest(MISSING_OPENROUTER_KEY_MESSAGE)
   try {
@@ -107,11 +118,12 @@ interface CategorySuggestion {
 export async function suggestCategories(
   supabase: SupabaseClient,
   userId: string,
-  input: WpToolPromptInput
+  input: WpToolPromptInput,
+  { signal }: WpToolRequestOptions = {}
 ): Promise<{ suggestions: CategorySuggestion[]; existingCount: number }> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
-  return withUserLlm(userId, async (llm) => {
-    const existingRes = await fetchWordPressCategories(site)
+  return withUserLlm(userId, signal, async (llm) => {
+    const existingRes = await fetchWordPressCategories({ ...site, signal })
     const existingCategories =
       existingRes.ok && Array.isArray(existingRes.categories)
         ? existingRes.categories.map((c) => ({ id: c.id, name: c.name, slug: c.slug, parent: c.parent }))
@@ -168,11 +180,12 @@ function domainHostOf(baseUrl: string): string {
 export async function suggestAuthors(
   supabase: SupabaseClient,
   userId: string,
-  input: WpToolPromptInput
+  input: WpToolPromptInput,
+  { signal }: WpToolRequestOptions = {}
 ): Promise<{ suggestions: AuthorSuggestion[]; existingCount: number }> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
-  return withUserLlm(userId, async (llm) => {
-    const existingRes = await fetchWordPressUsers(site)
+  return withUserLlm(userId, signal, async (llm) => {
+    const existingRes = await fetchWordPressUsers({ ...site, signal })
     const existingUsers =
       existingRes.ok && Array.isArray(existingRes.users)
         ? existingRes.users.map((u) => ({ id: u.id, name: u.name, slug: u.slug, bio: u.description }))
@@ -246,16 +259,18 @@ interface InternalLinkAnalysis {
 export async function analyzeInternalLinks(
   supabase: SupabaseClient,
   userId: string,
-  input: LinkAnalyzeInput
+  input: LinkAnalyzeInput,
+  { signal }: WpToolRequestOptions = {}
 ): Promise<InternalLinkAnalysis> {
   const site = await getOwnedSiteCredentials(supabase, userId, input.siteId)
-  return withUserLlm(userId, (llm) => recommendInternalLinks(llm, site, input))
+  return withUserLlm(userId, signal, (llm) => recommendInternalLinks(llm, site, input, signal))
 }
 
 async function recommendInternalLinks(
   llm: LlmGateway,
   site: SiteCredentials,
-  input: LinkAnalyzeInput
+  input: LinkAnalyzeInput,
+  signal: AbortSignal | undefined
 ): Promise<InternalLinkAnalysis> {
   const articleUrl = input.newArticleUrl
   const targetKeyword = input.targetKeyword || ""
@@ -285,7 +300,7 @@ async function recommendInternalLinks(
   const targetPath = normalizedPath(articleUrl)
   const candidates = new Map<number, WPPostSummary>()
   for (const query of searchQueries) {
-    const searchRes = await searchWordPressPosts({ ...site, query, perPage: 5 })
+    const searchRes = await searchWordPressPosts({ ...site, query, perPage: 5, signal })
     if (!searchRes.ok || !Array.isArray(searchRes.posts)) continue
     for (const post of searchRes.posts) {
       if (post.link === articleUrl || (targetPath !== null && normalizedPath(post.link) === targetPath)) continue

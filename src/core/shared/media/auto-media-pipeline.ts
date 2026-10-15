@@ -13,6 +13,12 @@ export interface ProcessMediaParams {
   articleTitle: string
   /** Sinyal pembatalan: bila abort, unggahan yang berjalan dibatalkan dan sisa gambar dilewati. */
   signal?: AbortSignal
+  /**
+   * Sinyal berhenti lunak: bila abort, gambar berikutnya tidak diunggah, tetapi unggahan yang SEDANG
+   * berjalan dibiarkan selesai — POST media yang diputus di tengah bisa sudah tersimpan di WordPress tanpa
+   * tercatat di cache `uploaded_media` (media yatim + unggahan ganda oleh percobaan berikutnya).
+   */
+  haltSignal?: AbortSignal
 }
 
 export interface ProcessMediaResult {
@@ -50,7 +56,9 @@ export async function processAndSyncArticleMedia(
     featuredImageUrl,
     articleTitle,
     signal,
+    haltSignal,
   } = params
+  const stopped = () => Boolean(signal?.aborted || haltSignal?.aborted)
 
   let updatedMarkdown = markdownContent || ""
   let resolvedFeaturedMediaId: number | undefined
@@ -74,7 +82,7 @@ export async function processAndSyncArticleMedia(
   } catch {}
 
   // 1. Tangani Featured Image jika ada dan bertipe eksternal
-  if (resolvedFeaturedImageUrl && resolvedFeaturedImageUrl.startsWith("http")) {
+  if (resolvedFeaturedImageUrl && resolvedFeaturedImageUrl.startsWith("http") && !stopped()) {
     const isAlreadyOnWp = wpHostname && resolvedFeaturedImageUrl.toLowerCase().includes(wpHostname)
     if (!isAlreadyOnWp) {
       const uploadRes = await uploadMediaToWordPress({
@@ -118,7 +126,7 @@ export async function processAndSyncArticleMedia(
 
   // Unggah masing-masing gambar ke WordPress dan ganti URL-nya di naskah
   for (const [externalUrl, { alt }] of urlToUploadMap.entries()) {
-    if (signal?.aborted) break
+    if (stopped()) break
 
     const uploadRes = await uploadMediaToWordPress({
       baseUrl,

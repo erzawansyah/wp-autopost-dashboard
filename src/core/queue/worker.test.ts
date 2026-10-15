@@ -920,6 +920,11 @@ describe("runClaimedPostItem — checkpoint generasi & metrik agent_runs", () =>
       if (op.table === "generation_checkpoints" && op.action === "select") {
         return { data: [...store.rows.values()], error: null }
       }
+      if (op.table === "generation_checkpoints" && op.action === "delete") {
+        const step = op.filters.find((f) => f[0] === "eq" && f[1] === "step")?.[2]
+        for (const key of [...store.rows.keys()]) if (step === undefined || key === step) store.rows.delete(key)
+        return { data: null, error: null }
+      }
       if (op.table === "agent_runs" && op.action === "insert") return { data: { id: "run-1" }, error: null }
       return defaultResolver(post)(op)
     })
@@ -1103,19 +1108,22 @@ describe("runClaimedPostItem — checkpoint generasi & metrik agent_runs", () =>
     expect(agentRunUpdates()[0]?.payload).toMatchObject({ resumed_steps: ["pre_resolve"] })
   })
 
-  it("kegagalan sementara setelah checkpoint draft → antre ulang; percobaan berikutnya menerima draft untuk resume", async () => {
+  it("kegagalan generasi terklasifikasi (writer mengembalikan gagal sementara) → antre ulang tanpa membuang checkpoint", async () => {
     const store = checkpointStore(basePost())
     mocks.run.mockImplementationOnce(async (_request: unknown, options: RunOptions) => {
       await options.checkpoints.onCheckpoint(PRE_RESOLVE)
-      await options.checkpoints.onCheckpoint({ ...PRE_RESOLVE, step: "draft" } as unknown as GenerationCheckpoint)
-      throw Object.assign(new Error("ECONNRESET database"), { status: 503 })
+      return {
+        success: false,
+        error: { code: "GENERATION_FAILED", message: "Agent gagal", retryable: true },
+        agentRun: { ...AGENT_RUN, stopReason: "failed_agent_loop_interrupted" },
+        execution: { modelUsed: "acme/model" },
+      }
     })
 
     const first = await run()
     expect(first).toMatchObject({ success: false })
     expect(settledFailure()?.payload).toMatchObject({ state: "queued_input", retry_count: 1 })
-    // Kegagalan generasi tidak menghapus checkpoint: hanya naskah tersimpan yang membuangnya.
-    expect([...store.rows.keys()].sort()).toEqual(["draft", "pre_resolve"])
+    expect([...store.rows.keys()]).toEqual(["pre_resolve"])
     expect(recordedOps().some((op) => op.table === "generation_checkpoints" && op.action === "delete")).toBe(false)
 
     mocks.ops.length = 0
@@ -1123,7 +1131,27 @@ describe("runClaimedPostItem — checkpoint generasi & metrik agent_runs", () =>
     await run(claimed({ retryCount: 1 }))
 
     const [, options] = mocks.run.mock.calls.at(-1) as [unknown, RunOptions]
-    expect(options.checkpoints.resume.map((c) => c.step).sort()).toEqual(["draft", "pre_resolve"])
+    expect(options.checkpoints.resume.map((c) => c.step)).toEqual(["pre_resolve"])
+  })
+
+  it("exception setelah draft tersimpan (langkah deterministik) → draft dibuang; percobaan berikutnya hanya memakai pre_resolve", async () => {
+    const store = checkpointStore(basePost())
+    mocks.run.mockImplementationOnce(async (_request: unknown, options: RunOptions) => {
+      await options.checkpoints.onCheckpoint(PRE_RESOLVE)
+      await options.checkpoints.onCheckpoint({ ...PRE_RESOLVE, step: "draft" } as unknown as GenerationCheckpoint)
+      throw new TypeError("postprocess meledak")
+    })
+
+    expect(await run()).toMatchObject({ success: false })
+    expect(settledFailure()?.payload).toMatchObject({ state: "queued_input", retry_count: 1 })
+    expect([...store.rows.keys()]).toEqual(["pre_resolve"])
+
+    mocks.ops.length = 0
+    mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: AGENT_RUN, execution: { modelUsed: "acme/model" } })
+    await run(claimed({ retryCount: 1 }))
+
+    const [, options] = mocks.run.mock.calls.at(-1) as [unknown, RunOptions]
+    expect(options.checkpoints.resume.map((c) => c.step)).toEqual(["pre_resolve"])
   })
 })
 
@@ -1184,13 +1212,22 @@ describe("runClaimedPostItem — sinyal klaim runner (heartbeat lease hilang)", 
   it("lease hilang selama pipeline media → transisi naskah & request WordPress tidak dicoba", async () => {
     setResolver(resolverWithRun(basePost()))
     mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: SPENT, execution: { modelUsed: "acme/model" } })
-    mocks.processAndSyncArticleMedia.mockImplementation(async (params: { markdownContent: string }) => {
-      claimController.abort(new ClaimAbortedError("lease_lost"))
-      return { updatedMarkdown: params.markdownContent, updatedContentHtml: "<p>naskah</p>" }
-    })
+    let haltSignal: AbortSignal | undefined
+    mocks.processAndSyncArticleMedia.mockImplementation(
+      async (params: { markdownContent: string; haltSignal: AbortSignal; signal?: AbortSignal }) => {
+        haltSignal = params.haltSignal
+        expect(params.signal).toBeUndefined()
+        expect(haltSignal.aborted).toBe(false)
+        claimController.abort(new ClaimAbortedError("lease_lost"))
+        // Pipeline berhenti sebelum unggahan berikutnya (unggahan berjalan tidak diputus).
+        expect(haltSignal.aborted).toBe(true)
+        return { updatedMarkdown: params.markdownContent, updatedContentHtml: "<p>naskah</p>" }
+      }
+    )
 
     const result = await run()
 
+    expect(haltSignal?.aborted).toBe(true)
     expect(result).toMatchObject({ success: false, error: expect.stringMatching(/^Pengiriman ke WordPress dibatalkan/) })
     expect(postItemUpdates()).toHaveLength(0)
     expect(mocks.beginWordPressRequest).not.toHaveBeenCalled()
@@ -1244,8 +1281,10 @@ describe("runClaimedPostItem — sinyal klaim runner (heartbeat lease hilang)", 
   it("shutdown sebelum publish: naskah tetap disimpan (transisi berpagar) lalu pengiriman ditolak runner", async () => {
     setResolver(resolverWithRun(basePost()))
     mocks.run.mockResolvedValue({ success: true, article: ARTICLE, enrichment: {}, agentRun: SPENT, execution: { modelUsed: "acme/model" } })
-    mocks.processAndSyncArticleMedia.mockImplementation(async (params: { markdownContent: string }) => {
+    mocks.processAndSyncArticleMedia.mockImplementation(async (params: { markdownContent: string; haltSignal: AbortSignal }) => {
       claimController.abort(new ClaimAbortedError("shutdown"))
+      // Shutdown bukan kehilangan klaim yang pasti: pipeline media tidak dihentikan.
+      expect(params.haltSignal.aborted).toBe(false)
       return { updatedMarkdown: params.markdownContent, updatedContentHtml: "<p>naskah</p>" }
     })
     mocks.beginWordPressRequest.mockReturnValue(false)
@@ -1285,5 +1324,126 @@ describe("runClaimedPostItem — sinyal klaim runner (heartbeat lease hilang)", 
     expect(closed).toBeLessThan(inserted)
     expect(ops[closed].payload).toMatchObject({ status: "failed", stop_reason: "superseded" })
     expect(hasFilter(ops[closed], ["eq", "post_item_id", "post-1"]) && hasFilter(ops[closed], ["eq", "user_id", OWNER])).toBe(true)
+  })
+})
+
+describe("runClaimedPostItem — exception writer: pemakaian tercatat & draft beracun dibuang", () => {
+  const ARTICLE = { title: "Judul", contentHtml: "<p>x</p>", markdownContent: "Isi", excerpt: "R", slug: "judul", wordCount: 500 }
+  const STORED_DRAFT = { step: "draft", schema_version: 1, data: { inputKey: "k" } }
+
+  function resolverWith(post: Record<string, unknown>, checkpoints: unknown[]): Resolver {
+    return (op) => {
+      if (op.table === "agent_runs" && op.action === "insert") return { data: { id: "run-1" }, error: null }
+      if (op.table === "generation_checkpoints" && op.action === "select") return { data: checkpoints, error: null }
+      return defaultResolver(post)(op)
+    }
+  }
+
+  const draftDiscards = () =>
+    recordedOps().filter(
+      (op) => op.table === "generation_checkpoints" && op.action === "delete" && hasFilter(op, ["eq", "step", "draft"])
+    )
+
+  it("writer melempar setelah memanggil LLM → agent_runs tetap mencatat token & biaya dari ledger worker", async () => {
+    setResolver(resolverWith(basePost(), []))
+    mocks.run.mockImplementation(async (_request: unknown, options: { usageLedger: import("@/core/shared/llm/usage").LlmUsageLedger }) => {
+      options.usageLedger.recordSuccess({
+        model: "acme/model",
+        promptTokens: 800,
+        completionTokens: 200,
+        totalTokens: 1000,
+        reasoningTokens: 0,
+        cachedPromptTokens: 0,
+        costUsd: 0.004,
+      })
+      throw new Error("postprocess meledak")
+    })
+
+    const result = await run()
+
+    expect(result.success).toBe(false)
+    const finished = recordedOps().find((op) => op.table === "agent_runs" && hasFilter(op, ["eq", "id", "run-1"]))
+    expect(finished?.payload).toMatchObject({
+      status: "failed",
+      tokens_total: 1000,
+      tokens_prompt: 800,
+      llm_calls: 1,
+      cost_usd: 0.004,
+      model_usage: [expect.objectContaining({ model: "acme/model", calls: 1 })],
+    })
+    // Tanpa draft tersimpan/terbuat: tidak ada yang dibuang.
+    expect(draftDiscards()).toHaveLength(0)
+  })
+
+  it("exception saat memakai checkpoint draft → draft dibuang (pre_resolve tetap) + log, item diantrekan ulang", async () => {
+    setResolver(resolverWith(basePost(), [STORED_DRAFT]))
+    mocks.run.mockRejectedValue(new TypeError("Cannot read properties of undefined (postprocess)"))
+
+    await run()
+
+    expect(draftDiscards()).toHaveLength(1)
+    expect(hasFilter(draftDiscards()[0], ["eq", "user_id", OWNER])).toBe(true)
+    expect(recordedOps().some((op) => op.table === "execution_logs" && op.payload?.step === "checkpoint_discard")).toBe(true)
+    expect(settledFailure()?.payload).toMatchObject({ state: "queued_input" })
+  })
+
+  it("crash persiapan sinkronisasi dengan naskah dari draft → draft dibuang saat fail-safe", async () => {
+    setResolver((op) => {
+      if (isSyncTransition(op)) throw new Error("serialisasi naskah gagal")
+      if (op.table === "post_items" && op.action === "select") return { data: basePost(), error: null }
+      return resolverWith(basePost(), [STORED_DRAFT])(op)
+    })
+    mocks.run.mockResolvedValue({
+      success: true,
+      article: ARTICLE,
+      enrichment: {},
+      agentRun: { stopReason: "completed", resumedSteps: ["pre_resolve", "draft"] },
+      execution: { modelUsed: "acme/model" },
+    })
+
+    const result = await run()
+
+    expect(result.success).toBe(false)
+    expect(draftDiscards()).toHaveLength(1)
+    expect(settledFailure()?.payload).toMatchObject({ state: "queued_input" })
+  })
+
+  it("gangguan jaringan setelah naskah dari draft (fetch failed/ECONNRESET) tidak membuang draft", async () => {
+    setResolver((op) => {
+      if (isSyncTransition(op)) throw new TypeError("fetch failed", { cause: { code: "ECONNRESET" } })
+      if (op.table === "post_items" && op.action === "select") return { data: basePost(), error: null }
+      return resolverWith(basePost(), [STORED_DRAFT])(op)
+    })
+    mocks.run.mockResolvedValue({
+      success: true,
+      article: ARTICLE,
+      enrichment: {},
+      agentRun: { stopReason: "completed", resumedSteps: ["pre_resolve", "draft"] },
+      execution: { modelUsed: "acme/model" },
+    })
+
+    const result = await run()
+
+    expect(result.success).toBe(false)
+    expect(draftDiscards()).toHaveLength(0)
+    expect(settledFailure()?.payload).toMatchObject({ state: "queued_input" })
+  })
+
+  it("writer melempar error 503 saat memakai draft tidak membuang draft", async () => {
+    setResolver(resolverWith(basePost(), [STORED_DRAFT]))
+    mocks.run.mockRejectedValue(Object.assign(new Error("Service Unavailable"), { status: 503 }))
+
+    await run()
+
+    expect(draftDiscards()).toHaveLength(0)
+  })
+
+  it("crash sebelum writer (gangguan DB) tidak membuang draft", async () => {
+    setResolver(resolverWith(basePost(), [STORED_DRAFT]))
+    mocks.getUserDecryptedKeys.mockRejectedValue(new Error("DB putus"))
+
+    await run()
+
+    expect(draftDiscards()).toHaveLength(0)
   })
 })

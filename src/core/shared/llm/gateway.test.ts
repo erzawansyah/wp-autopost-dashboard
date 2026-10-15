@@ -5,6 +5,7 @@ import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 import { LlmCallError } from "./errors"
 import {
   createLlmGateway,
+  isFreeModel,
   LLM_GATEWAY_SETTINGS,
   sanitizeModelList,
   selectModelId,
@@ -286,6 +287,59 @@ describe("fallback model", () => {
       max_tokens: LLM_GATEWAY_SETTINGS.agentMaxTokens,
       reasoning: { effort: "medium" },
     })
+  })
+})
+
+describe("model gratis (:free)", () => {
+  const FREE = "acme/model:free"
+  const FREE_BACKUP = "acme/backup:free"
+  const FREE_DAILY = "Rate limit exceeded: free-models-per-day. Add 10 credits to unlock 1000 free model requests per day"
+
+  it("cadangan berbayar dibuang bila model utama gratis; cadangan gratis dipertahankan", () => {
+    expect(isFreeModel(FREE)).toBe(true)
+    expect(isFreeModel(PRIMARY)).toBe(false)
+    const gateway = createLlmGateway({ apiKey: USER_KEY, modelCandidates: [FREE], fallbackModels: [FALLBACK_1, FREE_BACKUP] })
+    expect(gateway.fallbackModels).toEqual([FREE_BACKUP])
+    expect(createLlmGateway({ apiKey: USER_KEY, modelCandidates: [PRIMARY], fallbackModels: [FALLBACK_1] }).fallbackModels).toEqual([
+      FALLBACK_1,
+    ])
+  })
+
+  it("batas harian model gratis (429 free-models-per-day) = kuota: tanpa retry & tanpa fallback berbayar", async () => {
+    mockFetch(fail(429, FREE_DAILY))
+    const events: ModelFallbackEvent[] = []
+    const gateway = createLlmGateway({
+      apiKey: USER_KEY,
+      modelCandidates: [FREE],
+      fallbackModels: [FALLBACK_1],
+      onModelFallback: (event) => events.push(event),
+    })
+
+    await expect(gateway.completeJson(jsonRequest())).rejects.toMatchObject({ statusCode: 429 })
+    expect(calledModels()).toEqual([FREE])
+    expect(events).toEqual([])
+  })
+
+  it("rate limit per menit model gratis diulang (backoff) tetapi tidak pernah beralih ke model berbayar", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    mockFetch(fail(429, "Rate limit exceeded: free-models-per-min."))
+    const gateway = createLlmGateway({ apiKey: USER_KEY, modelCandidates: [FREE], fallbackModels: [FALLBACK_1] })
+
+    const pending = gateway.completeJson(jsonRequest())
+    const settled = expect(pending).rejects.toMatchObject({ statusCode: 429 })
+    await vi.advanceTimersByTimeAsync(60_000)
+    await settled
+    expect(new Set(calledModels())).toEqual(new Set([FREE]))
+    expect(calls).toHaveLength(LLM_GATEWAY_SETTINGS.maxRetries + 1)
+  })
+
+  it("cadangan gratis → berbayar juga ditolak di rantai (model berbayar utama tetap boleh ke cadangan gratis)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    mockFetch(fail(404, `No endpoints found for ${PRIMARY}`), fail(404, `No endpoints found for ${FREE_BACKUP}`))
+    const gateway = createLlmGateway({ apiKey: USER_KEY, modelCandidates: [PRIMARY], fallbackModels: [FREE_BACKUP, FALLBACK_1] })
+
+    await expect(gateway.completeJson(jsonRequest())).rejects.toMatchObject({ statusCode: 404 })
+    expect(calledModels()).toEqual([PRIMARY, FREE_BACKUP])
   })
 })
 

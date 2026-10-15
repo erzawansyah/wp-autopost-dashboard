@@ -17,6 +17,26 @@ export interface ArticleOutput {
   featuredMediaId?: number
 }
 
+const NUMERIC_ID = /^\d+$/
+
+/** ID WordPress dari LLM: hanya bilangan bulat positif aman (angka atau string angka); selain itu dibuang. */
+function toPositiveId(value: unknown): number | undefined {
+  const num = typeof value === "string" && NUMERIC_ID.test(value.trim()) ? Number(value) : value
+  return typeof num === "number" && Number.isSafeInteger(num) && num > 0 ? num : undefined
+}
+
+function toPositiveIds(value: unknown): number[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const ids = Array.from(new Set(value.map(toPositiveId).filter((id): id is number => id !== undefined)))
+  return ids.length > 0 ? ids : undefined
+}
+
+function toStrings(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const names = value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+  return names.length > 0 ? names : undefined
+}
+
 /**
  * Normalisasi objek hasil ekstraksi agar key-key varian (content, body, article)
  * secara deterministik terpetakan ke markdownContent dan tidak pernah lolos sebagai string JSON mentah.
@@ -56,10 +76,11 @@ export function normalizeArticleOutput(parsed: unknown): Partial<ArticleOutput> 
       title: typeof title === "string" ? title.trim() : undefined,
       excerpt: typeof excerpt === "string" ? excerpt.trim() : undefined,
       markdownContent: markdown.trim(),
-      categoryIds: Array.isArray(p.categoryIds) ? (p.categoryIds as number[]) : undefined,
-      tagNames: Array.isArray(p.tagNames) ? (p.tagNames as string[]) : undefined,
-      authorId: typeof p.authorId === "number" ? p.authorId : undefined,
-      featuredMediaId: typeof p.featuredMediaId === "number" ? p.featuredMediaId : undefined,
+      // Nilai dari LLM tidak dipercaya: ID wajib bilangan bulat positif, nama tag wajib string.
+      categoryIds: toPositiveIds(p.categoryIds),
+      tagNames: toStrings(p.tagNames),
+      authorId: toPositiveId(p.authorId),
+      featuredMediaId: toPositiveId(p.featuredMediaId),
     }
   }
 

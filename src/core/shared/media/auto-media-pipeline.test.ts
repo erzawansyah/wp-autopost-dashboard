@@ -85,6 +85,31 @@ describe("processAndSyncArticleMedia (ToolOutcome upload_media)", () => {
     expect(result.uploadedImagesCount).toBe(0)
   })
 
+  it("haltSignal: unggahan yang sedang berjalan dibiarkan selesai (tidak diputus), gambar berikutnya dilewati", async () => {
+    const halt = new AbortController()
+    mocks.upload.mockImplementation(async (params: { signal?: AbortSignal }) => {
+      halt.abort()
+      // Sinyal berhenti lunak tidak diteruskan ke unggahan: POST media tidak diputus di tengah.
+      expect(params.signal).toBeUndefined()
+      return toolSuccess({ mediaId: 31, sourceUrl: "https://wp.test/up/a.jpg" })
+    })
+
+    const result = await processAndSyncArticleMedia({
+      ...WP,
+      markdownContent: "![A](https://img.test/a.jpg) ![B](https://img.test/b.jpg)",
+      articleTitle: "Judul",
+      haltSignal: halt.signal,
+    })
+
+    expect(mocks.upload).toHaveBeenCalledTimes(1)
+    expect(result.updatedMarkdown).toContain("https://wp.test/up/a.jpg){id=31}")
+    expect(result.updatedMarkdown).toContain("https://img.test/b.jpg")
+
+    mocks.upload.mockClear()
+    await processAndSyncArticleMedia({ ...WP, markdownContent: "x", featuredImageUrl: "https://img.test/c.jpg", articleTitle: "J", haltSignal: halt.signal })
+    expect(mocks.upload).not.toHaveBeenCalled()
+  })
+
   it("tanpa kredensial WordPress tidak mengunggah apa pun", async () => {
     const result = await processAndSyncArticleMedia({ markdownContent: "![A](https://img.test/a.jpg)", articleTitle: "Judul" })
     expect(mocks.upload).not.toHaveBeenCalled()

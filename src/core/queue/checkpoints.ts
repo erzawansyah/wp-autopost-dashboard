@@ -70,3 +70,22 @@ export async function clearGenerationCheckpoints(
     .eq("user_id", item.userId)
   if (error) console.warn(`[queue] Gagal menghapus checkpoint generasi item ${item.id}:`, error.message)
 }
+
+/**
+ * Buang checkpoint `draft` yang diduga beracun: langkah setelah draft (postprocess, persiapan sinkronisasi)
+ * bersifat deterministik, jadi exception tak terduga akan terulang setiap kali draft yang sama dipakai.
+ * Percobaan berikutnya menulis ulang naskah (checkpoint `pre_resolve` tetap dipakai). Best-effort.
+ */
+export async function discardDraftCheckpoint(
+  supabase: QueueDbClient,
+  item: Pick<OwnedPostItem, "id" | "userId">
+): Promise<boolean> {
+  const { error } = await supabase
+    .from("generation_checkpoints")
+    .delete()
+    .eq("post_item_id", item.id)
+    .eq("user_id", item.userId)
+    .eq("step", "draft")
+  if (error) console.warn(`[queue] Gagal membuang checkpoint draft item ${item.id}:`, error.message)
+  return !error
+}

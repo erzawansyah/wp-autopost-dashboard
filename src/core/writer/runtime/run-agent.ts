@@ -5,6 +5,7 @@ import { MISSING_OPENROUTER_KEY_MESSAGE } from "@/lib/ai/platform-keys";
 import { DecryptedUserKeys } from "@/types/settings";
 import { classifyLlmError, type LlmErrorKind } from "@/core/shared/llm/errors";
 import { createLlmGateway } from "@/core/shared/llm/gateway";
+import type { LlmUsageLedger } from "@/core/shared/llm/usage";
 import {
   WriterRequest,
   GeneratedArticle,
@@ -34,6 +35,8 @@ import {
   computeGenerationInputKeys,
   describeStepUsage,
   planGenerationResume,
+  prepareCheckpointForSave,
+  stripNulChars,
   usageSince,
   type DraftCheckpointData,
   type GenerationCheckpoint,
@@ -55,6 +58,8 @@ export interface RunAgentOptions {
    * (lihat `checkpoints.ts`). Tanpa opsi ini run berjalan penuh tanpa persistensi (Lab, eval).
    */
   checkpoints?: GenerationCheckpointOptions;
+  /** Ledger pemakaian LLM milik pemanggil (mis. worker: tetap terbaca bila run melempar exception). */
+  usageLedger?: LlmUsageLedger;
 }
 
 export interface RunAgentResult {
@@ -81,11 +86,25 @@ const IGNORED_CHECKPOINT_LABELS: Record<IgnoredCheckpointReason, string> = {
  * tanpa menggagalkan run, karena checkpoint hanya penghemat biaya untuk percobaan berikutnya.
  */
 async function persistCheckpoint(
-  checkpoint: GenerationCheckpoint,
+  input: GenerationCheckpoint,
   recorder: RunRecorder,
   onCheckpoint: GenerationCheckpointOptions["onCheckpoint"],
 ): Promise<void> {
   if (!onCheckpoint) return;
+  // Validasi dengan skema resume sebelum dikirim: data yang akan ditolak DB (mis. NUL) atau diabaikan saat
+  // resume tidak pernah disimpan.
+  const prepared = prepareCheckpointForSave(input);
+  if (!prepared.ok) {
+    recorder.recordEvent({
+      kind: "guard",
+      tool: "checkpoint_save",
+      status: "error",
+      durationMs: 0,
+      summary: `Checkpoint '${input.step}' tidak disimpan: data tidak valid (${prepared.issue}).`,
+    });
+    return;
+  }
+  const checkpoint = prepared.checkpoint;
   const bytes = checkpointByteLength(checkpoint.data);
   const sizeKb = Math.ceil(bytes / 1024);
   if (bytes > GENERATION_CHECKPOINT_MAX_BYTES) {
@@ -244,7 +263,8 @@ const NON_RECOVERABLE_LLM_ERRORS: Partial<
   quota: {
     stopReason: "llm_quota_exhausted",
     code: "LLM_QUOTA_EXHAUSTED",
-    message: "Kredit atau kuota akun OpenRouter Anda habis. Isi ulang kredit OpenRouter lalu jalankan ulang.",
+    message:
+      "Kredit atau kuota akun OpenRouter Anda habis (termasuk batas harian model gratis \":free\"). Isi ulang kredit OpenRouter atau pilih model lain, lalu jalankan ulang.",
   },
 };
 
@@ -257,7 +277,7 @@ export async function runAgentWriter(
     limits: clampLimits(options.profile.limits, options.profile.mode),
   };
 
-  const recorder = new RunRecorder(onEventListener);
+  const recorder = new RunRecorder(onEventListener, options.usageLedger);
   const limits = profile.limits;
   const keyword = request.content.keyword;
   const language = request.content.language || "id";
@@ -415,7 +435,7 @@ export async function runAgentWriter(
       );
     } else {
       const usageBefore = recorder.usage.snapshot();
-      preResolved = await preResolveTaxonomyAndAuthor({
+      const { degradedReasons, ...resolved } = await preResolveTaxonomyAndAuthor({
         wpCredentials,
         requestedAuthorId: request.publishing.authorId,
         requestedCategoryIds: request.publishing.categoryIds,
@@ -427,15 +447,17 @@ export async function runAgentWriter(
         signal: abortSignal,
         recorder,
       });
-      // Run yang dibatalkan di tengah pre-resolve bisa jatuh ke fallback heuristik (LLM/WordPress terputus):
-      // hasil seperti itu tidak disimpan agar percobaan berikutnya me-resolve ulang secara utuh.
-      if (abortSignal?.aborted) {
+      preResolved = resolved;
+      // Hasil yang jatuh ke fallback heuristik/data kosong (LLM atau WordPress gagal, run dibatalkan) tidak
+      // disimpan, agar percobaan berikutnya me-resolve ulang secara utuh.
+      const incomplete = abortSignal?.aborted ? ["run_aborted", ...degradedReasons] : degradedReasons;
+      if (incomplete.length > 0) {
         recorder.recordEvent({
           kind: "guard",
           tool: "checkpoint_save",
           status: "blocked",
           durationMs: 0,
-          summary: "Checkpoint 'pre_resolve' dilewati: run dibatalkan sehingga hasil resolusi mungkin tidak lengkap.",
+          summary: `Checkpoint 'pre_resolve' dilewati: hasil resolusi tidak lengkap (${incomplete.join(", ")}).`,
         });
       } else {
         await saveCheckpoint({
@@ -593,6 +615,10 @@ export async function runAgentWriter(
       };
 
       const rawText = extractRawMessageText(lastMsg?.content);
+      // Anggaran panggilan model run habis (guards.ts): pesan terakhir adalah pemberitahuan sistem.
+      if (recorder.getEvents().some((event) => event.tool === "model_call_limit")) {
+        stopReason = "limit_reached";
+      }
 
       rawOutput = extractArticleJsonFromText(rawText);
       if (!rawOutput?.markdownContent && rawText.length > 200) {
@@ -612,10 +638,8 @@ export async function runAgentWriter(
         loopController.signal.aborted ||
         errText.includes("abort") ||
         errText.includes("timeout");
-      const isLimit =
-        errText.includes("ModelCallLimitMiddlewareError") ||
-        errText.includes("ToolCallLimitExceededError") ||
-        errText.includes("recursionLimit");
+      // Batas langkah graf LangGraph (GraphRecursionError menyebut `recursionLimit`).
+      const isLimit = errText.includes("recursionLimit");
 
       stopReason = llmRejection
         ? llmRejection.stopReason
@@ -701,7 +725,8 @@ export async function runAgentWriter(
     }
 
     // 11. Checkpoint draft (sebelum postprocess deterministik): percobaan berikutnya tidak memanggil LLM lagi.
-    const draftOutput = { ...rawOutput, markdownContent: rawOutput.markdownContent };
+    // NUL (U+0000) dari keluaran LLM dibuang sebelum disimpan/diproses: ditolak kolom text/jsonb Postgres.
+    const draftOutput = stripNulChars({ ...rawOutput, markdownContent: rawOutput.markdownContent });
     await saveCheckpoint({
       step: "draft",
       schemaVersion: GENERATION_CHECKPOINT_SCHEMA_VERSION,

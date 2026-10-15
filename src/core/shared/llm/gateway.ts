@@ -24,7 +24,8 @@ import { LlmUsageCallbackHandler, LlmUsageLedger } from "./usage"
  * - Retry: AsyncCaller ChatOpenRouter (exponential backoff + jitter, berhenti saat AbortSignal) hanya
  *   untuk error transien (`throwUnlessRetryable`); berlaku juga untuk subagent Deep Agent.
  * - Fallback: rantai model "lengket" — setelah model gagal dengan error yang layak dialihkan, panggilan
- *   berikutnya di run yang sama langsung memakai model cadangan aktif.
+ *   berikutnya di run yang sama langsung memakai model cadangan aktif. Model gratis (`:free`) tidak
+ *   pernah dialihkan ke model berbayar (kredit pengguna tidak terpakai diam-diam); hanya ke cadangan `:free`.
  * - Telemetri: token & biaya setiap panggilan masuk `usage`; tracer LangSmith tenant hanya lewat
  *   `callbacks` run ini (tidak pernah lewat `process.env`).
  */
@@ -66,6 +67,11 @@ export const LLM_GATEWAY_SETTINGS = {
   finalizeTimeoutMs:
     clamp(AI_SETTINGS.finalizeTimeoutSeconds, AI_BOUNDS.minTimeoutSeconds, AI_BOUNDS.maxTimeoutSeconds) * 1000,
 } as const
+
+/** Model gratis OpenRouter (ID berakhiran `:free`): tidak ditagih ke kredit pengguna. */
+export function isFreeModel(model: string): boolean {
+  return model.endsWith(":free")
+}
 
 /** Kandidat pertama yang terisi, lalu env `OPENROUTER_DEFAULT_MODEL`, lalu `DEFAULT_AI_MODEL`. */
 export function selectModelId(candidates: ReadonlyArray<string | null | undefined> = []): string {
@@ -177,11 +183,12 @@ export class LlmGateway {
   constructor(options: LlmGatewayOptions = {}) {
     this.apiKey = resolveOpenRouterKey(options.apiKey)
     this.model = selectModelId(options.modelCandidates)
-    this.fallbackModels = sanitizeModelList(
+    const fallbackModels = sanitizeModelList(
       options.fallbackModels ?? LLM_GATEWAY_SETTINGS.fallbackModels,
       AI_BOUNDS.maxFallbackModels,
       this.model
     )
+    this.fallbackModels = isFreeModel(this.model) ? fallbackModels.filter(isFreeModel) : fallbackModels
     this.usage = options.usage ?? new LlmUsageLedger()
     this.signal = options.signal
     this.temperature = clamp(
@@ -281,6 +288,8 @@ export class LlmGateway {
         const next = chain[index + 1]
         const { fallbackable, kind, status } = classifyLlmError(err)
         if (!next || !fallbackable || signal?.aborted) throw err
+        // Dari model gratis tidak pernah beralih ke model berbayar (berlaku juga bila model gratis cadangan).
+        if (isFreeModel(chain[index]) && !isFreeModel(next)) throw err
         this.activeIndex = Math.max(this.activeIndex, index + 1)
         this.onModelFallback?.({ from: chain[index], to: next, kind, status })
       }

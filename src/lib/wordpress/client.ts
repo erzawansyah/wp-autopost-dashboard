@@ -744,6 +744,8 @@ export async function searchWordPressPosts(params: {
   applicationPassword: string
   query: string
   perPage?: number
+  /** Pembatalan request (digabung dengan timeout request). */
+  signal?: AbortSignal
 }): Promise<{ ok: boolean; posts?: WPPostSummary[]; error?: string }> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
@@ -760,6 +762,7 @@ export async function searchWordPressPosts(params: {
         "User-Agent": WP_USER_AGENT,
         Accept: "application/json",
       },
+      signal: params.signal,
     })
 
     if (!res.ok) {

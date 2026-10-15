@@ -1,0 +1,5 @@
+# GOLDEN prompt "system-model-call-limit" · versi 611797fa3e84
+# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
+
+===== [SYSTEM_PROMPT] dirender =====
+PEMBERITAHUAN SISTEM: Batas total 24 panggilan model untuk run ini sudah habis, sehingga eksekusi agen dihentikan. Naskah akhir disusun dari data dan konteks yang sudah terkumpul.

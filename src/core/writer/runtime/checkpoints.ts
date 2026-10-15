@@ -283,6 +283,46 @@ export function usageSince(before: LlmUsageSnapshot, after: LlmUsageSnapshot): L
   return { ...subtractTotals(after, before), byModel }
 }
 
+// ---------------------------------------------------------------------------
+// Validasi sebelum disimpan
+// ---------------------------------------------------------------------------
+
+const NUL_CHARS = /\u0000/g
+
+/**
+ * Buang karakter NUL (U+0000) dari seluruh string, termasuk kunci objek. Postgres menolak NUL di
+ * `jsonb`/`text`, dan cuplikan hasil scraping atau keluaran LLM kadang membawanya.
+ */
+export function stripNulChars<T>(value: T): T {
+  if (typeof value === "string") return value.replace(NUL_CHARS, "") as T
+  if (Array.isArray(value)) return value.map((entry) => stripNulChars(entry)) as T
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [key.replace(NUL_CHARS, ""), stripNulChars(entry)])
+    ) as T
+  }
+  return value
+}
+
+/**
+ * Siapkan checkpoint untuk disimpan: NUL dibuang lalu data divalidasi dengan skema langkahnya (skema yang
+ * sama dipakai saat resume), sehingga data yang pasti ditolak/diabaikan tidak pernah dikirim.
+ */
+export function prepareCheckpointForSave(
+  checkpoint: GenerationCheckpoint
+): { ok: true; checkpoint: GenerationCheckpoint } | { ok: false; issue: string } {
+  const invalid = (error: z.ZodError) => {
+    const [issue] = error.issues
+    return { ok: false as const, issue: issue ? `${issue.path.join(".") || "data"}: ${issue.message}` : "data tidak valid" }
+  }
+  if (checkpoint.step === "pre_resolve") {
+    const parsed = PreResolveCheckpointDataSchema.safeParse(stripNulChars(checkpoint.data))
+    return parsed.success ? { ok: true, checkpoint: { ...checkpoint, data: parsed.data } } : invalid(parsed.error)
+  }
+  const parsed = DraftCheckpointDataSchema.safeParse(stripNulChars(checkpoint.data))
+  return parsed.success ? { ok: true, checkpoint: { ...checkpoint, data: parsed.data } } : invalid(parsed.error)
+}
+
 /** Ukuran JSON data checkpoint (byte UTF-8). */
 export function checkpointByteLength(data: unknown): number {
   return Buffer.byteLength(JSON.stringify(data), "utf8")

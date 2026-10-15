@@ -6,7 +6,8 @@ import { suggestAuthors } from "@/server/services/wp-tools"
 // POST /api/tools/authors/suggest - AI perancang persona author E-E-A-T untuk situs milik pengguna
 export const POST = defineRoute(
   { auth: "user", body: AuthorSuggestBodySchema, rateLimit: RATE_LIMITS.llm },
-  async ({ supabase, user, body }) => {
-    return suggestAuthors(supabase, user.id, body)
+  async ({ request, supabase, user, body }) => {
+    // Klien memutus koneksi → panggilan LLM & WordPress (baca) ikut dibatalkan.
+    return suggestAuthors(supabase, user.id, body, { signal: request.signal })
   }
 )

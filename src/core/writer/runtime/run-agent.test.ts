@@ -72,7 +72,9 @@ const request = WriterRequestSchema.parse({ content: { keyword: "kopi arabika" }
 beforeEach(() => {
   mocks.buildWriterAgent.mockReset()
   mocks.finalize.mockReset()
-  mocks.preResolve.mockReset().mockResolvedValue({ categoryIds: [], categoryNames: [], tagNames: [], tagIds: [] })
+  mocks.preResolve
+    .mockReset()
+    .mockResolvedValue({ categoryIds: [], categoryNames: [], tagNames: [], tagIds: [], degradedReasons: [] })
   mocks.toolContexts.length = 0
   vi.spyOn(console, "log").mockImplementation(() => {})
 })
@@ -133,6 +135,21 @@ describe("runAgentWriter + gateway LLM", () => {
     expect(toolSignal?.aborted).toBe(true)
     expect(mocks.finalize).not.toHaveBeenCalled()
     expect(result).toMatchObject({ success: false, stopReason: "failed_timeout_exceeded" })
+  })
+
+  it("anggaran panggilan model habis (event model_call_limit) → finalize dengan alasan limit_reached", async () => {
+    mocks.buildWriterAgent.mockImplementation(async ({ recorder }: { recorder: RunRecorder }) => ({
+      invoke: async () => {
+        recorder.recordEvent({ kind: "guard", tool: "model_call_limit", status: "blocked", durationMs: 0, summary: "habis" })
+        return { messages: [{ content: "PEMBERITAHUAN SISTEM: batas habis." }] }
+      },
+    }))
+    mocks.finalize.mockResolvedValue({ title: "Kopi Arabika", excerpt: "Ringkas.", markdownContent: LONG_ARTICLE })
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(mocks.finalize.mock.calls[0][0].reason).toBe("limit_reached")
+    expect(result).toMatchObject({ success: true, stopReason: "finalized_after_limit_reached" })
   })
 
   it("tanpa kunci BYOK → MISSING_API_KEY dan agent tidak dibangun", async () => {
@@ -243,7 +260,7 @@ describe("runAgentWriter — checkpoint langkah", () => {
   it("run baru menyimpan pre_resolve lalu draft (naskah mentah, konteks, media, pemakaian per langkah)", async () => {
     mocks.preResolve.mockImplementation(async ({ recorder }: PreResolveOptions) => {
       if (recorder) spend(recorder, 100, 0.001)
-      return PRE_RESOLVED
+      return { ...PRE_RESOLVED, degradedReasons: [] }
     })
     writingAgent()
     const saved: GenerationCheckpoint[] = []
@@ -390,7 +407,7 @@ describe("runAgentWriter — checkpoint langkah", () => {
     const external = new AbortController()
     mocks.preResolve.mockImplementation(async () => {
       external.abort()
-      return { categoryIds: [], categoryNames: [], tagNames: ["fallback heuristik"], tagIds: [] }
+      return { categoryIds: [], categoryNames: [], tagNames: ["fallback heuristik"], tagIds: [], degradedReasons: [] }
     })
     mocks.buildWriterAgent.mockResolvedValue({
       invoke: async (_input: unknown, config: { signal: AbortSignal }) => {
@@ -406,6 +423,72 @@ describe("runAgentWriter — checkpoint langkah", () => {
     expect(mocks.finalize).not.toHaveBeenCalled()
     expect(result).toMatchObject({ success: false, stopReason: "failed_timeout_exceeded" })
     expect(checkpointEvents(result.recorder, "checkpoint_save")[0]).toMatchObject({ status: "blocked" })
+  })
+
+  it("pre-resolve tidak lengkap (LLM/WordPress gagal → heuristik) tidak disimpan; draft tetap disimpan", async () => {
+    mocks.preResolve.mockResolvedValue({ ...PRE_RESOLVED, degradedReasons: ["llm:quota", "wp_tags"] })
+    writingAgent()
+    const saved: GenerationCheckpoint[] = []
+
+    const result = await runAgentWriter({
+      request,
+      profile,
+      userKeys,
+      checkpoints: { onCheckpoint: async (checkpoint) => (saved.push(checkpoint), true) },
+    })
+
+    expect(result.success).toBe(true)
+    expect(saved.map((c) => c.step)).toEqual(["draft"])
+    // Konteks yang dipakai naskah tetap tersimpan di draft, tanpa penanda internal.
+    expect(saved[0].data.preResolved).toEqual(PRE_RESOLVED)
+    const skipped = checkpointEvents(result.recorder, "checkpoint_save")[0]
+    expect(skipped).toMatchObject({ status: "blocked" })
+    expect(skipped.summary).toMatch(/tidak lengkap \(llm:quota, wp_tags\)/)
+  })
+
+  it("NUL (U+0000) dari LLM/scraping dibuang sebelum checkpoint & postprocess", async () => {
+    mocks.buildWriterAgent.mockImplementation(async ({ recorder }: { recorder: RunRecorder }) => ({
+      invoke: async () => {
+        recorder.trackSource({ url: "https://sumber.test/a", title: "Judul\u0000", snippet: "isi\u0000 halaman" })
+        return { messages: [{ content: `TITLE: Kopi\u0000 Arabika\nEXCERPT: Ringkas.\n---\n${LONG_ARTICLE}\u0000` }] }
+      },
+    }))
+    const saved: GenerationCheckpoint[] = []
+
+    const result = await runAgentWriter({
+      request,
+      profile,
+      userKeys,
+      checkpoints: { onCheckpoint: async (checkpoint) => (saved.push(checkpoint), true) },
+    })
+
+    const draft = saved.find((c) => c.step === "draft")
+    expect(JSON.stringify(draft?.data)).not.toContain("\\u0000")
+    expect(draft?.data).toMatchObject({ output: { title: "Kopi Arabika" }, sources: [{ title: "Judul", snippet: "isi halaman" }] })
+    expect(result.article?.markdownContent).not.toContain("\u0000")
+  })
+
+  it("data draft yang tidak lolos skema resume tidak dikirim ke penyimpanan (telemetri error)", async () => {
+    mocks.buildWriterAgent.mockImplementation(async ({ recorder }: { recorder: RunRecorder }) => ({
+      invoke: async () => {
+        recorder.featuredMediaId = -5
+        return { messages: [{ content: `TITLE: Kopi\nEXCERPT: Ringkas.\n---\n${LONG_ARTICLE}` }] }
+      },
+    }))
+    const saved: string[] = []
+
+    const result = await runAgentWriter({
+      request,
+      profile,
+      userKeys,
+      checkpoints: { onCheckpoint: async (checkpoint) => (saved.push(checkpoint.step), true) },
+    })
+
+    expect(result.success).toBe(true)
+    expect(saved).toEqual(["pre_resolve"])
+    const rejected = checkpointEvents(result.recorder, "checkpoint_save").at(-1)
+    expect(rejected).toMatchObject({ status: "error" })
+    expect(rejected?.summary).toMatch(/data tidak valid \(featuredMediaId/)
   })
 
   it("naskah melebihi batas ukuran checkpoint tidak dikirim ke penyimpanan", async () => {

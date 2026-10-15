@@ -1,5 +1,5 @@
 import { createAgent } from "langchain"
-import { createDeepAgent, StoreBackend } from "deepagents"
+import { createDeepAgent, GENERAL_PURPOSE_SUBAGENT, StoreBackend } from "deepagents"
 import { InMemoryStore, MemorySaver } from "@langchain/langgraph"
 import { StructuredTool } from "@langchain/core/tools"
 import type { LlmGateway } from "@/core/shared/llm/gateway"
@@ -87,16 +87,25 @@ export async function buildWriterAgent(params: BuildAgentParams) {
       })
     }
 
-    // 3. Bangun DeepAgent dengan virtual StoreBackend di namespace ["filesystem"]
+    const skillSources = resolvedSkills.length > 0 ? ["/skills/"] : undefined
+
+    // 3. Bangun DeepAgent dengan virtual StoreBackend di namespace ["filesystem"].
+    //    deepagents menggabungkan middleware kustom ke subagent "general-purpose" bawaan dengan
+    //    `appendNew: false`, sehingga guard bernama unik (anggaran model, loop guard & kuota tool,
+    //    telemetri, fallback model) terbuang dan panggilan subagent lolos tanpa batas. Spec eksplisit
+    //    bernama sama menggantikan bawaan: deskripsi/prompt/mode diambil dari GENERAL_PURPOSE_SUBAGENT
+    //    (tanpa harness profile untuk ChatOpenRouter), model/tool/skill sama dengan agen utama, dan
+    //    instance middleware yang SAMA sehingga kuota & anggaran dibagi per run.
     const agent = await createDeepAgent({
       name: "deep-writer-agent",
       model,
       tools,
       systemPrompt,
       middleware,
+      subagents: [{ ...GENERAL_PURPOSE_SUBAGENT, model, tools, skills: skillSources, middleware }],
       backend: (config) => new ReadOnlyStoreBackend(config, { namespace: ["filesystem"] }),
       store,
-      skills: resolvedSkills.length > 0 ? ["/skills/"] : undefined,
+      skills: skillSources,
       checkpointer,
     })
 
