@@ -22,7 +22,7 @@ import {
   WriterTargetFields,
   WriterTaxonomyFields,
 } from "@/components/organisms/writer-form/writer-fields"
-import { selectConnectedSites, sitesQueries } from "@/lib/api/queries/sites"
+import { selectUsableSites, sitesQueries } from "@/lib/api/queries/sites"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
 import { parseUniversalBatchInput, type ColumnRole } from "@/lib/parser/universal-batch-parser"
 import { defaultAgentProfileRef, type AgentProfileOption } from "@/lib/queue/writer-options"
@@ -93,7 +93,7 @@ interface StructuredWriterFormProps {
  * (`BatchColumnMapper`) → batch `POST /api/batches` dengan `items` per baris (maks. `MAX_BATCH_ITEMS`).
  */
 export function StructuredWriterForm({ initialSites, agentProfiles }: StructuredWriterFormProps) {
-  const { data: sites } = useQuery({ ...sitesQueries.list(), initialData: initialSites, select: selectConnectedSites })
+  const { data: sites } = useQuery({ ...sitesQueries.list(), initialData: initialSites, select: selectUsableSites })
   const [tab, setTab] = React.useState<WriterFormTab>("essential")
   const [inputTab, setInputTab] = React.useState<"paste" | "upload">("paste")
   const [hasHeader, setHasHeader] = React.useState(true)

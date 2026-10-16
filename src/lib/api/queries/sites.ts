@@ -7,7 +7,7 @@ import { queryKeys } from "../query-keys"
  * Query options domain situs (contoh rujukan pola `src/lib/api/queries/<domain>.ts`).
  *
  *   const { data: sites = [], isPending, error } = useQuery(sitesQueries.list())
- *   const connected = useQuery({ ...sitesQueries.list(), select: selectConnectedSites })
+ *   const usable = useQuery({ ...sitesQueries.list(), select: selectUsableSites })
  *   const { data: categories = [] } = useQuery(sitesQueries.categories(siteId))
  *
  * Mutation (hapus/tambah situs) ditulis di organism pemakainya dengan `useMutation` + `apiFetch`, lalu
@@ -43,7 +43,11 @@ export const sitesQueries = {
     }),
 }
 
-/** `select` untuk situs yang siap dipakai menulis/menerbitkan (status `connected`). */
-export function selectConnectedSites(sites: Site[]): Site[] {
-  return sites.filter((site) => site.status === "connected")
+/**
+ * `select` untuk situs yang boleh dipilih sebagai target menulis/menerbitkan & WP Tools: semua kecuali
+ * `auth_error` (WordPress pasti menolak sampai disambungkan ulang). `rate_limited`/`unreachable` dicatat otomatis
+ * dari satu request yang gagal dan bersifat sementara, jadi tetap dapat dipilih (label statusnya ditampilkan).
+ */
+export function selectUsableSites(sites: Site[]): Site[] {
+  return sites.filter((site) => site.status !== "auth_error")
 }

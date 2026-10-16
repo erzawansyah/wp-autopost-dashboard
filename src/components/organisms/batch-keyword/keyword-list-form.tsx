@@ -19,7 +19,7 @@ import {
   WriterTargetFields,
   WriterTaxonomyFields,
 } from "@/components/organisms/writer-form/writer-fields"
-import { selectConnectedSites, sitesQueries } from "@/lib/api/queries/sites"
+import { selectUsableSites, sitesQueries } from "@/lib/api/queries/sites"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
 import { defaultAgentProfileRef, type AgentProfileOption } from "@/lib/queue/writer-options"
 import { notify } from "@/lib/ui/notify"
@@ -50,7 +50,7 @@ interface KeywordListFormProps {
 
 /** Tulis Massal: daftar kata kunci (1 baris = 1 artikel) + strategi jadwal → `POST /api/batches`. */
 export function KeywordListForm({ initialSites, agentProfiles }: KeywordListFormProps) {
-  const { data: sites } = useQuery({ ...sitesQueries.list(), initialData: initialSites, select: selectConnectedSites })
+  const { data: sites } = useQuery({ ...sitesQueries.list(), initialData: initialSites, select: selectUsableSites })
   const [tab, setTab] = React.useState<WriterFormTab>("essential")
   const [initialValues] = React.useState(
     (): KeywordBatchFormInput => ({ ...batchSettingsDefaults(defaultSiteIdFor(sites, "first"), defaultAgentProfileRef(agentProfiles)), keywordsText: "" })

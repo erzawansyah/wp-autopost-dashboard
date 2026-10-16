@@ -12,7 +12,7 @@ import { PublishStatusSwitcher } from "@/components/molecules/publish-status-swi
 import { WriterFormCard, type WriterFormTab } from "@/components/organisms/writer-form/writer-form-card"
 import { WriterBriefField, WriterTargetFields, WriterTaxonomyFields } from "@/components/organisms/writer-form/writer-fields"
 import { apiFetch } from "@/lib/api/client"
-import { selectConnectedSites, sitesQueries } from "@/lib/api/queries/sites"
+import { selectUsableSites, sitesQueries } from "@/lib/api/queries/sites"
 import { queryKeys } from "@/lib/api/query-keys"
 import { useDelayedPush } from "@/lib/hooks/use-delayed-push"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
@@ -58,7 +58,7 @@ interface QuickWriterFormProps {
 export function QuickWriterForm({ initialSites, agentProfiles }: QuickWriterFormProps) {
   const delayedPush = useDelayedPush(REDIRECT_DELAY_MS)
   const queryClient = useQueryClient()
-  const { data: sites } = useQuery({ ...sitesQueries.list(), initialData: initialSites, select: selectConnectedSites })
+  const { data: sites } = useQuery({ ...sitesQueries.list(), initialData: initialSites, select: selectUsableSites })
   const [tab, setTab] = React.useState<WriterFormTab>("essential")
   const [queuedKeyword, setQueuedKeyword] = React.useState<string | null>(null)
 

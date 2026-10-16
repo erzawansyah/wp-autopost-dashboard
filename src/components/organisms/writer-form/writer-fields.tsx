@@ -13,6 +13,7 @@ import { AgentProfileSelect, agentProfileHint } from "@/components/molecules/age
 import { ControlledField, type ControlledFieldControlProps } from "@/components/molecules/controlled-field"
 import { LanguageSelect } from "@/components/molecules/language-select"
 import { ScheduleStrategyPicker } from "@/components/molecules/schedule-strategy-picker"
+import { SITE_STATUS_META } from "@/components/molecules/site-status-badge"
 import { WPCategorySelect } from "@/components/molecules/wp-category-select"
 import { formatSiteDomain } from "@/lib/queue/table-model"
 import type { AgentProfileOption } from "@/lib/queue/writer-options"
@@ -80,7 +81,7 @@ export function WriterTargetFields({
         label="Website WordPress target"
         required
         tooltip="Website WordPress yang menerima artikel lewat REST API (Application Password)."
-        hint={sites.length > 0 ? "Hanya website berstatus tersambung." : undefined}
+        hint={sites.length > 0 ? "Website dengan kredensial ditolak disembunyikan sampai disambungkan ulang." : undefined}
       >
         {(field) =>
           sites.length === 0 ? (
@@ -107,6 +108,9 @@ export function WriterTargetFields({
                         <Globe aria-hidden="true" className="size-3.5 text-muted-foreground" />
                         <span className="font-semibold">{site.site_name}</span>
                         <span className="font-mono text-xs text-muted-foreground">({formatSiteDomain(site.base_url)})</span>
+                        {site.status !== "connected" && (
+                          <span className="text-2xs text-warning-strong">{SITE_STATUS_META[site.status].label}</span>
+                        )}
                       </span>
                     </SelectItem>
                   ))}

@@ -7,12 +7,13 @@ import { Globe, Plus } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/atoms/select"
 import { EmptyState } from "@/components/molecules/empty-state"
-import { selectConnectedSites, sitesQueries } from "@/lib/api/queries/sites"
+import { SITE_STATUS_META } from "@/components/molecules/site-status-badge"
+import { selectUsableSites, sitesQueries } from "@/lib/api/queries/sites"
 import type { Site } from "@/types/site"
 import { preselectedSiteId, siteHost } from "./tool-helpers"
 
 interface ToolSiteContextValue {
-  /** Website berstatus `connected` milik pengguna (cache bersama `queryKeys.sites.list()`). */
+  /** Website milik pengguna yang dapat dipakai (`selectUsableSites`: tanpa `auth_error`; cache bersama `queryKeys.sites.list()`). */
   sites: Site[]
   /** Website target aktif; `null` bila belum ada website terhubung. */
   site: Site | null
@@ -39,7 +40,7 @@ export function ToolSiteProvider({ initialSites, requestedSiteId, children }: To
   const { data: sites = [] } = useQuery({
     ...sitesQueries.list(),
     initialData: initialSites,
-    select: selectConnectedSites,
+    select: selectUsableSites,
   })
   const [selectedId, setSelectedId] = React.useState<string | null>(() => preselectedSiteId(sites, requestedSiteId))
   const site = sites.find((candidate) => candidate.id === selectedId) ?? sites[0] ?? null
@@ -73,6 +74,9 @@ export function ToolSiteSelect() {
             <SelectItem key={site.id} value={site.id} className="text-xs">
               <span className="font-medium">{site.site_name}</span>
               <span className="truncate text-muted-foreground">{siteHost(site.base_url)}</span>
+              {site.status !== "connected" && (
+                <span className="text-2xs text-warning-strong">{SITE_STATUS_META[site.status].label}</span>
+              )}
             </SelectItem>
           ))}
         </SelectGroup>
@@ -90,7 +94,7 @@ export function ToolSiteGate({ children }: { children: React.ReactNode }) {
     <EmptyState
       icon={Globe}
       title="Belum ada website WordPress terhubung"
-      description="WP Tools membaca dan menulis langsung ke WordPress Anda. Hubungkan minimal satu website (status Terhubung) terlebih dahulu."
+      description="WP Tools membaca dan menulis langsung ke WordPress Anda. Hubungkan minimal satu website terlebih dahulu; website berstatus Kredensial ditolak perlu disambungkan ulang."
     >
       <Button asChild size="sm">
         <Link href="/sites">
