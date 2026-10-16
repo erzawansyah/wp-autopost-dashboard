@@ -34,10 +34,10 @@ services:
       # 2b. Runner antrean tertanam: loop klaim + lease + heartbeat di proses ini (tanpa sidecar cron).
       #     `off` hanya untuk mode pemicu cron eksternal / serverless.
       - QUEUE_RUNNER=${QUEUE_RUNNER:-embedded}
-      # Tuning opsional (kosong = default aplikasi):
-      # - QUEUE_CONCURRENCY=${QUEUE_CONCURRENCY:-3}               # job paralel per proses (1–10)
-      # - QUEUE_POLL_INTERVAL_MS=${QUEUE_POLL_INTERVAL_MS:-5000}  # jeda polling saat idle (>= 1000)
-      # - QUEUE_LEASE_SECONDS=${QUEUE_LEASE_SECONDS:-900}         # lease item in-flight (60–3600)
+      # Tuning opsional dari .env; kosong = default aplikasi (3 job, 5000 ms, 900 detik).
+      - QUEUE_CONCURRENCY=${QUEUE_CONCURRENCY:-}            # job paralel per proses (1–10)
+      - QUEUE_POLL_INTERVAL_MS=${QUEUE_POLL_INTERVAL_MS:-}  # jeda polling saat idle (1000–600000)
+      - QUEUE_LEASE_SECONDS=${QUEUE_LEASE_SECONDS:-}        # lease item in-flight (60–3600)
 
       # 3. Pengaturan Platform & SearXNG Internal
       - OPENROUTER_APP_NAME=${OPENROUTER_APP_NAME:-Panitera}
