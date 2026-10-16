@@ -2,13 +2,9 @@ import { describe, expect, it } from "vitest"
 import type { WriterResult } from "@/core/writer/types/contracts"
 import {
   EvalCaseSchema,
-  countMarkdownHeadings,
-  countWords,
   detectLanguage,
   findByline,
-  findRawHtmlInMarkdown,
   findUnsafeHtml,
-  markdownToPlainText,
   scoreWriterResult,
   titleSourceCheck,
   validateGutenbergBlocks,
@@ -74,30 +70,12 @@ const statuses = (r: WriterResult): Record<string, CheckStatus> =>
   Object.fromEntries(scoreWriterResult(evalCase, r).checks.map((c) => [c.id, c.status]))
 
 describe("utilitas teks", () => {
-  it("markdownToPlainText & countWords mengabaikan sintaks Markdown, gambar, dan URL tautan", () => {
-    const md = "## Judul Subbab\n\n- butir **tebal** dan [tautan](https://contoh.id/a-b)\n\n![alt gambar](https://x.id/a.jpg)\n\n```\nkode diabaikan\n```"
-    expect(countWords(markdownToPlainText(md))).toBe(6)
-    expect(countWords("Ibu-ibu membeli 3 kg beras")).toBe(5)
-  })
-
-  it("countMarkdownHeadings memisahkan level", () => {
-    const md = "# H1\n## H2 a\n### H3\n## H2 b\n####### bukan\n##tanpa-spasi"
-    expect(countMarkdownHeadings(md, 1)).toBe(1)
-    expect(countMarkdownHeadings(md, 2)).toBe(2)
-    expect(countMarkdownHeadings(md, 3)).toBe(1)
-  })
-
   it("findByline menangkap label penulis pendek, bukan kalimat biasa", () => {
     expect(findByline("Pembuka.\n  Penulis:  Rina Pratama\nIsi")).toBe("Penulis:  Rina Pratama")
     expect(findByline("Ditulis oleh Tim Redaksi")).toBe("Ditulis oleh Tim Redaksi")
     expect(findByline("Oleh: Budi")).toBe("Oleh: Budi")
     expect(findByline("Oleh karena itu, kopi perlu dibatasi.")).toBeNull()
     expect(findByline(`Ditulis oleh banyak peneliti, ${"kalimat panjang ".repeat(8)}`)).toBeNull()
-  })
-
-  it("findRawHtmlInMarkdown mengabaikan kode inline & blok kode", () => {
-    expect(findRawHtmlInMarkdown("Teks <b>tebal</b> dan <br/>")).toEqual(["<b>", "</b>", "<br/>"])
-    expect(findRawHtmlInMarkdown("Pakai `<div>` atau\n```html\n<p>x</p>\n```\n3 < 5 > 2")).toEqual([])
   })
 
   it("findUnsafeHtml mendeteksi script, event handler, dan URL javascript:", () => {

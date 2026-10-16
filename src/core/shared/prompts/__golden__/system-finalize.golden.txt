@@ -1,9 +1,9 @@
-# GOLDEN prompt "system-finalize" · versi 5d05acda6609
+# GOLDEN prompt "system-finalize" · versi b5138e747cd4
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [USER_PROMPT] dirender =====
 FINAL SYNTHESIS
-The research phase has ended (limit_reached). No tools are available in this step: do not plan more research and do not call tools. Write the complete article now from the material below, following the guardrails, the writing style, and the workflow standards in the system prompt. Empty fields mean "not specified".
+The research phase has ended (limit_reached). No tools are available in this step (not even `extract-article`): do not plan more research and do not call tools. Write the complete article now from the material below, following the guardrails, the writing style, and the workflow standards in the system prompt. Empty fields mean "not specified".
 
 RESEARCH MATERIAL (sources and snippets collected in this run; the only basis for specific figures, names, and quotes)
 [1] Kalori Kopi Hitam (https://gizi.example/kopi)
@@ -19,7 +19,7 @@ ARTICLE BRIEF
 - Topic / main keyword: "manfaat kopi hitam tanpa gula untuk kesehatan"
 - Article language: Bahasa Indonesia (write the title, excerpt, body, alt text, and captions in this language)
 - Target length: 1200 words
-- Required title (if set, use it exactly on the TITLE line; if empty, write your own): Manfaat Kopi Hitam Tanpa Gula bagi Pekerja Kantoran
+- Required title (if set, use it exactly as the title field; if empty, write your own): Manfaat Kopi Hitam Tanpa Gula bagi Pekerja Kantoran
 - Author persona (write from this perspective; background only, never print a byline): Rina Pratama (barista dan penguji kopi bersertifikat)
 - Notes from the user: Sasar pekerja kantoran usia 25-40 tahun.
 - Additional instructions from the user: Sertakan satu tabel perbandingan kandungan kafein.
@@ -29,3 +29,5 @@ Rules for this step:
 - At least 5 descriptive H2 sections; no numbered headings, no footnote markers, no reference list, no recap closing.
 
 ‹isi system-article-output.md›
+
+Reply with ONLY a JSON object with exactly the keys "title", "excerpt", and "body" (strings) following the ARTICLE FIELDS rules. No text before or after the JSON. If the guardrails require refusing the topic, use the title `REFUSED: <short reason>` with an empty excerpt and body.

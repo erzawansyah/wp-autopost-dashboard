@@ -120,6 +120,14 @@ export interface LlmCallOptions {
   metadata?: Record<string, unknown>
 }
 
+export interface LlmInvokeOptions extends LlmCallOptions {
+  /**
+   * Keluaran JSON terstruktur (`response_format` json_schema strict, turun ke `json_object` bila provider menolak
+   * schema dengan HTTP 400). Respons tetap dikembalikan mentah; pemanggil mem-parse & memvalidasi isinya.
+   */
+  jsonSchema?: { name: string; schema: Record<string, unknown> }
+}
+
 export interface LlmJsonRequest extends Omit<LlmCallOptions, "timeoutMs"> {
   systemPrompt: string
   userPrompt: string
@@ -140,6 +148,22 @@ interface ChatModelSettings {
 type JsonResponseFormat =
   | { type: "json_object" }
   | { type: "json_schema"; json_schema: { name: string; strict: boolean; schema: Record<string, unknown> } }
+
+/**
+ * Panggilan dengan `response_format` json_schema strict; sebagian provider tidak mendukungnya (HTTP 400), maka
+ * diulang sekali dengan `json_object`.
+ */
+async function withJsonSchemaFallback<T>(
+  jsonSchema: { name: string; schema: Record<string, unknown> },
+  call: (format: JsonResponseFormat) => Promise<T>
+): Promise<T> {
+  try {
+    return await call({ type: "json_schema", json_schema: { name: jsonSchema.name, strict: true, schema: jsonSchema.schema } })
+  } catch (err) {
+    if (classifyLlmError(err).kind !== "bad_request") throw err
+    return call({ type: "json_object" })
+  }
+}
 
 function messageText(content: AIMessageChunk["content"]): string {
   if (typeof content === "string") return content
@@ -312,20 +336,22 @@ export class LlmGateway {
   }
 
   /** Satu panggilan chat (mis. finalize) memakai pengaturan agent run + rantai fallback. */
-  async invoke(messages: BaseMessageLike[], options: LlmCallOptions = {}): Promise<AIMessageChunk> {
+  async invoke(messages: BaseMessageLike[], options: LlmInvokeOptions = {}): Promise<AIMessageChunk> {
     this.requireKey()
     const signal = this.callSignal(options.signal, options.timeoutMs)
-    return this.runChain(
-      (model) =>
-        this.agentChatModel(model).invoke(messages, {
-          signal,
-          callbacks: this.callbacks,
-          runName: options.runName,
-          tags: options.tags,
-          metadata: options.metadata,
-        }),
-      signal
-    )
+    const callConfig = {
+      signal,
+      callbacks: this.callbacks,
+      runName: options.runName,
+      tags: options.tags,
+      metadata: options.metadata,
+    }
+    const { jsonSchema } = options
+    return this.runChain(async (model) => {
+      const chat = this.agentChatModel(model)
+      if (!jsonSchema) return chat.invoke(messages, callConfig)
+      return withJsonSchemaFallback(jsonSchema, (format) => chat.invoke(messages, { ...callConfig, response_format: format }))
+    }, signal)
   }
 
   /**
@@ -358,16 +384,7 @@ export class LlmGateway {
         parseJsonOutput<T>(messageText((await chat.invoke(messages, { ...callConfig, response_format: format })).content), model)
 
       if (!request.jsonSchema) return invokeWith({ type: "json_object" })
-      try {
-        return await invokeWith({
-          type: "json_schema",
-          json_schema: { name: "output_response", strict: true, schema: request.jsonSchema },
-        })
-      } catch (err) {
-        // Sebagian provider tidak mendukung json_schema (HTTP 400): ulangi sekali dengan json_object.
-        if (classifyLlmError(err).kind !== "bad_request") throw err
-        return invokeWith({ type: "json_object" })
-      }
+      return withJsonSchemaFallback({ name: "output_response", schema: request.jsonSchema }, invokeWith)
     }, signal)
   }
 

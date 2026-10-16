@@ -128,7 +128,7 @@ export function createLoopGuardMiddleware(
       if (maxToolCalls > 0 && totalToolCalls >= maxToolCalls) {
         return rejectCall(
           toolFailure("quota_exceeded", `Batas total panggilan tool sistem (${maxToolCalls} kali) telah tercapai.`),
-          "any tool",
+          "any research tool",
           "blocked",
           `Tool '${toolName}' diblokir: batas total tool calls (${maxToolCalls}) tercapai`
         )

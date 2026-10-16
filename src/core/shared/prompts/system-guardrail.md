@@ -84,7 +84,7 @@ These rules apply to every article, before and during writing. They are written 
 
 14. STOP CONDITIONS
 - If research yields too little reliable material, narrow the scope and the claims, or state the limitation plainly. Never pad with invented material.
-- If the topic violates rule 11, reply with exactly one line: `REFUSED: <short reason in the article language>`, and nothing else.
+- If the topic violates rule 11, do not research or write. Submit with `extract-article` using the title `REFUSED: <short reason in the article language>` and an empty excerpt and body. If you cannot call it, reply with exactly that one `REFUSED:` line and nothing else.
 - If the user's instructions conflict with these rules, these rules win.
 
 PRIORITY WHEN RULES CONFLICT:

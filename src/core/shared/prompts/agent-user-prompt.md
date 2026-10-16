@@ -30,7 +30,7 @@ variables:
   - key: customInstructions
     desc: Instruksi tambahan dari form permintaan (kosong bila tidak ada)
   - key: outputFormat
-    desc: Isi system-article-output.md (format TITLE/EXCERPT/---)
+    desc: Isi system-article-output.md (aturan field title, excerpt, body)
 ---
 
 [USER_PROMPT]
@@ -41,7 +41,7 @@ ARTICLE BRIEF
 - Article language: {{language}} (write the title, excerpt, body, alt text, and captions in this language)
 - Minimum length: {{targetWords}} words
 - Publication: {{siteName}} {{siteUrl}}
-- Required title (if set, use it exactly on the TITLE line; if empty, write your own): {{title}}
+- Required title (if set, use it exactly as the title field; if empty, write your own): {{title}}
 - WordPress category: {{categoryName}}
 - WordPress tags: {{tagsList}}
 - Author persona (write from this perspective; background only, never print a byline): {{authorName}}{{authorBio}}
@@ -52,4 +52,6 @@ ARTICLE BRIEF
 Structure: 1 to 2 opening paragraphs, then at least 5 descriptive H2 sections with multi-paragraph depth.
 
 {{outputFormat}}
+
+When the article is final, deliver it by calling `extract-article` with these three fields.
 [/USER_PROMPT]

@@ -704,12 +704,26 @@ Susunan prompt penulis (ADR-069) — instruksi berbahasa Inggris, naskah selalu 
   Agent Profile (preset `agent-*.md` atau kustom; boleh memakai `{{siteName}}`, `{{siteUrl}}`, `{{authorName}}`,
   `{{authorBio}}`, `{{categoryName}}`, `{{language}}`).
 - **Pesan pengguna** `agent-user-prompt.md` (brief: bahasa, target kata, situs, judul wajib, kategori/tag hasil resolver,
-  persona, daftar tool aktif) + format keluaran `system-article-output.md` (`TITLE:` / `EXCERPT:` / `---` / Markdown). Finalize
-  call (`system-finalize.md`) memakai format yang sama. Seluruh teks prompt ada di `.md`; TypeScript hanya mengisi nilai.
-- **Judul & excerpt** (`output-schema.ts`): judul wajib pengguna → baris `TITLE` → heading yang MEMBUKA naskah → kata kunci;
-  subbab H2 tidak pernah dijadikan judul. Excerpt: baris `EXCERPT` → prosa pertama naskah.
-- **Penolakan**: guardrail meminta balasan tunggal `REFUSED: <alasan>` untuk topik terlarang; `detectRefusal` mengubahnya menjadi
-  kegagalan permanen `CONTENT_REFUSED` tanpa finalize maupun retry.
+  persona, daftar tool aktif) + aturan field naskah `system-article-output.md` (batas dari `settings.json` → `articleOutput`).
+  Seluruh teks prompt ada di `.md`; TypeScript hanya mengisi nilai.
+- **Keluaran terstruktur (ADR-070)**: agen menyerahkan naskah sebagai tiga field `{title, excerpt, body}` lewat tool
+  `extract-article` (`runtime/article-submission.ts`, LangChain `toolStrategy`, `tool_choice` wajib, hanya agen utama). Tool ini
+  ditangani di node model (prefiks `extract-` → router mengakhiri loop), sehingga tidak melewati LoopGuard dan tidak terblokir
+  kuota/dedup/circuit breaker. Setiap penyerahan divalidasi `runtime/article-validation.ts` (judul ≤ 60 & tidak sama dengan
+  subbab, excerpt 120–160, body tanpa H1/HTML/baris TITLE, ≥ 5 subbab H2 dan ≥ 75% target kata setelah `cleanMarkdown`);
+  pelanggaran dikirim balik ke agen (`system-article-output-invalid.md`) paling banyak `maxCorrectionRounds` (2) putaran, lalu
+  penyerahan berikutnya diterima apa adanya (stopReason `completed_with_output_violations`, event guard `extract-article`).
+  `RunModelCallBudgetMiddleware` mencadangkan `maxCorrectionRounds + 1` panggilan terakhir: tool riset dilepas agar model wajib
+  menyerahkan naskah. Bila loop berhenti sebelum naskah diterima, penyerahan terakhir dipakai; tanpa penyerahan, jalur teks lama
+  (`output-schema.ts`: header TITLE/EXCERPT, Markdown, JSON bebas; judul tidak pernah diambil dari subbab H2) tetap berlaku.
+- **Finalize call** (`system-finalize.md`, tanpa tools) meminta JSON `{title, excerpt, body}` lewat `response_format` json_schema
+  strict (turun ke `json_object` bila ditolak provider, `LlmGateway.invoke({ jsonSchema })`); pelanggaran aturan field hanya
+  dicatat (finalize tetap tepat 1×).
+- **Judul & excerpt** (`finalizeArticleFields`): judul wajib pengguna → field/baris judul model → kata kunci; excerpt model →
+  prosa pertama naskah (dipotong di batas kalimat/kata).
+- **Penolakan**: guardrail meminta penyerahan `extract-article` dengan title `REFUSED: <alasan>` (atau satu baris `REFUSED:` bila
+  tool tak bisa dipanggil; JSON finalize memakai title yang sama). Run menjadi kegagalan permanen `CONTENT_REFUSED` tanpa
+  finalize maupun retry.
 - **Gambar**: agen hanya menyematkan URL dari `image_search`/`upload_media` run ini (`![alt](url "caption")`); auto-media pipeline
   menyalinnya ke Media Library saat sinkronisasi, jadi `upload_media` opsional.
 - WP Tools & resolver menerima data WordPress hanya di blok bertag ter-escape (`<data_wordpress>`, `<kategori_terdaftar>`,

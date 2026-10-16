@@ -37,7 +37,13 @@
     "articleContext": "{\n  \"title\": \"Manfaat Kopi Hitam Tanpa Gula\",\n  \"excerpt\": \"Kopi hitam tanpa gula hampir tidak mengandung kalori dan aman dikonsumsi dalam batas kafein harian.\"\n}",
     "guardrail": "‹isi system-guardrail.md›",
     "stylePack": "‹isi system-style-*.md sesuai bahasa artikel›",
-    "workflow": "‹workflow Agent Profile›"
+    "workflow": "‹workflow Agent Profile›",
+    "titleMaxChars": "60",
+    "excerptMinChars": "120",
+    "excerptMaxChars": "160",
+    "minH2Sections": "5",
+    "issues": "- excerpt: 72 characters (allowed 120-160)\n- body: 3 main sections (\"## \" headings), at least 5 required",
+    "attemptsLeft": "1"
   },
   "byPrompt": {
     "system-resolve-taxonomy-author": {

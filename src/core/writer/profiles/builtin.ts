@@ -44,7 +44,8 @@ export const BUILTIN_AGENT_PROFILES: AgentProfile[] = [
       ...DEFAULT_STANDARD_LIMITS,
       maxToolCalls: 4,
       maxModelCalls: 5,
-      timeoutSeconds: 90,
+      // Ruang untuk penyerahan naskah + hingga 2 putaran koreksi format (extract-article).
+      timeoutSeconds: 150,
       minWordCount: 600,
     },
     isPreset: true,

@@ -26,12 +26,12 @@ variables:
   - key: customInstructions
     desc: Instruksi tambahan dari pengguna (kosong bila tidak ada)
   - key: outputFormat
-    desc: Isi system-article-output.md (format TITLE/EXCERPT/---)
+    desc: Isi system-article-output.md (aturan field title, excerpt, body)
 ---
 
 [USER_PROMPT]
 FINAL SYNTHESIS
-The research phase has ended ({{reason}}). No tools are available in this step: do not plan more research and do not call tools. Write the complete article now from the material below, following the guardrails, the writing style, and the workflow standards in the system prompt. Empty fields mean "not specified".
+The research phase has ended ({{reason}}). No tools are available in this step (not even `extract-article`): do not plan more research and do not call tools. Write the complete article now from the material below, following the guardrails, the writing style, and the workflow standards in the system prompt. Empty fields mean "not specified".
 
 RESEARCH MATERIAL (sources and snippets collected in this run; the only basis for specific figures, names, and quotes)
 {{factsList}}
@@ -43,7 +43,7 @@ ARTICLE BRIEF
 - Topic / main keyword: "{{keyword}}"
 - Article language: {{language}} (write the title, excerpt, body, alt text, and captions in this language)
 - Target length: {{targetWordCount}} words
-- Required title (if set, use it exactly on the TITLE line; if empty, write your own): {{title}}
+- Required title (if set, use it exactly as the title field; if empty, write your own): {{title}}
 - Author persona (write from this perspective; background only, never print a byline): {{authorName}}{{authorBio}}
 - Notes from the user: {{brief}}
 - Additional instructions from the user: {{customInstructions}}
@@ -53,4 +53,6 @@ Rules for this step:
 - At least 5 descriptive H2 sections; no numbered headings, no footnote markers, no reference list, no recap closing.
 
 {{outputFormat}}
+
+Reply with ONLY a JSON object with exactly the keys "title", "excerpt", and "body" (strings) following the ARTICLE FIELDS rules. No text before or after the JSON. If the guardrails require refusing the topic, use the title `REFUSED: <short reason>` with an empty excerpt and body.
 [/USER_PROMPT]

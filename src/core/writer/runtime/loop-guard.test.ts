@@ -220,7 +220,7 @@ describe("kuota", () => {
     expect(blocked.status).toBe("error")
     expect(readToolArtifact(blocked)).toMatchObject({ ok: false, code: "quota_exceeded", retryable: false })
     expect(blocked.content).toContain("Batas total panggilan tool sistem (2 kali) telah tercapai.")
-    expect(blocked.content).toContain("Do NOT call any tool again")
+    expect(blocked.content).toContain("Do NOT call any research tool again")
   })
 
   it("kuota per-tool hanya memblokir tool itu; panggilan diblokir tidak membuka breaker", async () => {

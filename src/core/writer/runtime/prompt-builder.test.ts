@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { ARTICLE_OUTPUT_RULES } from "./article-validation"
 import { buildSystemPrompt, buildUserPrompt } from "./prompt-builder"
 
 const PLACEHOLDER = /\{\{\s*\w+\s*\}\}/
@@ -25,7 +26,7 @@ describe("buildSystemPrompt", () => {
 })
 
 describe("buildUserPrompt", () => {
-  it("brief memuat bahasa, tool aktif, judul wajib, persona, dan format TITLE/EXCERPT", () => {
+  it("brief memuat bahasa, tool aktif, judul wajib, persona, dan aturan field naskah dari settings", () => {
     const prompt = buildUserPrompt({
       keyword: "kopi gayo",
       title: "Kopi Gayo untuk Pemula",
@@ -36,10 +37,12 @@ describe("buildUserPrompt", () => {
     })
     expect(prompt).toContain("Article language: English (US/UK)")
     expect(prompt).toContain("Minimum length: 1200 words")
-    expect(prompt).toContain("write your own): Kopi Gayo untuk Pemula")
+    expect(prompt).toContain("use it exactly as the title field; if empty, write your own): Kopi Gayo untuk Pemula")
     expect(prompt).toContain("never print a byline): Sari (barista)")
     expect(prompt).toContain("write without research and without images): web_search, image_search")
-    expect(prompt).toContain("TITLE: <article title")
+    expect(prompt).toContain(`at most ${ARTICLE_OUTPUT_RULES.titleMaxChars} characters`)
+    expect(prompt).toContain(`${ARTICLE_OUTPUT_RULES.excerptMinChars} to ${ARTICLE_OUTPUT_RULES.excerptMaxChars} characters`)
+    expect(prompt).toContain("deliver it by calling `extract-article`")
     expect(prompt).not.toMatch(PLACEHOLDER)
   })
 

@@ -1,12 +1,8 @@
-# GOLDEN prompt "system-article-output" · versi b61ed4b28b71
+# GOLDEN prompt "system-article-output" · versi f4b847abb52c
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [USER_PROMPT] dirender =====
-OUTPUT FORMAT (exactly this, nothing before or after):
-TITLE: <article title in the article language, at most 60 characters>
-EXCERPT: <meta description in the article language, 130 to 160 characters>
----
-<full article body in pure Markdown, starting with the opening paragraphs>
-
-Write the whole output (TITLE, EXCERPT, separator, and the complete body) in ONE final message, after your last tool call. Never write parts of the article in earlier messages or between tool calls.
-The title appears only on the TITLE line: never repeat it as a heading in the body. Main sections use `##`.
+ARTICLE FIELDS (the article is delivered as exactly three separate fields):
+- title: the article title in the article language, plain text, at most 60 characters. If the brief sets a required title, use it exactly.
+- excerpt: the meta description in the article language, plain text, 120 to 160 characters, a complete sentence or two.
+- body: the complete article in pure Markdown. Start with the 1 to 2 opening paragraphs (no heading above them), then at least 5 main sections as `## ` headings, with `### ` only for subsections inside them. Never put the title, a `# ` heading, HTML tags (not even `<br>`), or "TITLE:"/"EXCERPT:" lines in the body.

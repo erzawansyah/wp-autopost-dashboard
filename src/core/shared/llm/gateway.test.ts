@@ -187,6 +187,30 @@ describe("completeJson", () => {
   })
 })
 
+describe("invoke dengan jsonSchema (finalize call)", () => {
+  it("mengirim json_schema strict; ditolak provider (400) → diulang sekali dengan json_object; teks dikembalikan mentah", async () => {
+    mockFetch(fail(400, "response_format json_schema not supported"), ok('{"title":"A","excerpt":"B","body":"C"}'))
+    const gateway = createLlmGateway({ apiKey: USER_KEY, modelCandidates: [PRIMARY] })
+    const schema = { type: "object", properties: { title: { type: "string" } } }
+
+    const reply = await gateway.invoke([{ role: "user", content: "tulis" }], { jsonSchema: { name: "article", schema } })
+
+    expect(reply.content).toBe('{"title":"A","excerpt":"B","body":"C"}')
+    expect(calls[0].body.response_format).toEqual({ type: "json_schema", json_schema: { name: "article", strict: true, schema } })
+    expect((calls[1].body.response_format as { type: string }).type).toBe("json_object")
+    expect(calledModels()).toEqual([PRIMARY, PRIMARY])
+  })
+
+  it("tanpa jsonSchema tidak mengirim response_format", async () => {
+    mockFetch(ok("naskah"))
+    const gateway = createLlmGateway({ apiKey: USER_KEY, modelCandidates: [PRIMARY] })
+
+    await gateway.invoke([{ role: "user", content: "tulis" }])
+
+    expect(calls[0].body.response_format).toBeUndefined()
+  })
+})
+
 describe("retry transien", () => {
   it("401 tidak di-retry dan tidak dialihkan ke model cadangan", async () => {
     const fetchMock = mockFetch(fail(401, "User not found."))

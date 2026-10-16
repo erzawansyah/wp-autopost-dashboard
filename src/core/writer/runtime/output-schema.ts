@@ -1,8 +1,9 @@
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner"
 
 /**
- * Bentuk naskah hasil agent/finalize setelah diekstrak dari teks model (Markdown-first; agen tidak
- * memakai structured output sehingga tidak ada skema yang dikirim ke LLM).
+ * Bentuk naskah runtime hasil agent/finalize. Jalur utama: field terstruktur `{title, excerpt, body}` dari tool
+ * `extract-article` (`article-submission.ts`) atau JSON finalize call; parser teks di modul ini adalah jalur
+ * cadangan untuk model yang tidak memakai keluaran terstruktur (Markdown, header TITLE/EXCERPT, atau JSON bebas).
  *
  * Sengaja tanpa kategori/tag/author/media: taksonomi & author dikunci Pre-Flight Resolver sebelum agen
  * menulis, dan featured image hanya dari tool `set_featured_image`. Teks agen dapat dipengaruhi konten web
@@ -277,14 +278,14 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
   // 1b. Salvage parser jika JSON terpotong / unclosed string (e.g. Unterminated string in JSON).
   //     Hanya bila pesan memang diawali objek JSON (bukan artikel yang memuat contoh JSON).
   if (
-    (trimmed.includes('"markdownContent"') || trimmed.includes('"content"')) &&
+    (trimmed.includes('"markdownContent"') || trimmed.includes('"content"') || trimmed.includes('"body"')) &&
     firstBrace !== -1 &&
     isPredominantJson(trimmed, firstBrace, trimmed.length)
   ) {
     try {
       const titleMatch = trimmed.match(/"title"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i)
       const excerptMatch = trimmed.match(/"excerpt"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i)
-      const mdContentMatch = trimmed.match(/"(?:markdownContent|content)"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"|"\s*\}|$)/i)
+      const mdContentMatch = trimmed.match(/"(?:markdownContent|content|body)"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"|"\s*\}|$)/i)
 
       if (mdContentMatch && mdContentMatch[1]) {
         const cleanMd = mdContentMatch[1]

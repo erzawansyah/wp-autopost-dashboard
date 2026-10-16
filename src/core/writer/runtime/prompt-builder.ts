@@ -1,11 +1,12 @@
 import { getLanguageDisplayName } from "@/lib/constants/languages"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
+import { ARTICLE_OUTPUT_RULES } from "./article-validation"
 
 const GUARDRAIL_FALLBACK = "Never fabricate facts, never write an H1, footnotes, or a byline, and write in the requested article language."
 const STYLE_FALLBACK = "Write naturally, specifically, and without AI clichés."
 const LAYOUT_FALLBACK = "{{guardrail}}\n\n{{stylePack}}\n\n{{workflow}}"
 const USER_PROMPT_FALLBACK = 'Write a complete article about "{{keyword}}" in {{language}}, at least {{targetWords}} words. {{outputFormat}}'
-const ARTICLE_OUTPUT_FALLBACK = "Start with a TITLE: line and an EXCERPT: line, then ---, then the Markdown article."
+const ARTICLE_OUTPUT_FALLBACK = "Deliver the article as three fields: title, excerpt, and a pure Markdown body."
 
 /** Batas bawah target kata permintaan; di bawahnya dipakai target bawaan. */
 const MIN_TARGET_WORDS = 500
@@ -23,9 +24,14 @@ function loadStylePack(language?: string): string {
   }
 }
 
-/** Format keluaran naskah TITLE/EXCERPT/--- (`system-article-output.md`) untuk prompt agen & finalize call. */
-export function loadArticleOutputFormat(): string {
-  return loadPrompt("system-article-output.md", ARTICLE_OUTPUT_FALLBACK, "user")
+/** Aturan tiga field naskah (`system-article-output.md`) dengan batas dari `settings.json` → `articleOutput`. */
+export function articleFieldRules(): string {
+  return renderPrompt(loadPrompt("system-article-output.md", ARTICLE_OUTPUT_FALLBACK, "user"), {
+    titleMaxChars: ARTICLE_OUTPUT_RULES.titleMaxChars,
+    excerptMinChars: ARTICLE_OUTPUT_RULES.excerptMinChars,
+    excerptMaxChars: ARTICLE_OUTPUT_RULES.excerptMaxChars,
+    minH2Sections: ARTICLE_OUTPUT_RULES.minH2Sections,
+  })
 }
 
 /** Bio author untuk baris persona: ` (bio)` atau kosong. */
@@ -82,7 +88,7 @@ export interface UserPromptVariables {
   toolNames?: string[]
 }
 
-/** Brief permintaan penulisan (`agent-user-prompt.md`) + format keluaran TITLE/EXCERPT/---. */
+/** Brief permintaan penulisan (`agent-user-prompt.md`) + aturan tiga field naskah. */
 export function buildUserPrompt(vars: UserPromptVariables): string {
   const targetWords =
     vars.wordCountTarget && vars.wordCountTarget >= MIN_TARGET_WORDS ? vars.wordCountTarget : DEFAULT_TARGET_WORDS
@@ -101,6 +107,6 @@ export function buildUserPrompt(vars: UserPromptVariables): string {
     availableTools: (vars.toolNames ?? []).join(", "),
     brief: vars.brief || "",
     customInstructions: vars.customInstructions || "",
-    outputFormat: loadArticleOutputFormat(),
+    outputFormat: articleFieldRules(),
   })
 }
