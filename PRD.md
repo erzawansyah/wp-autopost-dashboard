@@ -1,304 +1,297 @@
 # PRD.md — Product Requirement Document
 
-**Nama Produk**: Panitera (WP Autopost & Multi-Site Content Dashboard)  
-**Status Dokumen**: Disetujui (Baseline Spesifikasi Produksi Aktif)  
-**Target Rilis**: Produksi (Ready for Production)  
-**Pemilik Produk**: Pengguna & Tim Engineering Panitera  
+**Nama Produk**: Panitera (WP Autopost & Multi-Site Content Dashboard)
+**Versi**: `0.2.0-dev` (branch `v2`, rombak v2)
+**Status Dokumen**: Baseline spesifikasi produk, disinkronkan dengan kode pada Fase 5 rombak v2
+**Pemilik Dokumen**: Tim produk & pengembang Panitera (dokumen ini adalah sumber tunggal spesifikasi produk)
 **Referensi Silang**:
-- Arsitektur & Skema DB → [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- Sistem Desain & Token UI → [`DESIGN.md`](DESIGN.md)
-- Standar Keamanan Multi-Tenant → [`.claude/rules/security.md`](.claude/rules/security.md)
-- Panduan Pengguna Interaktif → [`docs/`](docs/)
+- Arsitektur, skema DB, dan katalog API → [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Sistem desain & token UI → [`DESIGN.md`](DESIGN.md)
+- Standar keamanan multi-tenant → [`.claude/rules/security.md`](.claude/rules/security.md)
+- Panduan pengguna (reader in-app `/docs`) → [`docs/guides/`](docs/guides/)
+- Status fase & ADR → [`MEMORY.md`](MEMORY.md)
 
 ---
 
-## 1. Ringkasan Eksekutif & Visi Produk
+## 1. Ringkasan & Visi Produk
 
-**Panitera** adalah platform manajemen, otomatisasi, dan orkestrasi konten multi-situs WordPress modern bertenaga **AI Agent Profile Runtime**. Platform ini memungkinkan pemilik jaringan website (solopreneur, niche blogger, agensi konten, digital marketer) untuk memproduksi artikel berkualitas tinggi secara masal, menyusun jadwal tayang bertahap (*smart humanized drip-feed*), memanfaatkan asisten AI untuk optimasi internal link dan taksonomi, serta menerbitkan konten ke banyak website WordPress tanpa perlu memasang plugin custom apa pun (*zero-plugin onboarding*).
+**Panitera** adalah dasbor SaaS untuk memproduksi, menjadwalkan, dan menerbitkan artikel ke banyak website WordPress dari satu tempat. Penulisan dikerjakan oleh **Agent Profile** (agen AI yang dapat dikonfigurasi) di antrean latar belakang, lalu dikirim ke WordPress lewat REST API standar tanpa plugin. Sasaran pengguna: pemilik jaringan website (solopreneur, niche blogger, agensi konten, digital marketer).
 
 ### 1.1 Masalah yang Diselesaikan
 
-| # | Masalah | Dampak Tanpa Solusi | Solusi Panitera |
+| # | Masalah | Solusi Panitera |
+| :- | :--- | :--- |
+| P1 | Mengelola banyak wp-admin secara manual | Dasbor terpusat; koneksi website lewat otorisasi Application Password atau input manual |
+| P2 | Hosting murah kewalahan oleh request serentak | Batas request paralel per website (`wp_sites.max_concurrency`, 1–10, bawaan 2) |
+| P3 | Pola terbit massal yang kaku mudah dikenali | Jadwal tayang pola interval atau tanggal acak dengan variasi menit acak |
+| P4 | Token AI terbuang saat koneksi WordPress gagal | Kirim ulang hemat biaya: `failed_sync` dikirim ulang dari naskah tersimpan tanpa LLM |
+| P5 | Plugin custom memperberat dan berisiko | Zero-Friction Onboarding: hanya WordPress REST API + Application Passwords |
+| P6 | Format naskah AI berantakan | Markdown-first + pembersih tersembunyi + konversi deterministik ke blok Gutenberg |
+| P7 | Biaya API pencarian & foto | SearXNG internal, sumber terbuka sebagai cadangan, dan Pexafy (BYOK) untuk foto |
+
+### 1.2 Prinsip Produk
+
+1. **BYOK-only**: setiap tenant memakai kunci API miliknya (OpenRouter wajib; Tavily, Brave, Pexafy, LangSmith opsional) yang disimpan terenkripsi di **Pengaturan → Pusat Kunci API & Model AI** (`/settings/keys`). Tidak ada cadangan kunci platform kecuali operator menyetel `PLATFORM_KEY_ALLOWED=true`. Tanpa kunci OpenRouter, item antrean berakhir `failed_generation` dengan pesan yang mengarahkan ke `/settings/keys`.
+2. **Database-first**: setiap job dicatat di Supabase sebelum dieksekusi; tidak ada pemrosesan di dalam request HTTP.
+3. **Zero-plugin**: tidak ada fitur inti yang mewajibkan plugin atau edit PHP di WordPress pengguna.
+4. **Draft-first**: Tulis Cepat dan alat uji Laboratorium bawaan berstatus draf.
+
+---
+
+## 2. Persona Pengguna
+
+**Solopreneur & niche site builder** — mengelola 3–50 website (afiliasi, portal berita, blog beriklan); memakai kunci OpenRouter sendiri untuk menekan biaya. Skenario khas:
+
+1. *Tulis Cepat*: satu artikel dari satu topik dalam hitungan menit.
+2. *Kampanye batch*: puluhan kata kunci dijadwalkan terbit bertahap selama beberapa minggu.
+3. *Audit & optimasi*: tautan internal retroaktif, persona author E-E-A-T, dan perapian kategori.
+
+---
+
+## 3. Peta Navigasi (Sitemap)
+
+### 3.1 Sidebar
+
+| Kelompok | Label menu | Rute | Catatan |
+| :--- | :--- | :--- | :--- |
+| Menu Utama | Dashboard | `/` | |
+| Menu Utama | Daftar Website | `/sites` | |
+| Menu Utama | Daftar Batch | `/batches` | |
+| Menu Utama | Antrean | `/queue/items` | |
+| Penerbitan Konten | Tulis Cepat | `/posts/new` | |
+| Penerbitan Konten | Tulis Massal | `/queue` | Badge "Batch" |
+| Penerbitan Konten | Tulis Terstruktur | `/write/structured` | Badge "CSV" |
+| Alat & Konfigurasi | WP Tools | `/tools` | |
+| Alat & Konfigurasi | Profil Agen | `/agents` | |
+| Alat & Konfigurasi | Skill Registry | `/skills` | Badge "Deep" |
+| Alat & Konfigurasi | Laboratorium | `/lab` | Badge "Lab"; hanya tampil bila Developer Mode aktif |
+| Alat & Konfigurasi | Pengaturan | `/settings` | |
+| Alat & Konfigurasi | Help / Docs | `/docs` | Juga kartu "Help & Docs" di kaki sidebar |
+
+Navbar atas: breadcrumb, tombol tema terang/gelap, dan menu akun (**Kelola Website**, **Keluar**).
+
+### 3.2 Seluruh Rute Halaman
+
+```
+(auth)
+/login                     Masuk & daftar (tab Masuk / Daftar Baru), mendukung ?next= dan ?tab=register
+/register                  Alias → /login?tab=register
+
+(dashboard) — shell & cek sesi di layout; tanpa sesi → /login?next=<path>
+/                          Dashboard "Ruang Kerja Penerbitan"
+/sites                     Daftar website + dialog Sambungkan Website (Otomatis / Input Manual)
+/sites/[id]                Kelola website (status koneksi & cek ulang, sambungkan ulang, pengaturan, kategori & author WP, hapus)
+/batches                   Daftar batch
+/queue/items               Antrean (?batchId=<uuid|quick-writer>)
+/posts/new                 Tulis Cepat
+/posts/[id]                Detail artikel (status, ringkasan run, log, naskah)
+/queue                     Tulis Massal
+/write/structured          Tulis Terstruktur
+/tools                     Hub WP Tools
+/tools/link-building       Link Building (?site=<uuid>)
+/tools/authors             Author Creator (?site=<uuid>)
+/tools/categories          Kategori Creator (?site=<uuid>)
+/agents                    Katalog Agent Profile (kustom + preset bawaan)
+/agents/new                Profil baru / kloning (?cloneFrom=<ref>)
+/agents/[id]               Edit profil kustom (preset → dialihkan ke kloning)
+/skills                    Skill Registry
+/skills/new                Tambah skill
+/skills/[id]               Edit skill kustom / baca skill sistem
+/lab                       Laboratorium (Developer Mode; tanpa akses → halaman penjelasan)
+/settings                  Hub pengaturan
+/settings/keys             Pusat Kunci API & Model AI
+/settings/profile          Profil & Preferensi Akun (identitas, ganti kata sandi, preferensi, Developer Mode)
+/settings/webhooks         Integrasi Webhook
+/docs                      Reader panduan pengguna (?doc=<slug>)
+
+Pengalihan lama
+/posts → /     /write → /posts/new     /scheduled → /queue     /settings/ai → /settings/keys#model-ai
+```
+
+---
+
+## 4. Spesifikasi Modul
+
+### 4.1 Autentikasi & Akun
+
+- Supabase Auth SSR (email + kata sandi, minimal 6 karakter). `src/proxy.ts` menyegarkan sesi, mengalihkan halaman dasbor tanpa sesi ke `/login?next=…` (nilai `next` disanitasi), dan mengalihkan pengguna bersesi dari `/login`.
+- Bila proyek mewajibkan konfirmasi email, pendaftaran tanpa sesi kembali ke tab **Masuk** dengan pemberitahuan.
+- **Keluar** mencabut sesi di server dan membersihkan cache klien.
+- **Ganti kata sandi** (`/settings/profile`, kartu **Keamanan Akun**): kata sandi saat ini diverifikasi di server, kata sandi baru minimal 6 karakter dan berbeda dari yang lama (`POST /api/auth/password`, rate limit 5 per 15 menit). Setelah berhasil, sesi di perangkat/browser lain dikeluarkan; sesi browser ini tetap aktif.
+
+### 4.2 Dashboard (`/`)
+
+- Kartu KPI: **Sudah Terbit**, **Sedang Diproses**, **Draf & Terjadwal**, **Perlu Tindakan**.
+- Panel **Website Terhubung** (jumlah website siap pakai; website bermasalah ditandai badge status), pintasan **Mulai Bekerja**, dan tabel **Artikel Terbaru** (50 item, status live).
+- Banner **Artikel masuk antrean** setelah Tulis Cepat dengan tautan ke detail artikel; ajakan **Sambungkan Website** bila belum ada website.
+
+### 4.3 Manajemen Website (`/sites`, `/sites/[id]`)
+
+- **Otomatis (disarankan)**: `POST /api/sites/connect` memeriksa REST API, lalu mengarahkan ke `wp-admin/authorize-application.php`. Callback `/api/sites/callback` memverifikasi token state (terikat akun), memvalidasi kredensial ke `/wp-json/wp/v2/users/me`, dan menyimpan website secara upsert per `(user_id, base_url)`, sehingga menyambungkan ulang alamat yang sama memperbarui kredensial. Hasil tampil sebagai banner `?auth_status=…`.
+- **Input Manual**: nama tampilan, alamat, username, Application Password; **Cek Koneksi** (`POST /api/sites/test`, tanpa menyimpan) dan **Simpan Website** (`POST /api/sites`, verifikasi ulang; alamat duplikat ditolak 409).
+- Validasi alamat: HTTPS wajib di production, tanpa kredensial di URL, alamat privat/loopback ditolak (kecuali `ALLOW_PRIVATE_NETWORK_FETCH=true` di luar production).
+- **Status koneksi** (`wp_sites.status`): **Tersambung** (`connected`), **Kredensial ditolak** (`auth_error`: 401, atau 403 dengan kode error kredensial WordPress), **Dibatasi WordPress** (`rate_limited`: 429), **Tidak terjangkau** (`unreachable`: jaringan/timeout, 502/503/504, kode origin Cloudflare). Status ditulis dari request nyata: otomatis saat antrean mengirim artikel (best-effort, tidak pernah menggagalkan job) dan lewat **Cek ulang koneksi** (`POST /api/sites/[id]/check`, menguji Application Password tersimpan lalu menyimpan status + `last_checked_at`). Respons yang tidak menjelaskan kesehatan situs (mis. 404, 403 izin per aksi) tidak mengubah status.
+- **Cek ulang koneksi** tersedia di header halaman kelola dan menu aksi tabel website. Tabel menampilkan tautan **Cara memperbaiki** di bawah badge bila status bukan **Tersambung**; halaman kelola menampilkan panel petunjuk per status. Panel **Kredensial ditolak** berisi tombol **Sambungkan ulang**: alur otorisasi WordPress untuk alamat yang sama membuat Application Password baru yang menggantikan yang lama (antrean & pengaturan tetap). Kredensial website, termasuk yang ditambahkan lewat Input Manual, hanya dapat diganti lewat alur otorisasi ini.
+- Formulir penulisan dan WP Tools menyembunyikan website berstatus `auth_error` (pasti ditolak sampai disambungkan ulang); `rate_limited`/`unreachable` bersifat sementara sehingga tetap ditawarkan dengan label statusnya.
+- Halaman kelola: header (badge status, **Cek ulang koneksi**, **Buka WP Admin**), panel petunjuk, **Pengaturan Website** (nama tampilan, **Batas request paralel** 1–10), panel **Kategori WordPress** (maks. 100) dan **Author WordPress** (baca-saja, tautan ke WP Tools), kartu **Koneksi** (termasuk **Terakhir dicek**), dan **Hapus Website** (kaskade ke batch, antrean, log, dan riwayat agen; post di WordPress tidak terhapus).
+
+### 4.4 Tulis Cepat (`/posts/new`)
+
+- Input wajib: website (hanya yang tersambung), Agent Profile (default pengguna, atau `preset:quick-writer`), bahasa (10 pilihan, bawaan Indonesia), topik, status **Simpan Draf** (bawaan) / **Langsung Terbit**.
+- Input lanjutan: kategori WordPress (multi; kosong = dipilih AI dari kategori yang ada), tag (koma; dicocokkan atau dibuat), catatan khusus.
+- `POST /api/posts/quick` hanya mencatat satu `post_items` berstatus `queued_input` (tanpa batch; tampil di grup virtual **Tulis Cepat (Quick Writer)**), membangunkan runner, lalu klien dialihkan ke Dashboard.
+
+### 4.5 Tulis Massal (`/queue`)
+
+- Daftar kata kunci, satu baris satu artikel, maksimal 50 unik per batch (duplikat dapat dihapus sekali klik).
+- Pengaturan batch: website, Agent Profile, bahasa, strategi jadwal (§4.7), dan opsi lanjutan (nama batch, kategori & tag seluruh batch, instruksi khusus).
+- `POST /api/batches` membuat `content_batches` + seluruh `post_items` (`queued_input`, `scheduled_for` per slot), lalu klien dibawa ke `/queue/items?batchId=…`.
+
+### 4.6 Tulis Terstruktur (`/write/structured`)
+
+- Input: tempel teks (CSV/TSV/sel spreadsheet) atau unggah `.csv`/`.tsv`/`.txt` (tidak membaca `.xlsx` langsung). Pemisah (tab, `|`, `;`, `,`) dideteksi otomatis dari karakter dominan; header opsional.
+- Pemetaan kolom: kata kunci utama, judul, LSI, fokus/brief, kategori, tag, atau abaikan; pratinjau data per baris. Maksimal 50 baris; batas tiap kolom divalidasi per nomor baris sebelum dikirim.
+- Per baris: judul spesifik (kosong = dibuat AI), LSI + fokus digabung ke instruksi khusus artikel, tag baris digabung dengan tag default. Kategori WordPress yang dikirim berasal dari kategori default batch atau pilihan AI; nama kategori per baris saat ini hanya dicatat sebagai label (lihat §8.3).
+
+### 4.7 Strategi Jadwal Tayang (Drip-Feed)
+
+- **Eksekusi**: `immediate` (bawaan; semua item segera ditulis) atau `scheduled_drip` (item diklaim runner 10 menit sebelum `scheduled_for`).
+- **Pola**: **Pola Interval** (waktu mulai + jeda 1–720 jam, bawaan 12; variasi acak −10…+10 menit mulai item kedua) atau **Tanggal Acak** (rentang dibagi rata per item, titik acak di setiap bagian, variasi −7…+7 menit). Pratinjau slot (WIB) dihitung di klien; server menghitung ulang saat batch dibuat.
+- **Status di WordPress**: **Langsung Terbit** (bawaan batch) dikirim sebagai `future` bila slot masih di masa depan sehingga WordPress (WP-Cron) yang menayangkannya, atau `publish` bila slot sudah lewat; **Simpan Draf** dikirim sebagai `draft`.
+- Tidak ada halaman kalender terpisah; artikel terjadwal dipantau di Antrean (filter **Terjadwal**, kolom **Waktu & Publikasi**).
+
+### 4.8 Antrean & Batch (`/queue/items`, `/batches`)
+
+- Tabel TanStack (100 item terbaru): pencarian, filter batch/website/kelompok status (**Semua**, **Dalam Proses**, **Terbit di Web**, **Draf di Web**, **Terjadwal**, **Gagal**), **Kelompokkan per batch** dengan progres, seleksi + aksi massal (**Proses ulang**, **Hapus**).
+- **Pembaruan live**: Supabase Realtime Broadcast **privat** per pengguna (topik `user:<uid>:queue` untuk status item dan `user:<uid>:post:<id>` untuk log baru; join diotorisasi policy `realtime.messages`). Bila kanal tidak tersambung, klien jatuh ke polling dengan backoff 5 → 60 detik yang berhenti saat tidak ada item aktif. Indikator: **Live**, **Menyambungkan…**, **Pembaruan berkala**.
+- Aksi ulang per state: **Jalankan sekarang** (`queued_input`; abaikan jadwal), **Tulis ulang** (`failed_generation`; pakai ulang checkpoint draf yang valid), **Kirim ulang ke WordPress** (`failed_sync`/`ready_to_sync`; tanpa LLM). Semua aksi hanya menjadwalkan ulang item lalu membangunkan runner.
+- Hapus artikel/batch/riwayat Tulis Cepat hanya di Panitera; post WordPress tidak tersentuh.
+- **Daftar Batch**: nama, website, strategi jadwal, kemajuan (item sukses / total), status (**Berjalan** → **Selesai** saat semua item berada di state akhir).
+
+### 4.9 Detail Artikel (`/posts/[id]`)
+
+- Header live (judul terisi saat naskah selesai), aksi ulang sesuai state, **Buka di WordPress**.
+- **Status pengerjaan** 4 tahap + kendala terakhir; pemberitahuan jadwal percobaan berikutnya (`next_attempt_at`).
+- Ringkasan run: biaya (USD), token, panggilan LLM, jumlah percobaan, rincian run terakhir per model (termasuk fallback), checkpoint tersimpan.
+- Tab **Log aktivitas** (input/output JSON per langkah) dan **Naskah artikel** (**Baca naskah** tersanitasi DOMPurify, **Kode Gutenberg**, **Instruksi khusus**).
+
+### 4.10 Agent Profile Runtime & Studio (`/agents`)
+
+- Preset bawaan (baca-saja, dapat dikloning): **Quick Writer** (standard, tanpa tools, default), **Research & Media Writer** (standard, 6 tools), **Deep Research Specialist** (deep, 6 tools + skill `anti-ai-editor`).
+- Profil kustom: nama, deskripsi, mode `standard` (LangChain `createAgent`) atau `deep` (Deep Agents + skill `SKILL.md`), workflow prompt (Raw/Pratinjau), tools yang diizinkan (dengan status **Siap**/**Perlu konfigurasi**), skill (mode Deep), temperatur, dan batas eksekusi (model calls, tool calls, timeout, minimal kata) yang selalu dijepit ke batas sistem. Satu profil dapat dijadikan default. Hapus = arsip (antrean lama tetap dapat diproses).
+- Model: editor tidak menyediakan pilihan model; worker memakai model payload, lalu **Model Default** pengguna, lalu model profil, lalu `OPENROUTER_DEFAULT_MODEL`.
+- **6 Universal Tools** (riset & visual saja): `keyword_suggestions`, `web_search`, `web_reader`, `image_search`, `set_featured_image`, `upload_media`.
+- Pipeline penulisan: Pre-Flight Resolver (author persona tanpa akun admin teknis selama ada persona lain, kategori dari yang ada, tag dicocokkan/dibuat) → agen menulis Markdown → pembersih anti-slop & normalisasi heading → serializer Markdown → Gutenberg berbasis AST (escape penuh, `[` dinetralkan) → kirim ke WordPress. Guard anti-loop: deduplikasi panggilan identik, circuit breaker tool, kuota global & per-tool, satu kali finalize darurat. Checkpoint `pre_resolve`/`draft` memungkinkan resume tanpa LLM.
+
+### 4.11 Skill Registry (`/skills`)
+
+- Skill sistem (mis. `anti-ai-editor`) baca-saja; skill kustom per akun dapat dibuat (form atau unggah `.md`, termasuk frontmatter `name:`), diedit (slug tetap), dan dihapus.
+- Skill hanya dimuat oleh Agent Profile mode Deep yang mencentangnya.
+
+### 4.12 WP Tools (`/tools`)
+
+Semua tool memakai pemilih website di `PageHeader`, butuh website tersambung, dan memakai kunci OpenRouter pengguna untuk analisis AI.
+
+- **Link Building** (`/tools/link-building`): URL artikel baru (+ kata kunci & instruksi opsional) → AI merumuskan 3–4 kueri → cari artikel terbit lama → rekomendasi kalimat & anchor → **Sisipkan ke WordPress** (konfirmasi) atau **Salin HTML**. Server membangun ulang tautan dari URL artikel yang dianalisis dan anchor tervalidasi (anti prompt injection) dan menolak kalimat yang sudah berubah atau sudah bertautan.
+- **Author Creator** (`/tools/authors`): AI merancang 2–3 persona E-E-A-T → **Setujui & Buat di WordPress** / **Tolak** / **Setujui semua**; persona dengan email kosong, tidak valid, atau di luar domain website ditandai **Perlu ditinjau** dan tidak ikut massal. Tab manual: peran author/editor/contributor (tanpa administrator).
+- **Kategori Creator** (`/tools/categories`): AI merancang 3–6 kategori non-overlapping dengan slug & deskripsi SEO → setujui per item atau massal. Tab manual: satu kategori (dengan induk) atau masal (maks. 50 per kirim).
+
+### 4.13 Laboratorium (`/lab`)
+
+- Hanya untuk akun dengan Developer Mode (`/settings/profile`); dicek di layout server, halaman, dan setiap route `/api/lab/**`.
+- Tab **Tools**: jalankan tiap Universal Tool + **WordPress Publisher (Direct Test)** (bawaan draft). Tab **Agent Profile**: run penuh dengan website target atau mode simulasi; hasil berupa naskah, blok Gutenberg, dan telemetri (diredaksi). Run Agent Profile tidak membuat post di WordPress.
+
+### 4.14 Pengaturan (`/settings/*`)
+
+- **Pusat Kunci API & Model AI** (`/settings/keys`): kunci OpenRouter (wajib), model default (katalog OpenRouter yang mendukung tool calling atau ID kustom), tingkat penalaran, mode mesin pencari (Auto Cascade, Tavily, Brave, SerpAPI, SearXNG, Bing Web, Wikipedia), kunci Tavily/Brave/Pexafy/LangSmith + nama proyek LangSmith. Status kunci hanya **Tersimpan terenkripsi** / **Belum diatur**; uji kunci, hapus kunci dengan konfirmasi; form rahasia `method=post` dan tombol simpan aktif setelah hydrate.
+- **Profil & Preferensi Akun** (`/settings/profile`): identitas tenant, **Keamanan Akun** (ganti kata sandi, §4.1; form `method=post`, aktif setelah hydrate), tiga preferensi notifikasi (tersimpan; lihat §8.3), dan Developer Mode.
+- **Integrasi Webhook** (`/settings/webhooks`): tambah (secret kustom ≥ 16 karakter atau otomatis; ditampilkan sekali), ubah nama/URL/event, aktif/nonaktif, **Tes Ping**, hapus. Event: `post.published`, `post.scheduled`, `post.draft_saved`, `post.failed`, `batch.completed` (`batch.failed` tersedia di daftar tetapi belum dipicu). Pengiriman: JSON `{ id, event, timestamp, data }`, header `X-Panitera-Timestamp`, `X-Panitera-Signature: sha256=HMAC(secret, "timestamp.body")`, `X-Webhook-Event`; via `safeFetch`, tanpa redirect, timeout 6 detik, tanpa pengiriman ulang. URL wajib publik (HTTPS di production).
+
+### 4.15 Dokumentasi In-App (`/docs`)
+
+- Reader server-side untuk `docs/guides/0N-<slug>.md` (urut nomor; judul dari heading `#`), pencarian judul/isi, navigasi sebelumnya/berikutnya, salin Markdown. Markdown dirender tanpa HTML mentah; tautan disaring.
+
+### 4.16 Pipeline Pencarian & Media
+
+- `web_search` mode Auto: Tavily → Brave → SerpAPI (bila tenant punya kunci) → SearXNG (instance pengguna atau internal `http://searxng-internal:8080`) → scraper Bing → Wikipedia.
+- `image_search` mode Auto: Pexafy (BYOK) → Bing Image API (hanya bila operator mengizinkan kunci platform) → SearXNG Images → scraper Bing (Creative Commons) → katalog kurasi; lebar minimal 1280 px dengan verifikasi URL gambar.
+- Foto diunggah ke Media Library WordPress dengan deduplikasi per website (`uploaded_media`).
+
+---
+
+## 5. Siklus Hidup Antrean (9-State Machine)
+
+Status di `post_items.state` (CHECK constraint di migrasi baseline). Label UI dari `StatusBadge`.
+
+| # | `state` | Label UI | Keterangan |
 | :- | :--- | :--- | :--- |
-| **P1** | Inefisiensi pengelolaan multi-situs | Login berulang kali ke puluhan wp-admin, copy-paste naskah manual, formatting rusak | Dasbor terpusat satu login, multi-site manager dengan otorisasi Application Passwords |
-| **P2** | Hosting overload pada shared hosting | Request serentak memicu `503 Service Unavailable` atau ban akun hosting | *Per-site concurrency throttling* (default: 2 request paralel per domain) |
-| **P3** | Deteksi bot search engine (kaku) | Penerbitan artikel masal pada menit/detik bulat mudah dikenali sebagai bot | *Smart Humanized Drip-Feed*: Jendela jam aktif + acak menit (*randomized minute jitter*) |
-| **P4** | Pemborosan kuota & biaya token AI | Regenerasi artikel dari awal saat koneksi WordPress gagal | *Cost-Saver Retry*: Status `failed_sync` langsung mengirim ulang naskah tanpa panggil AI lagi |
-| **P5** | Ketergantungan plugin & overhead situs | Plugin custom memperberat wp-admin, konflik tema, dan risiko celah keamanan | **Zero-Plugin Onboarding**: Komunikasi murni via WordPress REST API standar bawaan core |
-| **P6** | Format artikel AI mentah dan monoton | Naskah AI dipenuhi gaya formulaik, em-dash berlebihan, dan format HTML rusak | **Markdown-First** + Pembersih Anti-Slop tersembunyi + Konversi deterministik ke **Gutenberg Blocks** |
-| **P7** | Biaya API pencarian gambar & data | Kuota API pencarian berbayar cepat habis saat memproduksi ratusan artikel | Integrasi **SearXNG Engine** mandiri (tanpa kuota) + **Pexafy API** untuk foto bebas royalti |
+| 1 | `queued_input` | Menunggu | Tercatat; menunggu klaim runner (segera, jadwal drip, atau `next_attempt_at`). |
+| 2 | `generating_content` | Sedang Ditulis | Diklaim atomik; Agent Profile menulis naskah. |
+| 3 | `ready_to_sync` | Siap Kirim | Naskah final tersimpan; menunggu dikirim. |
+| 4 | `syncing_to_wp` | Mengirim ke Web | Request ke WordPress REST API sedang berjalan. |
+| 5 | `published_on_wp` | Sudah Terbit | Post tayang; `wp_post_id` & URL tersimpan. |
+| 6 | `scheduled_on_wp` | Dijadwalkan | Post `future` di WordPress. |
+| 7 | `saved_draft_on_wp` | Tersimpan Draf | Post draf di wp-admin. |
+| 8 | `failed_generation` | Gagal Tulis | Gagal di tahap AI (kunci/kuota, batas agen, error permanen, atau percobaan habis). |
+| 9 | `failed_sync` | Gagal Kirim | Gagal atau tidak pasti di tahap WordPress. |
+
+Aturan keandalan:
+
+- **Atomic Claim Lock dengan lease**: klaim hanya lewat RPC `claim_post_items` (`FOR UPDATE SKIP LOCKED`, batas per website, round-robin tenant); token klaim unik (`locked_by`) memagari setiap tulis state & heartbeat. Lease kedaluwarsa dipulihkan otomatis; `syncing_to_wp` yang macet menjadi `failed_sync`.
+- **Retry otomatis terbatas**: kegagalan sementara diantrekan ulang dengan backoff 1 → 5 menit, maksimal 3 percobaan; kegagalan permanen langsung `failed_*` tanpa membuang token.
+- **Kirim ulang hemat biaya**: `failed_sync` → `ready_to_sync` → naskah tersimpan dikirim tanpa LLM.
+- **Anti-duplikasi**: request ke WordPress hanya dikirim setelah titik tanpa kembali; timeout/5xx/putus koneksi pada pengiriman tidak dikirim ulang otomatis; item ber-`wp_post_id` dituntaskan sebagai sukses dan kirim ulang manual ditolak.
+- **Checkpoint generasi** (`generation_checkpoints`, RPC berpagar lease) memungkinkan **Tulis ulang** dan retry melanjutkan tanpa LLM.
 
 ---
 
-## 2. Profil Pengguna & Persona Sasaran
+## 6. Persyaratan Non-Fungsional
 
-### 2.1 Solopreneur & Niche Site Builder
-- **Profil**: Mengelola 3 hingga 50 situs WordPress aktif (niche affiliate, portal berita, blog monetisasi iklan).
-- **Motivasi**: Menghasilkan volume artikel yang tinggi dengan struktur SEO rapi dan kredibilitas E-E-A-T tanpa membutuhkan tim penulis manual yang besar.
-- **Model Penggunaan**: Menggunakan kunci API AI sendiri (*Bring Your Own Key / BYOK*) seperti OpenRouter (Llama 3.3 70B, GPT-4o, Claude, DeepSeek) untuk efisiensi biaya maksimal.
-- **Skenario Khas**:
-  1. *Tulis Cepat*: Membuat dan menerbitkan 1 artikel topik spesifik dalam hitungan menit.
-  2. *Bulk Campaign*: Mengunggah ratusan kata kunci via CSV untuk dijadwalkan terbit bertahap selama 30 hari ke depan.
-  3. *Audit & Optimasi*: Memperkuat struktur tautan internal postingan lama secara retroaktif dan merancang profil author E-E-A-T.
-
----
-
-## 3. Spesifikasi Modul Utama Platform
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        PANITERA PUBLISHING DESK                        │
-├────────────────────┬─────────────────────────────┬─────────────────────┤
-│  MODUL 1:          │  MODUL 2:                   │  MODUL 3:           │
-│  Tulis Cepat       │  Bulk Artikel (CSV/List)    │  Artikel Terjadwal  │
-│  (/posts/new)      │  (/queue & /batches)        │  (/scheduled)       │
-└─────────┬──────────┴──────────────┬──────────────┴──────────┬──────────┘
-          │                         │                         │
-          ▼                         ▼                         ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                      AGENT PROFILE RUNTIME ENGINE                      │
-│      Standard LangChain Agent  vs  Deep Agent (SKILL.md Registry)     │
-│   Universal Tools: Web Search, Reader, Image Search, Taxonomy, Authors │
-│             Guards: Anti-Loop, Circuit Breaker, Hard Ceiling           │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│               MARKDOWN-FIRST & GUTENBERG BLOCK SERIALIZER              │
-│       Pembersih Anti-Slop -> Penormal Judul H1 -> Native Blocks        │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                  DATABASE-FIRST 9-STATE QUEUE ENGINE                   │
-│   queued_input -> generating -> ready_to_sync -> syncing -> published  │
-│                   Atomic Claim Lock + Cost-Saver Retry                 │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│               WORDPRESS REST API (ZERO-PLUGIN ONBOARDING)              │
-│       Application Passwords (AES-256-GCM) + Per-Site Throttling (2)    │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                WP TOOLS & OUTBOUND WEBHOOKS ECOSYSTEM                  │
-│   Internal Linker (/tools/link-building) | E-E-A-T (/tools/authors)    │
-│   Categories Designer (/tools/categories) | Webhooks (/settings/webhooks)│
-└────────────────────────────────────────────────────────────────────────┘
-```
+1. **Isolasi tenant**: RLS aktif (force) di 11 tabel (`wp_sites`, `content_batches`, `post_items`, `execution_logs`, `agent_profiles`, `agent_runs`, `agent_skills`, `user_settings`, `webhooks`, `uploaded_media`, `generation_checkpoints`), GRANT eksplisit, FK komposit `(…, user_id)` anti lintas-tenant; `post_items` tidak dapat di-UPDATE oleh `authenticated`. Service Role hanya untuk worker/proses sistem dengan filter `user_id` eksplisit.
+2. **Kredensial**: Application Password, kunci BYOK, dan secret webhook dienkripsi AES-256-GCM (`ENCRYPTION_MASTER_KEY`), didekripsi hanya di server, tidak pernah dikembalikan ke browser, ditulis ke log, atau disimpan di localStorage. Log, telemetri, dan respons Lab diredaksi.
+3. **Anti-SSRF**: semua fetch ke URL dari pengguna/LLM lewat `safeFetch` (DNS pinning, blokir loopback/RFC 1918/CGNAT/link-local/metadata/IPv6 privat, validasi ulang setiap redirect, batas ukuran respons). Pengecualian hanya `/search` & `/autocompleter` SearXNG platform.
+4. **Perlindungan hosting pengguna**: batas paralel per website (bawaan 2), timeout eksplisit (WordPress 15 detik bawaan; uji koneksi 12 detik; kirim post 20 detik), request tulis WordPress tanpa mengikuti redirect.
+5. **Rate limit per pengguna** (sliding window di memori proses, satu instance): AI interaktif 20/menit, uji koneksi keluar 15/menit (termasuk cek ulang koneksi website), pembuatan/aksi antrean 30/menit, ganti kata sandi 5/15 menit. Body JSON maks. 1 MB (batch 10 MB). Semua route lewat `defineRoute` (auth eksplisit, validasi zod, respons `{ ok, … }`).
+6. **Runner antrean**: tertanam di proses Next.js (`QUEUE_RUNNER=embedded`, bawaan di production): `QUEUE_CONCURRENCY` 1–10 (bawaan 3), lease 900 detik dengan heartbeat, polling idle 5 detik, shutdown bersih. Mode `off` + `CRON_SECRET` untuk cron eksternal (`POST /api/queue/process`, 1 item per pemicu).
+7. **Keamanan web**: header global `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` (kamera/mikrofon/geolokasi mati). Konten artikel di-escape penuh saat serialisasi dan disanitasi DOMPurify saat pratinjau. Form rahasia memakai `method=post` dan aktif setelah hydrate.
+8. **Observabilitas**: metrik biaya, token, model & versi prompt per run (`agent_runs`); tracer LangSmith per tenant (BYOK) tanpa mutasi `process.env`; health check `GET /api/health`.
+9. **Kualitas**: TypeScript strict, lint 0 warning, Vitest (unit + test DB PGlite), audit kebersihan (`npm run audit:hygiene`), `next build`, dan e2e Playwright (Supabase lokal + WordPress Playground) dijalankan CI pada setiap PR dan push ke `main`/`v2`.
 
 ---
 
-### Modul 1: Tulis Cepat (Quick Single Post) — `/posts/new`
+## 7. Status Rilis
 
-*Alur kerja cepat saat pengguna ingin menyusun, meninjau, dan menerbitkan 1 artikel langsung ke situs WordPress.*
+**Versi saat ini: `0.2.0-dev` (branch `v2`).**
 
-**Input Pengguna**:
-- **Target Keyword / Topik** (*Wajib*): Kata kunci utama artikel.
-- **Brief / Catatan Khusus** (*Opsional*): Instruksi sudut pandang, batasan pembahasan, atau penekanan tertentu.
-- **Website WordPress Target** (*Wajib*): Memilih dari daftar situs yang berstatus `connected`.
-- **Kategori WordPress** (*Opsional*): Memilih kategori aktif dari situs target.
-- **Profil Agen AI** (*Wajib*): Memilih agen penulisan (Preset Bawaan atau Profil Agen Kustom dari `/agents`).
-- **Aksi Publikasi** (*Wajib*): Radio pilihan `Draft` (simpan draf di wp-admin) atau `Publish` (terbit live).
+| Fase rombak v2 | Status | Ringkasan |
+| :--- | :--- | :--- |
+| Fase 0 — Keamanan | Selesai | BYOK-only, `safeFetch` terpusat, pengerasan antrean & konten, webhook bertanda tangan (ADR-061). |
+| Fase 1 — Fondasi | Selesai | Migrasi Supabase + RLS + test PGlite, env tervalidasi, CI & audit kebersihan (ADR-062). |
+| Fase 2 — Backend & runner | Selesai | `defineRoute` + service layer, runner antrean tertanam dengan lease (ADR-063). |
+| Fase 3 — Inti AI | Selesai | Gateway LLM per run, kontrak tool, registry prompt berversi, checkpoint, serializer AST (ADR-064). |
+| Fase 4 — Frontend | Selesai | Route group, RSC + organism klien, Realtime privat, header keamanan, e2e (ADR-065). |
+| Fase 5 — Dokumentasi & deploy | Berjalan | Sinkronisasi PRD/README/panduan; runbook deploy Docker Compose/VPS dan upgrade dari versi lama. |
 
-**Proses Sistem**:
-1. Menjalankan `pre-resolve.ts`: Memeriksa target website, mengambil taksonomi dan profil author WordPress aktif untuk diinjeksikan ke konteks penulisan.
-2. Memasukkan entri ke `post_items` dan `execution_logs`. Artikel mandiri ini otomatis dihubungkan ke batch virtual `"⚡ Tulis Cepat (Quick Writer)"`.
-3. Menjalankan *Agent Profile Runtime* dengan universal tools yang dipilih agen.
-4. Menjalankan pembersih `markdown-cleaner.ts` dan serialisasi `gutenberg.ts`.
-5. Mengirimkan artikel ke WordPress REST API `/wp-json/wp/v2/posts`.
-6. Memperbarui status ke `published_on_wp` atau `saved_draft_on_wp` dan mengembalikan URL artikel.
+Prasyarat rilis produksi: baseline migrasi dibandingkan dengan production (`supabase db diff`) sebelum `db push`, lalu deploy mengikuti [panduan deploy & operasi](docs/deploy/docker-compose-vps.md) dan, untuk instalasi lama, [runbook upgrade ke v2](docs/deploy/upgrade-ke-v2.md). Fase produk berikutnya setelah v2: **Modul Niche Auto-Genesis & Smart Content Recycling** (disepakati dengan pengguna lebih dulu).
 
 ---
 
-### Modul 2: Bulk Keyword Batch (Impor Masal CSV/List) — `/queue` & `/batches`
+## 8. Batasan & Rencana
 
-*Alur kerja otomatisasi masal untuk kampanye konten jangka panjang.*
+### 8.1 Di luar cakupan saat ini
 
-**Input Pengguna**:
-- **Sumber Input**: Pilihan unggah berkas CSV/Excel atau tempel teks masal (*Paste List*).
-- **Interactive Column Mapping**:
-  - Kolom `target_keyword` (*Wajib*).
-  - Kolom pendukung opsional: `suggested_title`, `category`, `tags`, `author`.
-- **Target Website**: Memilih situs WordPress target untuk batch ini.
-- **Profil Agen AI**: Memilih profil agen penulisan untuk mengeksekusi seluruh baris batch.
-- **Mode Eksekusi**:
-  - `Immediate Batch`: Diproses langsung secara berurutan oleh worker antrean.
-  - `Scheduled Drip`: Dijadwalkan tayang bertahap sesuai konfigurasi drip-feed scheduler.
+- Kalender visual artikel terjadwal (`/scheduled` dialihkan ke Tulis Massal; pemantauan di Antrean).
+- Pemilihan author per artikel dari UI (author dipilih Pre-Flight Resolver) dan pemilihan model per Agent Profile dari editor.
+- Impor berkas `.xlsx` langsung.
 
-**Proses Sistem**:
-1. Memvalidasi berkas CSV dan menampilkan pratinjau 5 baris pertama data.
-2. Menyimpan kampanye ke tabel `content_batches` dan seluruh baris ke tabel `post_items` dengan status `queued_input`.
-3. Membangunkan runner antrean di server; item mode `immediate` langsung jatuh tempo dan diproses tanpa menunggu permintaan HTTP lain.
-4. Jika mode `scheduled_drip`, kalkulator jadwal (`date-calculator.ts`) menghitung timestamp acak (*minute jitter*) dalam jendela jam aktif yang ditentukan.
+### 8.2 Asumsi operasional
 
----
+- Rate limit dan runner antrean dirancang untuk satu instance aplikasi (Docker Compose/VPS).
+- Kanal Realtime privat membutuhkan "Allow public access" Realtime dimatikan di Supabase.
 
-### Modul 3: Artikel Terjadwal (Smart Drip-Feed Scheduler) — `/scheduled`
+### 8.3 Keterbatasan yang diketahui
 
-*Mekanisme penjadwalan pintar untuk menyebarkan waktu publikasi secara organik di mata mesin pencari.*
-
-**Fitur Utama**:
-- **Visualisasi Kalender & Daftar Timeline**: Menampilkan seluruh artikel berstatus `scheduled_on_wp` atau dalam antrean terjadwal.
-- **Algoritma Randomized Minute Jitter**: Menghindari waktu bulat kaku (misal `09:00:00` atau `15:00:00`) dengan menambahkan jeda menit dinamis (contoh: `09:23`, `14:47`, `18:12`).
-- **Interval Antar Artikel**: Menjaga jeda minimum antar posting (default: minimal 60 menit) agar artikel tidak terbit berdekatan.
-- **Status Future WordPress**: Artikel dikirim ke WordPress REST API dengan parameter `status: 'future'` dan `date: ISO_TIMESTAMP`, sehingga WordPress core yang mengeksekusi publikasi final tepat waktu melalui WP-Cron.
-
----
-
-### Modul 4: AI-Native WordPress Tools (`/tools`)
-
-*Serangkaian asisten cerdas bertenaga AI yang menginspeksi WordPress via REST API.*
-
-#### 4.1 Internal Link Building Retroaktif (`/tools/link-building`)
-- **Fungsi**: Memperkuat internal linking situs dengan menemukan artikel lama yang relevan untuk disisipkan backlink ke artikel baru.
-- **Alur Kerja**: Masukkan URL artikel baru ➔ AI menganalisis topik dan mencari postingan lama via REST API ➔ AI membaca konten artikel lama dan merekomendasikan kalimat penyisipan serta *anchor text* natural ➔ Aksi 1-klik terapkan ke WordPress REST API atau salin manual.
-
-#### 4.2 Pembuat Persona Penulis E-E-A-T (`/tools/authors`)
-- **Fungsi**: Membangun kredibilitas konten sesuai pedoman Google E-E-A-T (*Experience, Expertise, Authoritativeness, Trustworthiness*).
-- **Alur Kerja**: Masukkan tema/niche situs ➔ AI membaca author yang sudah ada di WP ➔ AI merancang 2–3 persona author profesional lengkap dengan latar belakang keahlian dan biografi kredibel ➔ Pengguna menyetujui persona ➔ Sistem mendaftarkan user baru ke WordPress dengan role `author` via REST API.
-
-#### 4.3 Perancang Taksonomi Kategori (`/tools/categories`)
-- **Fungsi**: Mencegah kanibalisasi kata kunci dan merapikan arsitektur informasi situs.
-- **Alur Kerja**: Masukkan topik niche ➔ AI membaca kategori aktif situs target ➔ AI merancang 3–6 kategori baru yang terstruktur, non-overlapping, lengkap dengan slug SEO dan deskripsi kategori ➔ Pengguna memilih dan menerbitkan masal (*bulk create*) ke WordPress via REST API.
-
----
-
-### Modul 5: Agent Profile Runtime & Studio (`/agents`)
-
-*Pusat perancangan dan manajemen agen penulisan AI otonom.*
-
-- **Pilihan Mode Agen**:
-  - **Standard LangChain Agent**: Menggunakan `createAgent`, cepat, hemat token, ideal untuk alur penulisan langsung dengan tools terarah.
-  - **Deep Agent**: Agen otonom dengan penalaran mendalam (*multi-step reasoning*) yang mampu membaca berkas keahlian (`SKILL.md`) dan melakukan penelusuran fakta investigatif.
-- **Konfigurasi Fleksibel per Profil**:
-  - `workflowPrompt`: Alur instruksi penulisan bebas diedit oleh pengguna.
-  - `model`: Pilihan model LLM (OpenRouter) dinamis.
-  - `toolIds`: Pemilihan alat bantu mandiri (`web_search`, `web_reader`, `image_search`, `upload_media`, taksonomi WP, author WP).
-  - `limits`: Batasan pemanggilan model, batas pemanggilan tool, durasi timeout, dan target minimal jumlah kata.
-- **Preset Bawaan Pabrikan**:
-  - `Quick Writer`: Penulisan ringkas, cepat, dan hemat token.
-  - `Research Writer`: Penulisan artikel mendalam berbasis fakta web dengan kurasi gambar relevan.
-  - `Deep Research`: Penulisan komprehensif dengan verifikasi fakta eksternal multi-sumber.
-
----
-
-### Modul 6: Skill Registry (`/skills`)
-
-*Repositori keahlian editorial berbasis Markdown (`SKILL.md`) untuk Deep Agents.*
-
-- Menyediakan instruksi gaya penulisan dan panduan redaksi tingkat lanjut:
-  - **`anti-ai-editor`**: Menghilangkan sidik jari tulisan AI (pola *contrastive negation*, metafora klise, minim burstiness) dan menghasilkan tulisan editorial bahasa Indonesia yang mengalir alami.
-- Pengguna dapat membuat modul keahlian baru di `/skills/new` untuk mendefinisikan aturan penulisan brand, tone of voice, atau pedoman SEO spesifik.
-
----
-
-### Modul 7: Laboratorium Pengujian Agen (`/lab`)
-
-*Lingkungan sandbox terisolasi untuk menguji profil agen sebelum digunakan pada antrean produksi.*
-
-- Pengguna dapat memilih website WordPress, profil agen, memasukkan kata kunci uji coba, dan mengeksekusi agen secara live.
-- Menampilkan log telemetri langkah demi langkah (*step events*), pemanggilan tool, respon model, serta pratinjau naskah artikel yang dihasilkan tanpa mencemari data antrean publikasi.
-
----
-
-### Modul 8: Unified BYOK Hub & Settings (`/settings/*`)
-
-*Sentralisasi seluruh konfigurasi akun dan kredensial eksternal.*
-
-- **Kunci API (`/settings/keys`)**:
-  - OpenRouter API Key (akses ke puluhan LLM mutakhir).
-  - Web Search Keys: Tavily API, Brave Search API, SerpAPI, atau URL SearXNG mandiri.
-  - Pexafy API Key: Kunci kurasi foto beresolusi tinggi bebas royalti.
-  - Seluruh kredensial tersimpan dalam bentuk terenkripsi (**AES-256-GCM**) dan tidak pernah dikembalikan ke antarmuka browser.
-- **Preferensi Pencarian & Model AI**: Pemilihan provider pencarian default, model AI default, dan tingkat penalaran (reasoning effort) kini bagian dari Kunci API (`/settings/keys`) dan disimpan per tenant di `user_settings`. URL lama `/settings/ai` dialihkan ke `/settings/keys#model-ai`.
-- **Outbound Webhooks (`/settings/webhooks`)**: Pendaftaran, pengubahan (nama/URL/event), aktif-nonaktif, tes ping, dan penghapusan endpoint webhook pihak ketiga (Make, n8n, Zapier) dengan tanda tangan HMAC SHA-256 dan pemilihan event langganan (`post.published`, `post.scheduled`, `post.failed`, `batch.completed`). Secret hanya ditampilkan sekali setelah pendaftaran.
-
----
-
-### Modul 9: Media & Search Engine Pipeline
-
-1. **SearXNG Metasearch Engine**:
-   - Berjalan di dalam jaringan internal Docker (`http://searxng-internal:8080`) melalui `docker-compose.yml`.
-   - Melayani pencarian web faktual dan pencarian foto bebas biaya kuota API per-panggilan.
-2. **Pexafy API Integration**:
-   - Menghubungkan dasbor ke repositori fotografi bebas royalti via endpoint resmi Pexafy (`https://api.pexafy.com/api/v1/search/photos`).
-   - Otomatis mengunduh dan mengunggah foto terpilih ke pustaka media WordPress target via REST API.
-
----
-
-## 4. Siklus Hidup Antrean (9-State Machine)
-
-Seluruh pemrosesan artikel diatur oleh **Database-First State Machine** di tabel `post_items.state`:
-
-| # | Status (`state`) | Label UI | Keterangan |
-| :- | :--- | :--- | :--- |
-| 1 | `queued_input` | Menunggu | Artikel terdaftar di antrean database, menunggu giliran worker. |
-| 2 | `generating_content` | Sedang Ditulis | Agen AI sedang meriset dan menulis naskah. Terkunci secara atomik. |
-| 3 | `ready_to_sync` | Siap Kirim | Naskah Markdown dan Gutenberg Blocks selesai diproses dan tersimpan di DB. |
-| 4 | `syncing_to_wp` | Mengirim ke Web | Naskah sedang dikirim via HTTP POST ke WordPress REST API. |
-| 5 | `published_on_wp` | Tayang (Live) | Artikel sukses terbit langsung di WordPress. ID dan URL live tersimpan. |
-| 6 | `scheduled_on_wp` | Terjadwal | Artikel sukses dijadwalkan di WordPress untuk tanggal mendatang. |
-| 7 | `saved_draft_on_wp` | Draf Tersimpan | Artikel sukses disimpan sebagai konsep di wp-admin WordPress. |
-| 8 | `failed_generation` | Gagal Tulis | Kegagalan pada tahap AI (kuota habis, timeout, circuit breaker). |
-| 9 | `failed_sync` | Gagal Kirim | Kegagalan koneksi WordPress (auth error, hosting down, timeout WP). |
-
-### Aturan Keandalan:
-- **Atomic Claim Lock dengan Lease**: Mencegah tabrakan eksekusi worker ganda; item yang workernya mati dipulihkan otomatis setelah lease kedaluwarsa.
-- **Retry Otomatis Terbatas**: Kegagalan sementara dicoba ulang dengan jeda bertahap (maks 3 percobaan), lalu berhenti di status gagal dengan pesan error terakhir.
-- **Cost-Saver Retry**: Status `failed_sync` langsung melompati tahap AI dan mengirimkan naskah yang sudah ada di database ke WordPress.
-- **Anti-Duplikasi**: Kegagalan kirim yang mungkin sudah membuat post di WordPress (timeout/5xx) tidak dikirim ulang otomatis; pengguna diminta memeriksa wp-admin sebelum "Kirim ulang".
-
----
-
-## 5. Peta Navigasi Antarmuka (Sitemap)
-
-```
-/login                       → Autentikasi Pengguna (Supabase Auth SSR)
-/register                    → Pendaftaran Akun Pengguna
-
-/(dashboard)/
-├── /                        → Dashboard Overview (KPIs, Recent Posts, Quick Actions)
-├── /sites                   → Multi-Site WordPress Manager & Add Site Modal
-├── /batches                 → Riwayat & Pemantauan Batch Campaign
-├── /queue/items             → Tabel Antrean Lengkap (Grouped by Batch, Status Tabs, Bulk Ops)
-├── /posts/new               → Tulis Cepat (Quick Single Post UI)
-├── /posts/[id]              → Detail Artikel, Pratinjau Gutenberg, Tab Markdown, & Audit Logs
-├── /queue                   → Bulk Artikel (CSV Upload & Column Mapping Wizard)
-├── /scheduled               → Kalender & Timeline Artikel Terjadwal
-├── /tools                   → WP Tools Hub
-│   ├── /tools/link-building → Retroactive Internal Link Building Assistant
-│   ├── /tools/authors       → Pembuat Persona Penulis E-E-A-T
-│   └── /tools/categories    → Perancang Taksonomi Kategori WordPress
-├── /agents                  → Agent Studio (Daftar & Preset Profil Agen)
-│   ├── /agents/new          → Formulir Perancangan Profil Agen Baru
-│   └── /agents/[id]         → Detail & Konfigurasi Profil Agen
-├── /skills                  → Skill Registry (Pustaka Modul SKILL.md)
-│   └── /skills/new          → Buat Modul Keahlian Baru
-├── /lab                     → Laboratorium Pengujian Agen (Sandbox)
-├── /settings                → Pusat Pengaturan Platform
-│   ├── /settings/keys       → Unified BYOK Hub (OpenRouter + model default & reasoning, Search, Pexafy, LangSmith)
-│   ├── /settings/ai         → Dialihkan ke /settings/keys#model-ai (URL lama)
-│   ├── /settings/webhooks   → Manajemen Outbound Webhooks
-│   └── /settings/profile    → Profil Pengguna & Kata Sandi
-└── /docs                    → Dokumentasi Pengguna Interaktif (In-App Reader)
-```
-
----
-
-## 6. Persyaratan Non-Fungsional (NFR)
-
-1. **Keamanan Data Multi-Tenant**:
-   - Isolasi 100% menggunakan PostgreSQL Row Level Security (RLS) pada 10 tabel Supabase.
-   - Enkripsi kredensial WordPress Application Passwords dan API Keys pengguna menggunakan algoritma **AES-256-GCM**.
-   - Dekripsi kredensial dilakukan *server-side only* sesaat sebelum request HTTP ke luar dan dilarang dikembalikan ke browser.
-2. **Proteksi Jaringan (Anti-SSRF)**:
-   - Validasi URL website WordPress pengguna: wajib menggunakan protokol `https://` (kecuali mode dev lokal), menolak IP privat RFC 1918 (`127.0.0.1`, `10.x`, `192.168.x`, `169.254.x`), dan membatasi timeout koneksi ke 15 detik.
-3. **Integritas Konten (Anti-XSS & Anti-Slop)**:
-   - Naskah artikel AI disaring oleh pembersih teks tersembunyi (`markdown-cleaner.ts`) untuk menghapus pola AI klise, normalisasi H1, dan sanitasi HTML sebelum disimpan maupun dikirim ke WordPress.
-4. **Performa Antrean**:
-   - Worker mampu mengeksekusi antrean secara stabil tanpa membebani shared hosting pengguna melalui *per-site concurrency throttling* (maks 2 request paralel per domain).
-
----
-
-## 7. Status Rilis & Kesiapan Produksi
-
-Seluruh fitur inti yang tercantum dalam dokumen ini **telah terimplementasi secara lengkap di dalam kode produksi**, telah teruji di Laboratorium (`/lab`), dan siap digunakan untuk operasi penerbitan konten multi-situs berskala besar.
+- Preferensi notifikasi di `/settings/profile` tersimpan tetapi belum memicu notifikasi apa pun (email maupun toast).
+- Event webhook `batch.failed` dapat dipilih tetapi belum dikirim oleh sistem.
+- Mode pencarian **SerpAPI** dapat dipilih, tetapi kunci SerpAPI belum dapat diisi dari `/settings/keys`.
+- Kolom **Kategori WordPress** per baris di Tulis Terstruktur belum memengaruhi kategori yang dikirim ke WordPress.

@@ -23,9 +23,9 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 
 **A. Database-First State Machine.** Setiap job (Tulis Cepat, Immediate Batch, Scheduled Drip) wajib dicatat di Supabase *sebelum* dieksekusi. Tidak ada fire-and-forget di memori. Setiap item punya `post_items.state`, `retry_count`, `wp_post_id`. Worker mengambil item dengan **Atomic Claim Lock**.
 
-**B. Idempotency & Cost-Saver Retry.** `failed_sync` di-retry langsung ke `syncing_to_wp` memakai naskah tersimpan — tidak pernah memicu `generating_content` ulang. Cek `wp_post_id` agar retry tidak menggandakan posting.
+**B. Idempotency & Cost-Saver Retry.** `failed_sync` di-retry ("Kirim ulang" → `ready_to_sync` → `syncing_to_wp`) memakai naskah tersimpan — tidak pernah memicu `generating_content` ulang. Cek `wp_post_id` agar retry tidak menggandakan posting.
 
-**C. Keamanan.** Kredensial WP & API key dienkripsi AES-256-GCM, didekripsi hanya di server; BYOK-only (tanpa fallback kunci platform kecuali `PLATFORM_KEY_ALLOWED=true`); throttling per situs (default maks 2 request paralel); setiap fetch ke URL dari pengguna/LLM lewat `safeFetch`. Rinci: [`.claude/rules/security.md`](.claude/rules/security.md).
+**C. Keamanan.** Kredensial WP & API key dienkripsi AES-256-GCM, didekripsi hanya di server; BYOK-only (tanpa fallback kunci platform kecuali `PLATFORM_KEY_ALLOWED=true`); throttling per situs (default maks 2 item antrean paralel, `wp_sites.max_concurrency`); setiap fetch ke URL dari pengguna/LLM lewat `safeFetch`. Rinci: [`.claude/rules/security.md`](.claude/rules/security.md).
 
 ## 4. Cara Kerja di Repo Ini
 
@@ -65,7 +65,7 @@ SaaS dasbor multi-situs: pengguna menghubungkan banyak website WordPress, membua
 | [`.mcp.json`](.mcp.json) | MCP Supabase (read-only), Next DevTools, Playwright — lihat README. |
 | [`.claude/settings.json`](.claude/settings.json) + [`.claude/hooks/`](.claude/hooks/) | Izin, pengaman secret, dan `npm ci` otomatis di sesi cloud. |
 | [`PRD.md`](PRD.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md) · [`DESIGN.md`](DESIGN.md) · [`MEMORY.md`](MEMORY.md) | Produk, arsitektur, design system, memori & ADR. |
-| [`docs/`](docs/) | Dokumen arsitektur internal; panduan pengguna (in-app reader `/docs`) di `docs/guides/`. |
+| [`docs/`](docs/) | Runbook deploy di `docs/deploy/`; panduan pengguna (in-app reader `/docs`) di `docs/guides/`. |
 
 Preferensi pribadi yang tidak perlu dibagikan ke tim: `CLAUDE.local.md` atau `.claude/settings.local.json` (keduanya di-ignore Git).
 

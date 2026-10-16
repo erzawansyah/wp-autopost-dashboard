@@ -1,50 +1,90 @@
-# Manajemen Profil Agen & Penulisan AI
+# Agent Profile & Skill Registry
 
-Sistem penulisan di Panitera tidak menggunakan alur kaku berbasis template teks biasa. Melainkan menggunakan **Agent Profile Runtime** di mana Anda dapat menentukan persona, gaya bahasa, alat riset (*tools*), serta keahlian editorial (*skills*) yang dapat digunakan agen AI secara otonom.
-
----
-
-## 1. Mode Agent Profile
-
-Saat membuat profil agen baru di menu **Profil Agen** (`/agents`), Anda dapat memilih salah satu dari dua mode:
-
-### A. Standard LangChain Agent
-- Menggunakan ekosistem LangChain `createAgent`.
-- Cocok untuk alur penulisan cepat hingga menengah dengan pemanggilan tools terarah.
-- Sangat efisien dalam penggunaan token dan waktu eksekusi.
-
-### B. Deep Agent (LangChain Deep Agents)
-- Agen otonom dengan penalaran bertahap (*multi-step reasoning*).
-- Memiliki kapabilitas membaca berkas keahlian (`SKILL.md`) di direktori virtual eksekusinya.
-- Mampu membedah topik secara investigatif, melakukan verifikasi data silang, dan membaca rujukan artikel panjang via `web_reader`.
+Setiap artikel ditulis oleh sebuah **Agent Profile**: resep agen penulis yang menentukan mode agen, tools riset yang boleh dipakai, instruksi alur kerja, dan batas eksekusi. Agent Profile dipilih di Tulis Cepat, Tulis Massal, dan Tulis Terstruktur.
 
 ---
 
-## 2. Universal Tools yang Tersedia
+## 1. Preset Bawaan
 
-Setiap agen dapat dipersenjatai dengan tools mandiri sesuai kebutuhan:
+Menu **Profil Agen** ([/agents](/agents)) menampilkan **Preset Bawaan Sistem** yang siap pakai dan baca-saja:
 
-1. **`web_search`**: Mencari referensi faktual, data statistik, dan kutipan dari internet via SearXNG, Tavily, atau Brave.
-2. **`web_reader`**: Membaca dan mengekstrak naskah teks lengkap dari tautan URL artikel rujukan.
-3. **`image_search`**: Mencari foto landscape berkualitas tinggi bebas royalti (lebar minimal 1280px) untuk featured image atau foto subbab.
-4. **`set_featured_image`**: Memilih dan menyetel gambar sampul utama (Featured Image) secara langsung dari kurasi gambar web.
-5. **`upload_media`**: Mengunggah foto hasil kurasi ke WordPress Media Library dan menyematkannya ke dalam subbab naskah.
-6. **`keyword_suggestions`**: Menggali autocomplete search engine dan entitas kata kunci LSI untuk memetakan struktur subbab H2/H3.
+| Preset | Mode | Tools | Cocok untuk |
+| :--- | :--- | :--- | :--- |
+| **Quick Writer** | Standard | Tanpa tools | Artikel instan, hemat token. Default bila Anda belum menetapkan profil default. |
+| **Research & Media Writer** | Standard | 6 Universal Tools | Artikel berbasis riset web dengan foto pilihan. |
+| **Deep Research Specialist** | Deep | 6 Universal Tools + skill `anti-ai-editor` | Artikel investigatif dengan perencanaan bertahap. |
 
-> [!NOTE]
-> Taksonomi (kategori & tag) dan pemilihan author WordPress tidak lagi memerlukan tool manual karena diselesaikan secara otomatis oleh **Pre-Flight Taxonomy & Author Resolver** sebelum agen mulai menulis.
+Untuk menyesuaikan preset, klik **Kloning & Modifikasi** pada kartunya; salinannya menjadi Agent Profile kustom yang bisa diedit. Profil kustom tampil di bagian **Agent Profile Kustom Anda** dengan tombol **Edit** dan hapus.
 
 ---
 
-## 3. Skill Registry (`SKILL.md`)
+## 2. Membuat atau Mengedit Agent Profile
 
-Pada mode **Deep Agent**, Anda dapat mengaktifkan modul keahlian khusus dari menu **Skill Registry** (`/skills`). 
-Setiap berkas `SKILL.md` berisi instruksi mendalam, misalnya:
-- **`anti-ai-editor`**: Pedoman penulisan humanis untuk mengeliminasi formula klise AI, meningkatkan variasi kalimat, dan menjaga keaslian gaya editorial bahasa Indonesia.
-- **Keahlian Kustom**: Anda dapat membuat skill baru di `/skills/new` dengan memuat pedoman SEO, tone of voice merek Anda, atau aturan jurnalistik spesifik.
+Klik **Buat Profil Agen Baru** (atau **Edit** pada profil kustom). Formulir terdiri dari:
+
+- **Identitas Agen**: **Nama profil agen**, **Deskripsi singkat**, mode (**Standard** atau **Deep Agent**), dan **Jadikan default** (otomatis dipilih di Tulis Cepat & Tulis Massal).
+- **Alur Kerja Penulisan (Workflow Prompt)**: instruksi langkah demi langkah cara agen meriset dan menyusun artikel. Tab **Raw** untuk mengedit dan **Pratinjau** untuk membaca; tombol **Sisipkan ke kursor** membantu menyebut nama tool. Sebut tool secara eksplisit, misalnya "Gunakan `web_search` untuk…".
+- **Universal Tools**: centang tools yang diizinkan (lihat bagian 3).
+- **Skill Registry** (hanya mode Deep): centang skill `SKILL.md` yang dimuat agen.
+- **Parameter & Batas Runtime**: **Temperatur kreativitas**, **Maks. panggilan model**, **Maks. panggilan tool**, **Batas waktu (detik)**, dan **Target minimal kata**. Nilai di luar rentang otomatis disesuaikan ke batas sistem.
+
+Klik **Simpan Profil Agen** (profil baru) atau **Simpan Perubahan Profil**. Menghapus profil kustom mengarsipkannya: profil tidak muncul lagi di pilihan, tetapi antrean lama yang memakainya tetap dapat diproses.
+
+### Mode Standard vs Deep
+
+- **Standard**: agen ReAct yang cepat dan hemat token; cocok untuk sebagian besar artikel.
+- **Deep Agent**: agen dengan perencanaan tugas yang dapat membaca skill `SKILL.md` dari Skill Registry. Lebih lama dan lebih mahal, cocok untuk topik yang butuh riset mendalam.
+
+### Model AI
+
+Editor Agent Profile tidak memiliki pilihan model. Artikel di antrean ditulis dengan **Model Default Penulisan Artikel** dan **Tingkat Penalaran** yang Anda atur di [Pusat Kunci API & Model AI](/settings/keys).
 
 ---
 
-## 4. Konversi Otomatis ke Gutenberg Blocks
+## 3. Universal Tools
 
-Naskah yang ditulis oleh agen dalam format Markdown murni akan dikonversi secara deterministik oleh sistem ke **Native WordPress Gutenberg Blocks** (`<!-- wp:heading -->`, `<!-- wp:paragraph -->`, `<!-- wp:image -->`, `<!-- wp:list -->`, dll.) sebelum dikirim ke WordPress. Anda tidak perlu khawatir tentang kompatibilitas tema atau editor blok WordPress.
+| Tool (label di formulir) | ID di workflow prompt | Fungsi |
+| :--- | :--- | :--- |
+| **Keyword & LSI Suggestions** | `keyword_suggestions` | Saran kata kunci turunan dan LSI untuk menyusun subjudul. |
+| **Web Search** | `web_search` | Mencari referensi dan data terbaru di web. |
+| **Web Reader** | `web_reader` | Membaca isi lengkap halaman web rujukan. |
+| **Image Search** | `image_search` | Mencari foto landscape bebas royalti (lebar minimal 1280 px). |
+| **Set Featured Image** | `set_featured_image` | Memilih gambar sampul (featured image) artikel. |
+| **Upload Media to WordPress** | `upload_media` | Mengunggah foto ke Media Library WordPress; butuh website terhubung. |
+
+`web_search` mengikuti **Mode Pemilihan Mesin Pencari Utama** di Pusat Kunci API. Mode bawaan **Auto Cascade** mencoba kunci Tavily atau Brave Anda lebih dulu, lalu SearXNG dan sumber terbuka sebagai cadangan. `image_search` memakai kunci Pexafy Anda bila tersedia, lalu sumber foto bebas royalti lain. Setiap tool di formulir diberi tanda **Siap** atau **Perlu konfigurasi** (arahkan kursor untuk melihat syaratnya).
+
+---
+
+## 4. Yang Terjadi Saat Agen Menulis
+
+1. **Pre-Flight Resolver**: sebelum menulis, Panitera membaca author, kategori, dan tag dari WordPress target. Sistem memilih persona author yang sesuai (akun admin teknis tidak dipilih selama ada persona lain), memakai kategori pilihan Anda atau memilihkan dari kategori yang sudah ada, dan mencocokkan atau membuat tag. Kategori baru tidak dibuat otomatis; buat lewat [WP Tools](/docs?doc=05-wp-tools-dan-utilitas).
+2. **Penulisan**: agen menulis naskah Markdown dengan tools yang diizinkan, dibatasi kuota panggilan model, panggilan tool, dan batas waktu profil.
+3. **Perapian & konversi**: naskah dibersihkan dari pola tulisan AI yang klise, judul H1 ganda dirapikan, lalu dikonversi otomatis ke blok Gutenberg (`<!-- wp:paragraph -->`, `<!-- wp:heading -->`, dll.).
+4. **Pengiriman**: naskah dan metadata dikirim ke WordPress sesuai status yang Anda pilih.
+
+Agen dilengkapi pengaman: panggilan tool identik berulang dicegah, tool yang gagal berturut-turut dinonaktifkan, dan bila batas tercapai agen diminta menyelesaikan naskah sekali saja.
+
+---
+
+## 5. Skill Registry (`SKILL.md`)
+
+Menu **Skill Registry** ([/skills](/skills)) berisi pedoman keahlian untuk Agent Profile mode Deep.
+
+- **Skill sistem** (misalnya `anti-ai-editor`, pedoman humanisasi naskah bahasa Indonesia) bersifat baca-saja. Buat skill baru bila ingin menyesuaikannya.
+- **Tambah Skill Baru** ([/skills/new](/skills/new)): isi **Nama keahlian**, **Slug (ID pemanggilan)**, **Deskripsi singkat**, dan **Isi SKILL.md**, atau klik **Unggah berkas .md**. Klik **Simpan Skill Baru**.
+- Skill kustom dapat diedit (slug tidak dapat diubah) dan dihapus. Agent Profile yang memakai slug yang dihapus tidak lagi memuat skill tersebut.
+- Filter **Sistem** / **Kustom Saya** dan kolom pencarian membantu menemukan skill.
+
+Skill hanya dimuat bila dicentang di Agent Profile bermode Deep.
+
+---
+
+## 6. Menguji di Laboratorium
+
+**Laboratorium** ([/lab](/lab)) hanya tampil bila **Developer Mode** aktif di **Pengaturan → Profil & Preferensi Akun**.
+
+- Tab **Tools**: jalankan setiap Universal Tool secara terpisah. Tersedia juga **WordPress Publisher (Direct Test)** untuk menguji kirim artikel contoh ke WordPress (bawaan **Draft**).
+- Tab **Agent Profile**: pilih profil, **Target website WordPress** (atau **Mode simulasi (tanpa WordPress)**), bahasa, kata kunci, dan brief, lalu klik **Jalankan Agent Profile**. Hasilnya berupa pratinjau naskah, blok Gutenberg, dan telemetri run. Artikel tidak dikirim ke WordPress, tetapi tool `upload_media` tetap dapat mengunggah foto bila website dipilih.
+
+Uji Agent Profile memakai kunci OpenRouter Anda dan dapat menimbulkan biaya token.

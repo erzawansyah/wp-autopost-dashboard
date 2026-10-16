@@ -1,213 +1,192 @@
 # Panitera — WP Autopost & Multi-Site Content Dashboard
 
-**Panitera** adalah platform manajemen, otomatisasi, dan orkestrasi konten multi-situs WordPress modern berbasis **AI Agent Profile Runtime**. Platform ini memungkinkan pemilik jaringan website (solopreneur, niche blogger, media portal, agensi SEO) untuk memproduksi artikel berkualitas tinggi secara masal, menyusun jadwal penerbitan bertahap (*smart humanized drip-feed*), memanfaatkan asisten AI untuk optimasi internal linking dan taksonomi, serta menerbitkan konten secara otomatis ke banyak website WordPress tanpa perlu memasang plugin khusus (*zero-plugin onboarding*).
+**Panitera** adalah dasbor SaaS multi-tenant untuk memproduksi, menjadwalkan, dan menerbitkan artikel ke banyak website WordPress. Artikel ditulis oleh **Agent Profile** (agen AI berbasis LangChain/Deep Agents) di antrean latar belakang, lalu dikirim lewat WordPress REST API + Application Passwords tanpa plugin apa pun di website pengguna.
+
+Versi saat ini: `0.2.0-dev` (branch `v2`). Spesifikasi produk lengkap ada di [`PRD.md`](PRD.md); panduan pengguna ada di [`docs/guides/`](docs/guides/) (juga dibaca di aplikasi lewat menu **Help / Docs**).
 
 ---
 
 ## Fitur Utama
 
-- 🌐 **Zero-Plugin WordPress Onboarding**:
-  Terhubung langsung ke WordPress Anda murni melalui standar resmi **WordPress REST API** dan **Application Passwords**. Tanpa install plugin custom, tanpa edit file PHP (`functions.php`), dan tanpa risiko merusak website pengguna.
-- 🤖 **Agent Profile Runtime & Studio (`/agents`)**:
-  Kustomisasi agen penulisan AI secara otonom. Pilih antara **Standard LangChain Agent** (`createAgent`) atau **Deep Agent** yang membaca modul keahlian editorial (**`SKILL.md`** di `/skills`). Bebas mengatur persona, alur instruksi (*workflow prompt*), batasan eksekusi (*hard ceiling limits*), dan kombinasi alat (*universal tools*).
-- ⚡ **Tulis Cepat (Quick Writer) (`/posts/new`)**:
-  Buat dan terbitkan 1 artikel instan dalam hitungan menit dengan pemilihan situs, kategori, persona author, dan profil agen secara langsung.
-- 📦 **Bulk Keyword Batch Ingestion (`/queue` & `/batches`)**:
-  Unggah puluhan hingga ratusan kata kunci melalui berkas CSV/Excel atau teks masal dengan *Interactive Column Mapping*.
-- 📅 **Smart Humanized Drip-Feed Scheduler (`/scheduled`)**:
-  Jadwal tayang bertahap dengan algoritma *randomized minute jitter* dan jendela jam aktif agar pola publikasi artikel tampak alami di mata mesin pencari Google.
-- 🛠️ **AI-Native WP Tools (`/tools`)**:
-  - **Internal Link Building Retroaktif (`/tools/link-building`)**: Analisis artikel baru ➔ AI scan konten postingan lama via REST API ➔ AI rekomendasikan kalimat penyisipan internal link & anchor natural ➔ 1-klik terapkan ke WordPress.
-  - **Pembuat Persona Penulis E-E-A-T (`/tools/authors`)**: AI rancang persona author kredibel dengan biografi persuasif ➔ otomatis daftarkan akun author baru ke WordPress.
-  - **Perancang Taksonomi Kategori (`/tools/categories`)**: AI analisis kategori aktif untuk mencegah tumpang tindih topik ➔ rancang 3–6 kategori SEO ➔ terbitkan masal ke WordPress.
-- 🧪 **Laboratorium Pengujian Agen (`/lab`)**:
-  Sandbox uji coba terisolasi untuk menguji profil agen, model AI, dan tool sebelum digunakan pada antrean produksi.
-- 🎨 **Markdown-First & Native Gutenberg Block Serializer**:
-  AI menulis naskah dalam format Markdown murni (menghemat ~30% token dan anti-broken HTML), lalu dikonversi secara deterministik ke WordPress Gutenberg Blocks (`<!-- wp:... -->`) resmi.
-- 🔍 **Pencarian Mandiri SearXNG & Kurasi Foto Pexafy**:
-  Dukungan metasearch engine mandiri **SearXNG** (tanpa kuota berbayar) via Docker internal network, serta integrasi foto bebas royalti resolusi tinggi melalui **Pexafy API**.
-- 🔑 **Unified Bring Your Own Key (BYOK) Hub (`/settings/keys`)**:
-  Sentralisasi seluruh kunci API pihak ketiga (OpenRouter AI, Web Search: Tavily/Brave/SerpAPI, Pexafy API, dan SearXNG URL) dengan enkripsi aman **AES-256-GCM**.
-- 🔔 **Outbound Webhooks (`/settings/webhooks`)**:
-  Kirim notifikasi real-time bertanda tangan kriptografis HMAC SHA-256 ke Make, n8n, Zapier saat artikel sukses terbit, dijadwalkan, atau gagal.
-- 📖 **Dokumentasi Pengguna Interaktif (`/docs`)**:
-  Panduan lengkap cara pakai Panitera yang dapat dibaca langsung dari dalam antarmuka aplikasi.
+- **Koneksi WordPress tanpa plugin**: otorisasi Application Password satu klik (atau input manual), status koneksi per website yang diperbarui dari request nyata (**Cek ulang koneksi**, **Sambungkan ulang**), batas request paralel per website, kredensial terenkripsi AES-256-GCM.
+- **Tiga cara menulis**: **Tulis Cepat** (satu artikel), **Tulis Massal** (daftar kata kunci, maks. 50 per batch), dan **Tulis Terstruktur** (CSV/TSV/tempel spreadsheet dengan kolom judul, LSI, fokus, tag).
+- **Penjadwalan drip-feed**: eksekusi langsung atau bertahap, pola interval atau tanggal acak dengan variasi menit; artikel masa depan dikirim sebagai `future` ke WordPress.
+- **Antrean 9-state berbasis database**: runner antrean tertanam dengan klaim atomik + lease, retry otomatis terbatas, kirim ulang hemat biaya tanpa LLM, anti-posting ganda, dan status live lewat Supabase Realtime privat (dengan polling cadangan).
+- **Agent Profile Runtime**: mode Standard (`createAgent`) atau Deep (Deep Agents + `SKILL.md`), 6 Universal Tools riset/visual, Pre-Flight Resolver taksonomi & author, guard anti-loop, serializer Markdown → Gutenberg.
+- **WP Tools**: Link Building retroaktif, Author Creator (persona E-E-A-T), dan Kategori Creator berbasis AI.
+- **BYOK-only**: kunci OpenRouter, Tavily, Brave, Pexafy, dan LangSmith milik tiap pengguna disimpan terenkripsi di `/settings/keys`; tidak ada cadangan kunci platform kecuali `PLATFORM_KEY_ALLOWED=true`.
+- **Laboratorium** (`/lab`, Developer Mode), **Skill Registry**, **webhook bertanda tangan HMAC**, dan **dokumentasi in-app** (`/docs`).
 
 ---
 
-## Struktur Direktori Proyek
+## Struktur Direktori
 
 ```text
 wp-autopost-dashboard/
-├── .claude/                 # Harness Claude Code: rules, skills, hooks, settings
-├── .github/                 # Workflow CI (GitHub Actions) & konfigurasi Dependabot
-├── .workspaces/             # Sandbox lokal (di-ignore Git): scripts, temp, assets, worklogs
-├── docs/                    # Berkas dokumentasi Markdown panduan pengguna (/docs)
-├── scripts/                 # Skrip repo yang di-track (audit kebersihan codebase + allowlist)
-├── searxng/                 # Konfigurasi mesin metasearch SearXNG
-├── supabase/                # Migrasi SQL & test database (PGlite)
+├── .claude/                # Harness Claude Code: rules, skills, hooks, settings
+├── .github/                # Workflow CI & Dependabot
+├── docs/
+│   ├── guides/             # Panduan pengguna (reader in-app /docs, pola 0N-slug.md)
+│   └── deploy/             # Panduan deploy & runbook upgrade
+├── e2e/                    # Test end-to-end Playwright (global setup, fixture, blueprint WordPress)
+├── evals/                  # Kasus & penilaian eval writer (npm run eval:writer)
+├── public/                 # Aset statis (logo, favicon)
+├── scripts/                # Audit kebersihan, build registry prompt, eval writer (lihat scripts/README.md)
+├── searxng/                # Konfigurasi SearXNG internal
+├── supabase/               # config.toml, migrations/, seed.sql, tests/ (PGlite)
 ├── src/
-│   ├── app/                 # Next.js App Router (Pages, UI, dan REST API)
-│   ├── components/          # Komponen UI Atomic Design (atoms, molecules, organisms, templates)
-│   ├── core/                # Logika bisnis murni (writer/, queue/, shared/)
-│   ├── lib/                 # Adapter Supabase, crypto, AI, WordPress client, scheduler, webhooks
-│   └── types/               # Tipe data TypeScript (settings, skills, webhooks)
-├── .mcp.json                # Server MCP proyek untuk Claude Code (Supabase read-only, Next DevTools, Playwright)
-├── docker-compose.yml       # Konfigurasi container Next.js (runner antrean tertanam) + SearXNG
-├── Dockerfile               # Konfigurasi build Docker (standalone + HEALTHCHECK /api/health)
-├── package.json             # Dependensi Next.js 16, LangChain, Supabase, Tailwind v4
-└── tsconfig.json            # Konfigurasi TypeScript strict
+│   ├── app/                # Next.js App Router: (auth)/, (dashboard)/, api/
+│   ├── components/         # Atomic Design: atoms, molecules, organisms, templates, providers
+│   ├── core/               # Domain murni: queue/ (worker, retry), writer/ (Agent Profile Runtime), shared/ (LLM, tools, prompts, formatter)
+│   ├── lib/                # Adapter: supabase, crypto, env, net (safeFetch), wordpress, ai, validation (zod), api client, hooks
+│   ├── server/             # http/ (defineRoute, rate limit), services/, queue/ (runner tertanam)
+│   ├── types/              # Tipe domain bersama
+│   ├── instrumentation.ts  # Validasi env & start runner antrean
+│   └── proxy.ts            # Penyegaran sesi & pengalihan login (pengganti middleware)
+├── docker-compose.yml      # Aplikasi + SearXNG internal
+├── Dockerfile              # Build standalone + HEALTHCHECK /api/health
+└── package.json
 ```
 
 ---
 
-## Panduan Memulai Cepat (Quickstart)
+## Quickstart Pengembangan
 
-### 1. Prasyarat Sistem
-- **Node.js 22** (versi dikunci di `.nvmrc`; jalankan `nvm use` bila memakai nvm).
-- **Docker & Docker Compose** (Opsional, sangat direkomendasikan untuk menjalankan SearXNG mandiri).
-- **Proyek Supabase**: URL, *publishable key*, dan *secret key* (atau *anon key* & *service role key* format lama).
+### 1. Prasyarat
 
-### 2. Instalasi Dependensi
+- **Node.js 22** (dikunci di `.nvmrc`; `nvm use` bila memakai nvm).
+- **Docker** untuk Supabase lokal (Supabase CLI sudah menjadi devDependency, dipanggil lewat `npx supabase`).
+
+### 2. Instal dependensi
+
 ```bash
-# Clone repository
 git clone https://github.com/erzawansyah/wp-autopost-dashboard.git
 cd wp-autopost-dashboard
-
-# Install paket dependensi persis sesuai package-lock.json
 npm ci
 ```
 
-### 3. Konfigurasi Lingkungan (`.env.local`)
-Salin berkas template lingkungan:
+### 3. Jalankan Supabase lokal
+
+```bash
+npx supabase start    # menerapkan supabase/migrations + seed.sql
+npx supabase status   # menampilkan API URL, publishable key, dan secret key lokal
+```
+
+Alternatif: gunakan proyek Supabase cloud khusus dev, `npx supabase link --project-ref <ref>`, lalu `npm run db:push`. Jangan arahkan dev ke proyek production.
+
+### 4. Konfigurasi `.env.local`
+
 ```bash
 cp .env.example .env.local
 ```
-Lengkapi variabel environment penting berikut:
+
+Isi minimal (daftar lengkap & penjelasan ada di `.env.example`):
+
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
-# Kunci publik Supabase (nama lama NEXT_PUBLIC_SUPABASE_ANON_KEY tetap didukung)
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-supabase-publishable-key
-# Kunci server Supabase, hanya untuk worker/proses sistem (nama lama SUPABASE_SERVICE_ROLE_KEY tetap didukung)
-SUPABASE_SECRET_KEY=your-supabase-secret-key
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=<publishable key dari supabase status>
+SUPABASE_SECRET_KEY=<secret key dari supabase status>
 
-# Kunci Master Enkripsi AES-256-GCM (wajib, 32 byte hex / 64 karakter)
-# Generate: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-ENCRYPTION_MASTER_KEY=
+# 64 karakter hex: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+ENCRYPTION_MASTER_KEY=<isi sendiri>
 
-# Runner antrean: di luar production default `off` agar mesin dev yang terhubung ke Supabase bersama
-# tidak memproses item tenant lain. Aktifkan hanya dengan project Supabase dev/terisolasi:
-# QUEUE_RUNNER=embedded
+# Proses antrean otomatis di dev (hanya dengan Supabase lokal/terisolasi)
+QUEUE_RUNNER=embedded
+
+# Opsional: izinkan WordPress lokal (mis. WordPress Playground di localhost)
+# ALLOW_PRIVATE_NETWORK_FETCH=true
 ```
 
-Daftar lengkap variabel ada di `.env.example`. Panitera bersifat BYOK: kunci OpenRouter, mesin pencari, Pexafy, dan LangSmith diisi tiap pengguna di `/settings/keys`, bukan di file environment.
+Kunci OpenRouter, mesin pencari, Pexafy, dan LangSmith **tidak** diisi di env: setiap pengguna menyimpannya di **Pengaturan → Pusat Kunci API & Model AI** (`/settings/keys`).
 
-### 4. Menjalankan Server Pengembangan Lokal
+### 5. Jalankan aplikasi
+
 ```bash
 npm run dev
 ```
-Buka browser di `http://localhost:3000`.
 
-Di `npm run dev` antrean **tidak** diproses otomatis kecuali `QUEUE_RUNNER=embedded` disetel di `.env.local` (pakai project Supabase dev/terisolasi). Tanpa itu, tombol "Jalankan sekarang" tetap memproses satu item milik Anda per klik.
+Buka `http://localhost:3000`, daftar akun, simpan kunci OpenRouter, lalu sambungkan website WordPress.
 
----
-
-## Deployment Produksi via Docker Compose (Termasuk SearXNG)
-
-Platform ini mendukung deployment satu perintah menggunakan Docker Compose dengan mesin metasearch mandiri (**SearXNG**) tanpa memerlukan kuota API berbayar:
-
-```bash
-# Jalankan container aplikasi Next.js + SearXNG di latar belakang
-docker compose up -d --build
-```
-
-Docker Compose membaca variabel dari berkas `.env` di root proyek (bukan `.env.local`) atau dari environment shell/Portainer. Selain variabel Supabase dan `ENCRYPTION_MASTER_KEY`, `SEARXNG_SECRET` **wajib** diisi; tanpa nilai itu `docker compose` menolak berjalan. `CRON_SECRET` hanya wajib bila runner antrean dimatikan (`QUEUE_RUNNER=off`).
-
-Setelah berjalan:
-- **Panitera Dashboard**: `http://localhost:3000` (atau port publik host yang Anda tentukan). Status kesehatan container diperiksa lewat `GET /api/health`.
-- **SearXNG**: Berjalan secara terisolasi di dalam Docker network internal (`http://searxng-internal:8080`) **tanpa membuka port ke publik luar**, menjamin keamanan dan mencegah konflik port di server Anda. Tag image dipin di `docker-compose.yml` dan diperbarui lewat Dependabot.
-- **Runner antrean tertanam**: Proses Next.js menjalankan loop antrean sendiri (dimulai dari `src/instrumentation.ts`): klaim atomik per situs, lease + heartbeat, retry dengan backoff, dan pemulihan item macet. Tidak ada lagi sidecar `panitera-cron`; saat upgrade jalankan `docker compose up -d --remove-orphans` agar container lama ikut dihapus. Tuning lewat `QUEUE_CONCURRENCY`, `QUEUE_POLL_INTERVAL_MS`, `QUEUE_LEASE_SECONDS` (lihat `.env.example`). Untuk mode serverless/cron eksternal, set `QUEUE_RUNNER=off` dan panggil `POST /api/queue/process` berkala dengan header `Authorization: Bearer $CRON_SECRET` (setiap pemicu memproses maksimal 1 item; atur frekuensi cron sesuai volume).
-- **Urutan upgrade**: terapkan migrasi Supabase lebih dulu (`npx supabase db push`), baru deploy image baru.
+Tanpa `QUEUE_RUNNER=embedded`, runner antrean di luar production default **off** (agar mesin dev yang memakai Supabase bersama tidak memproses item tenant lain); tombol **Jalankan sekarang** / **Tulis ulang** tetap memproses satu item milik Anda per klik. Setelah mengubah kode antrean (`src/core/queue`, `src/server/queue`), restart dev server karena runner tidak ikut hot reload.
 
 ---
 
-## Pengembangan
-
-### Lingkungan & Perintah
-- Node.js 22 (`.nvmrc`), instal dependensi dengan `npm ci`.
-- Test database memakai PGlite (Postgres in-process), jadi tidak butuh Docker atau proyek Supabase.
+## Skrip npm
 
 | Perintah | Fungsi |
 | :--- | :--- |
-| `npm run dev` | Server pengembangan Next.js (`http://localhost:3000`). |
-| `npm run check` | Typecheck + lint + test sekaligus. |
+| `npm run dev` | Server pengembangan Next.js. |
+| `npm run build` | Build produksi (`output: "standalone"`); `prebuild` menjalankan `prompts:build` otomatis. |
+| `npm run start` | Menjalankan hasil build secara lokal (image Docker memakai `node server.js`). |
 | `npm run typecheck` | `tsc --noEmit` (TypeScript strict). |
-| `npm run lint` | ESLint; CI menjalankan `npm run lint -- --max-warnings=0`. |
-| `npm test` / `npm run test:watch` | Vitest untuk `src/**/*.test.ts` dan `supabase/tests/`. |
-| `npm run db:test` | Hanya test database (migrasi + RLS) di `supabase/tests/`. |
-| `npm run db:diff` / `npm run db:push` | Supabase CLI. `db:push` menerapkan migrasi ke proyek yang di-*link*, jadi gunakan hanya untuk proyek dev/staging atau dengan persetujuan pemilik proyek. |
-| `npm run audit:hygiene` | Audit kebersihan codebase (lihat di bawah). |
-| `npm run build` | Build produksi (`output: "standalone"`). |
-| `npm run test:e2e` | Test end-to-end Playwright: Supabase lokal + WordPress Playground + `next dev` (lihat di bawah). |
+| `npm run lint` | ESLint; CI memakai `npm run lint -- --max-warnings=0`. |
+| `npm test` / `npm run test:watch` | Vitest: `src/**/*.test.ts`, `supabase/tests/`, `scripts/`, `evals/`. |
+| `npm run check` | Typecheck + lint + test sekaligus. |
+| `npm run db:test` | Hanya test database (migrasi + RLS) dengan PGlite, tanpa Docker. |
+| `npm run db:diff` / `npm run db:push` | Supabase CLI. `db:push` menerapkan migrasi ke proyek yang di-link; gunakan untuk dev/staging, atau production dengan persetujuan pemilik. |
+| `npm run audit:hygiene` | Audit kebersihan: berkas yatim, prompt, istilah legacy, raw fetch, warna/ukuran arbitrer (`scripts/audit-allowlist.json` bersifat ratchet). |
+| `npm run prompts:build` | Validasi `src/core/shared/prompts/*.md` dan tulis `registry.generated.ts`. |
+| `npm run eval:writer` | Eval live kualitas writer atas `evals/cases/*.json` (memanggil LLM berbayar; `-- --dry-run` tanpa kunci). |
+| `npm run test:e2e` | Playwright: Supabase lokal + WordPress Playground + `next dev`. |
 
-**Audit kebersihan** (`scripts/audit-codebase.ts`, langsung dijalankan Node 22 tanpa dependensi) memeriksa: berkas yatim dan modul yang hanya dipakai test, berkas prompt `.md` yang salah nama atau tidak dirujuk, prompt LLM hardcode di kode TS, istilah legacy "engine", warna mentah/arbitrary di UI, serta `fetch()` mentah ke URL non-relatif. Temuan lama yang disengaja dicatat di `scripts/audit-allowlist.json` dengan alasan dan batas `max` per berkas. Temuan baru membuat audit gagal. Host eksternal tetap (OpenRouter, Tavily, dll.) didaftarkan di `externalHosts`; URL dari pengguna/LLM wajib lewat `safeFetch()`.
-
-Sebelum membuka PR, jalankan urutan yang sama dengan CI: `typecheck` → `lint -- --max-warnings=0` → `test` → `audit:hygiene` → `build` (lihat skill [`panitera-verify`](.claude/skills/panitera-verify/SKILL.md)). Tanpa `.env.local`, build bisa dijalankan dengan placeholder:
+Urutan verifikasi sebelum PR sama dengan CI: `typecheck` → `lint -- --max-warnings=0` → `test` → `audit:hygiene` → `build` (skill [`panitera-verify`](.claude/skills/panitera-verify/SKILL.md)). Tanpa `.env.local`, build bisa memakai placeholder:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=https://example.supabase.co NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=dummy npm run build
 ```
 
+Detail skrip & alur mengubah prompt: [`scripts/README.md`](scripts/README.md).
+
 ### Test End-to-End (Playwright)
-`npm run test:e2e` menjalankan suite di `e2e/tests/` terhadap layanan lokal yang dinyalakan global setup (`e2e/global-setup.ts`) dan dimatikan lagi saat selesai:
 
-1. **Supabase lokal** (Supabase CLI + Docker): dipakai ulang bila sudah berjalan (migrasi tertunda diterapkan dengan `supabase migration up --local`), selain itu `supabase start` (migrasi + seed). Stack dibiarkan berjalan setelah test; hentikan dengan `npx supabase stop`.
-2. **WordPress Playground** (`@wp-playground/cli`, WordPress 7.1, PHP 8.3) dari blueprint `e2e/wordpress/blueprint.json`: admin + Application Password, tanpa plugin.
-3. **Aplikasi** lewat `next dev` (bukan `next start`: build production sengaja menolak WordPress di loopback/http) dengan runner antrean tertanam, kunci demo Supabase lokal dari `supabase status`, dan `ENCRYPTION_MASTER_KEY` acak per run. `.env.local` tidak dipakai; tidak ada panggilan LLM atau layanan internet.
+`npm run test:e2e` menjalankan `e2e/tests/` terhadap layanan yang dinyalakan `e2e/global-setup.ts`:
 
-- **Prasyarat:** Docker berjalan; port `54321`–`54322` (Supabase), `9400` (WordPress), dan `3100` (aplikasi) bebas; tidak ada `next dev` lain di checkout yang sama (Next.js mengunci satu server dev per proyek). Browser: `npx playwright install chromium` sekali.
-- **Data:** setiap test memakai akun baru `@e2e.panitera.test`; semua akun berdomain itu dihapus saat setup & teardown. Karena runner memproses antrean semua tenant, setup menolak berjalan bila Supabase lokal berisi antrean aktif milik akun lain (`E2E_ALLOW_SHARED_DB=1` untuk melewati).
-- **Env opsional:** `E2E_OUTPUT_DIR` (default `<tmp>/panitera-e2e`), `E2E_APP_PORT`, `E2E_WP_PORT`, `E2E_WP_VERSION`, `E2E_PHP_VERSION`, `E2E_KEEP_DATA=1` (akun uji tidak dihapus).
-- **Hasil:** log layanan (`logs/`), trace/video/screenshot test gagal (`test-results/`), dan laporan HTML (`report/`) di `E2E_OUTPUT_DIR` — buka dengan `npx playwright show-report <E2E_OUTPUT_DIR>/report`.
+1. **Supabase lokal** (dipakai ulang bila sudah berjalan; selain itu `supabase start`). Hentikan dengan `npx supabase stop`.
+2. **WordPress Playground** (`@wp-playground/cli`, WordPress 7.1, PHP 8.3) dari `e2e/wordpress/blueprint.json`: admin + Application Password, tanpa plugin.
+3. **Aplikasi** lewat `next dev` dengan runner tertanam dan `ENCRYPTION_MASTER_KEY` acak per run; `.env.local` tidak dipakai dan tidak ada panggilan LLM.
+
+- **Prasyarat**: Docker berjalan; port `54321`–`54322`, `9400`, dan `3100` bebas; tidak ada `next dev` lain di checkout yang sama; `npx playwright install chromium` sekali.
+- **Data**: setiap test memakai akun baru `@e2e.panitera.test` yang dihapus saat setup & teardown. Setup menolak berjalan bila Supabase lokal berisi antrean aktif akun lain (`E2E_ALLOW_SHARED_DB=1` untuk melewati).
+- **Env opsional**: `E2E_OUTPUT_DIR`, `E2E_APP_PORT`, `E2E_WP_PORT`, `E2E_WP_VERSION`, `E2E_PHP_VERSION`, `E2E_KEEP_DATA=1`.
+- **Hasil**: log layanan, trace/video test gagal, dan laporan HTML di `E2E_OUTPUT_DIR` (`npx playwright show-report <E2E_OUTPUT_DIR>/report`).
 
 ### Continuous Integration
-Workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) berjalan pada setiap pull request dan push ke `main`/`v2`. Run lama pada ref yang sama dibatalkan otomatis, dan token workflow hanya berizin `contents: read`.
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) berjalan pada setiap pull request dan push ke `main`/`v2`:
 
 | Job | Isi |
 | :--- | :--- |
-| `checks` | `npm ci`, typecheck, lint (`--max-warnings=0`), Vitest (termasuk test DB PGlite), `audit:hygiene`, dan `npm audit --omit=dev --audit-level=critical`. |
-| `build` | `next build` dengan env publik placeholder (tanpa secret) dan cache `.next/cache`. |
-| `docker` | `docker build` lewat Buildx dengan cache GitHub Actions, tanpa push. |
-| `e2e` | `npm run test:e2e` (Supabase lokal via Docker, WordPress Playground, `next dev`); laporan Playwright + log layanan diunggah sebagai artifact saat gagal. |
+| `checks` | `npm ci`, typecheck, lint (`--max-warnings=0`), Vitest (termasuk test DB PGlite), `audit:hygiene`, `npm audit --omit=dev --audit-level=critical`. |
+| `build` | `next build` dengan env publik placeholder. |
+| `docker` | `docker build` tanpa push. |
+| `e2e` | `npm run test:e2e`; laporan & log diunggah sebagai artifact saat gagal. |
 
-Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) membuka PR mingguan untuk npm (minor/patch digabung, major Next.js diabaikan) dan PR bulanan untuk GitHub Actions, `Dockerfile`, serta image di `docker-compose.yml`.
+Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml)) membuka PR untuk npm, GitHub Actions, `Dockerfile`, dan image di `docker-compose.yml`.
 
 ### Server MCP untuk Claude Code
-[`.mcp.json`](.mcp.json) mendaftarkan tiga server MCP proyek. Claude Code meminta persetujuan saat server proyek pertama kali dipakai.
 
-| Server | Kegunaan | Kebutuhan |
-| :--- | :--- | :--- |
-| `supabase` | Membaca skema, tabel, log, dan advisor Supabase dalam mode **read-only** (`--read-only`). | `SUPABASE_ACCESS_TOKEN` (Personal Access Token dari dashboard Supabase → Account → Access Tokens) dan `SUPABASE_PROJECT_REF`. |
-| `next-devtools` | Diagnostik Next.js 16 (error, rute, log) dari server dev yang berjalan. | `npm run dev` aktif. |
-| `playwright` | Mengendalikan browser untuk verifikasi UI. | Browser Playwright (unduh sekali bila diminta). Artefaknya di `.playwright-mcp/` (di-ignore Git). |
-
-Variabel Supabase dibaca dari environment shell saat Claude Code dijalankan, bukan dari `.env.local`:
-
-```bash
-export SUPABASE_ACCESS_TOKEN=...   # token pribadi, jangan di-commit
-export SUPABASE_PROJECT_REF=...    # ref proyek dev/staging
-claude
-```
-
-Arahkan `SUPABASE_PROJECT_REF` hanya ke proyek **dev/staging**, jangan pernah ke produksi. Mode read-only mencegah penulisan, tetapi data pengguna produksi tetap tidak boleh dibaca agen. Tanpa kedua variabel ini, hanya server `supabase` yang gagal; server lain tetap berjalan.
+[`.mcp.json`](.mcp.json) mendaftarkan `supabase` (read-only; butuh `SUPABASE_ACCESS_TOKEN` dan `SUPABASE_PROJECT_REF` di environment shell, arahkan hanya ke proyek dev/staging), `next-devtools` (butuh `npm run dev` aktif), dan `playwright` (artefak di `.playwright-mcp/`, di-ignore Git).
 
 ---
 
-## Dokumentasi Teknis Terkait
+## Deploy Produksi (Ringkas)
 
-Untuk pemahaman mendalam mengenai arsitektur, siklus antrean, dan sistem desain:
-- 📐 **Arsitektur Sistem & Database**: [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- 📋 **Spesifikasi Kebutuhan Produk**: [`PRD.md`](PRD.md)
-- 🎨 **Sistem Desain & Token Visual**: [`DESIGN.md`](DESIGN.md)
-- 🤖 **Pedoman & Standar Perilaku AI Agent**: [`CLAUDE.md`](CLAUDE.md)
-- 🔒 **Standar Keamanan & Proteksi Data**: [`.claude/rules/security.md`](.claude/rules/security.md)
+Target deploy utama adalah **Docker Compose di VPS**: container aplikasi Next.js (standalone, runner antrean tertanam, health check `GET /api/health`) dan **SearXNG** internal (`http://searxng-internal:8080`, tanpa port publik).
+
+1. Terapkan migrasi Supabase ke proyek production lebih dulu (tinjau `npm run db:diff` sebelum `npm run db:push`), lalu deploy image baru.
+2. Isi env production (Supabase, `ENCRYPTION_MASTER_KEY`, `NEXT_PUBLIC_APP_URL`, `SEARXNG_SECRET`; `CRON_SECRET` hanya bila `QUEUE_RUNNER=off`) di berkas `.env` root atau environment host, lalu `docker compose up -d --build`.
+3. Matikan "Allow public access" di Supabase Dashboard → Realtime → Settings agar kanal Realtime privat ditegakkan.
+
+Langkah lengkap, operasi harian, dan pemulihan: [`docs/deploy/docker-compose-vps.md`](docs/deploy/docker-compose-vps.md). Upgrade sekali jalan dari instalasi versi lama ke v2: [`docs/deploy/upgrade-ke-v2.md`](docs/deploy/upgrade-ke-v2.md).
+
+---
+
+## Dokumentasi Terkait
+
+- Spesifikasi produk: [`PRD.md`](PRD.md)
+- Arsitektur, skema DB, dan katalog API: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Sistem desain & token UI: [`DESIGN.md`](DESIGN.md)
+- Status fase & ADR: [`MEMORY.md`](MEMORY.md)
+- Panduan pengguna: [`docs/guides/`](docs/guides/)
+- Pedoman agen AI di repo: [`CLAUDE.md`](CLAUDE.md) dan [`.claude/rules/`](.claude/rules/)
+- Standar keamanan: [`.claude/rules/security.md`](.claude/rules/security.md)

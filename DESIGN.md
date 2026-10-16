@@ -21,13 +21,12 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
 - **Inspirasi Sistem**:
   - **Trello Workspace**: Kanvas kerja yang nyaman dipindai (_scan-friendly_), kartu tugas terisolasi rapi, dan indikator status visual instan.
   - **Microsoft Fluent Design**: Kejelasan hirarki visual, elevasi lapisan (_dimensional layering_) bertingkat 1px yang presisi, dan rasa keteraturan tinggi.
-- **Struktur Halaman Utama**:
-  1. **Top Bar**: Global Site Switcher (indikator kesehatan koneksi REST API), pemilih profil organisasi, tombol aksi cepat (+ New Batch), dan toggle Light/Dark Mode.
-  2. **Sub-Header / Quick Telemetry**: Kartu KPI ringkas (Total Post Terbit, Antrean Aktif, Tingkat Keberhasilan WP, Kuota AI).
-  3. **Main Content Canvas (Dual View)**:
-     - **Trello/Kanban Board Mode**: Kolom alur tahap artikel (_Queued -> Generating -> Ready to Sync -> Published/Failed_).
-     - **Data Table Mode**: Tabel data padat (@tanstack/react-table) dengan _sticky header_, _multi-select_, dan filter status.
-  4. **Sticky Bottom Action Bar**: Muncul saat item dipilih atau batch dijalankan (_Immediate Run vs. Smart Schedule_).
+- **Struktur Halaman Utama** (shell `DashboardShell`, dirender sekali oleh `src/app/(dashboard)/layout.tsx`):
+  1. **Sidebar** (`sidebar-nav`): navigasi menu (Dashboard, Daftar Website, Daftar Batch, Antrean, Tulis Cepat/Massal/Terstruktur, WP Tools, Profil Agen, Skill Registry, Laboratorium bila Developer Mode, Pengaturan, Help/Docs); dapat diciutkan.
+  2. **Top Bar** (`top-navbar`): breadcrumb, toggle Light/Dark (`ModeToggle`), dan menu akun (Kelola Website dengan jumlah situs, Keluar).
+  3. **Quick Telemetry**: kartu KPI di Dashboard Overview (`kpi-summary-grid`: Sudah Terbit, Sedang Diproses, Draf & Terjadwal, Perlu Tindakan).
+  4. **Main Content Canvas**: tabel data padat (@tanstack/react-table, `queue-data-table`) dengan pengelompokan per batch, _multi-select_, filter status/situs/batch, dan pencarian. Tampilan Kanban belum diimplementasikan.
+  5. **Bilah Aksi Massal** (`QueueBulkBar`): muncul di atas tabel saat baris dipilih (proses ulang, hapus). Pilihan eksekusi langsung vs. jadwal bertahap ada di form Tulis Massal (`ScheduleStrategyPicker`).
 
 ---
 
@@ -39,7 +38,7 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
   - _Dark Mode_: Latar kanvas obsidian midnight (`#0B0F19`), kartu berlapispelan (`#151C2C`), border slate (`#25334D`).
 - **Skema Warna Tegas**:
   - **Deep Maroon (`#881337` / `#9F1239`)**: Warna Primer Brand — melambangkan ketegasan, wibawa editorial, dan aksi utama.
-  - **Radiant Gold (`#D97706` / `#F59E0B` / `#D4AF37`)**: Warna Aksen Sekunder — melambangkan prestise, jadwal penerbitan (_scheduled drip-feed_), dan badge sorotan.
+  - **Radiant Gold (`#F59E0B` / `#FBBF24`, tint `--gold-subtle`)**: Warna Aksen Sekunder — melambangkan prestise, jadwal penerbitan (_scheduled drip-feed_), dan badge sorotan.
 - **Performa & Aksesibilitas**:
   - _Performance Cost_: Low (murni CSS variables, tanpa grafis raster berat).
   - _Accessibility Risk_: Low (memenuhi standar WCAG AA dengan rasio kontras teks minimal 4.5:1).
@@ -54,7 +53,7 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
 | :------------------ | :-------- | :-------- | :------------------------- | :-------------------- | :------------------------------------------- |
 | **Primary**         | `#881337` | `#9F1239` | `--color-primary`          | `#FFFFFF`             | Brand utama, tombol CTA utama, sidebar aktif |
 | **Secondary**       | `#F1F5F9` | `#1F293D` | `--color-secondary`        | `#0F172A` / `#F8FAFC` | Tombol sekunder, background badge netral     |
-| **Accent / CTA**    | `#F59E0B` | `#FBBF24` | `--color-accent`           | `#0F172A`             | Aksen emas, penanda jadwal, highlight VIP    |
+| **Accent / CTA**    | `#F59E0B` | `#FBBF24` | `--color-accent`           | `#0F172A` / `#0B0F19` | Aksen emas, penanda jadwal, highlight VIP    |
 | **Background**      | `#F4F5F7` | `#0B0F19` | `--color-background`       | `#0F172A` / `#F8FAFC` | Kanvas dasar aplikasi                        |
 | **Foreground**      | `#0F172A` | `#F8FAFC` | `--color-foreground`       | —                     | Warna teks tubuh utama                       |
 | **Card**            | `#FFFFFF` | `#151C2C` | `--color-card`             | `#0F172A` / `#F8FAFC` | Kartu tugas, panel modul, dialog modal       |
@@ -68,72 +67,53 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
 | **Destructive**     | `#E11D48` | `#F43F5E` | `--color-destructive`      | `#FFFFFF`             | Kegagalan sinkronisasi / error API           |
 | **AI Process**      | `#8B5CF6` | `#A78BFA` | `--color-ai-process`       | `#FFFFFF` / `#0B0F19` | Proses generasi AI / keyword research        |
 | **Sync WP**         | `#0EA5E9` | `#38BDF8` | `--color-info`             | `#0F172A` / `#0B0F19` | Proses upload media / posting WP REST API    |
+| **Sidebar**         | `#FFFFFF` | `#151C2C` | `--color-sidebar`          | `#0F172A` / `#F8FAFC` | Latar sidebar (`--sidebar-primary`, `-accent`, `-border`, `-ring` mengikuti primary/secondary/border/ring) |
 
 > Kolom "On Role" = token `--color-<peran>-foreground` (teks/ikon DI ATAS isian solid peran). Nilai disesuaikan Fase 4
-> agar kontras teks ≥ 4.5:1 (putih di atas amber/sky/hijau terang tidak lolos AA). Sumber kebenaran nilai: `src/app/globals.css`.
+> agar kontras teks ≥ 4.5:1 (putih di atas amber/sky/hijau terang tidak lolos AA). Token lain: `--popover(-foreground)`,
+> `--primary-hover`, `--input`, `--gold-subtle`. Sumber kebenaran nilai: `src/app/globals.css`.
 
-### B. Kode Implementasi CSS Variables (Tailwind CSS v4)
+### B. Struktur Token di `globals.css` (Tailwind CSS v4)
+
+Tiga lapis: (1) nilai mentah di `:root` (terang) dan `.dark` (gelap; varian `dark:` aktif lewat
+`@custom-variant dark (&:where(.dark, .dark *))` dan kelas `.dark` yang dipasang skrip tema di root layout); (2) `@theme inline`
+memetakan `--<token>` ke `--color-<token>` sehingga utilitas `bg-*`/`text-*`/`border-*` tersedia; (3) skala lain di `@theme inline`:
+`--radius-sm/md/lg/xl`, `--text-2xs`, `--font-sans`/`--font-mono`. Cuplikan (nilai lengkap: tabel §4A, §4C, dan berkasnya):
 
 ```css
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 @layer base {
   :root {
+    color-scheme: light;
     --background: #f4f5f7;
-    --foreground: #0f172a;
-    --card: #ffffff;
-    --card-foreground: #0f172a;
-    --popover: #ffffff;
-    --popover-foreground: #0f172a;
     --primary: #881337;
-    --primary-foreground: #ffffff;
-    --primary-hover: #700f2b;
-    --accent: #f59e0b;
-    --accent-foreground: #0f172a;
-    --gold-subtle: #fef3c7;
-    --secondary: #f1f5f9;
-    --secondary-foreground: #0f172a;
-    --muted: #ebeff4;
-    --muted-foreground: #64748b;
-    --border: #e2e8f0;
-    --input: #cbd5e1;
-    --ring: #881337;
     --success: #059669;
-    --warning: #f59e0b;
-    --destructive: #e11d48;
-    --ai-process: #8b5cf6;
-    --info: #0ea5e9;
-    --radius: 0.5rem;
+    --success-foreground: #ffffff;
+    --success-strong: #047857;
+    /* … peran status lain, --radius: 0.5rem, --sidebar-* */
   }
-
   .dark {
+    color-scheme: dark;
     --background: #0b0f19;
-    --foreground: #f8fafc;
-    --card: #151c2c;
-    --card-foreground: #f8fafc;
-    --popover: #151c2c;
-    --popover-foreground: #f8fafc;
     --primary: #9f1239;
-    --primary-foreground: #ffffff;
-    --primary-hover: #881337;
-    --accent: #fbbf24;
-    --accent-foreground: #0b0f19;
-    --gold-subtle: #451a03;
-    --secondary: #1f293d;
-    --secondary-foreground: #f8fafc;
-    --muted: #1f293d;
-    --muted-foreground: #94a3b8;
-    --border: #25334d;
-    --input: #334155;
-    --ring: #fbbf24;
-    --success: #10b981;
-    --warning: #fbbf24;
-    --destructive: #f43f5e;
-    --ai-process: #a78bfa;
-    --info: #38bdf8;
+    /* … */
   }
 }
+
+@theme inline {
+  --color-background: var(--background);
+  --color-success-strong: var(--success-strong);
+  --color-sidebar: var(--sidebar-background);
+  --radius-lg: var(--radius);
+  --text-2xs: 0.625rem;
+  --font-sans: var(--font-sans), "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+}
 ```
+
+Utilitas/komponen tambahan di berkas yang sama: `.dashboard-grid` (latar kisi) dan tipografi konten `.prose`/`.article-rendered`
+(pratinjau artikel).
 
 ### C. Varian Peran Status (Fase 4)
 
@@ -179,11 +159,8 @@ teks `-strong`), bukan `variant="outline"` + kelas token manual.
 - **Body Font**: `Plus Jakarta Sans` (Weight: 400, 500)
 - **Monospace Font**: `JetBrains Mono` (Weight: 400, 500, 600) — untuk metrik data, slug WP, API URLs, dan terminal logs.
 - **Karakter**: Tajam, modern, bernuansa SaaS profesional, dan memiliki keterbacaan tinggi pada teks berukuran kecil (12–14px).
-- **Google Fonts Import**:
-
-```css
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
-```
+- **Pemuatan font**: `next/font/google` di `src/app/layout.tsx` (`Plus_Jakarta_Sans` → `--font-sans`, `JetBrains_Mono` →
+  `--font-mono`, subset latin, di-host mandiri saat build — tanpa `@import` Google Fonts di CSS). Utilitas: `font-sans`, `font-mono`.
 
 ### Skala Tipografi
 
@@ -209,76 +186,99 @@ Ukuran arbitrer `text-[Npx]` dilarang (cek audit `arbitrary-text-size`). Pemetaa
 ## 6. Spacing, Elevasi & Geometri (The Fluent-Trello Pattern)
 
 - **Base Spacing Grid**: Kelipatan 4px (`gap-1` = 4px, `gap-2` = 8px, `gap-3` = 12px, `gap-4` = 16px, `gap-6` = 24px).
-- **Border Radius (Crisp & Balanced)**:
-  - `rounded-md`: 6px (Input fields, dropdown items, badge status, tag)
-  - `rounded-lg`: 8px - 10px (Kartu utama, tombol aksi, modal, container kolom)
-  - `rounded-full`: 9999px (Avatar, pills indikator status live situs)
-- **Elevasi & Bayangan (Microsoft Fluent Style)**:
-  - **Flat Card / Base**: `border border-border bg-card shadow-[0_1px_3px_0_rgba(0,0,0,0.06),0_1px_2px_0_rgba(0,0,0,0.04)]`
-  - **Hover Card Lift**: `hover:shadow-[0_4px_6px_-1px_rgba(0,0,0,0.08),0_2px_4px_-1px_rgba(0,0,0,0.04)] hover:-translate-y-[1px] transition-all duration-150`
-  - **Elevated Modals / Popovers**: `shadow-[0_10px_25px_-5px_rgba(0,0,0,0.1),0_8px_10px_-6px_rgba(0,0,0,0.04)] border border-border`
+- **Border Radius (Crisp & Balanced)** — turunan `--radius: 0.5rem` di `@theme inline`:
+  - `rounded-sm`: 4px (item menu dropdown/select)
+  - `rounded-md`: 6px (tombol, input, textarea, select, popover, dropdown)
+  - `rounded-lg`: 8px (dialog, alert, tooltip, panel)
+  - `rounded-xl`: 12px (atom `Card`)
+  - `rounded-full`: 9999px (atom `Badge`, avatar, pill status)
+- **Elevasi & Bayangan** (skala bawaan Tailwind, tanpa nilai arbitrer):
+  - **Kontrol / Base**: `shadow-2xs`/`shadow-xs` (input, tombol) dan `border border-border bg-card shadow-sm` (atom `Card`)
+  - **Overlay**: `shadow-md` (popover, isi select/dropdown) dan `shadow-lg` (dialog, alert dialog, tooltip)
+  - Hover tidak mengubah ukuran elemen (§9); cukup perubahan warna/latar (`transition-colors`).
 
 ---
 
 ## 7. Motion & Micro-Interactions
 
-- **Preset**: **Stagger List (Standard)** — Trigger: load or view change | Durasi: 300–400ms | Easing: `power2.out`.
-
-```js
-gsap.from(".queue-card", {
-  opacity: 0,
-  y: 12,
-  duration: 0.35,
-  stagger: 0.04,
-  ease: "power2.out",
-});
-```
-
-- **Live State Flash**: Baris tabel atau kartu yang baru saja menyelesaikan transisi status (misal dari `syncing_to_wp` ke `published_on_wp`) memancarkan _subtle highlight pulse_ hijau halus selama 800ms.
-- **Accessibility / Reduced Motion**:
-  Gunakan `@media (prefers-reduced-motion: reduce)` untuk langsung menampilkan hasil final statis tanpa animasi pergeseran atau pemudaran.
+- **Prinsip**: transisi mikro CSS 150–200 ms (`transition-colors`, `duration-150`/`duration-200`) untuk hover, fokus, dan
+  perubahan status; tanpa library animasi JavaScript.
+- **Indikator proses**: ikon `Loader2`/status berputar `animate-spin` (mis. `syncing_to_wp` di `StatusBadge`) dan
+  `animate-pulse` untuk skeleton/indikator live — selalu dipasangkan `motion-reduce:animate-none`.
+- **Overlay**: atom shadcn (dialog, alert dialog, popover, select, dropdown, tooltip) membawa kelas `animate-in`/`fade-in-0`/
+  `zoom-in-95`, tetapi plugin `tw-animate-css` tidak dipasang sehingga kelas itu saat ini tidak menghasilkan animasi.
+- **Accessibility / Reduced Motion**: setiap animasi wajib punya varian `motion-reduce:*` (atau `@media (prefers-reduced-motion: reduce)`)
+  yang langsung menampilkan hasil final statis.
 
 ---
 
 ## 8. Pola UI/UX Spesifik Domain (WordPress Multi-Site)
 
-### A. Global Multi-Site Switcher (Header & Sidebar)
+### A. Pemilih & Status Situs
 
-- Favicon situs / inisial domain dalam badge maroon/gold.
-- Nama situs & domain URL.
-- **Pill Indikator Kesehatan Koneksi**:
-  - 🟢 `Connected`: REST API 200 OK & Application Password valid.
-  - 🔴 `Auth Error`: Kredensial salah atau diblokir firewall/host.
-  - 🟡 `Degraded / Rate Limited`: Shared hosting lambat atau merespons 429/503.
-- Tombol cepat **+ Connect New Site** (membuka modal panduan 1 menit tanpa instal plugin PHP).
+- Tidak ada switcher situs global di header: situs dipilih per form (Tulis Cepat/Massal/Terstruktur) dan, untuk WP Tools,
+  lewat selector ringkas di `PageHeader.actions` (`?site=<uuid>`).
+- Identitas situs: molekul `SiteBadge` (ikon `Globe`, nama, domain, dot status dari `SITE_STATUS_META`).
+- **Pill status koneksi** (`wp_sites.status`, molekul `SiteStatusBadge` di `src/components/molecules/site-status-badge.tsx`,
+  sumber `SITE_STATUS_META` yang juga dipakai `SiteBadge`; token §4C):
 
-### B. Omnibox Content Ingestion Wizard
+  | Status | Label | Token |
+  | :--- | :--- | :--- |
+  | `connected` | Tersambung | `success` |
+  | `auth_error` | Kredensial ditolak | `destructive` |
+  | `rate_limited` | Dibatasi WordPress | `warning` |
+  | `unreachable` | Tidak terjangkau | `muted` / `muted-foreground` |
 
-- **Tab 1: CSV / Bulk Spreadsheet**: Drag-and-drop file + _Interactive Column Mapper_.
-- **Tab 2: Niche Auto-Ideation**: Input nama niche -> generator keyword -> rekomendasi topik.
-- **Tab 3: External Source (URL / RSS)**: Input tautan artikel referensi atau RSS feed.
+- Tombol **Sambungkan Website** (`ConnectSiteDialog`) di `PageHeader.actions` halaman `/sites`: tab otomatis (otorisasi
+  Application Password WordPress) dan manual, tanpa plugin PHP.
+- Halaman `/sites/[id]`: tombol **Cek ulang koneksi** (`CheckSiteButton`) di header; bila status bukan `connected`,
+  `SiteHealthNotice` menampilkan langkah pemulihan + **Sambungkan ulang** (`ReconnectSiteButton`). Klasifikasi status:
+  ARCHITECTURE.md §4.8.
 
-### C. Batch Queue State Machine Badges
+### B. Ingesti Konten
 
-| State Machine Value  | Tampilan UI     | Warna     | Makna                                                |
-| :------------------- | :-------------- | :-------- | :--------------------------------------------------- |
-| `queued_input`       | Slate / Neutral | `#64748B` | Menunggu giliran generasi AI                         |
-| `generating_content` | Violet Pulse    | `#8B5CF6` | AI sedang meriset & menyusun draf                    |
-| `ready_to_sync`      | Teal / Cyan     | `#0D9488` | Konten siap dikirim ke WordPress                     |
-| `syncing_to_wp`      | Sky Blue Spin   | `#0284C7` | Mengunggah gambar & data ke REST API                 |
-| `published_on_wp`    | Emerald Green   | `#059669` | Terbit Live di WordPress (tautan langsung)           |
-| `scheduled_on_wp`    | Radiant Gold    | `#D97706` | Terjadwal di WordPress (_future date_)               |
-| `saved_draft_on_wp`  | Muted Slate     | `#64748B` | Tersimpan sebagai draf WordPress                     |
-| `failed_generation`  | Ruby Red        | `#E11D48` | Gagal saat generasi AI (Opsi Retry AI)               |
-| `failed_sync`        | Amber-Red Alert | `#DC2626` | Gagal kirim WP (Retry kirim WP saja, hemat token AI) |
+- **Tulis Cepat** (`/posts/new`): satu kata kunci → satu item antrean; status publikasi lewat `PublishStatusSwitcher`.
+- **Tulis Massal** (`/queue`): daftar kata kunci per baris → satu batch.
+- **Tulis Terstruktur** (`/write/structured`): tempel CSV/TSV/Excel + pemetaan kolom interaktif (`BatchColumnMapper`, parser
+  `universal-batch-parser`).
+- Ketiganya memakai kerangka `WriterFormCard`; form batch berbagi `writer-fields` dengan strategi eksekusi & jadwal
+  (`ScheduleStrategyPicker`: langsung vs. bertahap, pola interval atau tanggal acak, status di WordPress).
+- Niche Auto-Ideation dan sumber eksternal (URL/RSS) belum diimplementasikan (Modul 3, lihat PRD).
 
-Implementasi (`src/components/molecules/status-badge.tsx`) memakai token peran §4C: `queued_input` → `muted`; `generating_content` → `ai-process`; `ready_to_sync`/`syncing_to_wp` → `info` (syncing berputar); `published_on_wp` → `success`; `scheduled_on_wp` → `warning`; `saved_draft_on_wp` → `secondary`; `failed_generation`/`failed_sync` → `destructive` (tint lebih pekat untuk `failed_sync`).
+### C. Badge State Antrean
 
-### D. Dual-Mode Execution Bar (Bottom Action Bar)
+Molekul `StatusBadge` (`src/components/molecules/status-badge.tsx`) dengan ikon `lucide-react` dan token peran §4C:
 
-- Menempel di bagian bawah tabel saat item dipilih atau batch dibuka:
-  - **Run Immediately**: Tombol primer maroon dengan progres live real-time (_"Posting 4 of 20 — Max 2 concurrency"_).
-  - **Schedule & Drip-Feed**: Tombol emas dengan pemilih tanggal mulai, kuota per hari, dan _humanized randomized timing window_.
+| `state` | Label UI | Token | Catatan |
+| :--- | :--- | :--- | :--- |
+| `queued_input` | Menunggu | `muted` | |
+| `generating_content` | Sedang Ditulis | `ai-process` | ikon berputar |
+| `ready_to_sync` | Siap Kirim | `info` | |
+| `syncing_to_wp` | Mengirim ke Web | `info` (tint `/15`) | ikon berputar |
+| `published_on_wp` | Sudah Terbit | `success` | |
+| `scheduled_on_wp` | Dijadwalkan | `warning` | |
+| `saved_draft_on_wp` | Tersimpan Draf | `secondary` | |
+| `failed_generation` | Gagal Tulis | `destructive` | aksi "Tulis ulang" |
+| `failed_sync` | Gagal Kirim | `destructive` (tint `/15`) | aksi "Kirim ulang" (tanpa token AI) |
+
+Kelompok status untuk filter & KPI (`src/lib/queue/states.ts`): diproses, terbit, draf, terjadwal, gagal.
+
+### D. Aksi Antrean
+
+- **Bilah aksi massal** (`QueueBulkBar`) muncul di atas tabel saat baris dipilih: "Proses ulang N artikel" dan hapus.
+- Aksi per item mengikuti state (`src/lib/queue/retry-actions.ts`): Jalankan sekarang, Tulis ulang, Kirim ulang; hasilnya
+  dipantau live (Realtime privat + polling cadangan, ARCHITECTURE.md §11.5) dengan indikator `LiveStatusBadge`.
+
+### E. Form & Umpan Balik (Fase 4)
+
+- Form memakai react-hook-form + zod (`useZodForm`, skema bersama `src/lib/validation/<domain>.ts`) dengan `ControlledField`/
+  `FormField` untuk label, hint, error, dan atribut ARIA; error validasi server dipasang ke field (`applyApiIssues`).
+- Hasil aksi lewat toast `notify` (`src/lib/ui/notify.ts`); konfirmasi lewat `useConfirm()` (`src/lib/ui/confirm.ts`,
+  `tone: "destructive"` untuk aksi merusak). `alert()`/`confirm()` bawaan browser dilarang.
+- Form berisi rahasia (kata sandi, kunci API, Application Password, secret webhook): `method="post"` dan tombol kirim
+  nonaktif sampai hydrate (`useHydrated`).
+- Callout memakai atom `Alert`; loading aksi `disabled` + ikon `Loader2`; kosong → `EmptyState`. Setiap halaman dasbor memakai
+  `PageContainer` + `PageHeader` (`.claude/rules/page-layout-standard.md`).
 
 ---
 
@@ -287,6 +287,7 @@ Implementasi (`src/components/molecules/status-badge.tsx`) memakai token peran �
 - ❌ **Anti-AI-Slop**: Dilarang menggunakan gradien ungu generik (_generic AI slop_), sudut membulat balon yang tidak konsisten (>20px pada kartu data), atau efek blur kaca berlebihan yang mengorbankan keterbacaan data.
 - ❌ **No Emoji as Structural Icons**: Dilarang menggunakan karakter emoji (🚀 📝 ⚙️) untuk navigasi atau status sistem. Wajib menggunakan ikon vektor SVG resmi dari `lucide-react`.
 - ❌ **No Raw Hex Values in Component Code**: Dilarang menuliskan kode warna heksadesimal mentah di dalam komponen JSX/TSX. Wajib menggunakan semantic utility classes (`bg-primary`, `text-muted-foreground`, dll.).
+- ❌ **No Raw Palette / Arbitrary Size**: Dilarang kelas palet Tailwind mentah (`text-emerald-600`) dan ukuran font `text-[Npx]`; gunakan token peran (§4C) dan skala tipografi (§5). Dicek `npm run audit:hygiene` (`raw-palette-color`, `arbitrary-text-size`, `arbitrary-color`, `browser-dialog`).
 - ❌ **No Layout Shifts on Hover**: Efek hover pada tombol dan kartu tidak boleh mengubah ukuran lebar/tinggi pembatas (_bounds_) yang memicu pergeseran elemen sekitar (_Cumulative Layout Shift_).
 
 ---
@@ -307,5 +308,6 @@ Sebelum merilis atau menyelesaikan komponen antarmuka, verifikasi checklist ini:
 
 - [ ] Seluruh ikon menggunakan paket `lucide-react` dengan stroke konsisten (1.5px / 2px).
 - [ ] Border dan separator 1px terlihat jelas di kedua tema (Light & Dark).
-- [ ] Status antrean terikat langsung dengan status mesin di `ARCHITECTURE.md`.
+- [ ] Status antrean terikat langsung dengan status mesin di `ARCHITECTURE.md` §4.
+- [ ] Halaman memakai `PageContainer` + `PageHeader`; form memakai pola §8E; `npm run audit:hygiene` lulus.
 - [ ] Tidak ada dependensi ke plugin custom WordPress di antarmuka onboarding pengguna.

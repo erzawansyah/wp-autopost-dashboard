@@ -23,7 +23,7 @@ Berlaku untuk seluruh kode. Panitera adalah SaaS multi-tenant yang menyimpan kre
 - Jangan melonggarkan aturan ini; tambahkan test di `safe-fetch.test.ts` bila mengubahnya.
 
 ## 4. Perlindungan Hosting WordPress Pengguna
-- Request ke satu domain WP dibatasi concurrency per situs (default maks 2 paralel, kolom `sites.max_concurrency`).
+- Beban ke satu domain WP dibatasi concurrency per situs: maks `wp_sites.max_concurrency` item antrean diproses paralel (default 2, rentang 1–10), ditegakkan RPC `claim_post_items`.
 - Gunakan timeout eksplisit pada setiap `fetch` ke WordPress dan layanan eksternal.
 
 ## 5. Zero Secret Leaks

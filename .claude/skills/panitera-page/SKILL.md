@@ -35,9 +35,9 @@ import { Globe } from "lucide-react"
 import { PageHeader } from "@/components/molecules/page-header"
 import { PageContainer } from "@/components/templates/page-container"
 import { SitesTable } from "@/components/organisms/sites/sites-table"
-import { ConnectSiteButton } from "@/components/organisms/sites/connect-site-button"
+import { ConnectSiteDialog } from "@/components/organisms/sites/connect-site-dialog"
 import { requireSession } from "@/lib/auth/session"
-import { listSites } from "@/server/services/sites"
+import { accountAppIdentifier, listSites } from "@/server/services/sites"
 
 export const metadata = { title: "Daftar Website" } // → "Daftar Website | Panitera"
 
@@ -46,7 +46,12 @@ export default async function SitesPage() {
   const sites = await listSites(supabase, user.id)
   return (
     <PageContainer>
-      <PageHeader title="Daftar Website WordPress" description="…" icon={Globe} actions={<ConnectSiteButton />} />
+      <PageHeader
+        title="Daftar Website WordPress"
+        description="…"
+        icon={Globe}
+        actions={<ConnectSiteDialog accountIdentifier={accountAppIdentifier(user)} />}
+      />
       <SitesTable initialSites={sites} />
     </PageContainer>
   )
@@ -60,7 +65,9 @@ export default async function SitesPage() {
   `await` (jangan pakai tipe global `PageProps` — belum ada saat `typecheck` CI tanpa build).
 - Data tidak ada / bukan milik pengguna → `notFound()` dari `next/navigation` (render `not-found.tsx` di dalam shell).
 - Jangan pernah `createAdminClient()` di page; jangan `fetch("/api/...")` dari RSC.
-- Gate fitur (mis. Developer Mode `/lab`): cek di server (`hasLabAccess(supabase, user)` → `redirect("/")`/`notFound()`).
+- Gate fitur (mis. Developer Mode `/lab`): cek di server — `lab/layout.tsx` memakai `getLabAccess(supabase, user)`
+  (`@/server/services/lab`, membungkus `hasLabAccess` dari `@/lib/constants/auth`) dan merender `LabAccessDenied`;
+  route `/api/lab/**` memakai `assertLabAccess` (403).
 
 ## 3. Data di client: TanStack Query + `apiFetch`
 
@@ -100,7 +107,9 @@ async function handleDelete(site: Site) {
 - Key hanya dari `queryKeys` (`@/lib/api/query-keys`); query options per domain di `src/lib/api/queries/<domain>.ts` dengan
   `queryOptions()`. Tambah key baru hanya di blok domain milik Anda.
 - Default global (`@/lib/api/query-client`): `staleTime` 30 dtk, retry hanya jaringan/5xx (maks 2), mutation tanpa retry,
-  401 → otomatis ke `/login?next=…`. Polling status antrean: `refetchInterval: (q) => (adaItemAktif(q.state.data) ? 5000 : false)`.
+  401 → otomatis ke `/login?next=…`. Status antrean live: `useQueueLiveUpdates`/`usePostDetailLive` (Broadcast privat) dan,
+  selama kanal tidak `live`, `refetchInterval` dari `PollBackoff` (`src/lib/queue/poll-backoff.ts`, 5 dtk → maks 60 dtk,
+  berhenti bila tidak ada item in-flight).
 - Data awal dari RSC: `initialData` (atau pola `HydrationBoundary` di docs Next `client-side-data-fetching/tanstack-query`).
 - Optimistic update hanya bila nilai akhirnya pasti; selalu rollback di `onError`.
 - Keluar akun: `queryClient.clear()` (sudah di `TopNavbar`); jangan simpan data tenant di modul global.
@@ -142,6 +151,9 @@ const createSite = useMutation({
 - `ControlledField` (`molecules/controlled-field`) mengisi label, hint, tooltip, error zod, `aria-invalid`,
   `aria-describedby`, `aria-required`. Form lama tanpa RHF memakai `FormField` presentasional (API sama).
 - Error 400 `validation_failed` → `applyApiIssues(form, err)` memasang pesan ke field; selain itu `notify.error(err)`.
+- Form berisi rahasia (kata sandi, kunci API, Application Password, secret webhook): `<form method="post" noValidate …>`
+  dan tombol kirim `disabled={!hydrated || mutation.isPending}` dengan `const hydrated = useHydrated()`
+  (`@/lib/hooks/use-hydrated`), agar submit sebelum hydrate tidak pernah mengirim isian ke query string URL.
 - Rujukan hidup: `src/components/organisms/auth/login-form.tsx` & `register-form.tsx`.
 
 ## 5. Umpan balik & state

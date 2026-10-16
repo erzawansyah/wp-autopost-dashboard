@@ -14,7 +14,7 @@ paths:
 
 # Standar System Writer (Agent Profile Runtime)
 
-Rujukan arsitektur lengkap: `docs/system-writer-architecture.md` dan `ARCHITECTURE.md`.
+Rujukan arsitektur lengkap: `ARCHITECTURE.md` §4 (antrean) dan §5 (Agent Profile Runtime).
 
 ## 1. Agent Profile Runtime
 - Profil bawaan dipusatkan di `src/core/writer/profiles/builtin.ts`; tipe & batas di `src/core/writer/types/profile.ts`; profil kustom pengguna disimpan di database.

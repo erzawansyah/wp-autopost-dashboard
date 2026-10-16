@@ -5,7 +5,7 @@ description: Urutan verifikasi wajib di repo Panitera sebelum menyatakan pekerja
 
 # Panitera — Verifikasi Sebelum "Selesai"
 
-Sama persis dengan job CI (`.github/workflows/ci.yml`). Jangan menyatakan selesai sebelum semua langkah lulus.
+Sama dengan job CI (`.github/workflows/ci.yml`; CI juga menjalankan `npm audit --omit=dev --audit-level=critical` dan build image Docker). Jangan menyatakan selesai sebelum semua langkah lulus.
 
 ## Urutan
 
