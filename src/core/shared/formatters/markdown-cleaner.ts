@@ -594,9 +594,18 @@ function capLength(text: string, maxLength: number): string {
   return text.slice(0, code >= 0xd800 && code <= 0xdbff ? maxLength - 1 : maxLength)
 }
 
+/**
+ * Langkah pra-parse `cleanMarkdown`: potong panjang, normalisasi CRLF, buka pembungkus ```markdown, dan pulihkan
+ * literal `\n`. Dipakai juga oleh pengukur naskah mentah (validator, hitung kata) agar melihat teks yang sama
+ * dengan yang dibersihkan, bukan satu blok kode pembungkus.
+ */
+export function prepareMarkdownSource(rawMarkdown: string): string {
+  const text = capLength(rawMarkdown || "", MAX_MARKDOWN_LENGTH).replace(/\r\n?/g, "\n").trim()
+  return unescapeLiteralNewlines(stripMarkdownWrapperFence(text)).trim()
+}
+
 export function cleanMarkdown(rawMarkdown: string, expectedTitle?: string): string {
-  let text = capLength(rawMarkdown || "", MAX_MARKDOWN_LENGTH).replace(/\r\n?/g, "\n").trim()
-  text = unescapeLiteralNewlines(stripMarkdownWrapperFence(text)).trim()
+  let text = prepareMarkdownSource(rawMarkdown)
   // Langkah teks eksplisit sebelum parse pertama: seluruh edit di bawah dihitung terhadap teks hasilnya.
   text = normalizeListIndentation(text)
 

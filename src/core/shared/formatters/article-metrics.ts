@@ -11,15 +11,19 @@ const WORD = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu
 const UNSPACED_LANGUAGES = new Set(["ja", "zh", "th", "lo", "km", "my"])
 const segmenters = new Map<string, Intl.Segmenter>()
 
-/** Elemen HTML yang dikenali sebagai tag mentah; `<nama>` lain (placeholder, generik) dianggap teks. */
+/**
+ * Elemen HTML (standar & lawas) yang dikenali sebagai tag mentah. `<nama>` lain dianggap teks (placeholder,
+ * generik) kecuali punya tag penutup `</nama>` di naskah yang sama.
+ */
 const HTML_ELEMENTS = new Set(
   (
-    "a abbr address article aside audio b bdi bdo blockquote body br button canvas caption center cite code col " +
-    "colgroup data dd del details dfn dialog div dl dt em embed fieldset figcaption figure font footer form h1 h2 h3 " +
-    "h4 h5 h6 head header hr html i iframe img input ins kbd label legend li link main mark meta meter nav noscript " +
-    "object ol optgroup option output p picture pre progress q s samp script section select small source span " +
-    "strike strong style sub summary sup svg table tbody td template textarea tfoot th thead time title tr track u " +
-    "ul var video wbr"
+    "a abbr acronym address applet area article aside audio b base basefont bdi bdo big blink blockquote body br " +
+    "button canvas caption center cite code col colgroup data datalist dd del details dfn dialog dir div dl dt em " +
+    "embed fieldset figcaption figure font footer form frame frameset h1 h2 h3 h4 h5 h6 head header hgroup hr html i " +
+    "iframe image img input ins kbd label legend li link listing main map mark marquee math menu meta meter nav " +
+    "nobr noembed noframes noscript object ol optgroup option output p param picture plaintext pre progress q rb rp " +
+    "rt rtc ruby s samp script search section select slot small source span strike strong style sub summary sup svg " +
+    "table tbody td template textarea tfoot th thead time title tr track tt u ul var video wbr xmp"
   ).split(" ")
 )
 const TAG = /<\/?([a-zA-Z][a-zA-Z0-9-]*)(?:\s[^<>]*)?\/?>/g
@@ -92,8 +96,10 @@ export function markdownSubheadings(markdown: string): string[] {
 /** Tag elemen HTML mentah di Markdown (LLM wajib menulis Markdown murni), di luar kode. */
 export function findRawHtmlInMarkdown(markdown: string): string[] {
   const withoutCode = markdownWithoutCodeBlocks(markdown).replace(/`[^`\n]*`/g, " ")
-  const tags = Array.from(withoutCode.matchAll(TAG))
-    .filter((match) => HTML_ELEMENTS.has(match[1].toLowerCase()))
+  const matches = Array.from(withoutCode.matchAll(TAG))
+  const closed = new Set(matches.filter((match) => match[0].startsWith("</")).map((match) => match[1].toLowerCase()))
+  const tags = matches
+    .filter((match) => HTML_ELEMENTS.has(match[1].toLowerCase()) || closed.has(match[1].toLowerCase()))
     .map((match) => match[0])
   return [...new Set(tags)]
 }

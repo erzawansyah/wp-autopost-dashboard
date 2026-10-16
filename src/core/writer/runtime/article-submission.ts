@@ -37,7 +37,9 @@ const ACCEPTED_NOTE = "Article submitted."
 const SUBMIT_TOOL_FALLBACK = "Submit the finished article as three fields: title, excerpt, and body."
 const INVALID_FALLBACK = "The article was not accepted. Fix these problems and submit it again:\n{{issues}}"
 const MULTIPLE_SUBMISSIONS_ISSUE = `submission: call ${ARTICLE_SUBMIT_TOOL} exactly once per turn`
-const INVALID_ARGUMENTS_ISSUE = `submission: the ${ARTICLE_SUBMIT_TOOL} arguments were not valid JSON (cut off or badly escaped); submit all three fields again as valid JSON`
+const BATCHED_SUBMISSION_ISSUE = `submission: call ${ARTICLE_SUBMIT_TOOL} alone, in a turn after your other tool calls have returned`
+const INVALID_ARGUMENTS_ISSUE = `submission: the ${ARTICLE_SUBMIT_TOOL} arguments were not valid JSON (badly escaped); submit all three fields again as valid JSON`
+const CUT_OFF_ARGUMENTS_ISSUE = `submission: the ${ARTICLE_SUBMIT_TOOL} arguments were cut off at the output length limit; submit the complete article again, more concisely, as valid JSON`
 
 /** Tiga field string dari argumen tool call (field hilang/bukan string → null). */
 export function readArticleFields(value: unknown): ArticleFields | null {
@@ -70,6 +72,12 @@ function withoutRawToolCalls(message: AIMessage): AIMessage["additional_kwargs"]
   return kwargs
 }
 
+/** Keluaran model berhenti karena batas panjang (`finish_reason` OpenAI/OpenRouter atau `stop_reason` Anthropic). */
+function isCutOff(message: AIMessage): boolean {
+  const metadata = message.response_metadata ?? {}
+  return ["length", "max_tokens"].includes(String(metadata.finish_reason ?? metadata.stop_reason ?? ""))
+}
+
 /** Hasil handler `wrapModelCall` saat naskah terstruktur diterima LangChain. */
 interface StructuredResult {
   structuredResponse: unknown
@@ -90,6 +98,8 @@ export interface SubmittedArticle {
   fields: ArticleFields
   /** Pelanggaran yang tersisa (kosong = lolos validasi). */
   issues: string[]
+  /** Draf diselamatkan dari argumen `extract-article` yang bukan JSON valid: ekornya bisa terpotong. */
+  salvaged?: boolean
 }
 
 export interface ArticleSubmission {
@@ -164,6 +174,36 @@ export function createArticleSubmission(options: ArticleSubmissionOptions): Arti
     return { accepted: false, issues }
   }
 
+  type Verdict = { accepted: true; fields: ArticleFields } | { accepted: false; issues: string[] }
+
+  /** Nilai satu penyerahan sebagai satu percobaan. Penolakan topik (`REFUSED:`) selalu diterima tanpa koreksi. */
+  const judge = (args: Record<string, unknown>): Verdict => {
+    attempts += 1
+    const refused = refusalOf(args)
+    if (refused !== null) {
+      refusal = refused
+      return { accepted: true, fields: { title: String(args.title), excerpt: "", body: "" } }
+    }
+
+    const fields = readArticleFields(args)
+    if (!fields) {
+      const issues = shapeIssues(args)
+      if (attempts <= rounds) return { accepted: false, issues }
+      const coerced = {
+        title: typeof args.title === "string" ? args.title : "",
+        excerpt: typeof args.excerpt === "string" ? args.excerpt : "",
+        body: typeof args.body === "string" ? args.body : "",
+      }
+      last = { fields: coerced, issues }
+      record("error", `Naskah tidak lengkap diterima apa adanya setelah ${rounds} putaran koreksi: ${issues.join("; ")}`)
+      return { accepted: true, fields: coerced }
+    }
+
+    const { accepted, issues } = assess(fields)
+    if (accepted) return { accepted: true, fields }
+    return { accepted: false, issues }
+  }
+
   // Definisi fungsi (nama + deskripsi + parameter bersih) diteruskan LangChain apa adanya
   // (`ToolStrategy.fromSchema`: objek ber-`name` & `parameters`); tipe publiknya hanya menyebut JSON Schema.
   const functionDefinition = {
@@ -182,31 +222,20 @@ export function createArticleSubmission(options: ArticleSubmissionOptions): Arti
   }
 
   strategy.parse = (args: Record<string, unknown>): ArticleFields => {
-    attempts += 1
-    // Penolakan (guardrail aturan 14) dibaca dari title saja, walau excerpt/body tidak diisi.
-    const refused = refusalOf(args)
-    if (refused !== null) {
-      refusal = refused
-      return { title: String(args.title), excerpt: "", body: "" }
-    }
-
-    const fields = readArticleFields(args)
-    if (!fields) {
-      const issues = shapeIssues(args)
-      if (attempts <= rounds) throw new StructuredOutputParsingError(ARTICLE_SUBMIT_TOOL, issues)
-      const coerced = {
-        title: typeof args.title === "string" ? args.title : "",
-        excerpt: typeof args.excerpt === "string" ? args.excerpt : "",
-        body: typeof args.body === "string" ? args.body : "",
-      }
-      last = { fields: coerced, issues }
-      return coerced
-    }
-
-    const { accepted, issues } = assess(fields)
-    if (!accepted) throw new StructuredOutputParsingError(ARTICLE_SUBMIT_TOOL, issues)
-    return fields
+    const verdict = judge(args)
+    if (!verdict.accepted) throw new StructuredOutputParsingError(ARTICLE_SUBMIT_TOOL, verdict.issues)
+    return verdict.fields
   }
+
+  /** Naskah diterima dari giliran `message`: setiap `extract-article` dijawab, lalu loop berakhir. */
+  const acceptedResult = (message: AIMessage, calls: ToolCall[], fields: ArticleFields): StructuredResult => ({
+    structuredResponse: fields,
+    messages: [
+      message,
+      ...calls.map((call) => new ToolMessage({ tool_call_id: call.id ?? "", name: call.name, content: ACCEPTED_NOTE })),
+      new AIMessage(ACCEPTED_NOTE),
+    ],
+  })
 
   /**
    * Naskah diterima tetapi giliran yang sama memuat tool call lain (mis. `set_featured_image`): LangChain hanya
@@ -231,29 +260,45 @@ export function createArticleSubmission(options: ArticleSubmissionOptions): Arti
   }
 
   /**
-   * Beberapa `extract-article` dalam satu giliran: LangChain tidak memanggil `parse` dan hanya meminta penyerahan
-   * tunggal. Penyerahan pertama tetap dinilai: bila lolos (atau putaran koreksi habis), naskah diterima langsung.
+   * Beberapa `extract-article` dalam satu giliran. LangChain tidak memanggil `parse`: ia menjawab panggilan pertama
+   * dengan permintaan penyerahan tunggal (`handleError`) dan memutar ulang giliran. Penyerahan pertama tetap dinilai
+   * sebagai satu percobaan: lolos (atau putaran koreksi habis) → diterima langsung; tidak lolos → pelanggarannya
+   * menjadi jawaban panggilan lainnya (Command tanpa `goto` yang ikut giliran ulang LangChain), sehingga setiap tool
+   * call terjawab tepat sekali. Selama putaran koreksi tersisa, naskah dari giliran yang juga memuat tool lain tidak
+   * diterima agar tool itu tidak hilang: penambal deepagents menandainya dibatalkan dan agen mengulangnya dulu.
    */
-  const acceptDuplicateSubmission = (message: AIMessage, calls: ToolCall[]): StructuredResult | AIMessage => {
-    attempts += 1
-    const refused = refusalOf(calls[0].args)
-    const fields = refused === null ? readArticleFields(calls[0].args) : null
-    if (refused !== null) refusal = refused
-    else if (!fields || !assess(fields).accepted) return message
-    return {
-      structuredResponse: fields ?? { title: String(calls[0].args.title), excerpt: "", body: "" },
-      messages: [
-        message,
-        ...calls.map((call) => new ToolMessage({ tool_call_id: call.id ?? "", name: call.name, content: ACCEPTED_NOTE })),
-        new AIMessage(ACCEPTED_NOTE),
-      ],
+  const acceptDuplicateSubmission = (message: AIMessage, calls: ToolCall[]): StructuredResult | Command => {
+    const others = (message.tool_calls ?? []).filter((call) => call.name !== ARTICLE_SUBMIT_TOOL)
+    const otherNames = others.map((call) => call.name).join(", ")
+    let issues: string[]
+    if (others.length > 0 && refusalOf(calls[0].args) === null && attempts < rounds) {
+      attempts += 1
+      const fields = readArticleFields(calls[0].args)
+      issues = [BATCHED_SUBMISSION_ISSUE, ...(fields ? validateArticleFields(fields, options) : shapeIssues(calls[0].args))]
+      if (fields) last = { fields, issues: issues.slice(1) }
+      record("blocked", `Penyerahan ganda bersama tool lain (${otherNames}) dikembalikan ke agen (penyerahan ke-${attempts}): ${issues.join("; ")}`)
+    } else {
+      const verdict = judge(calls[0].args)
+      if (verdict.accepted) {
+        if (others.length > 0 && refusal === null) record("error", `Tool lain di giliran penyerahan tidak dijalankan: ${otherNames}`)
+        return acceptedResult(message, calls, verdict.fields)
+      }
+      issues = verdict.issues
     }
+    const feedback = handleError(new StructuredOutputParsingError(ARTICLE_SUBMIT_TOOL, issues))
+    return new Command({
+      update: {
+        messages: calls
+          .slice(1)
+          .map((call) => new ToolMessage({ tool_call_id: call.id ?? "", name: ARTICLE_SUBMIT_TOOL, content: feedback })),
+      },
+    })
   }
 
   /**
    * Argumen `extract-article` bukan JSON valid (terpotong batas token / escape rusak) sehingga masuk
-   * `invalid_tool_calls` dan tidak pernah sampai ke `parse`: draf diselamatkan dari argumen mentah, lalu agen diminta
-   * menyerahkan ulang (selama putaran koreksi tersisa).
+   * `invalid_tool_calls` dan tidak pernah sampai ke `parse`: draf diselamatkan dari argumen mentah (tanpa menimpa
+   * penyerahan utuh sebelumnya), lalu agen diminta menyerahkan ulang selama putaran koreksi tersisa.
    */
   const retryInvalidArguments = (message: AIMessage, invalid: InvalidToolCall): AIMessage | Command => {
     attempts += 1
@@ -263,10 +308,12 @@ export function createArticleSubmission(options: ArticleSubmissionOptions): Arti
       refusal = refused
       return message
     }
-    if (salvaged?.markdownContent?.trim()) {
+    const issue = isCutOff(message) ? CUT_OFF_ARGUMENTS_ISSUE : INVALID_ARGUMENTS_ISSUE
+    if (salvaged?.markdownContent?.trim() && (last === null || last.salvaged)) {
       last = {
         fields: { title: salvaged.title ?? "", excerpt: salvaged.excerpt ?? "", body: salvaged.markdownContent },
-        issues: [INVALID_ARGUMENTS_ISSUE],
+        issues: [issue],
+        salvaged: true,
       }
     }
     if (attempts > rounds || !invalid.id) {
@@ -276,11 +323,12 @@ export function createArticleSubmission(options: ArticleSubmissionOptions): Arti
     record("blocked", `Argumen penyerahan ke-${attempts} bukan JSON valid; agen diminta menyerahkan ulang`)
     // Riwayat wajib berpasangan tool call ↔ ToolMessage: penambal deepagents membuang ToolMessage tanpa tool call
     // pasangan, dan provider (mis. Gemini) menolak tool call mentah tanpa jawaban. Pesan model diganti (id sama)
-    // dengan tool call `extract-article` sah berargumen kosong; argumen mentah yang rusak tidak dikirim ulang.
+    // dengan tool call `extract-article` sah berargumen kosong; argumen mentah yang rusak tidak dikirim ulang. Tool call
+    // lain di giliran itu tetap tercatat agar penambal menandainya dibatalkan (agen tahu harus mengulangnya).
     const repaired = new AIMessage({
       id: message.id,
       content: message.content,
-      tool_calls: [{ id: invalid.id, name: ARTICLE_SUBMIT_TOOL, args: {}, type: "tool_call" }],
+      tool_calls: [{ id: invalid.id, name: ARTICLE_SUBMIT_TOOL, args: {}, type: "tool_call" }, ...(message.tool_calls ?? [])],
       invalid_tool_calls: [],
       additional_kwargs: withoutRawToolCalls(message),
       response_metadata: message.response_metadata,
@@ -293,7 +341,7 @@ export function createArticleSubmission(options: ArticleSubmissionOptions): Arti
           new ToolMessage({
             tool_call_id: invalid.id,
             name: ARTICLE_SUBMIT_TOOL,
-            content: handleError(new StructuredOutputParsingError(ARTICLE_SUBMIT_TOOL, [INVALID_ARGUMENTS_ISSUE])),
+            content: handleError(new StructuredOutputParsingError(ARTICLE_SUBMIT_TOOL, [issue])),
           }),
         ],
       },

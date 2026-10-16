@@ -1,6 +1,13 @@
 import vm from "node:vm"
 import { describe, expect, it } from "vitest"
-import { assembleAgentOutputText, deriveExcerpt, detectRefusal, extractArticleJsonFromText, finalizeArticleFields } from "./output-schema"
+import {
+  assembleAgentOutputText,
+  deriveExcerpt,
+  detectRefusal,
+  extractArticleJsonFromText,
+  finalizeArticleFields,
+  trimCutOffTail,
+} from "./output-schema"
 
 /** Watchdog `vm` (timeout vitest tidak menghentikan loop sinkron) + anggaran waktu nyata. */
 // Anggaran longgar agar tidak flaky di CI yang sibuk; regresi kuadratik/ReDoS yang dicegah butuh > 6 detik.
@@ -256,5 +263,16 @@ describe("deriveExcerpt", () => {
     const wordCut = deriveExcerpt(longSentence)!
     expect(wordCut.endsWith("arabika…")).toBe(true)
     expect(wordCut.length).toBeLessThanOrEqual(160)
+  })
+})
+
+describe("trimCutOffTail", () => {
+  it("blok penutup terpotong dibuang beserta heading tanpa isi; naskah utuh tidak berubah", () => {
+    expect(trimCutOffTail("Paragraf satu.\n\n## Bagian\n\nKalimat utuh.\n\n## Akhir\n\nPetani di Bener Mer")).toBe(
+      "Paragraf satu.\n\n## Bagian\n\nKalimat utuh."
+    )
+    expect(trimCutOffTail("Paragraf satu.\n\n## Bagian\n\nKalimat utuh.  ")).toBe("Paragraf satu.\n\n## Bagian\n\nKalimat utuh.")
+    expect(trimCutOffTail("東京の喫茶店。\n\n価格が上が")).toBe("東京の喫茶店。")
+    expect(trimCutOffTail("Satu blok terpotong di teng")).toBe("Satu blok terpotong di teng")
   })
 })

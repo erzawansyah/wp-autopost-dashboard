@@ -8,7 +8,7 @@ import {
   markdownToPlainText,
   markdownWithoutCodeBlocks,
 } from "@/core/shared/formatters/article-metrics"
-import { cleanMarkdown, unescapeLiteralNewlines } from "@/core/shared/formatters/markdown-cleaner"
+import { cleanMarkdown, prepareMarkdownSource } from "@/core/shared/formatters/markdown-cleaner"
 import { cleanArticleExcerpt, cleanArticleTitle } from "./postprocess"
 
 /**
@@ -65,7 +65,8 @@ const HEADER_LABEL_LINE = /^[ \t]*(?:TITLE|EXCERPT):/m
 export function validateArticleFields(fields: ArticleFields, context: ArticleValidationContext): string[] {
   const rules = ARTICLE_OUTPUT_RULES
   const issues: string[] = []
-  const body = unescapeLiteralNewlines(fields.body || "").trim()
+  // Bentuk pra-parse cleaner (pembungkus ```markdown dibuka): pemeriksaan badan mentah tidak buta di dalam pembungkus.
+  const body = prepareMarkdownSource(fields.body || "")
   const requiredTitle = context.requiredTitle?.trim()
   const title = cleanArticleTitle(requiredTitle || fields.title || "")
 

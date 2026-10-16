@@ -56,19 +56,39 @@ const VALID = {
   body: `${paragraph.repeat(2)}\n\n${sections(5)}`,
 }
 
+/** Tool gambar berskrip: mencatat setiap eksekusi. */
+function imageTool(executed: string[]) {
+  return tool(
+    async ({ query }: { query: string }) => {
+      executed.push(query)
+      return "gambar dipasang"
+    },
+    { name: "set_featured_image", description: "pasang gambar", schema: z.object({ query: z.string() }) }
+  )
+}
+
 /** Agen standard dengan susunan middleware penyerahan seperti `build-agent.ts`. */
-function setup(script: Array<() => AIMessage>, target = 300) {
+function setup(
+  script: Array<() => AIMessage>,
+  options: { maxCorrectionRounds?: number; tools?: ReturnType<typeof imageTool>[] } = {}
+) {
   const recorder = new RunRecorder()
-  const submission = createArticleSubmission({ recorder, targetWordCount: target })
+  const submission = createArticleSubmission({ recorder, targetWordCount: 300, maxCorrectionRounds: options.maxCorrectionRounds })
   const model = new ScriptedModel(script)
   const agent = createAgent({
     model,
-    tools: [],
+    tools: options.tools ?? [],
     responseFormat: submission.responseFormat,
     middleware: [createPatchToolCallsMiddleware(), submission.middleware],
   })
   return { recorder, submission, model, invoke: () => agent.invoke({ messages: [new HumanMessage("tulis")] }) }
 }
+
+/** ToolMessage yang diterima model pada panggilan ke-`index`. */
+const toolMessagesAt = (model: ScriptedModel, index: number) =>
+  model.calls[index].messages.filter((m): m is ToolMessage => ToolMessage.isInstance(m))
+const toolCallIdsAt = (model: ScriptedModel, index: number) =>
+  model.calls[index].messages.flatMap((m) => (AIMessage.isInstance(m) ? (m.tool_calls ?? []).map((call) => call.id) : []))
 
 describe("createArticleSubmission", () => {
   it("tool extract-article ter-bind dengan parameter tiga field bersih dan tool_choice wajib", async () => {
@@ -163,20 +183,85 @@ describe("createArticleSubmission", () => {
     expect(submission.attempts()).toBe(1)
   })
 
-  it("dua penyerahan tidak valid dalam satu giliran → diminta menyerahkan sekali; sisa percobaan dihitung tepat", async () => {
+  it("dua penyerahan tidak valid dalam satu giliran → pelanggaran sampai ke agen; sisa percobaan dihitung tepat", async () => {
     const bad = { ...VALID, excerpt: "pendek" }
     const { model, submission, invoke } = setup([twice(bad), submit(VALID)])
     const result = await invoke()
     expect(result.structuredResponse).toEqual(VALID)
-    const feedback = model.calls[1].messages.filter((m): m is ToolMessage => ToolMessage.isInstance(m))
+    const feedback = toolMessagesAt(model, 1)
     const text = feedback.map((m) => String(m.content)).join("\n")
     expect(text).toContain(`call ${ARTICLE_SUBMIT_TOOL} exactly once per turn`)
+    expect(text).toContain("excerpt: 6 characters")
+    expect(text).not.toContain("cancelled")
     expect(text).toContain(`Remaining correction attempts: ${ARTICLE_OUTPUT_RULES.maxCorrectionRounds}`)
-    // Setiap tool call di riwayat terjawab tepat satu kali (penambal deepagents menutup panggilan kedua).
-    expect(feedback.map((m) => m.tool_call_id).sort()).toEqual(
-      (model.calls[1].messages.find((m): m is AIMessage => AIMessage.isInstance(m))?.tool_calls ?? []).map((c) => c.id).sort()
-    )
+    // Setiap tool call di riwayat terjawab tepat satu kali.
+    expect(feedback.map((m) => m.tool_call_id).sort()).toEqual(toolCallIdsAt(model, 1).sort())
     expect(submission.attempts()).toBe(2)
+  })
+
+  it("satu putaran koreksi: penyerahan ganda tidak valid tetap menerima pelanggaran sebelum diterima apa adanya", async () => {
+    const bad = { ...VALID, excerpt: "pendek" }
+    const { model, invoke } = setup([twice(bad), submit(VALID)], { maxCorrectionRounds: 1 })
+    expect((await invoke()).structuredResponse).toEqual(VALID)
+    expect(toolMessagesAt(model, 1).map((m) => String(m.content)).join("\n")).toContain("excerpt: 6 characters")
+  })
+
+  it("penyerahan ganda bersama tool lain → tool lain tidak hilang: dibatalkan, diulang, lalu naskah diserahkan sekali", async () => {
+    const executed: string[] = []
+    const withImage = () =>
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          { id: "img1", name: "set_featured_image", args: { query: "kopi" }, type: "tool_call" },
+          { id: `d${++callId}`, name: ARTICLE_SUBMIT_TOOL, args: VALID, type: "tool_call" },
+          { id: `d${++callId}`, name: ARTICLE_SUBMIT_TOOL, args: VALID, type: "tool_call" },
+        ],
+      })
+    const image = () =>
+      new AIMessage({ content: "", tool_calls: [{ id: "img2", name: "set_featured_image", args: { query: "kopi" }, type: "tool_call" }] })
+    const { model, invoke } = setup([withImage, image, submit(VALID)], { tools: [imageTool(executed)] })
+    const result = await invoke()
+
+    expect(result.structuredResponse).toEqual(VALID)
+    expect(executed).toEqual(["kopi"])
+    const feedback = toolMessagesAt(model, 1)
+    expect(feedback.map((m) => m.tool_call_id).sort()).toEqual(toolCallIdsAt(model, 1).sort())
+    expect(feedback.find((m) => m.tool_call_id === "img1")?.content).toContain("cancelled")
+    expect(feedback.map((m) => String(m.content)).join("\n")).toContain("alone, in a turn after your other tool calls")
+  })
+
+  it("argumen terpotong tidak menimpa penyerahan utuh sebelumnya; batas panjang diberi tahu ke agen", async () => {
+    const short = { ...VALID, excerpt: "pendek" }
+    const cutOff = () =>
+      new AIMessage({
+        content: "",
+        invalid_tool_calls: [
+          { id: `x${++callId}`, name: ARTICLE_SUBMIT_TOOL, args: `{"title":"Judul","excerpt":"e","body":"${"kata ".repeat(80)}`, error: "bad json", type: "invalid_tool_call" },
+        ],
+        response_metadata: { finish_reason: "length" },
+      })
+    const rounds = ARTICLE_OUTPUT_RULES.maxCorrectionRounds
+    const { model, submission, invoke } = setup([submit(short), ...Array.from({ length: rounds }, () => cutOff)])
+    const result = await invoke()
+
+    expect(result.structuredResponse).toBeUndefined()
+    expect(submission.lastSubmission()).toMatchObject({ fields: short })
+    expect(submission.lastSubmission()?.salvaged).toBeUndefined()
+    expect(String(toolMessagesAt(model, 2).at(-1)?.content)).toContain("cut off at the output length limit")
+  })
+
+  it("tanpa penyerahan utuh, draf dari argumen terpotong diselamatkan dan ditandai", async () => {
+    const cutOff = () =>
+      new AIMessage({
+        content: "",
+        invalid_tool_calls: [
+          { id: `x${++callId}`, name: ARTICLE_SUBMIT_TOOL, args: `{"title":"Judul","excerpt":"e","body":"${"kata ".repeat(80)}`, error: "bad json", type: "invalid_tool_call" },
+        ],
+      })
+    const rounds = ARTICLE_OUTPUT_RULES.maxCorrectionRounds
+    const { submission, invoke } = setup(Array.from({ length: rounds + 1 }, () => cutOff))
+    await invoke()
+    expect(submission.lastSubmission()).toMatchObject({ salvaged: true, fields: { title: "Judul" } })
   })
 
   it("tool riset biasa tetap berjalan sebelum penyerahan", async () => {

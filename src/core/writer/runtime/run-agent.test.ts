@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { AIMessage } from "@langchain/core/messages"
 import { tool } from "@langchain/core/tools"
 import { OpenRouterError } from "@langchain/openrouter"
 import { z } from "zod"
@@ -769,6 +770,49 @@ describe("runAgentWriter — kontrak keluaran naskah", () => {
 
     expect(result.success).toBe(true)
     expect(result.article?.title).toBe("Harga Gayo Melonjak")
+    expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak"])
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it("body terstruktur dibungkus ```markdown dihitung pada bentuk terbit → tidak memicu finalize", async () => {
+    const body = `\`\`\`markdown\n${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(30)}\n\`\`\``
+    mocks.buildWriterAgent.mockResolvedValue({
+      invoke: async () => ({
+        messages: [{ content: "Article submitted." }],
+        structuredResponse: { title: "Harga Gayo Melonjak", excerpt: "Ringkasan harga kopi Gayo.", body },
+      }),
+    })
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({ success: true, stopReason: "completed" })
+    expect(result.article?.markdownContent).not.toContain("```")
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it("draf dari argumen extract-article terpotong → dipangkas ke blok utuh terakhir dan ditandai pelanggaran", async () => {
+    const body = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(30)}\n\n## Siapa yang Terdampak\n\nPetani kecil di Bener Mer`
+    const rawArgs = `{"title":"Harga Gayo Melonjak","excerpt":"Ringkas.","body":"${body.replace(/\n/g, "\\n")}`
+    mocks.buildWriterAgent.mockImplementation(
+      async ({ submission }: { submission: { middleware: { wrapModelCall?: (request: unknown, handler: () => Promise<unknown>) => Promise<unknown> } } }) => ({
+        invoke: async () => {
+          const cutOff = new AIMessage({
+            content: "",
+            invalid_tool_calls: [{ id: "x1", name: "extract-article", args: rawArgs, error: "JSON tidak lengkap", type: "invalid_tool_call" }],
+            response_metadata: { finish_reason: "length" },
+          })
+          for (let attempt = 0; attempt < 3; attempt++) {
+            await submission.middleware.wrapModelCall?.({ responseFormat: {} }, async () => cutOff)
+          }
+          return { messages: [cutOff] }
+        },
+      })
+    )
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({ success: true, stopReason: "completed_with_output_violations" })
+    expect(result.article?.markdownContent).not.toContain("Bener Mer")
     expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak"])
     expect(mocks.finalize).not.toHaveBeenCalled()
   })

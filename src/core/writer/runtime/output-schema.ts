@@ -180,6 +180,24 @@ function trimExcerpt(text: string): string {
   return `${cut.replace(/[\s,;:]+$/, "")}…`
 }
 
+/** Akhir blok yang dianggap utuh: tanda akhir kalimat, kutip/kurung penutup, penanda format, atau fence penutup. */
+const COMPLETE_BLOCK_END = /[.!?…。！？」』"”’')\]*_`]$/
+const LONE_HEADING_BLOCK = /^ {0,3}#{1,6}[ \t][^\n]*$/
+
+/**
+ * Pangkas draf yang diselamatkan dari argumen tool terpotong ke blok utuh terakhir: blok penutup yang tidak
+ * berakhir seperti kalimat/blok utuh dibuang, beserta heading tanpa isi yang tersisa di ujung naskah.
+ */
+export function trimCutOffTail(markdown: string): string {
+  const text = markdown.trimEnd()
+  if (COMPLETE_BLOCK_END.test(text)) return text
+  const blocks = text.split(/\n[ \t]*\n/)
+  if (blocks.length < 2) return text
+  blocks.pop()
+  while (blocks.length > 1 && LONE_HEADING_BLOCK.test(blocks[blocks.length - 1].trim())) blocks.pop()
+  return blocks.join("\n\n").trimEnd()
+}
+
 /** Excerpt heuristik: baris prosa pertama (> 20 karakter) dari naskah, maksimal 160 karakter. */
 export function deriveExcerpt(markdown: string): string | undefined {
   for (const line of markdown.split(/\r?\n/)) {

@@ -42,6 +42,16 @@ describe("article-metrics", () => {
 
   it("findRawHtmlInMarkdown hanya mengenali nama elemen HTML (tanpa membedakan huruf besar)", () => {
     expect(findRawHtmlInMarkdown("Ganti <nama-toko> dan <NamaPengguna> lalu <DIV class=\"x\">")).toEqual(['<DIV class="x">'])
+    expect(findRawHtmlInMarkdown("東京の<ruby>珈琲<rt>コーヒー</rt></ruby>と<big>x</big>")).toEqual([
+      "<ruby>",
+      "<rt>",
+      "</rt>",
+      "</ruby>",
+      "<big>",
+      "</big>",
+    ])
+    // Nama tak dikenal tetap dianggap tag bila punya penutup di naskah yang sama.
+    expect(findRawHtmlInMarkdown("<kotak-info>isi</kotak-info>")).toEqual(["<kotak-info>", "</kotak-info>"])
   })
 
   it("codePointLength menghitung emoji sebagai satu karakter", () => {

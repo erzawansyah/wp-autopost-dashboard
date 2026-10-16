@@ -25,16 +25,17 @@ import { buildSystemPrompt, buildUserPrompt } from "./prompt-builder";
 import { buildWriterAgent } from "./build-agent";
 import { executeSingleFinalizeCall } from "./finalize";
 import { postprocessArticle } from "./postprocess";
-import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
+import { cleanMarkdown, unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
 import { countWords, markdownToPlainText } from "@/core/shared/formatters/article-metrics";
 import {
   assembleAgentOutputText,
   detectRefusal,
   extractArticleJsonFromText,
   finalizeArticleFields,
+  trimCutOffTail,
   ArticleOutput,
 } from "./output-schema";
-import { createArticleSubmission, readArticleFields } from "./article-submission";
+import { createArticleSubmission, readArticleFields, type SubmittedArticle } from "./article-submission";
 import type { ArticleFields } from "./article-validation";
 import { preResolveTaxonomyAndAuthor, type PreResolvedContext } from "./pre-resolve";
 import { resolveWriterReasoningEffort, writerModelCandidates } from "./resolve-model";
@@ -153,6 +154,12 @@ async function persistCheckpoint(
 /** Field naskah terstruktur → bentuk naskah runtime (`body` = `markdownContent`). */
 function fieldsToArticleOutput(fields: ArticleFields): Partial<ArticleOutput> & { markdownContent: string } {
   return { title: fields.title, excerpt: fields.excerpt, markdownContent: fields.body };
+}
+
+/** Penyerahan terakhir yang belum diterima; draf dari argumen rusak dipangkas ke blok utuh terakhir. */
+function submissionToArticleOutput(submitted: SubmittedArticle): Partial<ArticleOutput> & { markdownContent: string } {
+  const body = submitted.salvaged ? trimCutOffTail(submitted.fields.body) : submitted.fields.body;
+  return fieldsToArticleOutput({ ...submitted.fields, body });
 }
 
 /** Pesan dari model (bukan pesan pengguna/tool). Objek tanpa `getType` (mis. mock) dianggap pesan model. */
@@ -686,8 +693,9 @@ export async function runAgentWriter(
         rawOutput = fieldsToArticleOutput(structured);
         if (salvaged && salvaged.issues.length > 0) stopReason = "completed_with_output_violations";
       } else if (salvaged && salvaged.fields.body.trim()) {
-        // 8b. Loop berhenti sebelum naskah diterima (anggaran habis): pakai penyerahan terakhir.
-        rawOutput = fieldsToArticleOutput(salvaged.fields);
+        // 8b. Loop berhenti sebelum naskah diterima (anggaran habis / argumen rusak): pakai penyerahan terakhir.
+        rawOutput = submissionToArticleOutput(salvaged);
+        if (salvaged.issues.length > 0 && stopReason === "completed") stopReason = "completed_with_output_violations";
       } else {
         // 8c. Jalur teks (model tidak memanggil `extract-article`): naskah dapat terbagi ke beberapa pesan AI di
         //     sela panggilan tool, disambung mulai pesan terakhir yang memuat baris TITLE.
@@ -750,12 +758,13 @@ export async function runAgentWriter(
       const interruptedRefusal = submission.refusal();
       if (interruptedRefusal !== null) return refusalFailure(interruptedRefusal, "agent_loop");
       const salvaged = submission.lastSubmission();
-      if (salvaged && salvaged.fields.body.trim()) rawOutput = fieldsToArticleOutput(salvaged.fields);
+      if (salvaged && salvaged.fields.body.trim()) rawOutput = submissionToArticleOutput(salvaged);
     }
 
     // 9. Evaluasi Kelengkapan Naskah & Trigger Single Finalize Call jika diperlukan
+    // Diukur pada bentuk terbit (`cleanMarkdown`), sama dengan validator: pembungkus ```markdown bukan blok kode.
     const rawWords = rawOutput?.markdownContent
-      ? countWords(markdownToPlainText(rawOutput.markdownContent), language)
+      ? countWords(markdownToPlainText(cleanMarkdown(rawOutput.markdownContent, rawOutput.title)), language)
       : 0;
 
     const needsFinalize =

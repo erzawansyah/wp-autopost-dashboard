@@ -715,16 +715,21 @@ Susunan prompt penulis (ADR-069) — instruksi berbahasa Inggris, naskah selalu 
   `Intl.Segmenter`, metrik bersama di `formatters/article-metrics.ts`); pelanggaran dikirim balik ke agen
   (`system-article-output-invalid.md`) paling banyak `maxCorrectionRounds` (2) putaran, lalu penyerahan berikutnya diterima
   apa adanya (stopReason `completed_with_output_violations`, event guard `extract-article`). `ArticleSubmissionMiddleware`
-  menangani kasus yang tidak sampai ke `parse`: argumen bukan JSON valid (draf diselamatkan, agen diminta menyerahkan ulang
-  dengan riwayat tool call ↔ ToolMessage tetap berpasangan), penyerahan ganda (yang pertama dinilai), dan penyerahan bersama
-  tool lain (tool lain dijalankan dulu). `RunModelCallBudgetMiddleware` mencadangkan `maxCorrectionRounds + 1` panggilan
+  menangani kasus yang tidak sampai ke `parse`: argumen bukan JSON valid (draf diselamatkan tanpa menimpa penyerahan utuh
+  sebelumnya, agen diminta menyerahkan ulang dengan riwayat tool call ↔ ToolMessage tetap berpasangan; argumen terpotong
+  batas panjang diberi tahu agar naskah dipadatkan), penyerahan ganda (yang pertama dinilai dan pelanggarannya dikirim ke
+  agen), dan penyerahan bersama tool lain (tool lain dijalankan dulu, tidak pernah hilang). Draf dari argumen rusak yang
+  terpakai saat loop berhenti dipangkas ke blok utuh terakhir (`trimCutOffTail`) dan ditandai
+  `completed_with_output_violations`. Validator dan keputusan finalize mengukur naskah pada bentuk pra-parse/terbit
+  `cleanMarkdown` (`prepareMarkdownSource`), sehingga pembungkus ```markdown tidak dianggap satu blok kode. `RunModelCallBudgetMiddleware` mencadangkan `maxCorrectionRounds + 1` panggilan
   terakhir (dibatasi agar tetap ada panggilan riset): tool riset dilepas agar model wajib menyerahkan naskah, dan subagent tidak
   boleh memakai cadangan. Bila loop berhenti sebelum naskah diterima, penyerahan terakhir dipakai; tanpa penyerahan, jalur
   teks lama (`output-schema.ts`: header TITLE/EXCERPT, Markdown, JSON bebas; judul tidak pernah diambil dari subbab H2) berlaku.
 - **Finalize call** (`system-finalize.md`, tanpa tools) meminta JSON `{title, excerpt, body}` lewat `response_format` json_schema
-  strict (turun ke `json_object` bila ditolak provider, `LlmGateway.invoke({ jsonSchema })`); balasan JSON sah tanpa body layak
-  dianggap gagal (tidak pernah jatuh ke jalur teks sehingga JSON mentah tidak terpublikasi); pelanggaran aturan field hanya
-  dicatat (finalize tetap tepat 1×).
+  strict (turun ke `json_object` bila ditolak provider, `LlmGateway.invoke({ jsonSchema })`); balasan JSON sah tidak pernah jatuh
+  ke jalur teks (JSON mentah tidak terpublikasi): bentuk menyimpang (array satu elemen, objek pembungkus, key varian) dipetakan
+  `normalizeArticleOutput`, dan tanpa body string yang layak finalize gagal; pelanggaran aturan field hanya dicatat
+  (finalize tetap tepat 1×).
 - **Judul & excerpt** (`finalizeArticleFields`): judul wajib pengguna → field/baris judul model → kata kunci; excerpt model →
   prosa pertama naskah (dipotong di batas kalimat/kata).
 - **Penolakan**: guardrail meminta penyerahan `extract-article` dengan title `REFUSED: <alasan>` (atau satu baris `REFUSED:` bila

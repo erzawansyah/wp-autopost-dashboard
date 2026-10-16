@@ -49,6 +49,17 @@ describe("validateArticleFields", () => {
     ])
   })
 
+  it("pembungkus ```markdown (tertutup atau tidak) dibuka dulu: label, HTML, dan H1 di dalamnya tetap dilaporkan", () => {
+    const inner = `TITLE: X\nEXCERPT: Y\n\n# Judul\n\n${PARAGRAPH}<span>merah</span>\n\n${sections(5)}`
+    for (const body of [`\`\`\`markdown\n${inner}\n\`\`\``, `\`\`\`md\n${inner}`]) {
+      expect(validateArticleFields({ ...VALID, body }, context)).toEqual([
+        expect.stringContaining("body: 1 H1 heading(s)"),
+        expect.stringContaining("body: HTML tags <span>"),
+        expect.stringContaining('"TITLE:" or "EXCERPT:" line'),
+      ])
+    }
+  })
+
   it("label huruf kecil di prosa & label di blok kode ~~~ bukan pelanggaran", () => {
     const body = `${PARAGRAPH}\n\ntitle: kata biasa di awal baris.\n\n${sections(5)}\n\n~~~\nTITLE: contoh format\n~~~`
     expect(validateArticleFields({ ...VALID, body }, context)).toEqual([])

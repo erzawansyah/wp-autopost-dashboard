@@ -66,11 +66,26 @@ describe("executeSingleFinalizeCall", () => {
       { title: "Harga Gayo", excerpt: filler, body: "" },
       { title: "Harga Gayo", excerpt: filler, body: "terlalu pendek" },
       { title: "Harga Gayo", excerpt: filler, body: [BODY] },
-      [{ title: "Harga Gayo", excerpt: filler, body: BODY }],
+      { title: "Harga Gayo", excerpt: filler, body: JSON.stringify({ isi: BODY }) },
     ]) {
       const { result, recorder } = run(JSON.stringify(reply))
       expect(await result).toBeNull()
       expect(recorder.getEvents().at(-1)).toMatchObject({ kind: "finalize", status: "error" })
+    }
+  })
+
+  it("JSON sah berbentuk menyimpang dari skema (array, key varian, pembungkus, field null) tetap dipetakan ke naskah", async () => {
+    for (const reply of [
+      [{ title: "Harga Gayo", excerpt: "Ringkas.", body: BODY.trim() }],
+      { title: "Harga Gayo", excerpt: "Ringkas.", content: BODY },
+      { title: "Harga Gayo", markdownContent: BODY },
+      { article: { title: "Harga Gayo", excerpt: null, body: BODY } },
+    ]) {
+      const { result, recorder } = run(JSON.stringify(reply))
+      expect(await result).toMatchObject({ kind: "article", article: { title: "Harga Gayo", markdownContent: BODY.trim() } })
+      if (!Array.isArray(reply) || reply.length !== 1) {
+        expect(recorder.getEvents().find((e) => e.tool === "finalize_output")?.summary).toContain("JSON keys did not match")
+      }
     }
   })
 

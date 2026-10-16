@@ -1,11 +1,12 @@
 import { getLanguageDisplayName } from "@/lib/constants/languages"
 import { countWords, markdownToPlainText } from "@/core/shared/formatters/article-metrics"
+import { cleanMarkdown } from "@/core/shared/formatters/markdown-cleaner"
 import { describeLlmError } from "@/core/shared/llm/errors"
 import { LLM_GATEWAY_SETTINGS, type LlmGateway } from "@/core/shared/llm/gateway"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { ARTICLE_FIELDS_JSON_SCHEMA, readArticleFields } from "./article-submission"
-import { validateArticleFields } from "./article-validation"
-import { ArticleOutput, detectRefusal, extractArticleJsonFromText, finalizeArticleFields } from "./output-schema"
+import { validateArticleFields, type ArticleFields } from "./article-validation"
+import { ArticleOutput, detectRefusal, extractArticleJsonFromText, finalizeArticleFields, normalizeArticleOutput } from "./output-schema"
 import { articleFieldRules, formatAuthorBio } from "./prompt-builder"
 import { RunRecorder } from "./telemetry"
 
@@ -49,6 +50,21 @@ function parseJsonReply(text: string): unknown {
   } catch {
     return undefined
   }
+}
+
+/** Objek naskah dari balasan JSON: array satu elemen dan objek pembungkus satu key (`{"article": {…}}`) dibuka. */
+function unwrapArticleJson(json: unknown): unknown {
+  let value = json
+  for (let depth = 0; depth < 3; depth++) {
+    if (Array.isArray(value) && value.length === 1) {
+      value = value[0]
+      continue
+    }
+    const entries = typeof value === "object" && value !== null && !Array.isArray(value) ? Object.values(value) : []
+    if (entries.length !== 1 || typeof entries[0] !== "object" || entries[0] === null) break
+    value = entries[0]
+  }
+  return value
 }
 
 /** Field `title` string dari balasan JSON (dibaca walau field lain hilang, untuk deteksi `REFUSED:`). */
@@ -122,8 +138,9 @@ export async function executeSingleFinalizeCall(
 
     const contentStr = typeof directRes.content === "string" ? directRes.content : JSON.stringify(directRes.content)
     const json = parseJsonReply(contentStr)
-    const fields = readArticleFields(json)
-    const refusal = detectRefusal(json === undefined ? contentStr : (jsonTitle(json) ?? ""))
+    const candidate = json === undefined ? undefined : unwrapArticleJson(json)
+    const fields = readArticleFields(candidate)
+    const refusal = detectRefusal(json === undefined ? contentStr : (jsonTitle(candidate) ?? ""))
     if (refusal !== null) {
       recorder.recordEvent({
         kind: "finalize",
@@ -135,13 +152,22 @@ export async function executeSingleFinalizeCall(
     }
 
     if (json !== undefined) {
-      // Balasan JSON sah tidak pernah jatuh ke jalur teks: tanpa body yang layak, finalize gagal.
-      if (fields && fields.body.trim().length > 150) {
+      // Balasan JSON sah tidak pernah jatuh ke jalur teks (JSON mentah tidak boleh terbit): tanpa body string yang
+      // layak, finalize gagal. Bentuk menyimpang dari skema (provider mengabaikan json_schema) dipetakan lewat
+      // `normalizeArticleOutput`, yang hanya mengembalikan field string.
+      const normalized = fields ? null : normalizeArticleOutput(candidate)
+      const article: ArticleFields | null = fields
+        ? fields
+        : normalized?.markdownContent
+          ? { title: normalized.title ?? "", excerpt: normalized.excerpt ?? "", body: normalized.markdownContent }
+          : null
+      if (article && article.body.trim().length > 150 && !/^[[{]/.test(article.body.trim())) {
         structuredResult = finalizeArticleFields(
-          { title: fields.title, excerpt: fields.excerpt, markdownContent: fields.body },
+          { title: article.title, excerpt: article.excerpt, markdownContent: article.body },
           { title: params.title, keyword }
         )
-        const issues = validateArticleFields(fields, { requiredTitle: params.title, targetWordCount, language })
+        const issues = validateArticleFields(article, { requiredTitle: params.title, targetWordCount, language })
+        if (!fields) issues.unshift("reply: JSON keys did not match {title, excerpt, body}")
         if (issues.length > 0) {
           recorder.recordEvent({
             kind: "guard",
@@ -166,7 +192,7 @@ export async function executeSingleFinalizeCall(
     const durationMs = Date.now() - start
 
     if (structuredResult && structuredResult.markdownContent) {
-      const words = countWords(markdownToPlainText(structuredResult.markdownContent), language)
+      const words = countWords(markdownToPlainText(cleanMarkdown(structuredResult.markdownContent)), language)
       recorder.recordEvent({
         kind: "finalize",
         status: "ok",
