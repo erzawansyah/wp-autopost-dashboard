@@ -129,7 +129,6 @@ describe("GET /api/settings/user", () => {
       notification_prefs: {
         langsmith_api_key: TENANT_LANGSMITH_CIPHER,
         langsmith_project: "proyek-tenant",
-        email_on_failure: true,
         developer_mode: true,
         default_ai_model: "openai/gpt-4o-mini",
         sisipan_asing: "x",
@@ -145,7 +144,7 @@ describe("GET /api/settings/user", () => {
     expect(raw).not.toContain(TENANT_OPENROUTER_CIPHER)
     expect(raw).not.toContain("langsmith_api_key")
     expect(raw).not.toContain("sisipan_asing")
-    expect(body.notificationPrefs).toEqual({ email_on_failure: true, developer_mode: true })
+    expect(body).not.toHaveProperty("notificationPrefs")
     expect(body.developerMode).toBe(true)
     expect(body.keys.langsmith).toEqual({ configured: true, maskedKey: "••••••••••••••••" })
     expect(body.keys.openrouter.configured).toBe(true)
@@ -154,6 +153,46 @@ describe("GET /api/settings/user", () => {
     expect(body.defaultAiModel).toBe("openai/gpt-4o-mini")
     expect(body.reasoningEffort).toBe("high")
     expect(body.searchPreferences).toEqual({ default_provider: "brave", reasoning_effort: "high" })
+  })
+
+  it("sakelar notifikasi lama tersimpan diabaikan tanpa error; developerMode tetap terbaca", async () => {
+    withStoredRow({
+      notification_prefs: {
+        email_on_failure: false,
+        email_on_batch_complete: true,
+        notify_on_queue_empty: true,
+        in_app_toast: "rusak",
+        developer_mode: true,
+      },
+    })
+
+    const res = await getSettings()
+    const raw = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(JSON.parse(raw).developerMode).toBe(true)
+    for (const legacyKey of ["email_on_failure", "email_on_batch_complete", "notify_on_queue_empty", "in_app_toast"]) {
+      expect(raw).not.toContain(legacyKey)
+    }
+  })
+
+  it("developerMode false bila developer_mode tidak tersimpan atau bukan boolean true", async () => {
+    withStoredRow({ notification_prefs: { developer_mode: "true" } })
+    expect((await (await getSettings()).json()).developerMode).toBe(false)
+
+    withStoredRow(null)
+    expect((await (await getSettings()).json()).developerMode).toBe(false)
+  })
+
+  it("status kunci SerpAPI hanya configured + mask tetap", async () => {
+    const serpCipher = "ee55:ff66:serpapicipher"
+    withStoredRow({ encrypted_serpapi_key: serpCipher })
+
+    const res = await getSettings()
+    const raw = await res.text()
+
+    expect(JSON.parse(raw).keys.serpapi).toEqual({ configured: true, maskedKey: "••••••••••••••••" })
+    expect(raw).not.toContain(serpCipher)
   })
 
   it("mengembalikan provider 'auto' bila provider tersimpan tidak dikenal", async () => {
@@ -192,7 +231,7 @@ describe("PUT /api/settings/user", () => {
   it.each([
     ["default_provider tidak didukung webSearch()", { searchPreferences: { default_provider: "google" } }, "tidak didukung"],
     ["reasoningEffort di luar low/medium/high", { reasoningEffort: "ekstrem" }, "reasoning"],
-    ["notificationPrefs non-boolean", { notificationPrefs: { email_on_failure: "ya" } }, "notificationPrefs"],
+    ["developerMode non-boolean", { developerMode: "ya" }, "developerMode"],
   ])("menolak %s", async (_label, body, fragment) => {
     const res = await putSettings(body)
     const json = await res.json()
@@ -212,7 +251,7 @@ describe("PUT /api/settings/user", () => {
     expect(lastUpsertPayload().search_preferences).toEqual({ default_provider: "serpapi", reasoning_effort: "medium" })
   })
 
-  it("notificationPrefs dari client tidak bisa menimpa kredensial LangSmith atau menyisipkan kunci asing", async () => {
+  it("notificationPrefs dari klien lama dibuang: tidak menimpa kredensial LangSmith, tidak menyisipkan kunci", async () => {
     withStoredRow({
       notification_prefs: { langsmith_api_key: TENANT_LANGSMITH_CIPHER, langsmith_project: "proyek-tenant" },
     })
@@ -220,17 +259,33 @@ describe("PUT /api/settings/user", () => {
     const res = await putSettings({
       notificationPrefs: {
         email_on_failure: false,
+        developer_mode: true,
         langsmith_api_key: "nilai-dari-client",
         langsmith_project: "proyek-client",
         sisipan_asing: true,
       },
+      developerMode: false,
     })
 
     expect(res.status).toBe(200)
     expect(lastUpsertPayload().notification_prefs).toEqual({
-      email_on_failure: false,
+      developer_mode: false,
       langsmith_api_key: TENANT_LANGSMITH_CIPHER,
       langsmith_project: "proyek-tenant",
+    })
+  })
+
+  it("simpan Developer Mode pada data lama berisi sakelar notifikasi: kunci lama dibiarkan apa adanya, tanpa error", async () => {
+    const legacyPrefs = { email_on_failure: true, email_on_batch_complete: false, in_app_toast: true }
+    withStoredRow({ notification_prefs: { ...legacyPrefs, developer_mode: false } })
+
+    const res = await putSettings({ developerMode: true })
+
+    expect(res.status).toBe(200)
+    expect(lastUpsertPayload().notification_prefs).toEqual({
+      ...legacyPrefs,
+      developer_mode: true,
+      langsmith_project: "panitera",
     })
   })
 
@@ -245,6 +300,17 @@ describe("PUT /api/settings/user", () => {
       langsmith_api_key: "enc(kunci-langsmith-baru)",
       langsmith_project: "panitera",
     })
+  })
+
+  it("kunci SerpAPI baru dienkripsi ke encrypted_serpapi_key dan tidak digemakan; kosong = hapus", async () => {
+    const res = await putSettings({ serpapiKey: " kunci-serpapi-uji " })
+
+    expect(res.status).toBe(200)
+    expect(lastUpsertPayload().encrypted_serpapi_key).toBe("enc(kunci-serpapi-uji)")
+    expect(JSON.stringify(await res.json())).not.toContain("kunci-serpapi-uji")
+
+    await putSettings({ serpapiKey: "" })
+    expect(lastUpsertPayload().encrypted_serpapi_key).toBeNull()
   })
 
   it("kunci BYOK: baru dienkripsi, kosong dihapus, tersamar/tidak dikirim tidak disentuh", async () => {

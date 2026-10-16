@@ -17,7 +17,7 @@ Menu **Antrean** menampilkan 100 artikel terbaru beserta statusnya.
 
 Menu titik tiga setiap baris berisi **Lihat detail & log**, **Buka di WordPress** (bila sudah terkirim), aksi ulang sesuai status, dan **Hapus dari daftar**.
 
-Menu **Daftar Batch** (`/batches`) merangkum setiap batch: **Nama batch**, **Website target**, **Strategi jadwal**, **Kemajuan**, **Status** (**Berjalan** atau **Selesai**), dan tanggal dibuat. Dari sana Anda dapat membuka antrean batch atau menghapus batch.
+Menu **Daftar Batch** (`/batches`) merangkum setiap batch: **Nama batch**, **Website target**, **Strategi jadwal**, **Kemajuan**, **Status** (**Berjalan**; **Selesai** bila semua artikel sudah diproses dan minimal satu berhasil; **Gagal** bila semua artikel gagal), dan tanggal dibuat. Dari sana Anda dapat membuka antrean batch atau menghapus batch.
 
 ---
 

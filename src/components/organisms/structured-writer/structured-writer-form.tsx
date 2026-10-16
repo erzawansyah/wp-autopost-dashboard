@@ -24,6 +24,7 @@ import {
 } from "@/components/organisms/writer-form/writer-fields"
 import { selectUsableSites, sitesQueries } from "@/lib/api/queries/sites"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
+import { STRUCTURED_BATCH_TEMPLATES } from "@/lib/parser/structured-batch-templates"
 import { parseUniversalBatchInput, type ColumnRole } from "@/lib/parser/universal-batch-parser"
 import { defaultAgentProfileRef, type AgentProfileOption } from "@/lib/queue/writer-options"
 import { notify } from "@/lib/ui/notify"
@@ -38,33 +39,6 @@ import {
 import type { Site } from "@/types/site"
 
 const ADVANCED_FIELDS = ["batchName", "categoryIds", "tags", "customBrief"]
-
-const TEMPLATE_EXAMPLES = [
-  {
-    name: "keyword, lsi",
-    desc: "Topik utama & kata kunci sekunder",
-    text: `keyword, lsi
-resep nasi goreng, bumbu nasi goreng | kecap manis | nasi pera
-cara merawat aglaonema, media tanam | pupuk daun | sinar matahari
-rekomendasi coffee shop jakarta, manual brew | kopi susu | tempat nongkrong`,
-  },
-  {
-    name: "keyword, lsi, judul",
-    desc: "Topik, variasi LSI, dan judul H1 siap pakai",
-    text: `keyword, lsi, judul
-wisata jogja, malioboro | heha sky view | prambanan, 10 Tempat Wisata Jogja Paling Populer dan Hits 2026
-laptop murah, ram 8gb | ssd nvme | baterai awet, Rekomendasi Laptop Murah Terbaik untuk Mahasiswa & Kerja
-diet sehat, defisit kalori | intermitten fasting | menu sayur, Panduan Diet Sehat Alami Tanpa Olahraga Berat`,
-  },
-  {
-    name: "judul, second keyword, fokus",
-    desc: "Judul artikel, kata kunci sekunder, & arahan sudut pandang",
-    text: `judul, second keyword, fokus
-Panduan Lengkap SEO On-Page untuk Pemula, meta tag | internal link | struktur url, Bahas teknis praktis tanpa istilah rumit
-Strategi Memulai Bisnis Kopi Susu Kekinian, modal awal | pemilihan cup | supplier biji, Sertakan simulasi modal dan perhitungan BEP
-Cara Meningkatkan Penjualan di Marketplace, optimasi gambar | iklan flash sale | review, Fokus pada tips konversi untuk toko baru`,
-  },
-]
 
 const RAW_TEXT_PLACEHOLDER = `Tempel data CSV, Excel (copy-paste), atau teks bertanda pemisah di sini...
 
@@ -204,7 +178,8 @@ export function StructuredWriterForm({ initialSites, agentProfiles }: Structured
               required
               hint={
                 <>
-                  Pemisah koma (<code>,</code>), tab Excel, titik koma (<code>;</code>), atau garis tegak (<code>|</code>).
+                  Pemisah kolom: koma (<code>,</code>), tab Excel, titik koma (<code>;</code>), atau garis tegak (<code>|</code>).
+                  Beberapa LSI/tag dalam satu sel dipisah dengan <code>|</code>.
                 </>
               }
             >
@@ -213,7 +188,7 @@ export function StructuredWriterForm({ initialSites, agentProfiles }: Structured
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-1.5 text-xs">
                       <span className="mr-1 font-medium text-muted-foreground">Contoh cepat:</span>
-                      {TEMPLATE_EXAMPLES.map((template) => (
+                      {STRUCTURED_BATCH_TEMPLATES.map((template) => (
                         <Button
                           key={template.name}
                           type="button"

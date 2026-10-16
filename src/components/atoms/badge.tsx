@@ -22,6 +22,8 @@ const badgeVariants = cva(
         warning: "border-warning/30 bg-warning/10 text-warning-strong [a&]:hover:bg-warning/15",
         info: "border-info/30 bg-info/10 text-info-strong [a&]:hover:bg-info/15",
         ai: "border-ai-process/30 bg-ai-process/10 text-ai-process-strong [a&]:hover:bg-ai-process/15",
+        // Status netral/non-aktif (mis. "Menunggu", "Tidak terjangkau"): latar muted + border tipis.
+        muted: "border-border bg-muted text-muted-foreground [a&]:hover:bg-muted/80",
       },
     },
     defaultVariants: {

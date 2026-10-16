@@ -140,6 +140,24 @@ describe("createBatch", () => {
     expect(rows[1]).toMatchObject({ scheduled_for: "2026-11-02T09:00:00.000Z", tags: ["umum", "hijau"] })
   })
 
+  it("kategori per baris dicatat sebagai permintaan (requested_category_names) di samping kategori default batch", async () => {
+    await createBatch(fakeSupabase(), USER, {
+      ...base,
+      items: [{ keyword: "kopi", category: "Wisata Kuliner" }, { keyword: "teh" }],
+    })
+
+    const rows = calls.find((call) => call.table === "post_items" && call.action === "insert")?.payload as Array<
+      Record<string, unknown>
+    >
+    expect(rows[0]).toMatchObject({
+      categories: ["Wisata Kuliner"],
+      source_payload: { category_ids: [3], requested_category_names: ["Wisata Kuliner"] },
+    })
+    // Baris tanpa kategori: hanya kategori default batch (label = nama kategori batch).
+    expect(rows[1]).toMatchObject({ categories: ["Minuman"], source_payload: { category_ids: [3] } })
+    expect((rows[1].source_payload as Record<string, unknown>).requested_category_names).toBeUndefined()
+  })
+
   it("penyisipan item gagal → batch kosong dihapus lagi dan galat DB dipetakan", async () => {
     itemsInsertError = { code: "23514", message: "check violation" }
 

@@ -3,8 +3,11 @@ import { AVAILABLE_WEBHOOK_EVENTS, type WebhookEvent, type WebhookItem } from "@
 
 /** Pemetaan murni webhook ⇄ form tambah/ubah (`WebhookFormDialog`). */
 
-/** Event terpilih default untuk webhook baru (perilaku form lama). */
-export const DEFAULT_WEBHOOK_EVENTS: WebhookEvent[] = ["post.published", "post.failed", "batch.completed"]
+/**
+ * Event terpilih default untuk webhook baru. Kedua hasil batch ikut dipilih: batch yang semua itemnya gagal
+ * hanya mengirim `batch.failed` (tidak lagi `batch.completed`).
+ */
+export const DEFAULT_WEBHOOK_EVENTS: WebhookEvent[] = ["post.published", "post.failed", "batch.completed", "batch.failed"]
 
 const EVENT_ORDER = new Map(AVAILABLE_WEBHOOK_EVENTS.map((item, index) => [item.event, index]))
 

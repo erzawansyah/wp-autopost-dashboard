@@ -37,7 +37,9 @@ Klik **Simpan Profil Agen** (profil baru) atau **Simpan Perubahan Profil**. Meng
 
 ### Model AI
 
-Editor Agent Profile tidak memiliki pilihan model. Artikel di antrean ditulis dengan **Model Default Penulisan Artikel** dan **Tingkat Penalaran** yang Anda atur di [Pusat Kunci API & Model AI](/settings/keys).
+Editor Agent Profile tidak memiliki pilihan model. Artikel (Tulis Cepat, antrean batch, dan Laboratorium) ditulis dengan **Model Default Penulisan Artikel** yang Anda atur di [Pusat Kunci API & Model AI](/settings/keys), baik dengan preset bawaan maupun Agent Profile kustom. Pengecualian: Agent Profile kustom yang membawa model sendiri (diisi lewat API) selalu memakai model tersebut. Bila model default belum dipilih, dipakai model bawaan sistem.
+
+**Tingkat Penalaran** di halaman yang sama berlaku untuk Agent Profile kustom; preset bawaan memakai tingkat penalarannya sendiri (Quick Writer dan Research & Media Writer: Low, Deep Research Specialist: Medium).
 
 ---
 

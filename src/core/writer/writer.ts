@@ -112,7 +112,6 @@ export async function run(
     normalizedOptions.userKeys ||
     (effectiveUserId ? await getUserDecryptedKeys(effectiveUserId) : {
       searchPreferences: { default_provider: "auto" },
-      notificationPrefs: {},
     })
 
   // 4. Eksekusi Agentic Writer Runtime (listener telemetri hanya lewat opsi, bukan payload request)

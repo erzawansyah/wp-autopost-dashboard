@@ -201,12 +201,17 @@ export async function createBatch(
       state: "queued_input",
       scheduled_for: slot ? slot.scheduledFor.toISOString() : nowIso,
       wp_target_status: slot?.wpTargetStatus || input.targetStatus || "publish",
+      // Label tampilan; diganti nama kategori yang benar-benar dipakai saat naskah disimpan worker.
       categories: item.category ? [item.category] : input.categoryNames,
       tags: itemTags,
       custom_instructions_override: buildItemInstructions(item, input.customBrief),
       source_payload: {
         ...input.aiConfig,
+        // Kategori default batch: dipakai bila baris tanpa kategori atau kategori baris tidak ditemukan di situs.
         category_ids: input.categoryIds,
+        // Kategori per baris (nama dari pengguna): dicocokkan ke kategori situs saat pre-resolve dan mengalahkan
+        // `category_ids`. Kategori baru tidak pernah dibuat otomatis.
+        requested_category_names: item.category ? [item.category] : undefined,
         batch_name: batch.name,
         schedule_mode: input.scheduleMode,
         execution_mode: input.executionMode,

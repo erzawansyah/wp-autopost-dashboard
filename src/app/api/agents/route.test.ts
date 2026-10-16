@@ -63,7 +63,6 @@ vi.mock("@/lib/settings/user-keys", () => ({
   getUserDecryptedKeys: async () => ({
     tavilyKey: "tvly-test",
     searchPreferences: { default_provider: "auto" },
-    notificationPrefs: {},
   }),
 }))
 

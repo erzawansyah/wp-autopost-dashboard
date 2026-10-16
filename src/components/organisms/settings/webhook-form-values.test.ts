@@ -7,6 +7,13 @@ describe("toWebhookFormValues", () => {
     expect(toWebhookFormValues()).toEqual({ name: "", url: "", events: DEFAULT_WEBHOOK_EVENTS, customSecret: "" })
   })
 
+  it("default memuat kedua hasil batch (batch semua gagal hanya mengirim batch.failed) dan lolos skema", () => {
+    expect(DEFAULT_WEBHOOK_EVENTS).toEqual(expect.arrayContaining(["batch.completed", "batch.failed"]))
+    expect(
+      WebhookFormSchema.safeParse({ ...toWebhookFormValues(), name: "n8n", url: "https://n8n.example.com/hook" }).success
+    ).toBe(true)
+  })
+
   it("ubah webhook: memakai data tersimpan dan membuang event yang tidak bisa dilanggan", () => {
     const values = toWebhookFormValues({
       name: "Slack",

@@ -28,6 +28,7 @@ vi.mock("@/server/queue/enqueue", () => ({ createBatch: mocks.createBatch }))
 vi.mock("@/server/queue/embedded", () => ({ nudgeQueueRunner: mocks.nudgeQueueRunner }))
 
 import { DELETE, POST } from "@/app/api/batches/route"
+import { MAX_BATCH_BODY_BYTES, MAX_BATCH_ITEMS } from "@/lib/validation/batches"
 import { resetRateLimitStore } from "@/server/http/rate-limit"
 
 const USER = "11111111-1111-4111-8111-111111111111"
@@ -105,17 +106,60 @@ describe("POST /api/batches", () => {
     ])
   })
 
-  it("kosong atau lebih dari 50 baris → 400 tanpa membuat batch", async () => {
+  it("kosong atau lebih dari MAX_BATCH_ITEMS baris (kata kunci maupun terstruktur) → 400 tanpa membuat batch", async () => {
+    expect(MAX_BATCH_ITEMS).toBe(50)
     const empty = await POST(post({ siteId: SITE_ID, keywords: ["  "] }), ctx)
     expect(empty.status).toBe(400)
 
-    const tooMany = await POST(
-      post({ siteId: SITE_ID, keywords: Array.from({ length: 51 }, (_, i) => `kata ${i}`) }),
+    const tooManyKeywords = await POST(
+      post({ siteId: SITE_ID, keywords: Array.from({ length: MAX_BATCH_ITEMS + 1 }, (_, i) => `kata ${i}`) }),
       ctx
     )
-    expect(tooMany.status).toBe(400)
-    expect((await tooMany.json()).error).toMatch(/Maksimal 50 baris/)
+    expect(tooManyKeywords.status).toBe(400)
+    expect(await tooManyKeywords.json()).toMatchObject({ code: "validation_failed", error: expect.stringMatching(/Maksimal 50 baris per batch/) })
+
+    // Regresi: skema dulu menerima 500 baris terstruktur.
+    const tooManyItems = await POST(
+      post({ siteId: SITE_ID, items: Array.from({ length: MAX_BATCH_ITEMS + 1 }, (_, i) => ({ keyword: `kata ${i}` })) }),
+      ctx
+    )
+    expect(tooManyItems.status).toBe(400)
+    expect((await tooManyItems.json()).issues).toContainEqual({ path: "items", message: expect.stringMatching(/Maksimal 50 baris/) })
     expect(mocks.createBatch).not.toHaveBeenCalled()
+  })
+
+  it("batch maksimal yang lolos skema (50 baris, semua field penuh) muat di batas body; di atas batas → 413", async () => {
+    const fill = (length: number) => "a".repeat(length)
+    const fullItem = {
+      keyword: fill(300),
+      title: fill(300),
+      lsi: Array.from({ length: 50 }, () => fill(200)),
+      focus: fill(2_000),
+      category: fill(200),
+      tags: Array.from({ length: 50 }, () => fill(100)),
+    }
+    const maxBody = {
+      siteId: SITE_ID,
+      batchName: fill(200),
+      items: Array.from({ length: MAX_BATCH_ITEMS }, () => fullItem),
+      agentProfileRef: fill(200),
+      aiModel: fill(200),
+      category_ids: Array.from({ length: 100 }, (_, i) => i + 1),
+      category_names: Array.from({ length: 50 }, () => fill(200)),
+      tags: Array.from({ length: 50 }, () => fill(100)),
+      customBrief: fill(10_000),
+    }
+    const size = new TextEncoder().encode(JSON.stringify(maxBody)).byteLength
+    expect(size).toBeGreaterThan(900_000)
+    expect(size).toBeLessThanOrEqual(MAX_BATCH_BODY_BYTES)
+
+    const accepted = await POST(post(maxBody), ctx)
+    expect(accepted.status).toBe(200)
+    expect(mocks.createBatch.mock.calls[0][2].items).toHaveLength(MAX_BATCH_ITEMS)
+
+    const oversized = await POST(post({ siteId: SITE_ID, keywords: ["kopi"], customBrief: fill(MAX_BATCH_BODY_BYTES) }), ctx)
+    expect(oversized.status).toBe(413)
+    expect(mocks.createBatch).toHaveBeenCalledTimes(1)
   })
 })
 

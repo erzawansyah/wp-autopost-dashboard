@@ -62,13 +62,13 @@ Fungsi kolom yang tersedia:
 | **Kata kunci sekunder (LSI)** | Istilah yang wajib dibahas secara natural. |
 | **Fokus pembahasan / brief** | Arahan sudut pandang khusus untuk baris tersebut. |
 | **Tag WordPress** | Tag khusus baris, digabung dengan tag default batch. |
-| **Kategori WordPress** | Dicatat sebagai label artikel di antrean. Kategori yang dikirim ke WordPress berasal dari **Kategori WordPress default** di tab Lanjutan, atau dipilih AI bila kosong. |
+| **Kategori WordPress** | Nama kategori yang **sudah ada** di website (dicocokkan dengan nama atau slug, huruf besar/kecil diabaikan) dan dipakai untuk baris itu, mengalahkan **Kategori WordPress default** di tab Lanjutan. Panitera tidak membuat kategori baru: bila nama tidak ditemukan, artikel memakai kategori default batch (atau dipilih AI bila kosong) dan peringatan tercatat di **Log aktivitas** artikel. |
 | **Abaikan kolom ini** | Kolom tidak diproses. |
 
 Tips data:
 
-- Gunakan satu jenis pemisah kolom secara konsisten. Tempelan langsung dari spreadsheet (pemisah tab) paling aman.
-- Beberapa LSI atau tag dalam satu sel dipisahkan dengan koma atau titik koma. Bila kolom dipisah koma, apit sel tersebut dengan tanda kutip (`"a, b, c"`) atau pakai titik koma di dalam sel.
+- Gunakan satu jenis pemisah kolom secara konsisten. Pemisah dipilih dari karakter yang membagi setiap baris (terutama baris header) menjadi jumlah kolom yang sama. Tempelan langsung dari spreadsheet (pemisah tab) paling aman.
+- Beberapa LSI atau tag dalam satu sel dipisahkan dengan garis tegak (`|`), koma, atau titik koma. Bila kolom dipisah koma, pakai `|` di dalam sel (seperti tombol **Contoh cepat**) atau apit sel dengan tanda kutip ganda (`"a, b, c"`).
 - Tab **Lanjutan** berisi **Nama batch**, **Kategori WordPress default (opsional)**, **Tag WordPress default (opsional)**, dan **Instruksi khusus / sudut pandang penulis** yang berlaku untuk semua baris.
 
 ---
@@ -84,7 +84,7 @@ Tulis Massal dan Tulis Terstruktur memakai panel **Strategi jadwal tayang** yang
 
 **Pola jadwal tayang**:
 
-- **Pola Interval**: isi **Waktu mulai (artikel pertama)** dan **Jeda antar artikel (jam)** (1–720 jam, bawaan 12). Centang variasi acak agar jam tayang tidak selalu di menit :00; mulai artikel kedua, jadwal digeser acak hingga ±10 menit.
+- **Pola Interval**: isi **Waktu mulai (artikel pertama)** dan **Jeda antar artikel (jam)** (1–720 jam, bawaan 12). Centang variasi acak agar jam tayang tidak selalu tepat di menit :00; mulai artikel kedua, jadwal digeser 5–10 menit lebih awal atau lebih lambat secara acak. Pratinjau menampilkan contoh pergeseran; menit pastinya diacak ulang saat batch dibuat.
 - **Tanggal Acak**: isi **Mulai dari** dan **Sampai dengan**. Rentang dibagi rata sesuai jumlah artikel, lalu setiap artikel mendapat waktu acak di bagiannya.
 
 **Status di WordPress**:

@@ -64,7 +64,6 @@ const profile: AgentProfile = {
 const userKeys = {
   openrouterKey: "sk-or-v1-test",
   searchPreferences: { default_provider: "auto" },
-  notificationPrefs: {},
 } as DecryptedUserKeys
 
 const request = WriterRequestSchema.parse({ content: { keyword: "kopi arabika" }, model: "acme/request-model" })
@@ -576,6 +575,23 @@ describe("runAgentWriter — taksonomi, author & media terkunci", () => {
     expect(result.enrichment?.authorDetail).toBeUndefined()
   })
 
+  it("kategori per baris (nama) diteruskan ke resolver; kategori hasil pencocokannya mengalahkan ID kategori batch", async () => {
+    writingAgent()
+    const rowCategory = WriterRequestSchema.parse({
+      content: { keyword: "kopi arabika" },
+      model: "acme/request-model",
+      publishing: { mode: "draft", categoryIds: [7], categoryNames: ["wisata kuliner"] },
+    })
+
+    const result = await runAgentWriter({ request: rowCategory, profile, userKeys })
+
+    expect(mocks.preResolve.mock.calls[0][0]).toMatchObject({
+      requestedCategoryIds: [7],
+      requestedCategoryNames: ["wisata kuliner"],
+    })
+    expect(result.enrichment).toMatchObject({ categories: [12] })
+  })
+
   it("tanpa pilihan pengguna: kategori & author dari pre-resolve, media dari tool set_featured_image", async () => {
     writingAgent()
 
@@ -595,5 +611,38 @@ describe("runAgentWriter — taksonomi, author & media terkunci", () => {
     expect(result).toMatchObject({ success: true, stopReason: "completed" })
     expect(result.recorder.getSummary("completed").resumedSteps).toEqual(["pre_resolve", "draft"])
     expect(result.enrichment).toMatchObject({ categories: [12], author: 4, featuredMedia: 88 })
+  })
+})
+
+describe("runAgentWriter — prioritas model (Lab & antrean, resolve-model.ts)", () => {
+  const keys = { ...userKeys, defaultAiModel: "acme/default-akun" } as DecryptedUserKeys
+  const withoutRequestModel = WriterRequestSchema.parse({ content: { keyword: "kopi arabika" } })
+
+  beforeEach(() => {
+    mocks.buildWriterAgent.mockResolvedValue({
+      invoke: async () => {
+        throw new OpenRouterError("User not found.", 401)
+      },
+    })
+  })
+
+  it("model Agent Profile kustom mengalahkan default akun", async () => {
+    const result = await runAgentWriter({
+      request: withoutRequestModel,
+      profile: { ...profile, ref: "4f6c1f5e-0000-4000-8000-000000000001", model: "acme/model-profil" },
+      userKeys: keys,
+    })
+
+    expect(result.model).toBe("acme/model-profil")
+  })
+
+  it("preset bawaan memakai default akun walau membawa model sendiri", async () => {
+    const result = await runAgentWriter({
+      request: withoutRequestModel,
+      profile: { ...profile, isPreset: true, model: "acme/model-preset" },
+      userKeys: keys,
+    })
+
+    expect(result.model).toBe("acme/default-akun")
   })
 })

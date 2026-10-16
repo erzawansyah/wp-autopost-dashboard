@@ -28,6 +28,7 @@ import { postprocessArticle } from "./postprocess";
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
 import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
 import { preResolveTaxonomyAndAuthor, type PreResolvedContext } from "./pre-resolve";
+import { writerModelCandidates } from "./resolve-model";
 import {
   GENERATION_CHECKPOINT_MAX_BYTES,
   GENERATION_CHECKPOINT_SCHEMA_VERSION,
@@ -168,8 +169,12 @@ function completeArticle(params: CompleteArticleParams): RunAgentResult {
 
   // Taksonomi, author, & media: pilihan pengguna → hasil Pre-Flight Resolver / tool `set_featured_image`.
   // Tidak pernah dari teks keluaran agen (dapat dipengaruhi konten web yang dibaca `web_reader`).
+  // Nama kategori per baris hanya dapat dicocokkan resolver: bila diminta, hasil resolver yang mengikat (nama yang
+  // cocok, atau ID pilihan pengguna bila tidak cocok); selain itu ID pilihan pengguna → hasil resolver.
   const finalCategories =
-    request.publishing.categoryIds.length > 0 ? request.publishing.categoryIds : preResolved.categoryIds;
+    request.publishing.categoryNames.length === 0 && request.publishing.categoryIds.length > 0
+      ? request.publishing.categoryIds
+      : preResolved.categoryIds;
 
   const finalTags: number[] =
     preResolved.tagIds.length > 0 ? preResolved.tagIds : [];
@@ -251,7 +256,7 @@ const NON_RECOVERABLE_LLM_ERRORS: Partial<
     stopReason: "llm_auth_failed",
     code: "LLM_AUTH_FAILED",
     message:
-      "Kunci API OpenRouter ditolak (HTTP 401/403). Periksa kunci BYOK Anda di menu Pengaturan ➔ Kunci API (/settings/keys).",
+      "Kunci API OpenRouter ditolak (HTTP 401/403). Periksa kunci BYOK Anda di menu Pengaturan ➔ Kunci API & Model AI (/settings/keys).",
   },
   quota: {
     stopReason: "llm_quota_exhausted",
@@ -360,7 +365,11 @@ export async function runAgentWriter(
   // 3. Gateway LLM run: kunci BYOK, pemilihan model, retry/fallback, token & biaya, tracer tenant
   const gateway = createLlmGateway({
     apiKey: request.apiKey || userKeys.openrouterKey,
-    modelCandidates: [request.model, userKeys.defaultAiModel, profile.model],
+    modelCandidates: writerModelCandidates({
+      requestModel: request.model,
+      profile,
+      userDefaultModel: userKeys.defaultAiModel,
+    }),
     temperature: profile.temperature,
     reasoningEffort:
       request.reasoningEffort || profile.reasoningEffort || userKeys.reasoningEffort,
@@ -432,6 +441,7 @@ export async function runAgentWriter(
         wpCredentials,
         requestedAuthorId: request.publishing.authorId,
         requestedCategoryIds: request.publishing.categoryIds,
+        requestedCategoryNames: request.publishing.categoryNames,
         requestedTagNames: request.publishing.tagNames,
         keyword,
         language,

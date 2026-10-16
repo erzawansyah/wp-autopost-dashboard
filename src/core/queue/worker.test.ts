@@ -878,7 +878,7 @@ describe("runClaimedPostItem — progres batch", () => {
         }
         return { data: null, error: null, count: counts.total }
       }
-      if (op.table === "content_batches" && op.action === "update" && op.payload?.status === "completed") {
+      if (op.table === "content_batches" && op.action === "update" && ["completed", "failed"].includes(String(op.payload?.status))) {
         return { data: statusTransitionWins ? { id: BATCH_ID } : null, error: null }
       }
       return defaultResolver(post)(op)
@@ -906,13 +906,13 @@ describe("runClaimedPostItem — progres batch", () => {
     expect(batchCompletedWebhooks()).toHaveLength(0)
   })
 
-  it("menutup batch & mengirim batch.completed sekali saat semua item di state akhir (termasuk gagal)", async () => {
+  it("menutup batch & mengirim batch.completed sekali saat semua item di state akhir (sebagian gagal)", async () => {
     setResolver(batchResolver(storedRetryPost({ batch_id: BATCH_ID }), { total: 3, success: 2, failure: 1 }))
 
     await run(syncClaim({ batchId: BATCH_ID }))
 
     const close = batchUpdates().find((op) => op.payload?.status === "completed")
-    expect(hasFilter(close, ["or", "", "status.is.null,status.neq.completed"])).toBe(true)
+    expect(hasFilter(close, ["in", "status", ["draft", "running", "paused"]])).toBe(true)
     expect(batchCompletedWebhooks()).toHaveLength(1)
     expect(batchCompletedWebhooks()[0][0].data).toEqual({
       batchId: BATCH_ID,
@@ -931,14 +931,15 @@ describe("runClaimedPostItem — progres batch", () => {
     expect(batchCompletedWebhooks()).toHaveLength(0)
   })
 
-  it("kegagalan WordPress permanen ikut menghitung ulang progres batch; retry terjadwal tidak", async () => {
+  it("kegagalan WordPress permanen ikut menghitung ulang progres batch (semua gagal → batch.failed); retry terjadwal tidak", async () => {
     setResolver(batchResolver(storedRetryPost({ batch_id: BATCH_ID }), { total: 1, success: 0, failure: 1 }))
     mocks.publishPostToWordPress.mockResolvedValue({ ok: false, error: "Sorry, you are not allowed to do that." })
 
     await run(syncClaim({ batchId: BATCH_ID }))
 
-    expect(batchUpdates().some((op) => op.payload?.status === "completed")).toBe(true)
-    expect(batchCompletedWebhooks()).toHaveLength(1)
+    expect(batchUpdates().some((op) => op.payload?.status === "failed")).toBe(true)
+    expect(batchCompletedWebhooks()).toHaveLength(0)
+    expect(mocks.dispatchWebhookEvent.mock.calls.filter((call) => call[0]?.event === "batch.failed")).toHaveLength(1)
 
     mocks.ops.length = 0
     mocks.dispatchWebhookEvent.mockClear()
@@ -1532,5 +1533,66 @@ describe("runClaimedPostItem — exception writer: pemakaian tercatat & draft be
     await run()
 
     expect(draftDiscards()).toHaveLength(0)
+  })
+})
+
+describe("runClaimedPostItem — kategori per baris & prioritas model", () => {
+  const NEW_ARTICLE = { title: "Judul Baru", contentHtml: "<p>awal</p>", markdownContent: "Isi naskah", excerpt: "Ringkasan" }
+
+  it("kategori per baris diteruskan ke Pre-Flight Resolver bersama kategori batch; hasil resolusinya yang dikirim ke WordPress", async () => {
+    setResolver(
+      defaultResolver(
+        basePost({
+          categories: ["wisata kuliner"],
+          source_payload: { category_ids: [3], requested_category_names: ["wisata kuliner"] },
+        })
+      )
+    )
+    mocks.run.mockResolvedValue({
+      success: true,
+      article: NEW_ARTICLE,
+      enrichment: { categories: [8], categoryNames: ["Wisata Kuliner"], tags: [], tagNames: [] },
+    })
+
+    await run()
+
+    expect(mocks.run.mock.calls[0][0].publishing).toEqual({
+      mode: "draft",
+      categoryIds: [3],
+      categoryNames: ["wisata kuliner"],
+      tagNames: [],
+    })
+    expect(postItemUpdates().find(isSyncTransition)?.payload).toMatchObject({
+      categories: ["Wisata Kuliner"],
+      source_payload: { wp_publish_meta: { categoryIds: [8] } },
+    })
+    expect(publishParams().metadata).toMatchObject({ categoryIds: [8] })
+  })
+
+  it("baris tanpa kategori: label kategori batch di kolom categories bukan permintaan nama (hanya category_ids)", async () => {
+    setResolver(defaultResolver(basePost({ categories: ["Minuman"], source_payload: { category_ids: [3] } })))
+    mocks.run.mockResolvedValue({ success: true, article: NEW_ARTICLE, enrichment: { categories: [3], tags: [] } })
+
+    await run()
+
+    expect(mocks.run.mock.calls[0][0].publishing).toMatchObject({ categoryIds: [3], categoryNames: [] })
+  })
+
+  it.each([
+    ["Agent Profile kustom dengan model eksplisit mengalahkan default akun", { ref: "uuid-1", model: "acme/model-profil" }, {}, "acme/model-profil"],
+    ["model preset tidak mengalahkan default akun", { ref: "preset:quick-writer", isPreset: true, model: "acme/model-preset" }, {}, "acme/default-akun"],
+    ["Agent Profile kustom tanpa model memakai default akun", { ref: "uuid-1" }, {}, "acme/default-akun"],
+    ["model per item (API aiModel) mengalahkan semuanya", { ref: "uuid-1", model: "acme/model-profil" }, { aiModel: "acme/model-item" }, "acme/model-item"],
+  ])("%s", async (_label, profile, payload, expected) => {
+    setResolver(defaultResolver(basePost({ source_payload: payload })))
+    mocks.resolveAgentProfile.mockResolvedValue({ name: "Profil", mode: "standard", ...profile })
+    mocks.getUserDecryptedKeys.mockResolvedValue({ defaultAiModel: "acme/default-akun" })
+    mocks.run.mockResolvedValue({ success: false, error: { code: "X", message: "berhenti", retryable: false } })
+
+    await run()
+
+    expect(mocks.run.mock.calls[0][0].model).toBe(expected)
+    const runInsert = recordedOps().find((op) => op.table === "agent_runs" && op.action === "insert")
+    expect(runInsert?.payload?.profile_snapshot).toMatchObject({ model: expected })
   })
 })

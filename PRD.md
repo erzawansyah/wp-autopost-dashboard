@@ -149,14 +149,14 @@ Pengalihan lama
 
 ### 4.6 Tulis Terstruktur (`/write/structured`)
 
-- Input: tempel teks (CSV/TSV/sel spreadsheet) atau unggah `.csv`/`.tsv`/`.txt` (tidak membaca `.xlsx` langsung). Pemisah (tab, `|`, `;`, `,`) dideteksi otomatis dari karakter dominan; header opsional.
+- Input: tempel teks (CSV/TSV/sel spreadsheet) atau unggah `.csv`/`.tsv`/`.txt` (tidak membaca `.xlsx` langsung). Pemisah (tab, `,`, `;`, `|`) dideteksi otomatis dari konsistensi jumlah kolom per baris (baris header berbobot ganda), bukan jumlah karakter; sel boleh diapit kutip ganda (`"a, b"`); header opsional.
 - Pemetaan kolom: kata kunci utama, judul, LSI, fokus/brief, kategori, tag, atau abaikan; pratinjau data per baris. Maksimal 50 baris; batas tiap kolom divalidasi per nomor baris sebelum dikirim.
-- Per baris: judul spesifik (kosong = dibuat AI), LSI + fokus digabung ke instruksi khusus artikel, tag baris digabung dengan tag default. Kategori WordPress yang dikirim berasal dari kategori default batch atau pilihan AI; nama kategori per baris saat ini hanya dicatat sebagai label (lihat §8.3).
+- Per baris: judul spesifik (kosong = dibuat AI), LSI (beberapa item dalam satu sel dipisah `|`, `,`, atau `;`) + fokus digabung ke instruksi khusus artikel, tag baris digabung dengan tag default. Kategori per baris dicocokkan Pre-Flight Resolver ke kategori yang sudah ada di situs (nama/slug, tanpa membedakan huruf besar/kecil) dan mengalahkan kategori default batch; tidak ditemukan → kategori default batch, lalu pilihan AI, dengan peringatan di log aktivitas (kategori baru tidak pernah dibuat otomatis).
 
 ### 4.7 Strategi Jadwal Tayang (Drip-Feed)
 
 - **Eksekusi**: `immediate` (bawaan; semua item segera ditulis) atau `scheduled_drip` (item diklaim runner 10 menit sebelum `scheduled_for`).
-- **Pola**: **Pola Interval** (waktu mulai + jeda 1–720 jam, bawaan 12; variasi acak −10…+10 menit mulai item kedua) atau **Tanggal Acak** (rentang dibagi rata per item, titik acak di setiap bagian, variasi −7…+7 menit). Pratinjau slot (WIB) dihitung di klien; server menghitung ulang saat batch dibuat.
+- **Pola**: **Pola Interval** (waktu mulai + jeda 1–720 jam, bawaan 12; variasi acak ±5–10 menit mulai item kedua — arah maju/mundur acak, tidak pernah 0) atau **Tanggal Acak** (rentang dibagi rata per item, titik acak di setiap bagian, variasi −7…+7 menit). Pratinjau slot (WIB) dihitung di klien; server menghitung ulang saat batch dibuat.
 - **Status di WordPress**: **Langsung Terbit** (bawaan batch) dikirim sebagai `future` bila slot masih di masa depan sehingga WordPress (WP-Cron) yang menayangkannya, atau `publish` bila slot sudah lewat; **Simpan Draf** dikirim sebagai `draft`.
 - Tidak ada halaman kalender terpisah; artikel terjadwal dipantau di Antrean (filter **Terjadwal**, kolom **Waktu & Publikasi**).
 
@@ -166,7 +166,7 @@ Pengalihan lama
 - **Pembaruan live**: Supabase Realtime Broadcast **privat** per pengguna (topik `user:<uid>:queue` untuk status item dan `user:<uid>:post:<id>` untuk log baru; join diotorisasi policy `realtime.messages`). Bila kanal tidak tersambung, klien jatuh ke polling dengan backoff 5 → 60 detik yang berhenti saat tidak ada item aktif. Indikator: **Live**, **Menyambungkan…**, **Pembaruan berkala**.
 - Aksi ulang per state: **Jalankan sekarang** (`queued_input`; abaikan jadwal), **Tulis ulang** (`failed_generation`; pakai ulang checkpoint draf yang valid), **Kirim ulang ke WordPress** (`failed_sync`/`ready_to_sync`; tanpa LLM). Semua aksi hanya menjadwalkan ulang item lalu membangunkan runner.
 - Hapus artikel/batch/riwayat Tulis Cepat hanya di Panitera; post WordPress tidak tersentuh.
-- **Daftar Batch**: nama, website, strategi jadwal, kemajuan (item sukses / total), status (**Berjalan** → **Selesai** saat semua item berada di state akhir).
+- **Daftar Batch**: nama, website, strategi jadwal, kemajuan (item sukses / total), status (**Berjalan** → **Selesai** saat semua item berada di state akhir dan minimal satu sukses, atau **Gagal** bila semua item gagal; status akhir menyesuaikan bila item diproses ulang).
 
 ### 4.9 Detail Artikel (`/posts/[id]`)
 
@@ -179,7 +179,7 @@ Pengalihan lama
 
 - Preset bawaan (baca-saja, dapat dikloning): **Quick Writer** (standard, tanpa tools, default), **Research & Media Writer** (standard, 6 tools), **Deep Research Specialist** (deep, 6 tools + skill `anti-ai-editor`).
 - Profil kustom: nama, deskripsi, mode `standard` (LangChain `createAgent`) atau `deep` (Deep Agents + skill `SKILL.md`), workflow prompt (Raw/Pratinjau), tools yang diizinkan (dengan status **Siap**/**Perlu konfigurasi**), skill (mode Deep), temperatur, dan batas eksekusi (model calls, tool calls, timeout, minimal kata) yang selalu dijepit ke batas sistem. Satu profil dapat dijadikan default. Hapus = arsip (antrean lama tetap dapat diproses).
-- Model: editor tidak menyediakan pilihan model; worker memakai model payload, lalu **Model Default** pengguna, lalu model profil, lalu `OPENROUTER_DEFAULT_MODEL`.
+- Model: editor tidak menyediakan pilihan model (model profil kustom hanya dapat diisi lewat API `modelName`). Prioritas model penulisan, sama untuk antrean & Lab (`runtime/resolve-model.ts`): model per item (API `aiModel`) → model eksplisit Agent Profile kustom → **Model Default** pengguna (berlaku juga untuk preset bawaan) → model preset (bila ada) → `OPENROUTER_DEFAULT_MODEL` → `DEFAULT_AI_MODEL`.
 - **6 Universal Tools** (riset & visual saja): `keyword_suggestions`, `web_search`, `web_reader`, `image_search`, `set_featured_image`, `upload_media`.
 - Pipeline penulisan: Pre-Flight Resolver (author persona tanpa akun admin teknis selama ada persona lain, kategori dari yang ada, tag dicocokkan/dibuat) → agen menulis Markdown → pembersih anti-slop & normalisasi heading → serializer Markdown → Gutenberg berbasis AST (escape penuh, `[` dinetralkan) → kirim ke WordPress. Guard anti-loop: deduplikasi panggilan identik, circuit breaker tool, kuota global & per-tool, satu kali finalize darurat. Checkpoint `pre_resolve`/`draft` memungkinkan resume tanpa LLM.
 
@@ -203,9 +203,9 @@ Semua tool memakai pemilih website di `PageHeader`, butuh website tersambung, da
 
 ### 4.14 Pengaturan (`/settings/*`)
 
-- **Pusat Kunci API & Model AI** (`/settings/keys`): kunci OpenRouter (wajib), model default (katalog OpenRouter yang mendukung tool calling atau ID kustom), tingkat penalaran, mode mesin pencari (Auto Cascade, Tavily, Brave, SerpAPI, SearXNG, Bing Web, Wikipedia), kunci Tavily/Brave/Pexafy/LangSmith + nama proyek LangSmith. Status kunci hanya **Tersimpan terenkripsi** / **Belum diatur**; uji kunci, hapus kunci dengan konfirmasi; form rahasia `method=post` dan tombol simpan aktif setelah hydrate.
-- **Profil & Preferensi Akun** (`/settings/profile`): identitas tenant, **Keamanan Akun** (ganti kata sandi, §4.1; form `method=post`, aktif setelah hydrate), tiga preferensi notifikasi (tersimpan; lihat §8.3), dan Developer Mode.
-- **Integrasi Webhook** (`/settings/webhooks`): tambah (secret kustom ≥ 16 karakter atau otomatis; ditampilkan sekali), ubah nama/URL/event, aktif/nonaktif, **Tes Ping**, hapus. Event: `post.published`, `post.scheduled`, `post.draft_saved`, `post.failed`, `batch.completed` (`batch.failed` tersedia di daftar tetapi belum dipicu). Pengiriman: JSON `{ id, event, timestamp, data }`, header `X-Panitera-Timestamp`, `X-Panitera-Signature: sha256=HMAC(secret, "timestamp.body")`, `X-Webhook-Event`; via `safeFetch`, tanpa redirect, timeout 6 detik, tanpa pengiriman ulang. URL wajib publik (HTTPS di production).
+- **Pusat Kunci API & Model AI** (`/settings/keys`): kunci OpenRouter (wajib), model default (katalog OpenRouter yang mendukung tool calling atau ID kustom), tingkat penalaran, mode mesin pencari (Auto Cascade, Tavily, Brave, SerpAPI, SearXNG, Bing Web, Wikipedia), kunci Tavily/Brave/SerpAPI/Pexafy/LangSmith + nama proyek LangSmith. Status kunci hanya **Tersimpan terenkripsi** / **Belum diatur**; uji kunci, hapus kunci dengan konfirmasi; form rahasia `method=post` dan tombol simpan aktif setelah hydrate.
+- **Profil & Preferensi Akun** (`/settings/profile`): identitas tenant, **Keamanan Akun** (ganti kata sandi, §4.1; form `method=post`, aktif setelah hydrate), dan Developer Mode. Pemberitahuan otomatis hanya lewat webhook.
+- **Integrasi Webhook** (`/settings/webhooks`): tambah (secret kustom ≥ 16 karakter atau otomatis; ditampilkan sekali), ubah nama/URL/event, aktif/nonaktif, **Tes Ping**, hapus. Event: `post.published`, `post.scheduled`, `post.draft_saved`, `post.failed`, `batch.completed` (semua item batch selesai, minimal satu sukses), `batch.failed` (semua item batch gagal); tepat satu event batch per batch, tidak dikirim ulang oleh **Tulis ulang**/**Kirim ulang** setelah batch selesai. Pengiriman: JSON `{ id, event, timestamp, data }`, header `X-Panitera-Timestamp`, `X-Panitera-Signature: sha256=HMAC(secret, "timestamp.body")`, `X-Webhook-Event`; via `safeFetch`, tanpa redirect, timeout 6 detik, tanpa pengiriman ulang. URL wajib publik (HTTPS di production).
 
 ### 4.15 Dokumentasi In-App (`/docs`)
 
@@ -251,7 +251,7 @@ Aturan keandalan:
 2. **Kredensial**: Application Password, kunci BYOK, dan secret webhook dienkripsi AES-256-GCM (`ENCRYPTION_MASTER_KEY`), didekripsi hanya di server, tidak pernah dikembalikan ke browser, ditulis ke log, atau disimpan di localStorage. Log, telemetri, dan respons Lab diredaksi.
 3. **Anti-SSRF**: semua fetch ke URL dari pengguna/LLM lewat `safeFetch` (DNS pinning, blokir loopback/RFC 1918/CGNAT/link-local/metadata/IPv6 privat, validasi ulang setiap redirect, batas ukuran respons). Pengecualian hanya `/search` & `/autocompleter` SearXNG platform.
 4. **Perlindungan hosting pengguna**: batas paralel per website (bawaan 2), timeout eksplisit (WordPress 15 detik bawaan; uji koneksi 12 detik; kirim post 20 detik), request tulis WordPress tanpa mengikuti redirect.
-5. **Rate limit per pengguna** (sliding window di memori proses, satu instance): AI interaktif 20/menit, uji koneksi keluar 15/menit (termasuk cek ulang koneksi website), pembuatan/aksi antrean 30/menit, ganti kata sandi 5/15 menit. Body JSON maks. 1 MB (batch 10 MB). Semua route lewat `defineRoute` (auth eksplisit, validasi zod, respons `{ ok, … }`).
+5. **Rate limit per pengguna** (sliding window di memori proses, satu instance): AI interaktif 20/menit, uji koneksi keluar 15/menit (termasuk cek ulang koneksi website), pembuatan/aksi antrean 30/menit, ganti kata sandi 5/15 menit. Body JSON maks. 1 MB (batch 2 MB, cukup untuk 50 baris dengan semua kolom terisi penuh). Semua route lewat `defineRoute` (auth eksplisit, validasi zod, respons `{ ok, … }`).
 6. **Runner antrean**: tertanam di proses Next.js (`QUEUE_RUNNER=embedded`, bawaan di production): `QUEUE_CONCURRENCY` 1–10 (bawaan 3), lease 900 detik dengan heartbeat, polling idle 5 detik, shutdown bersih. Mode `off` + `CRON_SECRET` untuk cron eksternal (`POST /api/queue/process`, 1 item per pemicu).
 7. **Keamanan web**: header global `X-Frame-Options: DENY`, CSP `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` (kamera/mikrofon/geolokasi mati). Konten artikel di-escape penuh saat serialisasi dan disanitasi DOMPurify saat pratinjau. Form rahasia memakai `method=post` dan aktif setelah hydrate.
 8. **Observabilitas**: metrik biaya, token, model & versi prompt per run (`agent_runs`); tracer LangSmith per tenant (BYOK) tanpa mutasi `process.env`; health check `GET /api/health`.
@@ -291,7 +291,4 @@ Prasyarat rilis produksi: baseline migrasi dibandingkan dengan production (`supa
 
 ### 8.3 Keterbatasan yang diketahui
 
-- Preferensi notifikasi di `/settings/profile` tersimpan tetapi belum memicu notifikasi apa pun (email maupun toast).
-- Event webhook `batch.failed` dapat dipilih tetapi belum dikirim oleh sistem.
-- Mode pencarian **SerpAPI** dapat dipilih, tetapi kunci SerpAPI belum dapat diisi dari `/settings/keys`.
-- Kolom **Kategori WordPress** per baris di Tulis Terstruktur belum memengaruhi kategori yang dikirim ke WordPress.
+- Kolom **Kategori WordPress** per baris di Tulis Terstruktur hanya memakai kategori yang sudah ada di WordPress; nama yang tidak ditemukan tidak dibuat otomatis (artikel memakai kategori default batch atau pilihan AI, dengan peringatan di log).

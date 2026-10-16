@@ -242,7 +242,7 @@ describe("integrasi createAgent (ToolNode → wrapToolCall → artifact)", () =>
   it("web_reader nyata pada URL terblokir SSRF: 2 kegagalan lalu breaker, artifact sampai ke riwayat pesan", async () => {
     const recorder = new RunRecorder()
     const webReader = ToolRegistry.get("web_reader")!.build({
-      userKeys: { searchPreferences: {}, notificationPrefs: {} },
+      userKeys: { searchPreferences: {} },
       language: "id",
       recorder,
     })

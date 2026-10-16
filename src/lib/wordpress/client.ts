@@ -460,13 +460,15 @@ export interface WPCategoryItem {
 }
 
 /**
- * Mengambil daftar kategori dari website WordPress (/wp-json/wp/v2/categories).
+ * Mengambil daftar kategori dari website WordPress (/wp-json/wp/v2/categories, maks. 100 per halaman).
+ * `search` mempersempit ke kategori yang nama/slug-nya memuat teks itu (situs dengan > 100 kategori).
  * `signal` (pembatalan run/request) digabung dengan timeout request.
  */
 export async function fetchWordPressCategories(params: {
   baseUrl: string
   username: string
   applicationPassword: string
+  search?: string
   signal?: AbortSignal
 }): Promise<{ ok: boolean; categories?: WPCategoryItem[]; error?: string }> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
@@ -474,7 +476,10 @@ export async function fetchWordPressCategories(params: {
     return { ok: false, error: error || "Alamat website WordPress tidak valid." }
   }
 
-  const endpoint = `${normalizedUrl}/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug,count,parent`
+  const search = params.search?.trim()
+  const endpoint =
+    `${normalizedUrl}/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug,count,parent` +
+    (search ? `&search=${encodeURIComponent(search)}` : "")
 
   try {
     const res = await wpFetch(

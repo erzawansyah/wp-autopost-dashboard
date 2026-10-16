@@ -23,7 +23,8 @@ Sesuai kalibrasi dial sistem dari `ui-ux-pro-max`:
   - **Microsoft Fluent Design**: Kejelasan hirarki visual, elevasi lapisan (_dimensional layering_) bertingkat 1px yang presisi, dan rasa keteraturan tinggi.
 - **Struktur Halaman Utama** (shell `DashboardShell`, dirender sekali oleh `src/app/(dashboard)/layout.tsx`):
   1. **Sidebar** (`sidebar-nav`): navigasi menu (Dashboard, Daftar Website, Daftar Batch, Antrean, Tulis Cepat/Massal/Terstruktur, WP Tools, Profil Agen, Skill Registry, Laboratorium bila Developer Mode, Pengaturan, Help/Docs); dapat diciutkan.
-  2. **Top Bar** (`top-navbar`): breadcrumb, toggle Light/Dark (`ModeToggle`), dan menu akun (Kelola Website dengan jumlah situs, Keluar).
+  2. **Top Bar** (`top-navbar`): breadcrumb (label = `metadata.title` halaman, induk logis per rute; peta di
+     `src/lib/navigation/breadcrumbs.ts` — halaman dasbor baru wajib didaftarkan), toggle Light/Dark (`ModeToggle`), dan menu akun (Kelola Website dengan jumlah situs, Keluar).
   3. **Quick Telemetry**: kartu KPI di Dashboard Overview (`kpi-summary-grid`: Sudah Terbit, Sedang Diproses, Draf & Terjadwal, Perlu Tindakan).
   4. **Main Content Canvas**: tabel data padat (@tanstack/react-table, `queue-data-table`) dengan pengelompokan per batch, _multi-select_, filter status/situs/batch, dan pencarian. Tampilan Kanban belum diimplementasikan.
   5. **Bilah Aksi Massal** (`QueueBulkBar`): muncul di atas tabel saat baris dipilih (proses ulang, hapus). Pilihan eksekusi langsung vs. jadwal bertahap ada di form Tulis Massal (`ScheduleStrategyPicker`).
@@ -149,7 +150,8 @@ Setiap peran status (`success`, `warning`, `destructive`, `ai-process`, `info`) 
 
 Callout berwarna memakai atom `Alert` (`variant`: `default`/`destructive`/`success`/`warning`/`info`/`ai`), bukan div ber-kelas palet.
 Badge status memakai varian peran atom `Badge` (`success`/`warning`/`info`/`destructive`/`ai`: border `/30`, tint `/10`,
-teks `-strong`), bukan `variant="outline"` + kelas token manual.
+teks `-strong`; `muted` untuk status netral: `border-border bg-muted text-muted-foreground`; `secondary`), bukan
+`variant="outline"` + kelas token manual. Molekul hanya menambah kelas tata letak (`h-5`, `gap-*`).
 
 ---
 
@@ -205,10 +207,14 @@ Ukuran arbitrer `text-[Npx]` dilarang (cek audit `arbitrary-text-size`). Pemetaa
   perubahan status; tanpa library animasi JavaScript.
 - **Indikator proses**: ikon `Loader2`/status berputar `animate-spin` (mis. `syncing_to_wp` di `StatusBadge`) dan
   `animate-pulse` untuk skeleton/indikator live — selalu dipasangkan `motion-reduce:animate-none`.
-- **Overlay**: atom shadcn (dialog, alert dialog, popover, select, dropdown, tooltip) membawa kelas `animate-in`/`fade-in-0`/
-  `zoom-in-95`, tetapi plugin `tw-animate-css` tidak dipasang sehingga kelas itu saat ini tidak menghasilkan animasi.
+- **Overlay**: atom shadcn (dialog, alert dialog, popover, select, dropdown, tooltip) memakai kelas `animate-in`/`fade-in-0`/
+  `zoom-in-95`/`slide-in-from-*` (masuk) dan `animate-out`/`fade-out-0`/`zoom-out-95` (keluar) dari `tw-animate-css`
+  (`@import "tw-animate-css"` di `globals.css`, padanan Tailwind v4 untuk `tailwindcss-animate`); durasi bawaan 150 ms,
+  dialog 200 ms (`duration-200`).
 - **Accessibility / Reduced Motion**: setiap animasi wajib punya varian `motion-reduce:*` (atau `@media (prefers-reduced-motion: reduce)`)
-  yang langsung menampilkan hasil final statis.
+  yang langsung menampilkan hasil final statis. Jaring pengaman global di `@layer base` `globals.css`: saat
+  `prefers-reduced-motion: reduce`, semua animasi & transisi berdurasi ~0 (`0.01ms`, satu iterasi) — termasuk overlay,
+  `animate-spin`, `animate-pulse`, dan skeleton — sehingga `animationend` tetap terkirim dan overlay Radix tetap tertutup normal.
 
 ---
 
@@ -220,14 +226,14 @@ Ukuran arbitrer `text-[Npx]` dilarang (cek audit `arbitrary-text-size`). Pemetaa
   lewat selector ringkas di `PageHeader.actions` (`?site=<uuid>`).
 - Identitas situs: molekul `SiteBadge` (ikon `Globe`, nama, domain, dot status dari `SITE_STATUS_META`).
 - **Pill status koneksi** (`wp_sites.status`, molekul `SiteStatusBadge` di `src/components/molecules/site-status-badge.tsx`,
-  sumber `SITE_STATUS_META` yang juga dipakai `SiteBadge`; token §4C):
+  sumber `SITE_STATUS_META` yang juga dipakai `SiteBadge`; varian `Badge` §4C):
 
-  | Status | Label | Token |
+  | Status | Label | Varian `Badge` |
   | :--- | :--- | :--- |
   | `connected` | Tersambung | `success` |
   | `auth_error` | Kredensial ditolak | `destructive` |
   | `rate_limited` | Dibatasi WordPress | `warning` |
-  | `unreachable` | Tidak terjangkau | `muted` / `muted-foreground` |
+  | `unreachable` | Tidak terjangkau | `muted` |
 
 - Tombol **Sambungkan Website** (`ConnectSiteDialog`) di `PageHeader.actions` halaman `/sites`: tab otomatis (otorisasi
   Application Password WordPress) dan manual, tanpa plugin PHP.
@@ -247,19 +253,20 @@ Ukuran arbitrer `text-[Npx]` dilarang (cek audit `arbitrary-text-size`). Pemetaa
 
 ### C. Badge State Antrean
 
-Molekul `StatusBadge` (`src/components/molecules/status-badge.tsx`) dengan ikon `lucide-react` dan token peran §4C:
+Molekul `StatusBadge` (`src/components/molecules/status-badge.tsx`) dengan ikon `lucide-react` dan varian peran atom
+`Badge` §4C. State yang berbagi peran dibedakan lewat label & ikon, bukan intensitas tint manual:
 
-| `state` | Label UI | Token | Catatan |
+| `state` | Label UI | Varian `Badge` | Catatan |
 | :--- | :--- | :--- | :--- |
 | `queued_input` | Menunggu | `muted` | |
-| `generating_content` | Sedang Ditulis | `ai-process` | ikon berputar |
+| `generating_content` | Sedang Ditulis | `ai` | ikon berputar |
 | `ready_to_sync` | Siap Kirim | `info` | |
-| `syncing_to_wp` | Mengirim ke Web | `info` (tint `/15`) | ikon berputar |
+| `syncing_to_wp` | Mengirim ke Web | `info` | ikon berputar |
 | `published_on_wp` | Sudah Terbit | `success` | |
 | `scheduled_on_wp` | Dijadwalkan | `warning` | |
 | `saved_draft_on_wp` | Tersimpan Draf | `secondary` | |
 | `failed_generation` | Gagal Tulis | `destructive` | aksi "Tulis ulang" |
-| `failed_sync` | Gagal Kirim | `destructive` (tint `/15`) | aksi "Kirim ulang" (tanpa token AI) |
+| `failed_sync` | Gagal Kirim | `destructive` | ikon `AlertCircle` (Gagal Tulis: `AlertTriangle`); aksi "Kirim ulang" (tanpa token AI) |
 
 Kelompok status untuk filter & KPI (`src/lib/queue/states.ts`): diproses, terbit, draf, terjadwal, gagal.
 

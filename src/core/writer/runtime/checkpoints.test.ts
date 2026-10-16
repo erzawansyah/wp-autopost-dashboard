@@ -1,6 +1,13 @@
+import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import { LlmUsageLedger } from "@/core/shared/llm/usage"
-import { GENERATION_CHECKPOINT_SCHEMA_VERSION, planGenerationResume, usageSince } from "./checkpoints"
+import { WriterRequestSchema } from "../types/contracts"
+import {
+  GENERATION_CHECKPOINT_SCHEMA_VERSION,
+  computeGenerationInputKeys,
+  planGenerationResume,
+  usageSince,
+} from "./checkpoints"
 
 /** Fungsi murni checkpoint generasi: selisih pemakaian per langkah & pemilihan checkpoint resume. */
 
@@ -60,5 +67,36 @@ describe("planGenerationResume", () => {
         { step: "pre_resolve", reason: "schema_version" },
       ],
     })
+  })
+})
+
+describe("computeGenerationInputKeys — kategori per baris", () => {
+  const profile = { ref: "preset:quick-writer", mode: "standard" as const }
+  const keysFor = (publishing: Record<string, unknown>) =>
+    computeGenerationInputKeys(WriterRequestSchema.parse({ content: { keyword: "kopi" }, publishing }), profile)
+
+  it("nama kategori per baris ikut sidik pre_resolve & draft; tanpa nama sidik sama dengan sebelum field ini ada", () => {
+    const withoutNames = keysFor({ mode: "draft", categoryIds: [3] })
+    const withNames = keysFor({ mode: "draft", categoryIds: [3], categoryNames: ["Wisata"] })
+
+    expect(withNames.preResolve).not.toBe(withoutNames.preResolve)
+    expect(withNames.draft).not.toBe(withoutNames.draft)
+    expect(keysFor({ mode: "draft", categoryIds: [3], categoryNames: [] })).toEqual(withoutNames)
+    // Sidik lama (tanpa key `categoryNames`) tidak berubah: checkpoint item yang sedang berjalan tetap dipakai.
+    expect(withoutNames.preResolve).toBe(
+      createHash("sha256")
+        .update(
+          JSON.stringify({
+            keyword: "kopi",
+            language: "id",
+            brief: null,
+            site: null,
+            authorId: null,
+            categoryIds: [3],
+            tagNames: [],
+          })
+        )
+        .digest("hex")
+    )
   })
 })

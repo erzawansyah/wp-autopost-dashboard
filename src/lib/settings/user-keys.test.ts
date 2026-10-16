@@ -45,12 +45,12 @@ describe("getUserDecryptedKeys", () => {
     db.row = {
       encrypted_openrouter_key: encryptCredential("kunci-openrouter-tenant"),
       encrypted_tavily_key: encryptCredential("kunci-tavily-tenant"),
+      encrypted_serpapi_key: encryptCredential("kunci-serpapi-tenant"),
       searxng_url: " https://searx.example.org ",
       search_preferences: { default_provider: "brave", default_ai_model: "openai/gpt-4o-mini", reasoning_effort: "high" },
       notification_prefs: {
         langsmith_api_key: encryptCredential("kunci-langsmith-tenant"),
         langsmith_project: "proyek-tenant",
-        email_on_failure: true,
       },
     }
 
@@ -58,6 +58,7 @@ describe("getUserDecryptedKeys", () => {
 
     expect(keys.openrouterKey).toBe("kunci-openrouter-tenant")
     expect(keys.tavilyKey).toBe("kunci-tavily-tenant")
+    expect(keys.serpapiKey).toBe("kunci-serpapi-tenant")
     expect(keys.braveKey).toBeUndefined()
     expect(keys.langsmithApiKey).toBe("kunci-langsmith-tenant")
     expect(keys.langsmithProject).toBe("proyek-tenant")
@@ -66,14 +67,20 @@ describe("getUserDecryptedKeys", () => {
     expect(keys.reasoningEffort).toBe("high")
   })
 
-  it("notificationPrefs tidak membawa ciphertext LangSmith maupun nilai non-boolean", async () => {
+  it("preferensi lain di notification_prefs (sakelar notifikasi lama, developer_mode) tidak ikut ke kunci runtime", async () => {
     const cipher = encryptCredential("kunci-langsmith-tenant")
-    db.row = { notification_prefs: { langsmith_api_key: cipher, langsmith_project: "p", developer_mode: true } }
+    db.row = {
+      notification_prefs: { langsmith_api_key: cipher, developer_mode: true, email_on_failure: true, in_app_toast: false },
+    }
 
     const keys = await getUserDecryptedKeys("tenant-a")
 
-    expect(keys.notificationPrefs).toEqual({ developer_mode: true })
-    expect(JSON.stringify(keys.notificationPrefs)).not.toContain(cipher)
+    expect(keys.langsmithApiKey).toBe("kunci-langsmith-tenant")
+    expect(Object.keys(keys)).not.toContain("notificationPrefs")
+    const raw = JSON.stringify(keys)
+    expect(raw).not.toContain(cipher)
+    expect(raw).not.toContain("email_on_failure")
+    expect(raw).not.toContain("developer_mode")
   })
 
   it("fallback model/reasoning lama di notification_prefs tetap dibaca", async () => {
@@ -87,6 +94,6 @@ describe("getUserDecryptedKeys", () => {
 
   it("tanpa baris → default aman tanpa kunci", async () => {
     const keys = await getUserDecryptedKeys("tenant-a")
-    expect(keys).toEqual({ searchPreferences: { default_provider: "auto" }, notificationPrefs: {} })
+    expect(keys).toEqual({ searchPreferences: { default_provider: "auto" } })
   })
 })

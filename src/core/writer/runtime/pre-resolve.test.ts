@@ -253,3 +253,129 @@ describe("preResolveTaxonomyAndAuthor — data WordPress tidak tepercaya", () =>
     expect(result).toMatchObject({ categoryIds: [8], categoryNames: ["Teh"] })
   })
 })
+
+describe("preResolveTaxonomyAndAuthor — kategori per baris (nama dari pengguna)", () => {
+  const categories = [
+    { id: 7, name: "Kopi", slug: "kopi", count: 1, parent: 0 },
+    { id: 8, name: "Wisata Kuliner", slug: "wisata-kuliner", count: 1, parent: 0 },
+  ]
+
+  /** Daftar awal = `categories`; pencarian (`search`) mengembalikan `searchResult`. */
+  function mockCategories(searchResult: unknown = { ok: true, categories: [] }) {
+    wp.fetchWordPressCategories.mockImplementation(async (params: { search?: string }) =>
+      params.search === undefined ? { ok: true, categories } : searchResult
+    )
+  }
+
+  function recorded() {
+    const events: AgentStepEvent[] = []
+    return { events, recorder: new RunRecorder((event) => events.push(event)) }
+  }
+
+  it("nama cocok (tanpa membedakan huruf besar/kecil) mengalahkan kategori batch & pilihan LLM; nama mentah tidak masuk prompt", async () => {
+    mockCategories()
+    const { gateway, requests } = llmGateway({ selectedAuthorId: 3, selectedCategoryId: 7, tagNames: ["kopi"] })
+    const { events, recorder } = recorded()
+
+    const result = await preResolveTaxonomyAndAuthor({
+      wpCredentials,
+      keyword: "kopi arabika",
+      requestedCategoryIds: [7],
+      requestedCategoryNames: ["  WISATA kuliner "],
+      gateway,
+      recorder,
+    })
+
+    expect(result).toMatchObject({ categoryIds: [8], categoryNames: ["Wisata Kuliner"], degradedReasons: [] })
+    // LLM hanya menerima ID kategori yang mengikat, bukan teks dari pengguna.
+    expect(requests[0].userPrompt).not.toContain("WISATA kuliner")
+    expect(wp.fetchWordPressCategories).toHaveBeenCalledTimes(1)
+    expect(events).toContainEqual(
+      expect.objectContaining({ tool: "pre_resolve_categories", status: "ok", summary: expect.stringContaining('"Wisata Kuliner" (ID 8)') })
+    )
+  })
+
+  it("nama di luar 100 kategori pertama ditemukan lewat pencarian WordPress (cocok slug)", async () => {
+    mockCategories({ ok: true, categories: [{ id: 120, name: "Tips &amp; Trik", slug: "tips-trik", count: 0, parent: 0 }] })
+
+    const result = await preResolveTaxonomyAndAuthor({
+      wpCredentials,
+      keyword: "kopi arabika",
+      requestedCategoryNames: ["tips-trik"],
+    })
+
+    expect(result).toMatchObject({ categoryIds: [120], categoryNames: ["Tips & Trik"] })
+    expect(wp.fetchWordPressCategories).toHaveBeenLastCalledWith({ ...wpCredentials, search: "tips-trik", signal: undefined })
+  })
+
+  it("nama tidak ditemukan → kategori default batch tetap mengikat, tidak ada kategori baru, peringatan tercatat", async () => {
+    mockCategories()
+    const { gateway } = llmGateway({ selectedAuthorId: 3, selectedCategoryId: 8, tagNames: ["kopi"] })
+    const { events, recorder } = recorded()
+
+    const result = await preResolveTaxonomyAndAuthor({
+      wpCredentials,
+      keyword: "kopi arabika",
+      requestedCategoryIds: [7],
+      requestedCategoryNames: ["Teh Herbal"],
+      gateway,
+      recorder,
+    })
+
+    expect(result).toMatchObject({ categoryIds: [7], categoryNames: ["Kopi"], degradedReasons: [] })
+    expect(wp.fetchWordPressCategories).toHaveBeenCalledTimes(2)
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        tool: "pre_resolve_categories",
+        status: "blocked",
+        summary: expect.stringMatching(/"Teh Herbal" tidak ditemukan.*tidak dibuat otomatis; memakai kategori default batch/),
+      })
+    )
+  })
+
+  it("tidak ditemukan & tanpa kategori batch → kategori dipilih otomatis (LLM)", async () => {
+    mockCategories()
+    const { gateway } = llmGateway({ selectedAuthorId: 3, selectedCategoryId: 8, tagNames: ["kopi"] })
+    const { events, recorder } = recorded()
+
+    const result = await preResolveTaxonomyAndAuthor({
+      wpCredentials,
+      keyword: "kopi arabika",
+      requestedCategoryNames: ["Teh Herbal"],
+      gateway,
+      recorder,
+    })
+
+    expect(result).toMatchObject({ categoryIds: [8], categoryNames: ["Wisata Kuliner"] })
+    expect(events).toContainEqual(
+      expect.objectContaining({ status: "blocked", summary: expect.stringContaining("kategori dipilih otomatis") })
+    )
+  })
+
+  it("daftar atau pencarian kategori gagal → tidak dicocokkan & hasil ditandai tidak lengkap (tanpa checkpoint)", async () => {
+    wp.fetchWordPressCategories.mockResolvedValue({ ok: false, error: "HTTP 503" })
+    const { events, recorder } = recorded()
+
+    const listFailed = await preResolveTaxonomyAndAuthor({
+      wpCredentials,
+      keyword: "kopi arabika",
+      requestedCategoryIds: [7],
+      requestedCategoryNames: ["Kopi"],
+      recorder,
+    })
+
+    expect(listFailed).toMatchObject({ categoryIds: [7], degradedReasons: expect.arrayContaining(["wp_categories"]) })
+    expect(wp.fetchWordPressCategories).toHaveBeenCalledTimes(1)
+    expect(events).toContainEqual(
+      expect.objectContaining({ status: "blocked", summary: expect.stringContaining("gagal dimuat") })
+    )
+
+    mockCategories({ ok: false, error: "HTTP 503" })
+    const searchFailed = await preResolveTaxonomyAndAuthor({
+      wpCredentials,
+      keyword: "kopi arabika",
+      requestedCategoryNames: ["Teh Herbal"],
+    })
+    expect(searchFailed.degradedReasons).toContain("wp_categories")
+  })
+})

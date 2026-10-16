@@ -16,7 +16,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }))
 vi.mock("@/lib/settings/user-keys", () => ({
-  getUserDecryptedKeys: async () => ({ openrouterKey: state.storedKey, searchPreferences: {}, notificationPrefs: {} }),
+  getUserDecryptedKeys: async () => ({ openrouterKey: state.storedKey, searchPreferences: {} }),
 }))
 
 import { GET as listModels } from "@/app/api/ai/models/route"

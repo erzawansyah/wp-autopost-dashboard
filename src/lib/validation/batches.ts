@@ -14,9 +14,19 @@ import {
  * Tulis Terstruktur. Kompatibilitas payload lama (field legacy pemetaan profil) ditambahkan di route.
  */
 
-/** Batas baris per batch (validasi form = validasi route). */
+/**
+ * Batas baris per batch (PRD §4.5–4.6) — satu sumber untuk form Tulis Massal/Terstruktur dan skema `POST /api/batches`.
+ */
 export const MAX_BATCH_ITEMS = 50
 export const BATCH_KEYWORD_MAX = 300
+const MAX_BATCH_ITEMS_MESSAGE = `Maksimal ${MAX_BATCH_ITEMS} baris per batch. Silakan kurangi baris input Anda.`
+
+/**
+ * Batas body JSON `POST /api/batches`. Batch maksimal yang lolos skema (50 baris dengan setiap field terisi penuh:
+ * kata kunci, judul, 50 LSI, fokus, kategori, 50 tag, plus brief & taksonomi batch) ≈ 0,94 MB teks ASCII — dulu
+ * 10 MB untuk 500 baris. Skala proporsional (1 MB) tidak menyisakan ruang untuk teks UTF-8 multibyte, jadi 2 MB.
+ */
+export const MAX_BATCH_BODY_BYTES = 2 * 1024 * 1024
 
 /** Satu baris batch terstruktur (CSV/Excel/paste). */
 export const BatchItemSchema = z.object({
@@ -48,12 +58,15 @@ export const InstantScheduleSchema = z.object({
   wpTargetStatus: WpSlotStatusSchema,
 })
 
-/** Body `POST /api/batches`: buat batch + seluruh item `queued_input` (body ≤ 10 MB di route). */
+/** Body `POST /api/batches`: buat batch + seluruh item `queued_input` (≤ `MAX_BATCH_ITEMS` baris, body ≤ `MAX_BATCH_BODY_BYTES`). */
 export const CreateBatchBodySchema = z.object({
   siteId: UuidSchema,
   batchName: OptionalTextSchema(200),
-  keywords: z.array(z.string().max(BATCH_KEYWORD_MAX, `Maksimal ${BATCH_KEYWORD_MAX} karakter.`)).max(500).nullish(),
-  items: z.array(BatchItemSchema).max(500).nullish(),
+  keywords: z
+    .array(z.string().max(BATCH_KEYWORD_MAX, `Maksimal ${BATCH_KEYWORD_MAX} karakter.`))
+    .max(MAX_BATCH_ITEMS, MAX_BATCH_ITEMS_MESSAGE)
+    .nullish(),
+  items: z.array(BatchItemSchema).max(MAX_BATCH_ITEMS, MAX_BATCH_ITEMS_MESSAGE).nullish(),
   executionMode: z
     .string()
     .nullish()

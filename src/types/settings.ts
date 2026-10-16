@@ -3,14 +3,6 @@ export interface MaskedKeyInfo {
   maskedKey: string | null
 }
 
-export interface NotificationPrefs {
-  email_on_failure?: boolean
-  email_on_batch_complete?: boolean
-  notify_on_queue_empty?: boolean
-  in_app_toast?: boolean
-  developer_mode?: boolean
-}
-
 export interface SearchPreferences {
   default_provider?: "auto" | "tavily" | "brave" | "searxng" | "bing_scraper" | "serpapi" | "open_knowledge"
   default_ai_model?: string
@@ -33,8 +25,8 @@ export interface UserSettingsResponse {
   langsmithProject?: string | null
   searxngUrl: string | null
   searchPreferences: SearchPreferences
-  notificationPrefs: NotificationPrefs
-  developerMode?: boolean
+  /** `notification_prefs.developer_mode` (menu & API Lab). Kunci lain di jsonb itu tidak pernah dikirim ke client. */
+  developerMode: boolean
   updatedAt?: string
 }
 
@@ -53,5 +45,4 @@ export interface DecryptedUserKeys {
   langsmithProject?: string
   searxngUrl?: string
   searchPreferences: SearchPreferences
-  notificationPrefs: NotificationPrefs
 }

@@ -192,6 +192,8 @@ export function computeGenerationInputKeys(
       : null,
     authorId: request.publishing.authorId ?? null,
     categoryIds: request.publishing.categoryIds,
+    // Hanya bila ada: sidik item tanpa kategori per baris tetap sama (checkpoint lama tetap dapat dipakai).
+    ...(request.publishing.categoryNames.length > 0 ? { categoryNames: request.publishing.categoryNames } : {}),
     tagNames: request.publishing.tagNames,
   }
   const draftInput = {

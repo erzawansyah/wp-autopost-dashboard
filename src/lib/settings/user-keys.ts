@@ -18,7 +18,6 @@ const USER_KEY_COLUMNS =
 export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUserKeys> {
   const defaults: DecryptedUserKeys = {
     searchPreferences: { default_provider: "auto" },
-    notificationPrefs: {},
   }
 
   if (!userId) return defaults
@@ -79,10 +78,6 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
       searchPreferences: (data.search_preferences as DecryptedUserKeys["searchPreferences"]) || {
         default_provider: "auto",
       },
-      // Hanya preferensi boolean: ciphertext `langsmith_api_key` & string lain di jsonb yang sama tidak ikut terbawa.
-      notificationPrefs: Object.fromEntries(
-        Object.entries(notifPrefs ?? {}).filter(([, value]) => typeof value === "boolean")
-      ) as DecryptedUserKeys["notificationPrefs"],
     }
   } catch (err) {
     console.error(`[user-keys] Error mengambil user settings untuk ${userId}:`, err)

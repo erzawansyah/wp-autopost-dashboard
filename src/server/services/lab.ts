@@ -62,7 +62,7 @@ export const getLabAccess = cache((supabase: SupabaseClient, user: User): Promis
 /** Gerbang Developer Mode (`user_settings.notification_prefs.developer_mode`) untuk route API Lab. */
 export async function assertLabAccess(supabase: SupabaseClient, user: User): Promise<void> {
   if (!(await hasLabAccess(supabase, user))) {
-    throw forbidden("Aktifkan Developer Mode di Pengaturan Profil untuk mengakses Laboratorium.")
+    throw forbidden("Aktifkan Developer Mode di Pengaturan ➔ Profil & Preferensi Akun untuk mengakses Laboratorium.")
   }
 }
 
@@ -136,7 +136,7 @@ export async function getLabRegistry(supabase: SupabaseClient, userId: string): 
       .order("created_at", { ascending: false }),
     supabase
       .from("agent_profiles")
-      .select("id, name, description, mode, tool_ids")
+      .select("id, name, description, mode, model, tool_ids")
       .eq("user_id", userId)
       .eq("is_archived", false),
   ])
@@ -160,13 +160,22 @@ export async function getLabRegistry(supabase: SupabaseClient, userId: string): 
     mode: preset.mode,
     toolCount: preset.toolIds.length,
     isPreset: true,
+    // Model preset tidak pernah mengalahkan model default akun (`resolve-model.ts`).
+    model: null,
     defaultRequest: {
       keyword: "cara merawat tanaman hias di dalam ruangan",
       brief: "Berikan tips pencahayaan, penyiraman, dan pemupukan yang ideal.",
     },
   }))
 
-  type ProfileRow = { id: string; name: string; description: string | null; mode: string; tool_ids: unknown }
+  type ProfileRow = {
+    id: string
+    name: string
+    description: string | null
+    mode: string
+    model: string | null
+    tool_ids: unknown
+  }
   const customProfiles: LabProfileManifest[] = ((profilesRes.data ?? []) as ProfileRow[]).map((profile) => ({
     id: profile.id,
     name: profile.name,
@@ -174,6 +183,7 @@ export async function getLabRegistry(supabase: SupabaseClient, userId: string): 
     mode: profile.mode,
     toolCount: Array.isArray(profile.tool_ids) ? profile.tool_ids.length : 0,
     isPreset: false,
+    model: profile.model?.trim() || null,
     defaultRequest: {
       keyword: "panduan investasi saham untuk pemula",
       brief: "Fokus pada tips fundamental dan diversifikasi portofolio.",

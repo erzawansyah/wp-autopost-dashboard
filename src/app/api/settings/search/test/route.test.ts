@@ -89,6 +89,30 @@ describe("POST /api/settings/search/test", () => {
     expect(JSON.parse(String(init?.body)).api_key).toBe(PROVIDER_KEY)
   })
 
+  it("SerpAPI: Account API di host resmi (tanpa memakai kuota pencarian), kunci tidak digemakan", async () => {
+    const res = await testRequest({ provider: "serpapi", apiKey: ` ${PROVIDER_KEY} ` })
+    const raw = await res.text()
+
+    expect(res.status).toBe(200)
+    expect(JSON.parse(raw)).toEqual({ ok: true, latencyMs: expect.any(Number), message: expect.stringContaining("SerpAPI") })
+    expect(raw).not.toContain(PROVIDER_KEY)
+    const url = new URL(String(fetchMock.mock.calls[0][0]))
+    expect(url.origin + url.pathname).toBe("https://serpapi.com/account.json")
+    expect(url.searchParams.get("api_key")).toBe(PROVIDER_KEY)
+    expect(net.safeFetch).not.toHaveBeenCalled()
+  })
+
+  it("SerpAPI menolak kunci (401) → 422 tanpa meneruskan body provider", async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: `Invalid API key ${PROVIDER_KEY}` }), { status: 401 }))
+
+    const res = await testRequest({ provider: "serpapi", apiKey: PROVIDER_KEY })
+    const raw = await res.text()
+
+    expect(res.status).toBe(422)
+    expect(JSON.parse(raw)).toEqual({ ok: false, error: "Kunci API SerpAPI tidak valid atau ditolak.", code: "unprocessable" })
+    expect(raw).not.toContain(PROVIDER_KEY)
+  })
+
   it("kunci ditolak provider → 422 (bukan 401 yang berarti sesi Panitera habis)", async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ message: `invalid key ${PROVIDER_KEY}` }), { status: 401 }))
 

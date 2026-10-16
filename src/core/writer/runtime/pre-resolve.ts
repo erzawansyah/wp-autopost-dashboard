@@ -8,6 +8,7 @@ import {
   type WPUserItem,
   type WPCategoryItem,
 } from "@/lib/wordpress/client"
+import { matchCategoriesByName } from "@/lib/wordpress/category-match"
 import { sanitizeTermNames, stripToPlainText, WP_TERM_NAME_MAX_LENGTH } from "@/lib/wordpress/plain-text"
 import { classifyLlmError, describeLlmError } from "@/core/shared/llm/errors"
 import type { LlmGateway } from "@/core/shared/llm/gateway"
@@ -23,6 +24,11 @@ export interface PreResolveOptions {
   }
   requestedAuthorId?: number | null
   requestedCategoryIds?: number[]
+  /**
+   * Nama kategori pilihan pengguna (kolom kategori per baris Tulis Terstruktur): dicocokkan ke kategori yang ADA di
+   * situs dan mengalahkan `requestedCategoryIds`. Hanya dipakai untuk pencocokan di server, tidak pernah masuk prompt.
+   */
+  requestedCategoryNames?: string[]
   requestedTagNames?: string[]
   keyword?: string
   language?: string
@@ -99,6 +105,120 @@ function toCategoryOption(category: WPCategoryItem): CategoryOption {
   }
 }
 
+/**
+ * Kategori WordPress valid sebagai teks polos. Nama kosong setelah sanitasi (hanya markup) dibuang:
+ * `keyword.includes("")` selalu cocok di heuristik.
+ */
+function toCategoryOptions(categories: WPCategoryItem[]): CategoryOption[] {
+  return categories
+    .filter((c) => toPositiveId(c.id) !== undefined)
+    .map(toCategoryOption)
+    .filter((c) => c.name.length > 0)
+}
+
+interface RequestedCategoryMatch {
+  matched: CategoryOption[]
+  unmatched: string[]
+  /** Pencarian WordPress untuk nama yang belum cocok gagal (hasil tidak lengkap). */
+  searchFailed: boolean
+}
+
+/**
+ * Nama kategori pilihan pengguna → kategori yang ADA di situs (nama/slug tanpa membedakan huruf besar/kecil,
+ * `matchCategoriesByName`). Nama yang tidak ada di daftar awal (maks. 100 kategori) dicari sekali lagi lewat
+ * parameter `search` WordPress. Tidak pernah membuat kategori baru.
+ */
+async function matchRequestedCategories(
+  names: string[],
+  existingCategories: CategoryOption[],
+  wpCredentials: NonNullable<PreResolveOptions["wpCredentials"]>,
+  signal: AbortSignal | undefined
+): Promise<RequestedCategoryMatch> {
+  const initial = matchCategoriesByName(existingCategories, names)
+  const result: RequestedCategoryMatch = { matched: [...initial.matched], unmatched: [], searchFailed: false }
+
+  for (const name of initial.unmatched) {
+    const searchRes = await fetchWordPressCategories({ ...wpCredentials, search: name, signal }).catch(() => ({
+      ok: false,
+      categories: [] as WPCategoryItem[],
+    }))
+    if (!searchRes.ok || !Array.isArray(searchRes.categories)) {
+      result.searchFailed = true
+      result.unmatched.push(name)
+      continue
+    }
+    const [found] = matchCategoriesByName(toCategoryOptions(searchRes.categories), [name]).matched
+    if (!found) result.unmatched.push(name)
+    else if (!result.matched.some((c) => c.id === found.id)) result.matched.push(found)
+  }
+  return result
+}
+
+/**
+ * Terapkan kategori per baris ke hasil resolver. Cocok → mengikat (menggantikan ID kategori batch; LLM tidak dapat
+ * menimpanya). Tidak cocok → hasil tidak diubah (kategori batch bila ada, selain itu pilihan otomatis) dan peringatan
+ * dicatat ke telemetri. Daftar/pencarian kategori gagal → hasil ditandai tidak lengkap sehingga tidak disimpan
+ * sebagai checkpoint dan percobaan berikutnya mencocokkan ulang.
+ */
+async function applyRequestedCategoryNames(
+  result: PreResolveResult,
+  params: {
+    names: string[]
+    existingCategories: CategoryOption[]
+    wpCredentials: NonNullable<PreResolveOptions["wpCredentials"]>
+    signal?: AbortSignal
+    recorder?: RunRecorder
+    /** Akibat bila nama tidak cocok, untuk pesan telemetri. */
+    fallbackLabel: string
+  }
+): Promise<void> {
+  const { names, recorder, fallbackLabel } = params
+  const quoted = (list: string[]) => list.map((name) => `"${name}"`).join(", ")
+
+  if (result.degradedReasons.includes("wp_categories")) {
+    recorder?.recordEvent({
+      kind: "guard",
+      tool: "pre_resolve_categories",
+      status: "blocked",
+      durationMs: 0,
+      summary: `Daftar kategori WordPress gagal dimuat; kategori baris ${quoted(
+        names.map((name) => stripToPlainText(name, WP_TERM_NAME_MAX_LENGTH))
+      )} belum dapat dicocokkan — ${fallbackLabel}.`,
+    })
+    return
+  }
+
+  const start = Date.now()
+  const match = await matchRequestedCategories(names, params.existingCategories, params.wpCredentials, params.signal)
+  if (match.searchFailed) result.degradedReasons.push("wp_categories")
+
+  if (match.matched.length > 0) {
+    result.categoryIds = match.matched.map((c) => c.id)
+    result.categoryNames = match.matched.map((c) => c.name)
+    recorder?.recordEvent({
+      kind: "guard",
+      tool: "pre_resolve_categories",
+      status: "ok",
+      durationMs: Date.now() - start,
+      summary: `Kategori baris dicocokkan ke kategori WordPress: ${match.matched
+        .map((c) => `"${c.name}" (ID ${c.id})`)
+        .join(", ")}.`,
+      argsPreview: { categoryIds: result.categoryIds.join(", "), categoryNames: result.categoryNames.join(", ") },
+    })
+  }
+  if (match.unmatched.length > 0) {
+    recorder?.recordEvent({
+      kind: "guard",
+      tool: "pre_resolve_categories",
+      status: "blocked",
+      durationMs: Date.now() - start,
+      summary: `Kategori baris ${quoted(match.unmatched)} tidak ditemukan di WordPress (dicocokkan nama/slug) dan tidak dibuat otomatis${
+        match.matched.length > 0 ? "" : `; ${fallbackLabel}`
+      }.`,
+    })
+  }
+}
+
 /** Akun admin teknis (ADR-060): tidak boleh menjadi author selama ada persona manusia. */
 function isTechnicalAdminUser(user: AuthorCandidate, connectionUsername: string): boolean {
   const slug = user.slug.toLowerCase().trim()
@@ -133,6 +253,10 @@ function isTechnicalAdminUser(user: AuthorCandidate, connectionUsername: string)
  * tepercaya: hanya author yang sudah menerbitkan artikel yang dipertimbangkan, teks dijadikan teks polos
  * terpotong di blok data bertag pada pesan pengguna, dan keluaran LLM divalidasi di server (ID wajib ada di
  * daftar yang dikirim; kategori/author pilihan pengguna tidak dapat ditimpa).
+ *
+ * Prioritas kategori: nama kategori per baris (`requestedCategoryNames`, dicocokkan ke kategori yang ada) → ID kategori
+ * pilihan pengguna (`requestedCategoryIds`, mis. default batch) → pilihan LLM → heuristik. Nama dari pengguna hanya
+ * dipakai untuk pencocokan di server; prompt LLM hanya menerima ID kategori dan nama dari data WordPress.
  */
 export async function preResolveTaxonomyAndAuthor(
   options: PreResolveOptions
@@ -141,6 +265,7 @@ export async function preResolveTaxonomyAndAuthor(
     wpCredentials,
     requestedAuthorId,
     requestedCategoryIds = [],
+    requestedCategoryNames = [],
     keyword = "",
     language = "id",
     brief = "",
@@ -199,11 +324,7 @@ export async function preResolveTaxonomyAndAuthor(
       result.degradedReasons.push("wp_users")
     }
     if (catRes.ok && Array.isArray(catRes.categories)) {
-      // Nama kosong setelah sanitasi (hanya markup) dibuang: `keyword.includes("")` selalu cocok di heuristik.
-      existingCategories = catRes.categories
-        .filter((c) => toPositiveId(c.id) !== undefined)
-        .map(toCategoryOption)
-        .filter((c) => c.name.length > 0)
+      existingCategories = toCategoryOptions(catRes.categories)
     } else {
       result.degradedReasons.push("wp_categories")
     }
@@ -245,9 +366,21 @@ export async function preResolveTaxonomyAndAuthor(
   // ADR-060: akun admin teknis hanya menjadi kandidat bila tidak ada persona manusia. Daftar ini satu-satunya
   // yang dikirim ke LLM, dan pilihan author LLM di luar daftar ini ditolak.
   const authorCandidates = nonAdminUsers.length > 0 ? nonAdminUsers : users
-  // Author & kategori pilihan pengguna mengikat: keluaran LLM tidak dapat menimpanya.
   const requestedAuthor = requestedAuthorId ? users.find((u) => u.id === requestedAuthorId) : undefined
-  const hasRequestedCategories = requestedCategoryIds.length > 0
+
+  // Kategori pilihan pengguna: nama per baris (cocok dengan kategori yang ada) > ID kategori batch > pilihan otomatis.
+  if (requestedCategoryNames.length > 0) {
+    await applyRequestedCategoryNames(result, {
+      names: requestedCategoryNames,
+      existingCategories,
+      wpCredentials,
+      signal,
+      recorder,
+      fallbackLabel: requestedCategoryIds.length > 0 ? "memakai kategori default batch" : "kategori dipilih otomatis",
+    })
+  }
+  // Author & kategori pilihan pengguna mengikat: keluaran LLM tidak dapat menimpanya.
+  const hasRequestedCategories = result.categoryIds.length > 0
 
   // 3. Eksekusi Resolusi Cerdas via LLM (system-resolve-taxonomy-author.md)
   if (gateway?.hasKey && (users.length > 0 || existingCategories.length > 0)) {
@@ -266,7 +399,7 @@ export async function preResolveTaxonomyAndAuthor(
             authors: authorCandidates,
             tags: existingTagNames.slice(0, PROMPT_TAG_SAMPLE_MAX),
           }),
-          requestedCategory: hasRequestedCategories ? requestedCategoryIds.join(", ") : "Otomatis oleh AI",
+          requestedCategory: hasRequestedCategories ? result.categoryIds.join(", ") : "Otomatis oleh AI",
           requestedAuthor: requestedAuthorId ? String(requestedAuthorId) : "Otomatis oleh AI",
           requestedTags: requestedTagNames.length > 0 ? requestedTagNames.join(", ") : "Otomatis oleh AI",
         })

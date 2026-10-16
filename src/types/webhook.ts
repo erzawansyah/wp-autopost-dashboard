@@ -31,12 +31,12 @@ export const AVAILABLE_WEBHOOK_EVENTS: { event: WebhookEvent; label: string; des
   {
     event: "batch.completed",
     label: "Batch Selesai (Batch Completed)",
-    description: "Dipicu ketika seluruh item dalam satu antrean batch selesai diproses.",
+    description: "Dipicu sekali saat seluruh item batch selesai diproses dan minimal satu artikel berhasil.",
   },
   {
     event: "batch.failed",
     label: "Batch Gagal (Batch Failed)",
-    description: "Dipicu jika seluruh antrean batch berhenti atau mengalami kegagalan fatal.",
+    description: "Dipicu sekali saat seluruh item batch selesai diproses tetapi semua artikel gagal.",
   },
 ]
 

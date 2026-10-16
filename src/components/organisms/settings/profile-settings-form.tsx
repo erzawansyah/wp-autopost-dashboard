@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Controller, type Control } from "react-hook-form"
-import { Bell, FlaskConical, Loader2, Save, type LucideIcon } from "lucide-react"
+import { FlaskConical, Loader2, Save, type LucideIcon } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card"
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/atoms/field"
@@ -18,24 +18,19 @@ import type { UserSettings } from "@/types/settings"
 type PreferenceName = keyof ProfilePreferencesFormValues
 
 /**
- * Preferensi akun yang disimpan di server (`user_settings.notification_prefs`): notifikasi kegagalan/batch, toast
- * dasbor, dan Developer Mode. Simpan → invalidasi `queryKeys.settings` sehingga menu Lab di sidebar ikut berubah.
+ * Preferensi akun yang disimpan di server: Developer Mode (`user_settings.notification_prefs.developer_mode`).
+ * Simpan → invalidasi `queryKeys.settings` sehingga menu Lab di sidebar ikut berubah. Pemberitahuan otomatis
+ * (artikel/batch selesai atau gagal) diatur lewat webhook di `/settings/webhooks`.
  */
 export function ProfileSettingsForm({ initialSettings }: { initialSettings: UserSettings }) {
   const queryClient = useQueryClient()
-  const prefs = initialSettings.notificationPrefs
   const form = useZodForm(ProfilePreferencesFormSchema, {
-    defaultValues: {
-      email_on_failure: prefs.email_on_failure ?? true,
-      email_on_batch_complete: prefs.email_on_batch_complete ?? true,
-      in_app_toast: prefs.in_app_toast ?? true,
-      developerMode: initialSettings.developerMode === true,
-    },
+    defaultValues: { developerMode: initialSettings.developerMode },
   })
 
   const save = useMutation({
-    mutationFn: ({ developerMode, ...notificationPrefs }: ProfilePreferencesFormValues) =>
-      apiFetch("/api/settings/user", { method: "PUT", body: { notificationPrefs, developerMode } }),
+    mutationFn: ({ developerMode }: ProfilePreferencesFormValues) =>
+      apiFetch("/api/settings/user", { method: "PUT", body: { developerMode } }),
     onSuccess: async (_data, values) => {
       notify.success("Preferensi profil berhasil disimpan.")
       form.reset(values)
@@ -46,31 +41,6 @@ export function ProfileSettingsForm({ initialSettings }: { initialSettings: User
 
   return (
     <form noValidate onSubmit={form.handleSubmit((values) => save.mutate(values))} className="flex flex-col gap-6">
-      <PreferenceCard
-        icon={Bell}
-        title="Preferensi Notifikasi & Peringatan"
-        description="Atur bagaimana sistem memberi tahu Anda saat posting artikel atau antrean batch selesai diproses."
-      >
-        <PreferenceSwitch
-          control={form.control}
-          name="email_on_failure"
-          label="Peringatan Kegagalan Posting"
-          description="Kirim pemberitahuan segera jika pembuatan konten AI atau sinkronisasi ke WordPress gagal."
-        />
-        <PreferenceSwitch
-          control={form.control}
-          name="email_on_batch_complete"
-          label="Laporan Batch Selesai"
-          description="Kirim ringkasan saat seluruh kata kunci dalam satu antrean batch selesai diterbitkan."
-        />
-        <PreferenceSwitch
-          control={form.control}
-          name="in_app_toast"
-          label="Toast Notifikasi di Dashboard"
-          description="Tampilkan pop-up pemberitahuan aktif saat Anda membuka halaman dashboard."
-        />
-      </PreferenceCard>
-
       <PreferenceCard
         icon={FlaskConical}
         title="Mode Pengembang (Developer Mode)"

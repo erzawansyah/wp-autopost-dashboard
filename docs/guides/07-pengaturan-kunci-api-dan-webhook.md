@@ -11,13 +11,13 @@ Panitera memakai sistem **BYOK** (*Bring Your Own Key*): semua panggilan AI dan 
 ### Bagian 1 — Provider Model AI (OpenRouter Gateway) — Wajib
 
 - **OpenRouter**: tempel kunci (`sk-or-v1-…`). Tautan **Daftar / Buat Kunci** membuka halaman kunci OpenRouter.
-- **Model Default Penulisan Artikel**: daftar model OpenRouter yang mendukung tool calling; Anda juga dapat mengetik ID model `provider/model`. Model ini dipakai untuk semua artikel di antrean.
+- **Model Default Penulisan Artikel**: daftar model OpenRouter yang mendukung tool calling; Anda juga dapat mengetik ID model `provider/model`. Model ini dipakai untuk semua artikel (Tulis Cepat, antrean batch, Laboratorium) dengan preset bawaan maupun Agent Profile kustom, kecuali Agent Profile kustom yang membawa model sendiri.
 - **Tingkat Penalaran (Reasoning Effort)**: **Low (Hemat & Cepat)**, **Medium (Seimbang)**, atau **High (Maksimal / Unlimited)**, untuk model yang mendukung penalaran.
 
 ### Bagian 2 — Mesin Pencari Web & Riset Fakta
 
-- **Mode Pemilihan Mesin Pencari Utama**: bawaan **Auto Cascade** (mencoba kunci pribadi Anda lebih dulu, lalu cadangan tanpa kunci). Pilihan lain: Tavily, Brave, SerpAPI, SearXNG, Bing Web, atau Wikipedia. Kunci SerpAPI belum dapat diisi dari halaman ini.
-- **Tavily Search** dan **Brave Search**: kunci opsional, masing-masing dengan tautan pendaftaran.
+- **Mode Pemilihan Mesin Pencari Utama**: bawaan **Auto Cascade** (mencoba kunci pribadi Anda lebih dulu, lalu cadangan tanpa kunci). Pilihan lain: Tavily, Brave, SerpAPI, SearXNG, Bing Web, atau Wikipedia.
+- **Tavily Search**, **Brave Search**, dan **SerpAPI** (hasil Google): kunci opsional, masing-masing dengan tautan pendaftaran. Mode **SerpAPI** dan Auto Cascade memakai kunci SerpAPI yang tersimpan di sini; **Uji Kunci** SerpAPI memakai Account API sehingga tidak mengurangi kuota pencarian Anda.
 
 ### Bagian 3 — Penyedia Foto Bebas Royalti
 
@@ -44,10 +44,9 @@ Semua kunci disimpan terenkripsi **AES-256-GCM** di server, hanya didekripsi saa
 
 - **Identitas**: **Email**, **User ID (Tenant)**, dan **Status Keamanan Database** akun Anda.
 - **Keamanan Akun**: ganti kata sandi masuk Panitera (lihat di bawah).
-- **Preferensi Notifikasi & Peringatan**: tiga sakelar (**Peringatan Kegagalan Posting**, **Laporan Batch Selesai**, **Toast Notifikasi di Dashboard**). Saat ini ketiga preferensi ini hanya disimpan di akun dan belum memicu notifikasi apa pun. Untuk pemberitahuan otomatis, gunakan webhook (bagian 3).
 - **Mode Pengembang (Developer Mode)**: sakelar **Laboratorium Pengujian Agen (/lab)** menampilkan menu Laboratorium untuk menguji tools dan Agent Profile (lihat [Agent Profile & Skill Registry](/docs?doc=03-manajemen-profil-agen)).
 
-Klik **Simpan Preferensi** setelah mengubah sakelar.
+Klik **Simpan Preferensi** setelah mengubah sakelar. Pemberitahuan otomatis saat artikel atau batch selesai maupun gagal diatur lewat webhook (bagian 3).
 
 ### Mengganti kata sandi
 
@@ -80,10 +79,12 @@ Webhook mengirim HTTP POST otomatis ke layanan lain (Zapier, Make, n8n, Slack, D
 | `post.scheduled` | Artikel berhasil dijadwalkan di WordPress. |
 | `post.draft_saved` | Artikel tersimpan sebagai draf di WordPress. |
 | `post.failed` | Artikel berhenti di **Gagal Tulis** atau **Gagal Kirim** (setelah coba ulang otomatis habis). |
-| `batch.completed` | Semua artikel dalam satu batch selesai diproses (berhasil atau gagal). |
-| `batch.failed` | Tersedia di daftar event, tetapi saat ini belum dikirim oleh sistem. |
+| `batch.completed` | Semua artikel dalam satu batch selesai diproses dan minimal satu berhasil (sebagian boleh gagal). |
+| `batch.failed` | Semua artikel dalam satu batch selesai diproses tetapi tidak ada satu pun yang berhasil. |
 
-Payload berupa JSON berisi `id`, `event`, `timestamp`, dan `data` (misalnya ID artikel, batch, kata kunci, judul, status, serta ID dan URL post WordPress).
+Setiap batch mengirim tepat satu dari dua event batch di atas, sekali saja, saat item terakhirnya selesai. Bila Anda menjalankan **Tulis ulang** atau **Kirim ulang** setelah batch selesai, event batch tidak dikirim lagi; hasil artikel yang diproses ulang dikabarkan lewat event `post.*`, dan status batch di dasbor ikut menyesuaikan (misalnya **Gagal** menjadi **Selesai** bila artikel yang dikirim ulang berhasil). Webhook baru otomatis mencentang kedua event batch; webhook lama yang hanya berlangganan `batch.completed` perlu mencentang `batch.failed` agar tetap mendapat kabar batch yang seluruhnya gagal.
+
+Payload berupa JSON berisi `id`, `event`, `timestamp`, dan `data` (misalnya ID artikel, batch, kata kunci, judul, status, serta ID dan URL post WordPress). Event batch membawa `batchId`, `totalItems`, `completedItems` (jumlah berhasil), dan `failedItems` (jumlah gagal).
 
 ### Memverifikasi tanda tangan
 

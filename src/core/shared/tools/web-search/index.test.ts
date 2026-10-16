@@ -69,6 +69,24 @@ describe("webSearch BYOK key routing", () => {
     expect(bodies.join(" ")).not.toContain("brave-key-123")
   })
 
+  it("provider serpapi & mode auto memakai kunci SerpAPI tersimpan tenant ke host resmi serpapi.com", async () => {
+    fetchMock.mockImplementation(async (input: unknown) => {
+      if (requestUrl(input).startsWith("https://serpapi.com/search.json")) {
+        return jsonResponse({ organic_results: [{ title: "Hasil", link: "https://example.com", snippet: "x" }] })
+      }
+      return new Response("", { status: 503 })
+    })
+
+    for (const provider of ["serpapi", "auto"] as const) {
+      fetchMock.mockClear()
+      const outcome = await webSearch({ query: "tren ai", provider, keys: { serpapiKey: "kunci-serp-tenant" } })
+
+      expect(outcome.ok && outcome.data[0]?.source).toBe("serpapi")
+      const serpCall = fetchMock.mock.calls.find(([input]) => requestUrl(input).startsWith("https://serpapi.com/"))
+      expect(new URL(requestUrl(serpCall?.[0])).searchParams.get("api_key")).toBe("kunci-serp-tenant")
+    }
+  })
+
   it("tidak memakai kunci dari environment server sebagai cadangan tenant", async () => {
     vi.stubEnv("TAVILY_API_KEY", "server-tavily")
     vi.stubEnv("BRAVE_API_KEY", "server-brave")

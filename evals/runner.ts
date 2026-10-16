@@ -134,7 +134,7 @@ function exceptionResult(evalCase: EvalCase, err: unknown, durationMs: number, m
 
 /** Bukti plumbing tanpa jaringan: writer.run() dieksekusi di runner ini dan menolak payload tidak valid. */
 async function probeWriterPlumbing(): Promise<string> {
-  const probe = await runWriter({ content: {} }, { userKeys: { searchPreferences: { default_provider: "auto" }, notificationPrefs: {} } })
+  const probe = await runWriter({ content: {} }, { userKeys: { searchPreferences: { default_provider: "auto" } } })
   return probe.success
     ? "writer.run() TIDAK menolak payload kosong — periksa validasi input"
     : `writer.run() dieksekusi di runner Vite dan menolak payload kosong (${probe.error?.code ?? "tanpa kode"})`
@@ -167,7 +167,6 @@ export async function runWriterEvals(options: EvalRunOptions): Promise<{ report:
     openrouterKey: options.openrouterKey,
     ...options.searchKeys,
     searchPreferences: { default_provider: "auto" },
-    notificationPrefs: {},
   }
 
   const reports: CaseReport[] = []

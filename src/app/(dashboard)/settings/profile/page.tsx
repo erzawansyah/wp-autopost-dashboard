@@ -17,7 +17,7 @@ export default async function ProfileSettingsPage() {
     <PageContainer size="narrow">
       <PageHeader
         title="Profil & Preferensi Akun"
-        description="Kelola identitas tenant, kata sandi akun, preferensi notifikasi autoposting, dan akses Developer Mode akun Anda."
+        description="Kelola identitas tenant, kata sandi akun, dan akses Developer Mode akun Anda."
         icon={UserRound}
         backHref="/settings"
         backLabel="Kembali ke Pengaturan"

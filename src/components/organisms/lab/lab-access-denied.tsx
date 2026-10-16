@@ -17,12 +17,12 @@ export function LabAccessDenied() {
       <EmptyState
         icon={FlaskConical}
         title="Laboratorium memerlukan Developer Mode"
-        description="Aktifkan Developer Mode di Pengaturan Profil untuk menguji tools dan Agent Profile secara langsung. Uji Agent Profile memakai kunci BYOK Anda dan dapat menimbulkan biaya token."
+        description="Aktifkan Developer Mode di Pengaturan ➔ Profil & Preferensi Akun untuk menguji tools dan Agent Profile secara langsung. Uji Agent Profile memakai kunci BYOK Anda dan dapat menimbulkan biaya token."
       >
         <Button asChild size="sm">
           <Link href="/settings/profile">
             <UserCog aria-hidden="true" />
-            Buka Pengaturan Profil
+            Buka Profil & Preferensi Akun
           </Link>
         </Button>
         <Button asChild size="sm" variant="outline">

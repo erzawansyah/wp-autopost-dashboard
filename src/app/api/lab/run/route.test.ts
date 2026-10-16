@@ -53,7 +53,7 @@ function createFakeSupabase() {
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => createFakeSupabase() }))
 vi.mock("@/lib/constants/auth", () => ({ hasLabAccess: async () => state.labAccess }))
 vi.mock("@/lib/settings/user-keys", () => ({
-  getUserDecryptedKeys: async () => ({ searchPreferences: { default_provider: "auto" }, notificationPrefs: {} }),
+  getUserDecryptedKeys: async () => ({ searchPreferences: { default_provider: "auto" } }),
 }))
 vi.mock("@/lib/crypto", () => ({ decryptCredential: () => "abcd efgh ijkl mnop" }))
 vi.mock("@/core/writer", () => ({ run: mocks.run }))

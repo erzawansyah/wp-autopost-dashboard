@@ -36,7 +36,7 @@ const openRouterTester: KeyTester = {
   },
 }
 
-/** Tavily/Brave/Pexafy hanya menguji kunci yang sedang diketik (belum disimpan). */
+/** Tavily/Brave/SerpAPI/Pexafy hanya menguji kunci yang sedang diketik (belum disimpan). */
 function searchKeyTester(provider: Exclude<SearchTestProvider, "searxng">): KeyTester {
   return {
     run: (typedKey) =>
@@ -46,6 +46,7 @@ function searchKeyTester(provider: Exclude<SearchTestProvider, "searxng">): KeyT
 
 const tavilyTester = searchKeyTester("tavily")
 const braveTester = searchKeyTester("brave")
+const serpapiTester = searchKeyTester("serpapi")
 const pexafyTester = searchKeyTester("pexafy")
 
 /**
@@ -56,7 +57,7 @@ const SEARCH_PROVIDER_LABELS: Record<SearchProvider, string> = {
   auto: "Auto Cascade (Utamakan Kunci API Pribadi ➔ Fallback Cerdas)",
   tavily: "Tavily Search (Gunakan API Key Pribadi)",
   brave: "Brave Search (Gunakan API Key Pribadi)",
-  serpapi: "SerpAPI / Google (Butuh API Key SerpAPI Tersimpan)",
+  serpapi: "SerpAPI / Google (Gunakan API Key Pribadi)",
   searxng: "SearXNG (Metasearch Tanpa Kuota API)",
   bing_scraper: "Bing Web (Tanpa API Key, Cadangan Wikipedia)",
   open_knowledge: "Wikipedia / Basis Pengetahuan Terbuka (Tanpa API Key)",
@@ -88,7 +89,7 @@ export function AiProviderSection({ control, keys }: SectionProps) {
         control={control}
         name="defaultAiModel"
         label="Model Default Penulisan Artikel"
-        hint="Dipakai otomatis oleh Agent Profile yang tidak menentukan model khusus (Quick Writer, Batch Queue, Lab)."
+        hint="Dipakai untuk semua preset bawaan dan Agent Profile kustom tanpa model sendiri (Tulis Cepat, antrean batch, Lab). Agent Profile kustom yang memilih model sendiri tetap memakai modelnya."
         tooltip="Daftar diambil dinamis dari OpenRouter (hanya model Tool-Ready yang mendukung tool calling). Ketik provider/model untuk memakai model kustom."
       >
         {({ value, onChange, id, ...field }) => (
@@ -161,6 +162,16 @@ export function SearchProviderSection({ control, keys }: SectionProps) {
         placeholder="BSA..."
         signup={{ href: "https://brave.com/search/api/", label: "2.000 kueri gratis/bulan" }}
         test={braveTester}
+      />
+      <ByokKeyField
+        control={control}
+        name="serpapiKey"
+        title="SerpAPI"
+        configured={keys.serpapi.configured}
+        placeholder="Kunci API dari dasbor SerpAPI"
+        description="Hasil pencarian Google lewat SerpAPI. Uji kunci memakai Account API sehingga tidak mengurangi kuota pencarian."
+        signup={{ href: "https://serpapi.com/manage-api-key", label: "Daftar / Buat Kunci" }}
+        test={serpapiTester}
       />
     </SettingsSection>
   )

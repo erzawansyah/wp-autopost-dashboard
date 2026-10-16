@@ -50,7 +50,7 @@ function createFakeSupabase() {
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => createFakeSupabase() }))
 vi.mock("@/lib/crypto", () => ({ decryptCredential: () => "abcd efgh ijkl mnop" }))
 vi.mock("@/lib/settings/user-keys", () => ({
-  getUserDecryptedKeys: async () => ({ openrouterKey: mocks.openrouterKey, searchPreferences: {}, notificationPrefs: {} }),
+  getUserDecryptedKeys: async () => ({ openrouterKey: mocks.openrouterKey, searchPreferences: {} }),
 }))
 vi.mock("@/core/shared/llm/gateway", () => ({ createLlmGateway: mocks.createLlmGateway }))
 vi.mock("@/lib/wordpress/client", async (importOriginal) => ({

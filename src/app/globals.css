@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Utilitas animasi atom shadcn (`animate-in`/`animate-out`, `fade-*`, `zoom-*`, `slide-in-from-*`) untuk Tailwind v4. */
+@import "tw-animate-css";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -162,6 +164,20 @@
   textarea,
   select {
     -webkit-tap-highlight-color: transparent;
+  }
+
+  /* DESIGN.md §7 — Reduced motion: semua animasi (overlay tw-animate, spin, pulse) & transisi langsung ke keadaan
+     akhir. Durasi ~0 (bukan `animation: none`) agar event `animationend` tetap terkirim dan overlay Radix tetap
+     ter-unmount saat ditutup. `!important` di layer base mengalahkan utilitas biasa maupun `!` di layer utilities. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 

@@ -1,12 +1,16 @@
 /**
- * Universal Batch Parser & Dynamic Column Mapper
- * 
+ * Universal Batch Parser & Dynamic Column Mapper (Tulis Terstruktur)
+ *
  * Mendukung berbagai format input massal:
  * - Single keyword per baris
- * - CSV (dipisah koma atau semicolon) dengan atau tanpa tanda kutip
- * - TSV (Tab-separated, langsung dari copy-paste Excel / Google Sheets)
+ * - CSV (dipisah koma atau titik koma — ekspor Excel berlokal Indonesia), sel boleh diapit kutip ganda
+ *   (`"a, b"`; `""` di dalam sel = kutip literal). Apostrof (`jum'at`) selalu teks biasa.
+ * - TSV (Tab-separated, langsung dari copy-paste Excel / Google Sheets); sel kosong di awal/akhir baris dipertahankan
  * - Pipe-separated (|)
- * 
+ *
+ * Pemisah kolom dideteksi dari konsistensi jumlah kolom per baris (`detectDelimiter`), bukan dari jumlah karakter,
+ * karena sel LSI/tag boleh berisi daftar berpemisah `|`, `,`, atau `;` (mis. `resep nasi goreng, bumbu | kecap`).
+ *
  * Mendukung header dinamis seperti:
  * - "keyword, lsi"
  * - "keyword, lsi, judul"
@@ -50,35 +54,49 @@ export interface UniversalParseResult {
   errors: string[]
 }
 
-/**
- * Deteksi delimiter baris paling dominan (Tab, Semicolon, Pipe, atau Comma)
- */
-export function detectDelimiter(lines: string[]): string {
-  const sample = lines.slice(0, 10).join("\n")
-  
-  const tabCount = (sample.match(/\t/g) || []).length
-  const pipeCount = (sample.match(/\|/g) || []).length
-  const semicolonCount = (sample.match(/;/g) || []).length
-  const commaCount = (sample.match(/,/g) || []).length
+/** Kandidat pemisah kolom; urutan = prioritas saat skor seri (`|` paling akhir karena lazim sebagai pemisah daftar di dalam sel). */
+const DELIMITER_CANDIDATES = ["\t", ",", ";", "|"] as const
 
-  if (tabCount >= 2 && tabCount >= commaCount && tabCount >= semicolonCount) {
-    return "\t"
-  }
-  if (pipeCount >= 2 && pipeCount >= commaCount) {
-    return "|"
-  }
-  if (semicolonCount >= 2 && semicolonCount >= commaCount) {
-    return ";"
-  }
-  if (commaCount >= 2) {
-    return ","
-  }
+/** Jumlah baris awal yang diperiksa untuk deteksi pemisah. */
+const DELIMITER_SAMPLE_LINES = 20
 
-  return ","
+/** Jumlah kolom yang paling sering muncul; seri → nilai yang muncul lebih dulu (baris header bila ikut seri). */
+function modalCount(counts: number[]): number {
+  const frequency = new Map<number, number>()
+  let mode = counts[0] ?? 0
+  for (const count of counts) {
+    const seen = (frequency.get(count) ?? 0) + 1
+    frequency.set(count, seen)
+    if (seen > (frequency.get(mode) ?? 0)) mode = count
+  }
+  return mode
 }
 
 /**
- * Parse satu baris string menjadi kolom-kolom dengan menghormati tanda kutip (CSV quotes)
+ * Deteksi pemisah kolom (Tab, koma, titik koma, atau garis tegak) dari KONSISTENSI struktur: untuk tiap kandidat,
+ * hitung jumlah sel per baris contoh (menghormati kutip ganda); skor = jumlah baris yang jumlah selnya sama dengan
+ * modus, dengan baris pertama (biasanya header) berbobot ganda. Kandidat yang modusnya < 2 kolom diabaikan; tanpa
+ * kandidat → koma (data satu kolom). Menghitung total karakter keliru untuk data seperti `keyword, lsi` yang sel
+ * LSI-nya berisi `a | b | c`: garis tegak lebih banyak, tetapi hanya koma yang membagi setiap baris secara konsisten.
+ */
+export function detectDelimiter(lines: string[]): string {
+  const sample = lines.slice(0, DELIMITER_SAMPLE_LINES)
+  let best: { delimiter: string; score: number } = { delimiter: ",", score: 0 }
+
+  for (const delimiter of DELIMITER_CANDIDATES) {
+    const counts = sample.map((line) => parseDelimitedLine(line, delimiter).length)
+    const mode = modalCount(counts)
+    if (mode < 2) continue
+    const score = counts.reduce((total, count, index) => total + (count === mode ? (index === 0 ? 2 : 1) : 0), 0)
+    if (score > best.score) best = { delimiter, score }
+  }
+
+  return best.delimiter
+}
+
+/**
+ * Parse satu baris menjadi sel (gaya RFC 4180): kutip ganda hanya membuka sel bila muncul di awal sel (setelah spasi
+ * opsional), `""` di dalam sel berkutip = satu kutip literal. Kutip di tengah teks dan apostrof diperlakukan literal.
  */
 export function parseDelimitedLine(line: string, delimiter: string): string[] {
   const result: string[] = []
@@ -88,15 +106,19 @@ export function parseDelimitedLine(line: string, delimiter: string): string[] {
   for (let i = 0; i < line.length; i++) {
     const char = line[i]
 
-    if (char === '"' || char === "'") {
-      // Jika kutip ganda di dalam kutip ganda ("") -> unescape
-      if (inQuotes && line[i + 1] === char) {
+    if (inQuotes) {
+      if (char !== '"') {
+        current += char
+      } else if (line[i + 1] === '"') {
         current += char
         i++
       } else {
-        inQuotes = !inQuotes
+        inQuotes = false
       }
-    } else if (char === delimiter && !inQuotes) {
+    } else if (char === '"' && current.trim() === "") {
+      current = ""
+      inQuotes = true
+    } else if (char === delimiter) {
       result.push(current.trim())
       current = ""
     } else {
@@ -106,6 +128,19 @@ export function parseDelimitedLine(line: string, delimiter: string): string[] {
 
   result.push(current.trim())
   return result
+}
+
+/** Pemisah daftar di dalam satu sel LSI/tag: garis tegak, koma, atau titik koma. */
+const LIST_CELL_SEPARATOR = /[|,;]/
+
+/** Isi sel daftar (LSI/tag) → item unik, rapi, tanpa yang kosong (urutan dipertahankan). */
+function splitListCell(value: string): string[] {
+  const items: string[] = []
+  for (const part of value.split(LIST_CELL_SEPARATOR)) {
+    const item = part.trim()
+    if (item && !items.includes(item)) items.push(item)
+  }
+  return items
 }
 
 /**
@@ -216,10 +251,8 @@ export function parseUniversalBatchInput(
   }
 ): UniversalParseResult {
   const errors: string[] = []
-  const rawLines = rawText
-    .split(/\r?\n/)
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0)
+  // Baris tidak di-trim: tab di awal/akhir baris TSV adalah sel kosong yang menjaga posisi kolom (sel di-trim per sel).
+  const rawLines = rawText.split(/\r?\n/).filter((line) => line.trim().length > 0)
 
   if (rawLines.length === 0) {
     return {
@@ -311,14 +344,10 @@ export function parseUniversalBatchInput(
           customTitle = cellValue
           break
         case "lsi":
-          // Split LSI jika dipisahkan koma atau semicolon dalam cell
-          cellValue
-            .split(/[,;]/)
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .forEach((kw) => {
-              if (!lsiList.includes(kw)) lsiList.push(kw)
-            })
+          // Beberapa LSI dalam satu sel dipisah `|`, koma, atau titik koma
+          for (const kw of splitListCell(cellValue)) {
+            if (!lsiList.includes(kw)) lsiList.push(kw)
+          }
           break
         case "focus":
           focusNote = cellValue
@@ -327,13 +356,9 @@ export function parseUniversalBatchInput(
           categoryName = cellValue
           break
         case "tags":
-          cellValue
-            .split(/[,;]/)
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .forEach((t) => {
-              if (!tagsList.includes(t)) tagsList.push(t)
-            })
+          for (const tag of splitListCell(cellValue)) {
+            if (!tagsList.includes(tag)) tagsList.push(tag)
+          }
           break
         case "ignore":
         default:
@@ -370,5 +395,3 @@ export function parseUniversalBatchInput(
     errors,
   }
 }
-
-export const parseUniversalBatch = parseUniversalBatchInput

@@ -16,7 +16,6 @@ vi.mock("./resolve-skills", () => ({ resolveSkillsForAgent: async () => [] }))
 const userKeys = {
   openrouterKey: "sk-or-v1-test",
   searchPreferences: { default_provider: "auto" },
-  notificationPrefs: {},
 } as DecryptedUserKeys
 
 const request = WriterRequestSchema.parse({ content: { keyword: "kopi susu gula aren" }, model: "acme/primary" })

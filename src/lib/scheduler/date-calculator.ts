@@ -18,8 +18,22 @@ export interface RandomScheduleConfig {
 export interface IntervalScheduleConfig {
   startDate: string // ISO string atau datetime-local "YYYY-MM-DDTHH:mm"
   intervalHours: number // contoh: 2, 6, 12, 24, atau 32 jam sekali
-  enableJitter?: boolean // default: true (variasi menit acak agar natural)
+  enableJitter?: boolean // default: true (variasi ±5–10 menit mulai item kedua, lihat `intervalJitterMinutes`)
   wpTargetStatus?: "publish" | "draft"
+}
+
+/** Rentang variasi menit pola interval (label `ScheduleStrategyPicker` memakai konstanta yang sama). */
+export const INTERVAL_JITTER_MIN_MINUTES = 5
+export const INTERVAL_JITTER_MAX_MINUTES = 10
+
+/**
+ * Variasi menit pola interval: besaran bulat 5–10 menit dengan arah acak (maju/mundur), tidak pernah 0,
+ * sehingga jam tayang tidak jatuh tepat di menit jadwal dasar (mis. :00). `random` dapat diganti di test.
+ */
+export function intervalJitterMinutes(random: () => number = Math.random): number {
+  const span = INTERVAL_JITTER_MAX_MINUTES - INTERVAL_JITTER_MIN_MINUTES + 1
+  const magnitude = INTERVAL_JITTER_MIN_MINUTES + Math.min(span - 1, Math.floor(random() * span))
+  return random() < 0.5 ? -magnitude : magnitude
 }
 
 export interface InstantScheduleConfig {
@@ -137,9 +151,8 @@ export function calculateScheduleDates(options: ScheduleCalculationOptions): Sch
         let finalTime = baseTime
 
         if (enableJitter && i > 0) {
-          // Variasi acak antara -10 hingga +10 menit agar tidak persis kaku di menit :00
-          const jitterMinutes = Math.floor(Math.random() * 21) - 10
-          finalTime = baseTime + jitterMinutes * 60 * 1000
+          // Artikel pertama tetap tepat di waktu mulai pilihan pengguna; berikutnya digeser ±5–10 menit.
+          finalTime = baseTime + intervalJitterMinutes() * 60 * 1000
         }
 
         const slotDate = new Date(finalTime)

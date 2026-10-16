@@ -5,17 +5,16 @@ import { serverEnv } from "@/lib/env/server"
 import { assertSafeUrl, getTrustedInternalOrigins, safeFetch, toSearxngBaseUrl } from "@/lib/net/safe-fetch"
 import { badRequest, throwIfDbError, unprocessable, upstreamFailed } from "@/server/http/errors"
 import {
-  CLIENT_NOTIFICATION_PREF_KEYS,
   ReasoningEffortSchema,
   SearchProviderSchema,
   type SearchTestInput,
   type UpdateUserSettingsInput,
 } from "@/lib/validation/settings"
-import type { MaskedKeyInfo, NotificationPrefs, SearchPreferences, UserSettings } from "@/types/settings"
+import type { MaskedKeyInfo, SearchPreferences, UserSettings } from "@/types/settings"
 
 /**
  * Service pengaturan pengguna (`user_settings`): kunci BYOK terenkripsi, preferensi pencarian/model,
- * notifikasi, dan uji koneksi provider pencarian. Nilai kunci (terenkripsi maupun terdekripsi)
+ * Developer Mode, dan uji koneksi provider pencarian. Nilai kunci (terenkripsi maupun terdekripsi)
  * tidak pernah dikembalikan — hanya status `configured` + mask tetap.
  */
 
@@ -57,17 +56,6 @@ function maskKey(storedValue: unknown): MaskedKeyInfo {
   return nonEmptyString(storedValue) ? { configured: true, maskedKey: MASKED_KEY } : { configured: false, maskedKey: null }
 }
 
-/** Salinan aman `notification_prefs` untuk client: hanya kunci boolean yang terdaftar. */
-function pickClientNotificationPrefs(raw: unknown): NotificationPrefs {
-  const source = asRecord(raw)
-  const prefs: NotificationPrefs = {}
-  for (const key of CLIENT_NOTIFICATION_PREF_KEYS) {
-    const value = source[key]
-    if (typeof value === "boolean") prefs[key] = value
-  }
-  return prefs
-}
-
 /** Salinan aman `search_preferences` untuk client: hanya kunci yang dikenal dengan nilai valid. */
 function pickClientSearchPreferences(raw: unknown): SearchPreferences {
   const source = asRecord(raw)
@@ -83,7 +71,9 @@ function pickClientSearchPreferences(raw: unknown): SearchPreferences {
 /**
  * Status pengaturan tenant untuk client. Status & project LangSmith hanya dari data tenant ini
  * (sumber yang sama dengan `getUserDecryptedKeys`); tidak ada fallback ke LANGSMITH_* milik operator.
- * `default_ai_model`/`reasoning_effort` lama di `notification_prefs` tetap dibaca sebagai fallback.
+ * `default_ai_model`/`reasoning_effort` lama di `notification_prefs` tetap dibaca sebagai fallback. Dari
+ * `notification_prefs` hanya `developer_mode` yang dikirim ke client; kunci lain (termasuk sakelar notifikasi lama
+ * yang sudah dihapus) diabaikan.
  */
 export async function getUserSettings(supabase: SupabaseClient, userId: string): Promise<UserSettings> {
   const { data, error } = await supabase
@@ -96,7 +86,6 @@ export async function getUserSettings(supabase: SupabaseClient, userId: string):
   const row = asRecord(data)
   const notif = asRecord(row.notification_prefs)
   const search = asRecord(row.search_preferences)
-  const notificationPrefs = pickClientNotificationPrefs(notif)
 
   return {
     userId,
@@ -113,8 +102,7 @@ export async function getUserSettings(supabase: SupabaseClient, userId: string):
     defaultAiModel: nonEmptyString(search.default_ai_model) ?? nonEmptyString(notif.default_ai_model) ?? null,
     reasoningEffort: asReasoningEffort(search.reasoning_effort) ?? asReasoningEffort(notif.reasoning_effort) ?? "low",
     searchPreferences: pickClientSearchPreferences(search),
-    notificationPrefs,
-    developerMode: notificationPrefs.developer_mode === true,
+    developerMode: notif.developer_mode === true,
     updatedAt: nonEmptyString(row.updated_at),
   }
 }
@@ -190,12 +178,12 @@ export async function updateUserSettings(
   if (input.reasoningEffort !== undefined) searchPrefs.reasoning_effort = input.reasoningEffort
   updates.search_preferences = searchPrefs
 
-  // Kredensial LangSmith (terenkripsi) ikut di jsonb notification_prefs; selalu ditetapkan server.
+  // Kredensial LangSmith (terenkripsi) ikut di jsonb notification_prefs; selalu ditetapkan server. Kunci tersimpan
+  // lain dipertahankan apa adanya (kunci yang tidak lagi dipakai cukup diabaikan saat dibaca).
   const existingPrefs = asRecord(existing?.notification_prefs)
   const nextLangsmithKey = nextEncryptedKey(input.langsmithApiKey)
   updates.notification_prefs = {
     ...existingPrefs,
-    ...(input.notificationPrefs ? pickClientNotificationPrefs(input.notificationPrefs) : {}),
     ...(input.developerMode !== undefined ? { developer_mode: input.developerMode } : {}),
     langsmith_api_key: nextLangsmithKey === undefined ? existingPrefs.langsmith_api_key : nextLangsmithKey,
     langsmith_project:
@@ -222,7 +210,7 @@ const SEARXNG_TEST_HEADERS = {
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
 }
 
-const PROVIDER_LABELS = { tavily: "Tavily", brave: "Brave Search", pexafy: "Pexafy" } as const
+const PROVIDER_LABELS = { tavily: "Tavily", brave: "Brave Search", serpapi: "SerpAPI", pexafy: "Pexafy" } as const
 type ApiKeyProvider = keyof typeof PROVIDER_LABELS
 
 export type SearchTestResult = {
@@ -244,6 +232,12 @@ function requestProvider(provider: ApiKeyProvider, apiKey: string): Promise<Resp
     case "brave":
       return fetch("https://api.search.brave.com/res/v1/web/search?q=indonesia&count=1", {
         headers: { Accept: "application/json", "X-Subscription-Token": apiKey },
+        signal,
+      })
+    case "serpapi":
+      // Account API: memverifikasi kunci tanpa memakai kuota pencarian. SerpAPI hanya menerima kunci lewat query.
+      return fetch(`https://serpapi.com/account.json?api_key=${encodeURIComponent(apiKey)}`, {
+        headers: { Accept: "application/json" },
         signal,
       })
     case "pexafy":

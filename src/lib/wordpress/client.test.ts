@@ -280,6 +280,9 @@ describe("operasi konten & taksonomi WordPress", () => {
         }
         if (path === "/wp-json/wp/v2/tags") return json(201, { id: 99 })
         if (path === "/wp-json/wp/v2/categories") return json(201, { id: 12, name: "Kat", slug: "kat" })
+        if (path.startsWith("/wp-json/wp/v2/categories?")) {
+          return json(200, [{ id: 8, name: "Tips &amp; Trik", slug: "tips-trik", count: 1, parent: 0 }])
+        }
         if (path === "/wp-json/wp/v2/posts") return json(201, { id: 77, link: "https://contoh.test/?p=77", status: "draft" })
         if (path.startsWith("/wp-json/wp/v2/posts/42?")) {
           return json(200, { id: 42, content: { raw: "<!-- wp:paragraph -->\n<p>x</p>\n<!-- /wp:paragraph -->", rendered: "<p>x</p>" } })
@@ -370,6 +373,17 @@ describe("operasi konten & taksonomi WordPress", () => {
     expect(result).toMatchObject({ ok: true, users: [{ id: 2, name: "Rina", slug: "rina", description: "Barista" }] })
     expect(requests[0].path).toBe(
       "/wp-json/wp/v2/users?per_page=100&_fields=id,name,slug,description,avatar_urls&has_published_posts=true&who=authors"
+    )
+  })
+
+  it("pencarian kategori (situs > 100 kategori): teks di-encode di query `search`", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
+
+    const result = await fetchWordPressCategories({ ...creds, search: " Tips & Trik " })
+
+    expect(result).toMatchObject({ ok: true, categories: [{ id: 8, name: "Tips & Trik", slug: "tips-trik" }] })
+    expect(requests[0].path).toBe(
+      "/wp-json/wp/v2/categories?per_page=100&_fields=id,name,slug,count,parent&search=Tips%20%26%20Trik"
     )
   })
 

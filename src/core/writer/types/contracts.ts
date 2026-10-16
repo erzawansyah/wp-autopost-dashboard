@@ -18,7 +18,13 @@ export const ContentInputSchema = z.object({
 export const PublishIntentSchema = z.object({
   mode: z.enum(["draft", "publish", "future"]).default("draft"),
   scheduledAt: z.string().datetime().nullable().optional(),
+  /** ID kategori pilihan pengguna (mis. kategori default batch / Tulis Cepat). */
   categoryIds: z.array(z.number().int()).default([]),
+  /**
+   * Nama kategori pilihan pengguna (kolom kategori per baris Tulis Terstruktur). Dicocokkan ke kategori yang ADA di
+   * situs oleh Pre-Flight Resolver dan mengalahkan `categoryIds`; tidak ditemukan → `categoryIds`, lalu pilihan otomatis.
+   */
+  categoryNames: z.array(z.string().max(200)).max(10).default([]),
   tagNames: z.array(z.string()).default([]),
   authorId: z.number().int().nullable().optional(),
   featuredImageId: z.number().int().nullable().optional(),
@@ -52,7 +58,7 @@ export const WriterRequestSchema = z.object({
     })
     .optional(),
 
-  publishing: PublishIntentSchema.default({ mode: "draft", categoryIds: [], tagNames: [] }),
+  publishing: PublishIntentSchema.default({ mode: "draft", categoryIds: [], categoryNames: [], tagNames: [] }),
   automation: AutomationConfigSchema.optional(),
 
   // Engine-specific options & overrides

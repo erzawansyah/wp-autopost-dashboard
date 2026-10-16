@@ -31,7 +31,7 @@ export default function SettingsPage() {
           description={
             <>
               Kelola seluruh kunci API pihak ketiga secara terpadu: <strong>OpenRouter AI</strong> beserta model default &amp;
-              tingkat penalaran, <strong>Mesin Pencari Web</strong> (Tavily, Brave), <strong>Pencarian Foto</strong> (Pexafy),
+              tingkat penalaran, <strong>Mesin Pencari Web</strong> (Tavily, Brave, SerpAPI), <strong>Pencarian Foto</strong> (Pexafy),
               dan tracing <strong>LangSmith</strong>. Semua kunci dienkripsi server dengan AES-256-GCM.
             </>
           }
@@ -41,14 +41,14 @@ export default function SettingsPage() {
           href="/settings/profile"
           icon={UserRound}
           title="Profil & Preferensi Akun"
-          description="Identitas tenant, ganti kata sandi akun, status Row Level Security (RLS), preferensi notifikasi kegagalan posting, dan Developer Mode."
+          description="Identitas tenant, ganti kata sandi akun, status Row Level Security (RLS), dan Developer Mode."
           cta="Buka profil & preferensi"
         />
         <SettingsLinkCard
           href="/settings/webhooks"
           icon={Webhook}
           title="Integrasi Webhook & Automasi"
-          description="Kirim payload HTTP POST otomatis ke Zapier, Make, n8n, Slack, Discord, atau server automasi Anda saat posting selesai."
+          description="Kirim payload HTTP POST otomatis ke Zapier, Make, n8n, Slack, Discord, atau server automasi Anda saat artikel atau batch selesai maupun gagal."
           cta="Kelola webhook"
         />
       </div>

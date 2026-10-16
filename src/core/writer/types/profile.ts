@@ -207,9 +207,12 @@ export interface AgentProfile {
   name: string
   description?: string
   mode: AgentMode
-  /** AI Model override, misal "openai/gpt-oss-120b". Kosong = ikuti model default akun (Pengaturan › Kunci API). */
+  /**
+   * Model pilihan eksplisit Agent Profile kustom, misal "openai/gpt-4o-mini" — mengalahkan model default akun.
+   * Kosong = ikuti model default akun (Pengaturan › Kunci API & Model AI). Preset bawaan tidak pernah mengalahkan
+   * default akun (`runtime/resolve-model.ts`).
+   */
   model?: string
-  modelName?: string
   temperature: number
   /** Level penalaran OpenRouter: 'low' | 'medium' | 'high' */
   reasoningEffort?: "low" | "medium" | "high"

@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { NotificationPrefs, SearchPreferences } from "@/types/settings"
+import type { SearchPreferences } from "@/types/settings"
 
 /**
  * Skema input pengaturan pengguna (`/api/settings/**`) — dipakai bersama form client (`/settings/keys`,
@@ -33,21 +33,6 @@ export const ReasoningEffortSchema = z.enum(["low", "medium", "high"], {
   error: "Tingkat reasoning harus low, medium, atau high.",
 })
 
-/**
- * Satu-satunya kunci `notification_prefs` yang boleh dibaca/ditulis client (semuanya boolean).
- * Kunci lain di kolom jsonb yang sama — terutama `langsmith_api_key` (terenkripsi) — tidak pernah
- * dikirim ke browser dan tidak bisa ditimpa lewat `notificationPrefs` (kunci asing dibuang zod).
- */
-const NotificationPrefsInputSchema = z.object({
-  email_on_failure: z.boolean().optional(),
-  email_on_batch_complete: z.boolean().optional(),
-  notify_on_queue_empty: z.boolean().optional(),
-  in_app_toast: z.boolean().optional(),
-  developer_mode: z.boolean().optional(),
-}) satisfies z.ZodType<NotificationPrefs>
-
-export const CLIENT_NOTIFICATION_PREF_KEYS = NotificationPrefsInputSchema.keyof().options
-
 /** Kunci BYOK di body PUT: "" = hapus, nilai tersamar (•/*) = tidak berubah, selain itu = kunci baru. */
 const ByokKeyInputSchema = z.string().trim().max(1000, "Kunci API terlalu panjang.").optional()
 
@@ -55,7 +40,11 @@ const AiModelInputSchema = z.string().trim().max(200, "ID model AI terlalu panja
 
 const LangsmithProjectSchema = z.string().trim().max(100, "Nama project LangSmith maksimal 100 karakter.")
 
-/** PUT /api/settings/user — hanya field yang dikirim yang diperbarui. */
+/**
+ * PUT /api/settings/user — hanya field yang dikirim yang diperbarui. Satu-satunya isi `notification_prefs` yang
+ * boleh ditulis client adalah `developerMode` (→ `developer_mode`); kunci tak dikenal (mis. `notificationPrefs`
+ * dari klien lama) dibuang zod, sehingga `langsmith_api_key` terenkripsi di jsonb yang sama tidak bisa ditimpa.
+ */
 export const UpdateUserSettingsBodySchema = z.object({
   openrouterKey: ByokKeyInputSchema,
   tavilyKey: ByokKeyInputSchema,
@@ -75,12 +64,12 @@ export const UpdateUserSettingsBodySchema = z.object({
       reasoning_effort: ReasoningEffortSchema.optional(),
     })
     .nullish(),
-  notificationPrefs: NotificationPrefsInputSchema.optional(),
   developerMode: z.boolean({ error: "developerMode harus boolean." }).optional(),
 })
 export type UpdateUserSettingsInput = z.infer<typeof UpdateUserSettingsBodySchema>
 
-const SEARCH_TEST_PROVIDER_ERROR = "Provider tidak valid. Pilih antara 'tavily', 'brave', 'searxng', atau 'pexafy'."
+const SEARCH_TEST_PROVIDER_ERROR =
+  "Provider tidak valid. Pilih antara 'tavily', 'brave', 'serpapi', 'searxng', atau 'pexafy'."
 
 /** POST /api/settings/search/test */
 export const SearchTestBodySchema = z.discriminatedUnion(
@@ -95,7 +84,7 @@ export const SearchTestBodySchema = z.discriminatedUnion(
         .max(2048, "URL SearxNG terlalu panjang."),
     }),
     z.object({
-      provider: z.enum(["tavily", "brave", "pexafy"]),
+      provider: z.enum(["tavily", "brave", "serpapi", "pexafy"]),
       apiKey: z
         .string({ error: "Kunci API belum diisi." })
         .trim()
@@ -113,7 +102,14 @@ export type SearchTestProvider = SearchTestInput["provider"]
 // ---------------------------------------------------------------------------
 
 /** Field kunci BYOK di form Pusat Kunci API (nama = field body PUT `/api/settings/user`). */
-export const BYOK_KEY_FIELDS = ["openrouterKey", "tavilyKey", "braveKey", "pexafyKey", "langsmithApiKey"] as const
+export const BYOK_KEY_FIELDS = [
+  "openrouterKey",
+  "tavilyKey",
+  "braveKey",
+  "serpapiKey",
+  "pexafyKey",
+  "langsmithApiKey",
+] as const
 export type ByokKeyField = (typeof BYOK_KEY_FIELDS)[number]
 
 /**
@@ -131,6 +127,7 @@ export const ApiKeysFormSchema = z.object({
   openrouterKey: NewByokKeySchema,
   tavilyKey: NewByokKeySchema,
   braveKey: NewByokKeySchema,
+  serpapiKey: NewByokKeySchema,
   pexafyKey: NewByokKeySchema,
   langsmithApiKey: NewByokKeySchema,
   defaultAiModel: z.string().trim().min(1, "Pilih model AI default.").max(200, "ID model AI terlalu panjang."),
@@ -140,11 +137,8 @@ export const ApiKeysFormSchema = z.object({
 })
 export type ApiKeysFormValues = z.infer<typeof ApiKeysFormSchema>
 
-/** Form `/settings/profile`: preferensi notifikasi + Developer Mode (disimpan di server). */
+/** Form `/settings/profile`: Developer Mode (disimpan di server, `notification_prefs.developer_mode`). */
 export const ProfilePreferencesFormSchema = z.object({
-  email_on_failure: z.boolean(),
-  email_on_batch_complete: z.boolean(),
-  in_app_toast: z.boolean(),
   developerMode: z.boolean(),
 })
 export type ProfilePreferencesFormValues = z.infer<typeof ProfilePreferencesFormSchema>

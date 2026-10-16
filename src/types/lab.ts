@@ -32,6 +32,8 @@ export interface LabProfileManifest {
   mode: string
   toolCount: number
   isPreset: boolean
+  /** Model pilihan eksplisit Agent Profile kustom (mengalahkan model default akun); `null` = ikuti default akun. */
+  model: string | null
   defaultRequest: { keyword: string; brief: string }
 }
 

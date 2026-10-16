@@ -1,7 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "vitest"
 import type { WebSearchProvider } from "@/core/shared/tools/web-search"
 import {
-  CLIENT_NOTIFICATION_PREF_KEYS,
+  ApiKeysFormSchema,
+  BYOK_KEY_FIELDS,
   ProfilePreferencesFormSchema,
   SEARCH_PROVIDERS,
   SearchTestBodySchema,
@@ -15,26 +16,32 @@ describe("skema pengaturan bersama", () => {
     expect(SEARCH_PROVIDERS).toContain("auto")
   })
 
-  it("kunci notification_prefs client tidak memuat kredensial LangSmith", () => {
-    expect(CLIENT_NOTIFICATION_PREF_KEYS).not.toContain("langsmith_api_key")
-    const parsed = UpdateUserSettingsBodySchema.parse({ notificationPrefs: { langsmith_api_key: "x", in_app_toast: false } })
-    expect(parsed.notificationPrefs).toEqual({ in_app_toast: false })
+  it("body PUT hanya menerima developerMode untuk notification_prefs; notificationPrefs (klien lama) dibuang", () => {
+    const parsed = UpdateUserSettingsBodySchema.parse({
+      notificationPrefs: { langsmith_api_key: "x", in_app_toast: false, email_on_failure: true },
+      developerMode: true,
+    })
+    expect(parsed).toEqual({ developerMode: true })
   })
 
-  it("uji provider pencarian wajib kunci untuk tavily/brave/pexafy", () => {
+  it("uji provider pencarian wajib kunci untuk tavily/brave/serpapi/pexafy", () => {
     expect(SearchTestBodySchema.safeParse({ provider: "tavily", apiKey: "  " }).success).toBe(false)
+    expect(SearchTestBodySchema.safeParse({ provider: "serpapi", apiKey: "" }).success).toBe(false)
+    expect(SearchTestBodySchema.safeParse({ provider: "serpapi", apiKey: "kunci-uji" }).success).toBe(true)
     expect(SearchTestBodySchema.safeParse({ provider: "pexafy", apiKey: "pxf_1" }).success).toBe(true)
   })
 
-  it("form profil wajib boolean untuk setiap preferensi", () => {
-    expect(
-      ProfilePreferencesFormSchema.safeParse({
-        email_on_failure: true,
-        email_on_batch_complete: false,
-        in_app_toast: true,
-        developerMode: false,
-      }).success
-    ).toBe(true)
-    expect(ProfilePreferencesFormSchema.safeParse({ email_on_failure: true }).success).toBe(false)
+  it("setiap field kunci BYOK form punya padanan di body PUT & skema form (termasuk serpapiKey)", () => {
+    expect(BYOK_KEY_FIELDS).toContain("serpapiKey")
+    for (const field of BYOK_KEY_FIELDS) {
+      expect(UpdateUserSettingsBodySchema.shape).toHaveProperty(field)
+      expect(ApiKeysFormSchema.shape).toHaveProperty(field)
+    }
+  })
+
+  it("form profil hanya berisi Developer Mode (sakelar notifikasi tanpa efek sudah dihapus)", () => {
+    expect(Object.keys(ProfilePreferencesFormSchema.shape)).toEqual(["developerMode"])
+    expect(ProfilePreferencesFormSchema.safeParse({ developerMode: false }).success).toBe(true)
+    expect(ProfilePreferencesFormSchema.safeParse({}).success).toBe(false)
   })
 })

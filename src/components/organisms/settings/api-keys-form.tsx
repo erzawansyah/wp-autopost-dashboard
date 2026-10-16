@@ -24,7 +24,7 @@ import { AiProviderSection, ImageProviderSection, ObservabilitySection, SearchPr
 const LEGACY_BROWSER_KEYS = ["custom_openrouter_api_key", "custom_openrouter_model"] as const
 
 /**
- * Form Pusat Kunci API (BYOK Hub): kunci OpenRouter/Tavily/Brave/Pexafy/LangSmith + model default, tingkat
+ * Form Pusat Kunci API (BYOK Hub): kunci OpenRouter/Tavily/Brave/SerpAPI/Pexafy/LangSmith + model default, tingkat
  * penalaran, provider pencarian, dan project LangSmith. Status kunci hanya `configured` dari server; input kunci
  * berisi apa yang sedang diketik pengguna dan dikosongkan setelah tersimpan.
  */

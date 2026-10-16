@@ -46,7 +46,7 @@ const IMAGE = { url: "https://images.example.com/a.jpg", alt: "Kopi", caption: "
 
 function makeCtx(overrides: Partial<ToolRuntimeContext> = {}): ToolRuntimeContext {
   return {
-    userKeys: { searchPreferences: {}, notificationPrefs: {} },
+    userKeys: { searchPreferences: {} },
     language: "id",
     recorder: new RunRecorder(),
     ...overrides,

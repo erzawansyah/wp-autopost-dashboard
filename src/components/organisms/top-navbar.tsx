@@ -19,46 +19,12 @@ import {
 import { apiFetch } from "@/lib/api/client"
 import { sitesQueries } from "@/lib/api/queries/sites"
 import { LOGIN_PATH } from "@/lib/auth/routes"
+import { getBreadcrumbs } from "@/lib/navigation/breadcrumbs"
 import { notify } from "@/lib/ui/notify"
 
 /** Data pengguna yang dikirim layout `(dashboard)` ke shell (hanya field aman untuk browser). */
 export interface ShellUser {
   email: string
-}
-
-const ROUTE_LABELS: Record<string, string> = {
-  sites: "Daftar Website",
-  batches: "Daftar Batch",
-  queue: "Antrean",
-  items: "Item Antrean",
-  posts: "Artikel",
-  new: "Tulis Cepat",
-  scheduled: "Artikel Terjadwal",
-  tools: "WP Tools",
-  agents: "Profil Agen",
-  skills: "Skill Registry",
-  lab: "Laboratorium",
-  settings: "Pengaturan",
-  keys: "Pusat Kunci API",
-  profile: "Profil Pengguna",
-  docs: "Dokumentasi",
-}
-
-function getBreadcrumbs(pathname: string) {
-  const parts = pathname.split("/").filter(Boolean)
-  const items = [{ label: "Dashboard", href: "/" }]
-  let currentPath = ""
-
-  parts.forEach((part, index) => {
-    currentPath += `/${part}`
-    const isLast = index === parts.length - 1
-    const label =
-      ROUTE_LABELS[part] ||
-      (part.length > 20 ? "Detail" : part.charAt(0).toUpperCase() + part.slice(1).replace(/-/g, " "))
-    items.push({ label, href: isLast ? "" : currentPath })
-  })
-
-  return items
 }
 
 export function TopNavbar({ user }: { user: ShellUser }) {

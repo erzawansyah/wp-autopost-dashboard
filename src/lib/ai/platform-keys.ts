@@ -18,7 +18,7 @@ import { PLATFORM_KEY_ENV_NAMES, serverEnv } from "@/lib/env/server"
 export type PlatformKeyEnvName = (typeof PLATFORM_KEY_ENV_NAMES)[number]
 
 export const MISSING_OPENROUTER_KEY_MESSAGE =
-  "API Key OpenRouter belum dikonfigurasi. Panitera memakai sistem BYOK (Bring Your Own Key): silakan simpan API Key OpenRouter Anda di menu Pengaturan ➔ Kunci API (/settings/keys)."
+  "API Key OpenRouter belum dikonfigurasi. Panitera memakai sistem BYOK (Bring Your Own Key): silakan simpan API Key OpenRouter Anda di menu Pengaturan ➔ Kunci API & Model AI (/settings/keys)."
 
 const MAX_API_KEY_LENGTH = 512
 

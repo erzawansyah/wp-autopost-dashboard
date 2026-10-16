@@ -24,7 +24,7 @@ function settings(overrides: Partial<UserSettings> = {}): UserSettings {
     },
     searxngUrl: null,
     searchPreferences: { default_provider: "auto" },
-    notificationPrefs: {},
+    developerMode: false,
     ...overrides,
   }
 }
@@ -87,6 +87,14 @@ describe("toUserSettingsUpdate", () => {
     expect(update.tavilyKey).toBe("tvly-baru")
     expect(update.langsmithApiKey).toBe("lsv2_pt_x")
     expect(update).not.toHaveProperty("braveKey")
+    expect(update).not.toHaveProperty("serpapiKey")
+  })
+
+  it("kunci SerpAPI yang diketik ikut dikirim sebagai serpapiKey (body PUT yang sama dengan kunci lain)", () => {
+    expect(base.serpapiKey).toBe("")
+    const update = toUserSettingsUpdate({ ...base, serpapiKey: "  kunci-serpapi-uji  " })
+    expect(update.serpapiKey).toBe("kunci-serpapi-uji")
+    expect(UpdateUserSettingsBodySchema.safeParse(update).success).toBe(true)
   })
 
   it("nama project LangSmith kosong → default panitera", () => {

@@ -8,16 +8,16 @@ import { processAndSyncArticleMedia } from "@/core/shared/media/auto-media-pipel
 import { createPromptVersionTracker } from "@/core/shared/prompts/loader"
 import { LlmUsageLedger, type LlmUsageSnapshot } from "@/core/shared/llm/usage"
 import { resolveAgentProfile } from "@/core/writer/runtime/resolve-profile"
+import { resolveWriterModel } from "@/core/writer/runtime/resolve-model"
 import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import { AgentStepEvent } from "@/core/writer/runtime/telemetry"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
-import { serverEnv } from "@/lib/env/server"
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatcher"
+import { matchCategoriesByName } from "@/lib/wordpress/category-match"
 import { fetchWordPressCategories } from "@/lib/wordpress/client"
 import { recordObservedSiteHealth } from "@/lib/wordpress/site-health"
 import {
   sanitizeTermNames,
-  toPlainText,
   WP_EXCERPT_MAX_LENGTH,
   WP_TITLE_MAX_LENGTH,
   stripToPlainText,
@@ -361,13 +361,12 @@ interface WpCredentials {
   applicationPassword: string
 }
 
-/** Cocokkan nama kategori tersimpan ke ID kategori WordPress (tanpa membedakan huruf besar/kecil). */
+/** Cocokkan nama kategori tersimpan ke ID kategori WordPress yang ada (nama/slug, tanpa membedakan huruf besar/kecil). */
 async function resolveCategoryIdsByName(credentials: WpCredentials, names: string[]): Promise<number[]> {
-  const wanted = new Set(names.map((name) => toPlainText(name).toLowerCase()).filter(Boolean))
-  if (wanted.size === 0) return []
+  if (names.length === 0) return []
   const res = await fetchWordPressCategories(credentials)
   if (!res.ok || !res.categories) return []
-  return res.categories.filter((cat) => wanted.has(toPlainText(cat.name).toLowerCase())).map((cat) => cat.id)
+  return matchCategoriesByName(res.categories, names).matched.map((cat) => cat.id)
 }
 
 /**
@@ -700,7 +699,11 @@ async function executePostItem(
     ? post.source_payload
     : {}) as Record<string, unknown>
 
+  // Kategori pilihan pengguna: nama kategori per baris Tulis Terstruktur (`requested_category_names`, dicocokkan ke
+  // kategori situs oleh Pre-Flight Resolver) mengalahkan ID kategori batch (`category_ids`). Nama tidak ditemukan →
+  // kategori batch; tanpa keduanya → pilihan otomatis resolver. Kolom `categories` hanya label tampilan.
   const requestedCategoryIds = toPositiveIntList(payloadMeta.category_ids)
+  const requestedCategoryNames = toStringList(payloadMeta.requested_category_names)
   const storedTags = toStringList(post.tags)
 
   let generated: {
@@ -747,12 +750,12 @@ async function executePostItem(
 
     const resolvedProfile = await resolveAgentProfile(profileRef, post.user_id)
 
-    const aiModel =
-      (payloadMeta.aiModel as string) ||
-      userKeys.defaultAiModel ||
-      resolvedProfile.model ||
-      resolvedProfile.modelName ||
-      serverEnv().OPENROUTER_DEFAULT_MODEL
+    // Model per item (API) → model Agent Profile kustom → default akun → env (resolve-model.ts, sama dengan Lab).
+    const aiModel = resolveWriterModel({
+      requestModel: typeof payloadMeta.aiModel === "string" ? payloadMeta.aiModel : undefined,
+      profile: resolvedProfile,
+      userDefaultModel: userKeys.defaultAiModel,
+    })
 
     // Checkpoint langkah generasi dari percobaan sebelumnya (retry otomatis, auto-healing, shutdown,
     // "Tulis ulang"/"Jalankan sekarang"): writer melanjutkan dari langkah valid terakhir tanpa LLM ulang.
@@ -771,7 +774,7 @@ async function executePostItem(
           agentRef: resolvedProfile.ref,
           agentMode: resolvedProfile.mode,
           language,
-          model: aiModel || "default",
+          model: aiModel,
           site: site.site_name,
           targetStatus: post.wp_target_status || "draft",
           attempt: (claim.retryCount ?? 0) + 1,
@@ -802,7 +805,7 @@ async function executePostItem(
             ref: resolvedProfile.ref,
             name: resolvedProfile.name,
             mode: resolvedProfile.mode,
-            model: aiModel || null,
+            model: aiModel,
             temperature: resolvedProfile.temperature ?? null,
             toolIds: resolvedProfile.toolIds ?? [],
             skills: resolvedProfile.skills ?? [],
@@ -891,6 +894,7 @@ async function executePostItem(
             publishing: {
               mode: post.wp_target_status || "draft",
               categoryIds: requestedCategoryIds,
+              categoryNames: requestedCategoryNames,
               tagNames: sanitizeTermNames(storedTags),
             },
             model: aiModel,
@@ -1309,7 +1313,7 @@ async function executePostItem(
     },
   }).catch(() => {})
 
-  // Hitung ulang progres batch dari state item (aman untuk item paralel) & webhook batch.completed sekali.
+  // Hitung ulang progres batch dari state item (aman untuk item paralel) & webhook batch.completed/failed sekali.
   await refreshBatchProgress(supabase, claim)
 
   return {

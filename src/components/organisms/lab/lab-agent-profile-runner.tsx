@@ -27,18 +27,20 @@ import type { LabProfileManifest, LabSiteOption } from "@/types/lab"
 
 const selectDefaultModel = (settings: UserSettings) => settings.defaultAiModel ?? null
 
-/** Model default akun (server-backed `settingsQueries.user()`); run memakai model ini, lalu model Agent Profile. */
-function ModelIndicator() {
+/**
+ * Model yang dipakai uji (urutan `resolve-model.ts`): model pilihan eksplisit Agent Profile kustom, selain itu model
+ * default akun (server-backed `settingsQueries.user()`), lalu model bawaan sistem.
+ */
+function ModelIndicator({ profileModel }: { profileModel: string | null }) {
   const { data: model, isPending } = useQuery({ ...settingsQueries.user(), select: selectDefaultModel })
+  const accountModel = isPending ? "memuat…" : model ? getModelDisplayName(model) : "belum diatur (model bawaan sistem)"
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/80 bg-muted/20 px-3 py-2 text-xs">
       <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
         <Bot aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
-        Model default akun:
-        <strong className="truncate text-foreground">
-          {isPending ? "memuat…" : model ? getModelDisplayName(model) : "belum diatur (model Agent Profile/sistem)"}
-        </strong>
+        {profileModel ? "Model Agent Profile:" : "Model default akun:"}
+        <strong className="truncate text-foreground">{profileModel ? getModelDisplayName(profileModel) : accountModel}</strong>
       </span>
       <Link href="/settings/keys#model-ai" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
         <Settings2 aria-hidden="true" className="size-3" />
@@ -152,7 +154,7 @@ export function LabAgentProfileRunner({ profiles, sites }: LabAgentProfileRunner
                   </div>
                 )}
 
-                <ModelIndicator />
+                <ModelIndicator profileModel={profile?.model ?? null} />
 
                 <ControlledField
                   control={form.control}

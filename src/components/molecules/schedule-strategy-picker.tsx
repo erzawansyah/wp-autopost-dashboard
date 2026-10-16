@@ -7,6 +7,7 @@ import { Input } from "@/components/atoms/input"
 import { Label } from "@/components/atoms/label"
 import { Switch } from "@/components/atoms/switch"
 import { PublishStatusSwitcher } from "@/components/molecules/publish-status-switcher"
+import { INTERVAL_JITTER_MAX_MINUTES, INTERVAL_JITTER_MIN_MINUTES } from "@/lib/scheduler/date-calculator"
 import { cn } from "@/lib/utils"
 import type { ScheduleStrategy } from "@/lib/validation/batches"
 
@@ -153,7 +154,8 @@ export function ScheduleStrategyPicker({ value, onChange, disabled = false, clas
                 onCheckedChange={(checked) => update("intervalJitter", checked === true)}
               />
               <Label htmlFor={ids.jitter} className="cursor-pointer text-xs font-normal text-muted-foreground select-none">
-                Variasi acak ±5–10 menit agar tidak selalu di menit :00
+                Variasi acak ±{INTERVAL_JITTER_MIN_MINUTES}–{INTERVAL_JITTER_MAX_MINUTES} menit (mulai artikel kedua) agar
+                tidak selalu tepat di menit :00
               </Label>
             </div>
           </div>

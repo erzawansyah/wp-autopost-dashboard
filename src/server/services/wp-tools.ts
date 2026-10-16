@@ -61,7 +61,7 @@ export async function getOwnedSiteCredentials(
   try {
     applicationPassword = decryptCredential(site.encrypted_app_password)
   } catch {
-    throw unprocessable("Kredensial WordPress situs ini tidak dapat dibaca. Hubungkan ulang website di menu Situs.")
+    throw unprocessable("Kredensial WordPress situs ini tidak dapat dibaca. Sambungkan ulang website di menu Daftar Website.")
   }
   return { baseUrl: site.base_url, username: site.wp_username, applicationPassword }
 }

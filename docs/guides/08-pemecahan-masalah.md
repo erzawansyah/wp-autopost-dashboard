@@ -75,8 +75,9 @@ Panitera membatasi permintaan per akun per menit: 30 untuk membuat atau menjadwa
 ## 6. Tulis Terstruktur Membaca Kolom dengan Salah
 
 - Lihat **Pemisah terdeteksi** di panel **Pemetaan kolom otomatis**. Panel ini hanya muncul bila data terbaca lebih dari satu kolom.
-- Pemisah dipilih dari karakter yang paling dominan (tab, garis tegak, titik koma, atau koma). Hindari memakai karakter pemisah kolom di dalam sel; tempelan langsung dari spreadsheet (tab) paling aman.
+- Pemisah dipilih dari karakter yang membagi setiap baris (terutama baris header) menjadi jumlah kolom yang sama: tab, koma, titik koma, atau garis tegak. Hindari memakai karakter pemisah kolom di dalam sel kecuali sel diapit tanda kutip ganda (`"a, b"`); daftar LSI/tag di dalam sel paling aman dipisah `|`. Tempelan langsung dari spreadsheet (tab) paling aman.
 - Klik **Lihat pratinjau data** untuk memastikan kata kunci, judul, LSI, dan fokus setiap baris sudah benar sebelum mengirim.
+- Kategori per baris tidak terpakai: buka **Log aktivitas** artikel. Peringatan "Kategori baris … tidak ditemukan" berarti nama itu belum ada di WordPress (Panitera tidak membuat kategori baru); buat kategorinya di WordPress atau lewat [Kategori Creator](/tools/categories), lalu buat batch baru.
 
 ---
 

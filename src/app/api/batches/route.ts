@@ -3,7 +3,7 @@ import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import { badRequest, throwIfDbError } from "@/server/http/errors"
 import { defineRoute } from "@/server/http/route"
 import { RATE_LIMITS } from "@/server/http/rate-limit"
-import { CreateBatchBodySchema, MAX_BATCH_ITEMS } from "@/lib/validation/batches"
+import { CreateBatchBodySchema, MAX_BATCH_BODY_BYTES } from "@/lib/validation/batches"
 import { OptionalTextSchema, QUICK_WRITER_BATCH_ID } from "@/lib/validation/queue"
 import { listBatchesWithQuickWriter } from "@/server/queue/batches"
 import { nudgeQueueRunner } from "@/server/queue/embedded"
@@ -33,16 +33,14 @@ function collectBatchItems(body: CreateBatchBody): BatchItemInput[] {
 }
 
 // POST /api/batches — buat batch + seluruh item `queued_input`, lalu bangunkan runner antrean.
+// Skema membatasi `keywords`/`items` ke `MAX_BATCH_ITEMS` baris (sama dengan form); alasan batas body ada di
+// `MAX_BATCH_BODY_BYTES`.
 export const POST = defineRoute(
-  // Batas body mengikuti batas skema: 500 item × field maksimal ≈ 9 MB (default 1 MB terlalu kecil untuk batch besar).
-  { auth: "user", body: CreateBatchRouteBodySchema, rateLimit: RATE_LIMITS.enqueue, maxBodyBytes: 10 * 1024 * 1024 },
+  { auth: "user", body: CreateBatchRouteBodySchema, rateLimit: RATE_LIMITS.enqueue, maxBodyBytes: MAX_BATCH_BODY_BYTES },
   async ({ supabase, user, body }) => {
     const items = collectBatchItems(body)
     if (items.length === 0) {
       throw badRequest("Daftar kata kunci tidak boleh kosong. Masukkan minimal 1 kata kunci atau topik.")
-    }
-    if (items.length > MAX_BATCH_ITEMS) {
-      throw badRequest(`Maksimal ${MAX_BATCH_ITEMS} baris per batch. Silakan kurangi baris input Anda.`)
     }
 
     const legacyRef = body.engine && Object.hasOwn(LEGACY_ENGINE_MAP, body.engine) ? LEGACY_ENGINE_MAP[body.engine] : undefined

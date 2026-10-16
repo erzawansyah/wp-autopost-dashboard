@@ -111,7 +111,7 @@ src/
 │       ├── profiles/            # builtin.ts (3 preset), LEGACY_ENGINE_MAP (pemetaan field lama → preset)
 │       ├── presets/registry.ts  # Shim kompatibilitas (re-export profiles/builtin)
 │       ├── runtime/             # run-agent, build-agent, pre-resolve, checkpoints, guards, loop-guard, finalize,
-│       │                        #   postprocess, prompt-builder, resolve-profile, resolve-skills, telemetry, validate-input, output-schema
+│       │                        #   postprocess, prompt-builder, resolve-profile, resolve-model, resolve-skills, telemetry, validate-input, output-schema
 │       ├── tools/               # registry.ts, definitions/ (6 Universal Tools), eligibility.ts, tool-response.ts
 │       └── types/               # contracts.ts (WriterRequest/Result), profile.ts (AgentProfile, clampLimits)
 ├── lib/
@@ -124,8 +124,9 @@ src/
 │   ├── env/                     # server.ts / client.ts / shared.ts: env tervalidasi zod (satu-satunya pembaca process.env)
 │   ├── hooks/                   # useZodForm, useHydrated, useTheme, useDeveloperMode, useRealtimeTopic,
 │   │                            #   useQueueLiveUpdates, usePostDetailLive, useDelayedPush
+│   ├── navigation/breadcrumbs.ts # Label & induk breadcrumb per rute (dashboard) untuk TopNavbar (test: semua page terdaftar)
 │   ├── net/safe-fetch.ts        # Anti-SSRF (§10)
-│   ├── parser/                  # universal-batch-parser.ts (CSV/TSV/pipe/baris + pemetaan kolom)
+│   ├── parser/                  # universal-batch-parser.ts (CSV/TSV/pipe/baris + pemetaan kolom), structured-batch-templates.ts
 │   ├── queue/                   # Model UI antrean murni: states, table-model, live-patch, poll-backoff, retry-actions, run-metrics, …
 │   ├── scheduler/               # date-calculator.ts (jadwal random/interval/instant + jitter)
 │   ├── security/                # redact.ts, security-headers.ts
@@ -136,7 +137,7 @@ src/
 │   ├── validation/              # Skema zod MURNI bersama form & route per domain (common, auth, sites, agents, batches, …)
 │   ├── webhooks/                # dispatcher.ts, signature.ts (HMAC), validation.ts (kebijakan URL)
 │   ├── wordpress/               # client.ts (wpFetch & endpoint WP), site-health.ts (klasifikasi wp_sites.status),
-│   │                            #   connect-callback.ts, internal-link.ts, plain-text.ts, app-name.ts
+│   │                            #   connect-callback.ts, internal-link.ts, plain-text.ts, category-match.ts, app-name.ts
 │   ├── crypto.ts                # AES-256-GCM + state token HMAC alur otorisasi WordPress
 │   ├── sanitize-html.ts         # DOMPurify allowlist konservatif untuk pratinjau HTML
 │   └── search-params.ts · utils.ts   # firstParam() · cn()
@@ -194,7 +195,7 @@ erDiagram
         text encrypted_pexafy_key
         text searxng_url
         jsonb search_preferences "default_provider, default_ai_model?, reasoning_effort?"
-        jsonb notification_prefs "flag notifikasi, developer_mode, langsmith_api_key (terenkripsi), langsmith_project"
+        jsonb notification_prefs "developer_mode, langsmith_api_key (terenkripsi), langsmith_project; kunci lama lain diabaikan"
     }
     agent_profiles {
         uuid id PK
@@ -454,7 +455,7 @@ stateDiagram-v2
 
 `/api/posts/quick` dan `/api/batches` memanggil `src/server/queue/enqueue.ts` dengan **client sesi** (RLS + GRANT kolom
 input): satu item (Tulis Cepat, `batch_id = null`) atau satu `content_batches` + item (`source_type = 'manual'`, maks 50 baris
-per batch, jadwal dari `src/lib/scheduler/date-calculator.ts`: `random`/`interval`/`instant`), plus log langkah `queue`. Konfigurasi
+per batch — `MAX_BATCH_ITEMS` di `src/lib/validation/batches.ts`, dipakai form dan skema route, jadwal dari `src/lib/scheduler/date-calculator.ts`: `random`/`interval`/`instant`), plus log langkah `queue`. Konfigurasi
 AI (Agent Profile, model, bahasa, kategori) disalin ke `source_payload` / `ai_config`. Route lalu memanggil
 `nudgeQueueRunner()`; respons tidak menunggu pemrosesan.
 
@@ -534,8 +535,11 @@ ganda), termasuk saat writer melempar exception.
 
 ### 4.7 Progres Batch, Grup Virtual & Notifikasi
 
-- `batch-progress.ts` menghitung ulang `completed_items` dari state item; batch menjadi `completed` sekali saat semua item
-  selesai (sukses + gagal = total) lalu mengirim webhook `batch.completed` (§8).
+- `batch-progress.ts` menghitung ulang `completed_items` dari state item. Saat semua item selesai (sukses + gagal = total)
+  batch ditutup lewat update bersyarat dari status terbuka (`draft`/`running`/`paused`): `failed` + webhook `batch.failed`
+  bila semua item gagal, selain itu `completed` + `batch.completed` (§8). Hanya pemenang transisi yang mengirim webhook, jadi
+  tepat sekali per batch. Item yang diproses ulang setelah batch ditutup ("Tulis ulang"/"Kirim ulang") tidak membuka batch
+  kembali dan tidak mengirim event batch kedua; status akhir hanya diselaraskan dengan hasil terbaru (`failed` ↔ `completed`).
 - Item Tulis Cepat (`batch_id = null`) ditampilkan sebagai batch virtual `quick-writer` ("Tulis Cepat (Quick Writer)") di
   `/api/batches` (bentuk sama dengan batch biasa; `wp_sites` = situs item terbaru), hanya bila ada item Tulis Cepat.
 - Progres live di UI: Broadcast privat (§3.5, §11.5) dengan polling cadangan.
@@ -616,8 +620,10 @@ onCheckpoint }` dan `usageLedger` opsional; Lab & eval berjalan tanpa persistens
 ### 5.2 LLM Gateway (`src/core/shared/llm/`)
 
 - Dibuat sekali per run/request (`createLlmGateway`). Kunci OpenRouter BYOK-only (`resolveOpenRouterKey`; tanpa kunci
-  `ChatOpenRouter` tidak pernah dibuat). Urutan model writer: `request.model → defaultAiModel pengguna → profile.model →
-  OPENROUTER_DEFAULT_MODEL → DEFAULT_AI_MODEL` (`meta-llama/llama-3.3-70b-instruct`).
+  `ChatOpenRouter` tidak pernah dibuat). Urutan model writer (`writer/runtime/resolve-model.ts`, dipakai worker & `runAgentWriter`
+  sehingga antrean dan Lab sama): `request.model (aiModel per item) → model Agent Profile kustom → defaultAiModel pengguna →
+  model preset (preset tidak pernah mengalahkan default akun) → OPENROUTER_DEFAULT_MODEL → DEFAULT_AI_MODEL`
+  (`meta-llama/llama-3.3-70b-instruct`).
 - Retry bawaan model (backoff + jitter, berhenti saat abort; tanpa retry untuk 400/401/402/403/kuota). Middleware fallback model
   (`ai.fallbackModels`) hanya untuk model tidak tersedia / 429 / 5xx / jaringan setelah retry habis, lengket dalam run, berlaku
   juga untuk subagent Deep. Model `:free` tidak pernah dialihkan ke model berbayar; batas harian model gratis diperlakukan
@@ -639,9 +645,14 @@ onCheckpoint }` dan `usageLedger` opsional; Lab & eval berjalan tanpa persistens
   (`src/core/shared/prompts/untrusted-data.ts`, dipakai juga WP Tools).
 - Keluaran LLM divalidasi server: ID author/kategori di luar daftar kandidat ditolak (→ heuristik, event berstatus `blocked`); pilihan
   author & kategori pengguna mengikat; tag teks polos maks 5 × 100 karakter.
-- Enrichment akhir (`completeArticle` di `run-agent.ts`): kategori & author = pilihan pengguna → hasil resolver; featured media =
-  pilihan pengguna → tool `set_featured_image`. Teks keluaran agen (yang dapat dipengaruhi konten `web_reader`) tidak dapat
-  menentukan kategori, author, maupun gambar sampul.
+- Kategori per baris Tulis Terstruktur (`publishing.categoryNames`, dari `source_payload.requested_category_names`): resolver
+  mencocokkannya ke kategori yang ADA (nama/slug tanpa membedakan huruf besar/kecil, `src/lib/wordpress/category-match.ts`; nama di
+  luar 100 kategori pertama dicari lewat `?search=`) dan hasilnya mengikat di atas ID kategori batch. Tidak cocok → ID batch, lalu
+  LLM/heuristik, dengan event `pre_resolve_categories` berstatus `blocked`; kategori baru tidak pernah dibuat. Nama dari pengguna
+  hanya dipakai untuk pencocokan di server (prompt LLM menerima ID); daftar/pencarian kategori gagal → hasil `degraded`.
+- Enrichment akhir (`completeArticle` di `run-agent.ts`): kategori & author = pilihan pengguna → hasil resolver (bila kategori per
+  baris diminta, hasil resolver yang mengikat); featured media = pilihan pengguna → tool `set_featured_image`. Teks keluaran agen
+  (yang dapat dipengaruhi konten `web_reader`) tidak dapat menentukan kategori, author, maupun gambar sampul.
 
 ### 5.4 Agen & Guards
 
@@ -709,8 +720,8 @@ Prompt hanya berkas `.md` berprefix `wp-tools-*`, `system-*`, atau `agent-*` den
   `syncing_to_wp`): setiap gambar eksternal di Markdown + featured image dicek cache `uploaded_media` (per `user_id` + `site_id`
   + `source_url`), diunggah ke `/wp/v2/media`, URL diganti URL WordPress beserta atribut `{id=…}`, lalu Gutenberg dirender ulang.
   Kegagalan per gambar tidak menggagalkan pipeline (URL eksternal dibiarkan). Cost-Saver Retry tidak menjalankan pipeline ini.
-- Kunci BYOK pencarian (Tavily, Brave, SerpAPI, Pexafy) disimpan di `user_settings`; form `/settings/keys` saat ini memuat field
-  Tavily, Brave, Pexafy (SerpAPI hanya lewat `PUT /api/settings/user`).
+- Kunci BYOK pencarian (Tavily, Brave, SerpAPI, Pexafy) disimpan terenkripsi di `user_settings` dan diisi/diuji/dihapus dari
+  form `/settings/keys` (uji SerpAPI memakai Account API `serpapi.com/account.json`, tanpa memakai kuota pencarian).
 
 ---
 
@@ -741,9 +752,9 @@ run AI sebagai mutation dengan `AbortController` (pindah halaman/ganti situs mem
 ## 8. Outbound Webhook
 
 - **Event** (`src/types/webhook.ts`): `post.published`, `post.scheduled`, `post.draft_saved` (worker setelah publish sukses),
-  `post.failed` (kegagalan yang tidak diantre ulang), `batch.completed` (sekali saat batch selesai, termasuk bila sebagian/semua
-  item gagal), `test.ping` (`POST /api/webhooks/[id]/test`). `batch.failed` dapat dipilih di UI tetapi saat ini tidak pernah
-  dikirim kode.
+  `post.failed` (kegagalan yang tidak diantre ulang), `batch.completed` (batch selesai dengan minimal satu item sukses),
+  `batch.failed` (semua item batch gagal) — tepat satu event batch per batch, payload `{ batchId, totalItems, completedItems,
+  failedItems }` (§4.7) — dan `test.ping` (`POST /api/webhooks/[id]/test`).
 - **Tanda tangan**: header `X-Panitera-Timestamp` (unix detik), `X-Panitera-Signature: sha256=<hex>` =
   HMAC-SHA256(secret, `"<timestamp>.<rawBody>"`), `X-Webhook-Event`. Penerima menghitung ulang atas body mentah, membandingkan
   constant-time, dan menolak selisih timestamp > 5 menit (`src/lib/webhooks/signature.ts`).
@@ -786,7 +797,7 @@ Semua route di `src/app/api/**/route.ts` memakai `defineRoute` (`src/server/http
 | `/api/auth/me` | GET | public | `{ user: { id, email, createdAt } \| null }` |
 | `/api/auth/signout` | POST | public | Akhiri sesi (fallback signout lokal) |
 | `/api/auth/password` | POST | user · credentialChange | Ganti kata sandi: verifikasi kata sandi lama, ganti, keluarkan sesi lain (§10); salah → 400 dengan `issues` field |
-| `/api/batches` | GET, POST, DELETE | user · enqueue (POST, body ≤ 10 MB) | Daftar batch + grup virtual `quick-writer`; buat batch (maks 50 baris) lalu bangunkan runner; DELETE `?id=` hapus batch beserta itemnya (`quick-writer` = semua item Tulis Cepat) |
+| `/api/batches` | GET, POST, DELETE | user · enqueue (POST, body ≤ 2 MB) | Daftar batch + grup virtual `quick-writer`; buat batch (maks 50 baris, `MAX_BATCH_ITEMS` bersama form & skema) lalu bangunkan runner; DELETE `?id=` hapus batch beserta itemnya (`quick-writer` = semua item Tulis Cepat) |
 | `/api/health` | GET | none | `{ status, version, uptime, timestamp }` untuk HEALTHCHECK |
 | `/api/lab/registry` | GET | user + Developer Mode | `{ sites, tools, profiles }` untuk Lab |
 | `/api/lab/run` | POST | user + Developer Mode · llm | Uji tool (termasuk `wordpress_publisher`, default draft) atau Agent Profile; kegagalan eksekusi = 200 `ok:false`; output diredaksi; putus koneksi membatalkan run |
@@ -796,7 +807,7 @@ Semua route di `src/app/api/**/route.ts` memakai `defineRoute` (`src/server/http
 | `/api/queue` | GET | user | Item antrean (filter state, situs, batch) |
 | `/api/queue/process` | GET, POST | user-or-cron · enqueue (POST sesi) | POST sesi: `postId` (+`forceNow`) atau `action: "process_all"` untuk item miliknya; cron: pemicu runner (mode `off`: klaim 1 item, `maxDuration` 800 dtk); GET hanya cron (sesi → 405); cron default respons teks polos |
 | `/api/settings/user` | GET, PUT | user | Status kunci BYOK tersamar + preferensi; PUT hanya field yang dikirim (kunci dienkripsi) |
-| `/api/settings/search/test` | POST | user · outboundTest | Uji URL SearXNG atau kunci Tavily/Brave/Pexafy |
+| `/api/settings/search/test` | POST | user · outboundTest | Uji URL SearXNG atau kunci Tavily/Brave/SerpAPI/Pexafy |
 | `/api/sites` | GET, POST | user · outboundTest (POST) | Daftar situs (tanpa kredensial); daftar manual setelah kredensial diverifikasi (duplikat → 409) |
 | `/api/sites/[id]` | PATCH, DELETE | user | Ubah `site_name`/`max_concurrency` (1–10); hapus (kaskade batch, antrean, log, media) |
 | `/api/sites/[id]/authors` | GET, POST | user | User/author WordPress; buat user author/editor/contributor |

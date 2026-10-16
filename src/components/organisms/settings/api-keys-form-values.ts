@@ -16,6 +16,7 @@ export const EMPTY_BYOK_KEYS: Record<ByokKeyField, ""> = {
   openrouterKey: "",
   tavilyKey: "",
   braveKey: "",
+  serpapiKey: "",
   pexafyKey: "",
   langsmithApiKey: "",
 }
