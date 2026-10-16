@@ -6,7 +6,7 @@ variables:
   - key: keyword
     desc: Topik atau kata kunci utama artikel yang akan ditulis
   - key: language
-    desc: Kode bahasa artikel (misal: id, en)
+    desc: Nama bahasa artikel (misal: Bahasa Indonesia, English (US/UK))
   - key: brief
     desc: Catatan khusus atau pengarahan singkat dari pengguna
   - key: wordpressData
@@ -46,13 +46,14 @@ Pedoman Penentuan:
 
 3. TAGS:
    - Pilih 3 hingga 5 tag yang sangat relevan dan memperkuat SEO artikel.
-   - Utamakan tag yang SUDAH ADA di daftar 'tags' jika cocok.
+   - SEMUA tag WAJIB ditulis dalam BAHASA ARTIKEL pada pesan pengguna, meskipun topik, brief, atau data WordPress memakai bahasa lain.
+   - Utamakan tag yang SUDAH ADA di daftar 'tags' bila relevan DAN berbahasa sama dengan bahasa artikel. Jangan memakai tag berbahasa lain; tulis padanannya dalam bahasa artikel.
    - Jika topik membutuhkan tag baru yang belum ada di daftar, buatkan tag baru yang alami, spesifik, dan rapi dalam bahasa artikel.
 [/SYSTEM_PROMPT]
 
 [USER_PROMPT]
 TOPIK / KATA KUNCI ARTIKEL: "{{keyword}}"
-BAHASA: {{language}}
+BAHASA ARTIKEL: {{language}}
 CATATAN KHUSUS / BRIEF: {{brief}}
 
 <data_wordpress>

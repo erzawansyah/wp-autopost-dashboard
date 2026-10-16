@@ -8,6 +8,7 @@ import {
   type WPUserItem,
   type WPCategoryItem,
 } from "@/lib/wordpress/client"
+import { getLanguageDisplayName } from "@/lib/constants/languages"
 import { matchCategoriesByName } from "@/lib/wordpress/category-match"
 import { sanitizeTermNames, stripToPlainText, WP_TERM_NAME_MAX_LENGTH } from "@/lib/wordpress/plain-text"
 import { classifyLlmError, describeLlmError } from "@/core/shared/llm/errors"
@@ -391,7 +392,8 @@ export async function preResolveTaxonomyAndAuthor(
       if (systemPrompt && userPromptTemplate) {
         const renderedUserPrompt = renderPrompt(userPromptTemplate, {
           keyword: keyword || "Artikel Informatif",
-          language,
+          // Nama bahasa (bukan kode "en"): prompt resolver berbahasa Indonesia, kode saja kerap diabaikan model.
+          language: getLanguageDisplayName(language),
           brief: brief || "-",
           // Data WordPress hanya di blok data bertag pada pesan pengguna (bukan system prompt).
           wordpressData: toUntrustedPromptJson({
