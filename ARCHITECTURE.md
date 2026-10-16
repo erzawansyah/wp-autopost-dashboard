@@ -399,7 +399,7 @@ Klien: §11.5.
 
 | Migrasi | Isi |
 | :--- | :--- |
-| `20261015090000_baseline_schema.sql` | 10 tabel, CHECK, FK komposit, indeks, trigger, RLS + policy, GRANT; query pre-flight di header |
+| `20261015090000_baseline_schema.sql` | 10 tabel, CHECK, FK komposit, indeks, trigger, RLS + policy, GRANT; konversi drift production lama (`webhooks.events` text[] → jsonb, `user_settings.id`); query pre-flight di header |
 | `20261015090001_fase0_data_fixes.sql` | `failed_sync` tanpa naskah → `failed_generation` (+ log audit); buang kuota `perTool` tool yang dihapus |
 | `20261015100000_queue_leases.sql` | Kolom lease & `next_attempt_at`, indeks antrean, `claim_post_items`, `extend_post_item_lease` |
 | `20261015110000_queue_hardening.sql` | GRANT INSERT per kolom `post_items`, CHECK `retry_count`/`max_concurrency`, token klaim unik |

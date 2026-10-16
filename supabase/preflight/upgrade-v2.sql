@@ -434,15 +434,15 @@ begin
     status := 'INFO';
     jumlah := null;
     tindakan := 'Belum ada riwayat migrasi (skema lama dibuat skrip ad-hoc). `supabase db push` membuat tabel '
-      || 'riwayat lalu menerapkan ketujuh migrasi; jalur SQL Editor wajib diikuti `supabase migration repair`.';
+      || 'riwayat lalu menerapkan seluruh migrasi v2; jalur SQL Editor wajib diikuti `supabase migration repair`.';
   else
     jumlah := hasil.n;
     if hasil.n = 7 then
       status := 'OK';
-      tindakan := 'Ketujuh migrasi v2 tercatat diterapkan.';
+      tindakan := 'Seluruh migrasi v2 tercatat diterapkan.';
     elsif hasil.n = 0 then
       status := 'INFO';
-      tindakan := 'Tabel riwayat ada, migrasi v2 belum tercatat; `supabase db push` akan menerapkan ketujuhnya.';
+      tindakan := 'Tabel riwayat ada, migrasi v2 belum tercatat; `supabase db push` akan menerapkan semuanya.';
     else
       select array_agg(e.versi order by e.versi) into daftar
       from pg_temp.pf_migrasi_ekspektasi() as e
@@ -721,7 +721,8 @@ begin
        $q$select count(*) from public.user_settings where jsonb_typeof(notification_prefs) <> 'object'$q$),
       (480, 'CHECK webhooks_events_check', 'GAGAL',
        'events bukan array JSON. Set ke ''[]''::jsonb.',
-       $q$select count(*) from public.webhooks where jsonb_typeof(events) <> 'array'$q$),
+       -- to_jsonb: juga berlaku untuk events text[] production lama (dikonversi baseline menjadi array JSON).
+       $q$select count(*) from public.webhooks where jsonb_typeof(to_jsonb(events)) <> 'array'$q$),
       (490, 'CHECK uploaded_media_metadata_check', 'GAGAL',
        'metadata bukan objek JSON. Set ke ''{}''::jsonb.',
        $q$select count(*) from public.uploaded_media where jsonb_typeof(metadata) <> 'object'$q$)
@@ -903,8 +904,16 @@ begin
     ada := ada + 1;
     urut := 701;
     pemeriksaan := 'Drift tipe ' || r.tabel || '.' || r.kolom;
-    status := case when r.fatal then 'GAGAL' else 'PERINGATAN' end;
     jumlah := null;
+    -- Drift yang dikonversi otomatis oleh baseline (ditemukan di production lama).
+    if (r.tabel, r.kolom, r.aktual) in (('webhooks', 'events', 'text[]')) then
+      status := 'INFO';
+      tindakan := 'Production: ' || r.aktual || '; migrasi mengharapkan: ' || r.tipe || '. Dikonversi otomatis '
+        || 'oleh migrasi 20261015090000 (to_jsonb; isi array dipertahankan, NULL → []). Tidak perlu tindakan.';
+      return next;
+      continue;
+    end if;
+    status := case when r.fatal then 'GAGAL' else 'PERINGATAN' end;
     tindakan := 'Production: ' || r.aktual || '; migrasi mengharapkan: ' || r.tipe || '. '
       || case
            when r.fatal then 'FK komposit/CHECK/RPC v2 akan gagal pada tipe ini. Ubah tipe kolom lewat migrasi '

@@ -13,7 +13,9 @@
 -- Idempoten & konvergen (aman dijalankan ulang, juga ke DB production yang sudah ada):
 --   * tabel `create table if not exists`; kolom yang dibutuhkan kode tetapi tidak dibuat
 --     skrip lama ditambah via `add column if not exists`. Perbedaan tipe/default/nullability
---     kolom yang SUDAH ada di production tidak diubah otomatis → periksa via `supabase db diff`;
+--     kolom yang SUDAH ada di production tidak diubah otomatis → periksa via `supabase db diff`
+--     (pengecualian yang diketahui dari pre-flight production: `webhooks.events` text[] → jsonb, dan
+--     `user_settings.id` yang tidak ada ditambahkan);
 --   * CHECK & FK di-`drop if exists` lalu dibuat ulang dengan nama tetap (menggantikan versi lama);
 --   * UNIQUE hanya ditambah bila belum ada indeks unik pada kolom yang sama;
 --   * SELURUH policy pada 10 tabel dihapus lalu dibuat ulang (policy lama yang bocor ikut hilang);
@@ -270,6 +272,45 @@ alter table public.webhooks
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
 
+-- Production lama membuat `webhooks.events` bertipe text[] (bukan jsonb); kode v2 & CHECK `webhooks_events_check`
+-- memerlukan array JSON. Dikonversi tanpa kehilangan isi (to_jsonb(text[]) → array string; NULL → '[]').
+-- Indeks lama pada kolom ini (operator class array tidak berlaku untuk jsonb) dibuang lebih dulu; v2 tidak
+-- mengindeks `events`. Tidak berpengaruh pada instalasi baru / DB yang kolomnya sudah jsonb.
+do $$
+declare
+  legacy_index text;
+begin
+  if exists (
+    select 1
+    from pg_attribute
+    where attrelid = 'public.webhooks'::regclass
+      and attname = 'events'
+      and not attisdropped
+      and format_type(atttypid, atttypmod) = 'text[]'
+  ) then
+    for legacy_index in
+      select i.indexrelid::regclass::text
+      from pg_index as i
+      join pg_attribute as a on a.attrelid = i.indrelid and a.attnum = any (i.indkey::int2[])
+      where i.indrelid = 'public.webhooks'::regclass
+        and a.attname = 'events'
+        and not i.indisprimary
+    loop
+      execute format('drop index if exists %s', legacy_index);
+    end loop;
+    alter table public.webhooks alter column events drop default;
+    alter table public.webhooks
+      alter column events type jsonb using coalesce(to_jsonb(events), '[]'::jsonb);
+    alter table public.webhooks alter column events set default '[]'::jsonb;
+    alter table public.webhooks alter column events set not null;
+  end if;
+end;
+$$;
+
+-- Production lama tidak punya `user_settings.id` (identitas baris lewat `user_id`). Ditambah agar skema sama
+-- dengan instalasi baru; baris lama mendapat uuid baru, keunikannya dijaga constraint di §3.
+alter table public.user_settings add column if not exists id uuid not null default gen_random_uuid();
+
 -- Isolasi tenant: user_id wajib terisi. Skrip lama `sql/uploaded_media.sql` membuat kolom ini
 -- nullable (dan policy `user_id IS NULL` yang bocor lintas tenant). Baris lama tanpa pemilik
 -- diisi dari pemilik situsnya (deterministik), lalu NOT NULL ditegakkan.
@@ -302,7 +343,8 @@ begin
         ('public.content_batches'::regclass, 'content_batches_id_user_id_key', array['id', 'user_id']),
         ('public.post_items'::regclass, 'post_items_id_user_id_key', array['id', 'user_id']),
         ('public.agent_skills'::regclass, 'agent_skills_user_id_slug_key', array['user_id', 'slug']),
-        ('public.user_settings'::regclass, 'user_settings_user_id_key', array['user_id'])
+        ('public.user_settings'::regclass, 'user_settings_user_id_key', array['user_id']),
+        ('public.user_settings'::regclass, 'user_settings_id_key', array['id'])
     ) as s (tbl, conname, cols)
   loop
     if not exists (
