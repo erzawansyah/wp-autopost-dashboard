@@ -10,7 +10,7 @@ import type { StructuredTool } from "@langchain/core/tools"
 
 const impl = vi.hoisted(() => ({
   webSearch: vi.fn(),
-  readWebContent: vi.fn(),
+  fetchWebPage: vi.fn(),
   searchRoyaltyFreeImages: vi.fn(),
   getKeywordSuggestions: vi.fn(),
   uploadMediaToWordPress: vi.fn(),
@@ -22,7 +22,7 @@ vi.mock("@/core/shared/tools/web-search", async (importOriginal) => ({
 }))
 vi.mock("@/core/shared/tools/web-reader", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/core/shared/tools/web-reader")>()),
-  readWebContent: impl.readWebContent,
+  fetchWebPage: impl.fetchWebPage,
 }))
 vi.mock("@/core/shared/tools/image-search", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/core/shared/tools/image-search")>()),
@@ -118,23 +118,50 @@ describe("web_search", () => {
 })
 
 describe("web_reader", () => {
-  it("sukses: konten halaman & sumber readFull", async () => {
-    impl.readWebContent.mockResolvedValue(toolSuccess({ url: "https://a.test", title: "Judul", content: "isi teks", wordCount: 2 }))
-    const ctx = makeCtx()
-    const message = await callTool(buildTool("web_reader", ctx), { url: "https://a.test" })
+  const PAGE = {
+    url: "https://a.test",
+    title: "Judul",
+    lines: ["Pembuka laporan kopi.", "## Data Harga", "Harga naik 18 persen.", "## Penutup", "Kesimpulan akhir laporan."],
+    truncated: false,
+  }
 
-    expect(message.content).toBe("--- KONTEN HALAMAN: Judul ---\nURL: https://a.test\nJumlah Kata: 2\n\nIsi Teks:\nisi teks")
+  it("sukses: rentang, ukuran, outline, petunjuk membaca bagian lain; sumber readFull", async () => {
+    impl.fetchWebPage.mockResolvedValue(toolSuccess(PAGE))
+    const ctx = makeCtx()
+    const message = await callTool(buildTool("web_reader", ctx), { url: "https://a.test", length: 3 })
+
+    expect(message.content).toContain("--- PAGE: Judul ---\nURL: https://a.test\nSize: 13 words, 5 lines")
+    expect(message.content).toContain("Showing: words 1-3 of 13 (counted from the start of the page)")
+    expect(message.content).toContain("Outline (line: heading):\n2: ## Data Harga\n4: ## Penutup")
+    expect(message.content).toContain("Content:\nPembuka laporan kopi.")
+    expect(message.content).toContain("continue with offset=3")
     expect(ctx.recorder.sources.get("https://a.test")).toMatchObject({ readFull: true })
   })
 
-  it("gagal: URL disebut di label, artifact membawa kode", async () => {
-    impl.readWebContent.mockResolvedValue(toolFailure("not_found", "Server tujuan merespons HTTP 404."))
+  it("URL yang sama dibaca berkali-kali (rentang berbeda) hanya diunduh sekali per run", async () => {
+    impl.fetchWebPage.mockResolvedValue(toolSuccess(PAGE))
+    const reader = buildTool("web_reader", makeCtx())
+
+    const section = await callTool(reader, { url: "https://a.test", unit: "lines", offset: 1, length: 2 })
+    const ending = await callTool(reader, { url: " https://a.test ", from: "end", length: 3 })
+
+    expect(section.content).toContain("Content:\n## Data Harga\nHarga naik 18 persen.")
+    expect(ending.content).toContain("Content:\nKesimpulan akhir laporan.")
+    expect(impl.fetchWebPage).toHaveBeenCalledTimes(1)
+    expect(ToolRegistry.get("web_reader")?.summarize(readToolArtifact(ending)!)).toBe("Membaca kata 11-13 dari 13 (13 kata total)")
+  })
+
+  it("gagal: URL disebut di label, artifact membawa kode; kegagalan tidak di-cache", async () => {
+    impl.fetchWebPage.mockResolvedValue(toolFailure("not_found", "Server tujuan merespons HTTP 404."))
     const ctx = makeCtx()
-    const message = await callTool(buildTool("web_reader", ctx), { url: "https://a.test/x" })
+    const reader = buildTool("web_reader", ctx)
+    const message = await callTool(reader, { url: "https://a.test/x" })
 
     expect(message.content).toBe("ERROR[not_found]: Gagal membaca URL https://a.test/x: Server tujuan merespons HTTP 404.")
     expect(readToolArtifact(message)).toMatchObject({ ok: false, code: "not_found" })
     expect(ctx.recorder.sources.size).toBe(0)
+    await callTool(reader, { url: "https://a.test/x", offset: 10 })
+    expect(impl.fetchWebPage).toHaveBeenCalledTimes(2)
   })
 })
 

@@ -141,11 +141,49 @@ export function detectRefusal(text: string): string | null {
   return message.slice("REFUSED:".length).trim()
 }
 
+const TITLE_LINE_RE = /^[ \t]*TITLE:/im
+
+/**
+ * Teks keluaran akhir agen dari teks pesan model (urut kronologis). Model dapat menulis naskah terbagi di sela
+ * panggilan tool, sehingga pesan terakhir saja kehilangan bagian awal: teks disambung mulai pesan terakhir yang
+ * memuat baris `TITLE:` hingga pesan terakhir. Tanpa baris `TITLE:` → pesan terakhir saja.
+ */
+export function assembleAgentOutputText(aiTexts: readonly string[]): string {
+  if (aiTexts.length === 0) return ""
+  let start = aiTexts.length - 1
+  for (let index = aiTexts.length - 1; index >= 0; index--) {
+    if (TITLE_LINE_RE.test(stripThinkBlocks(aiTexts[index]))) {
+      start = index
+      break
+    }
+  }
+  return aiTexts
+    .slice(start)
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+const EXCERPT_MAX_CHARS = 160
+/** Akhir kalimat paling awal yang masih dipakai sebagai batas potong excerpt (agar tidak terlalu pendek). */
+const EXCERPT_MIN_SENTENCE_CHARS = 80
+
+/** Potong prosa ke ≤ 160 karakter di akhir kalimat, atau di batas kata dengan elipsis (tidak di tengah kata). */
+function trimExcerpt(text: string): string {
+  if (text.length <= EXCERPT_MAX_CHARS) return text
+  const head = text.slice(0, EXCERPT_MAX_CHARS + 1)
+  const sentenceEnd = Math.max(head.lastIndexOf(". "), head.lastIndexOf("? "), head.lastIndexOf("! "))
+  if (sentenceEnd + 1 >= EXCERPT_MIN_SENTENCE_CHARS) return head.slice(0, sentenceEnd + 1)
+  const space = head.lastIndexOf(" ", EXCERPT_MAX_CHARS - 1)
+  const cut = space > 0 ? head.slice(0, space) : head.slice(0, EXCERPT_MAX_CHARS - 1)
+  return `${cut.replace(/[\s,;:]+$/, "")}…`
+}
+
 /** Excerpt heuristik: baris prosa pertama (> 20 karakter) dari naskah, maksimal 160 karakter. */
 export function deriveExcerpt(markdown: string): string | undefined {
   for (const line of markdown.split(/\r?\n/)) {
     const prose = proseExcerptLine(line)
-    if (prose && prose.length > 20) return prose.slice(0, 160).trim()
+    if (prose && prose.length > 20) return trimExcerpt(prose.trim())
   }
   return undefined
 }

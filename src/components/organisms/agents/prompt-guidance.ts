@@ -32,7 +32,7 @@ const TOOL_GUIDANCE: ReadonlyArray<Omit<PromptGuidanceItem, "type">> = [
     id: "web_reader",
     role: "Membaca isi URL rujukan",
     example:
-      "Jika menemukan artikel rujukan atau laporan berbobot dari hasil pencarian, gunakan `web_reader` untuk membaca intisari pembahasannya.",
+      "Baca sumber terbaik dari hasil pencarian dengan `web_reader`: cek bagian awal atau outline-nya, lalu panggil lagi untuk bagian yang memuat data (offset, `unit: \"lines\"`, atau `from: \"end\"`).",
   },
 ]
 

@@ -18,6 +18,7 @@ interface ToolOutputView {
   url?: string
   wordCount?: number
   content?: string
+  range?: { unit?: string; first?: number; last?: number; total?: number }
   suggestions?: string[]
   postId?: number | string
   mediaId?: number | string
@@ -25,6 +26,9 @@ interface ToolOutputView {
   altText?: string
   caption?: string
 }
+
+/** Label satuan rentang `web_reader`. */
+const READ_UNIT_LABELS: Record<string, string> = { words: "kata", lines: "baris", characters: "karakter" }
 
 function asOutputView(output: unknown): ToolOutputView {
   return typeof output === "object" && output !== null && !Array.isArray(output) ? (output as ToolOutputView) : {}
@@ -128,7 +132,9 @@ function ToolVisual({ toolId, output }: { toolId: string; output: unknown }) {
         <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 text-xs">
           <span className="truncate font-semibold text-foreground">{view.title || view.url || "Konten web terbaca"}</span>
           <Badge variant="outline" className="shrink-0 font-mono text-2xs">
-            {wordCount} kata
+            {view.range?.first
+              ? `${READ_UNIT_LABELS[view.range.unit ?? ""] ?? view.range.unit} ${view.range.first}-${view.range.last} dari ${view.range.total} · ${wordCount} kata`
+              : `${wordCount} kata`}
           </Badge>
         </div>
         <div className="max-h-[30rem] overflow-y-auto rounded-lg border border-border/80 bg-muted/20 p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">

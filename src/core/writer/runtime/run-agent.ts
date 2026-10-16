@@ -26,7 +26,13 @@ import { buildWriterAgent } from "./build-agent";
 import { executeSingleFinalizeCall } from "./finalize";
 import { postprocessArticle } from "./postprocess";
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
-import { detectRefusal, extractArticleJsonFromText, finalizeArticleFields, ArticleOutput } from "./output-schema";
+import {
+  assembleAgentOutputText,
+  detectRefusal,
+  extractArticleJsonFromText,
+  finalizeArticleFields,
+  ArticleOutput,
+} from "./output-schema";
 import { preResolveTaxonomyAndAuthor, type PreResolvedContext } from "./pre-resolve";
 import { resolveWriterReasoningEffort, writerModelCandidates } from "./resolve-model";
 import {
@@ -139,6 +145,13 @@ async function persistCheckpoint(
       summary: `Checkpoint '${checkpoint.step}' gagal disimpan: ${err instanceof Error ? err.message : String(err)}`,
     });
   }
+}
+
+/** Pesan dari model (bukan pesan pengguna/tool). Objek tanpa `getType` (mis. mock) dianggap pesan model. */
+function isAiMessage(message: unknown): message is { content: unknown } {
+  if (typeof message !== "object" || message === null) return false;
+  const getType = (message as { getType?: unknown }).getType;
+  return typeof getType !== "function" || getType.call(message) === "ai";
 }
 
 interface CompleteArticleParams {
@@ -595,9 +608,8 @@ export async function runAgentWriter(
 
       clearTimeout(timer);
 
-      // Ambil pesan terakhir dan ekstrak teks secara bersih (menghindari double JSON stringify)
+      // Teks pesan diekstrak secara bersih (menghindari double JSON stringify)
       const messages = agentResult.messages || [];
-      const lastMsg = messages[messages.length - 1];
 
       const extractRawMessageText = (content: unknown): string => {
         if (typeof content === "string") return content;
@@ -621,14 +633,25 @@ export async function runAgentWriter(
         return "";
       };
 
-      const rawText = extractRawMessageText(lastMsg?.content);
-      // Anggaran panggilan model run habis (guards.ts): pesan terakhir adalah pemberitahuan sistem.
-      if (recorder.getEvents().some((event) => event.tool === "model_call_limit")) {
-        stopReason = "limit_reached";
-      }
+      // Anggaran panggilan model run habis (guards.ts): pesan terakhir adalah pemberitahuan sistem, sehingga
+      // hanya pesan itu yang dibaca (naskah disusun finalize call).
+      const modelBudgetExhausted = recorder
+        .getEvents()
+        .some((event) => event.tool === "model_call_limit");
+      if (modelBudgetExhausted) stopReason = "limit_reached";
+      const lastText = extractRawMessageText(messages[messages.length - 1]?.content);
+      // Naskah dapat terbagi ke beberapa pesan AI di sela panggilan tool (mis. Gemini): disambung mulai
+      // pesan terakhir yang memuat baris TITLE.
+      const rawText = modelBudgetExhausted
+        ? lastText
+        : assembleAgentOutputText(
+            messages
+              .filter((message) => isAiMessage(message))
+              .map((message) => extractRawMessageText(message.content)),
+          ) || lastText;
 
       // Penolakan topik terlarang (guardrail aturan 14): gagal permanen tanpa finalize call maupun retry.
-      const refusal = detectRefusal(rawText);
+      const refusal = detectRefusal(lastText);
       if (refusal !== null) {
         recorder.recordEvent({
           kind: "summary",

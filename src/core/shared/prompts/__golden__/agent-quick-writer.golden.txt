@@ -1,4 +1,4 @@
-# GOLDEN prompt "agent-quick-writer" · versi ac4dd4db8ac5
+# GOLDEN prompt "agent-quick-writer" · versi 5400c41e5dab
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [SYSTEM_PROMPT] dirender =====
@@ -29,7 +29,7 @@ Choose the structure that serves the reader's intent instead of one fixed templa
 
 Standards for every structure:
 - Open with 1 to 2 paragraphs and no heading above them. The first two sentences answer the core question (what or why) and contain the main keyword naturally.
-- At least 5 H2 sections (H3 where useful), each with a descriptive heading that states the section's point.
+- At least 5 main sections written as H2 (`##`), with H3 (`###`) only for subsections inside them; each H2 with a descriptive heading that states the section's point.
 - AEO: at least one H2 phrased as a direct reader question, answered fully right below it.
 - GEO: at least one key paragraph that stays accurate and self-contained when quoted alone.
 - Tables or lists only where they genuinely beat prose (steps, comparisons, specifications).

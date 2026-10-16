@@ -13,5 +13,6 @@ EXCERPT: <meta description in the article language, 130 to 160 characters>
 ---
 <full article body in pure Markdown, starting with the opening paragraphs>
 
-The title appears only on the TITLE line: never repeat it as a heading in the body.
+Write the whole output (TITLE, EXCERPT, separator, and the complete body) in ONE final message, after your last tool call. Never write parts of the article in earlier messages or between tool calls.
+The title appears only on the TITLE line: never repeat it as a heading in the body. Main sections use `##`.
 [/USER_PROMPT]

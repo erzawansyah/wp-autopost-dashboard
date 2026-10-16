@@ -33,7 +33,7 @@ Choose the structure that serves the reader's intent instead of one fixed templa
 
 Standards for every structure:
 - Open with 1 to 2 paragraphs and no heading above them. The first two sentences answer the core question (what or why) and contain the main keyword naturally.
-- At least 5 H2 sections (H3 where useful), each with a descriptive heading that states the section's point.
+- At least 5 main sections written as H2 (`##`), with H3 (`###`) only for subsections inside them; each H2 with a descriptive heading that states the section's point.
 - AEO: at least one H2 phrased as a direct reader question, answered fully right below it.
 - GEO: at least one key paragraph that stays accurate and self-contained when quoted alone.
 - Tables or lists only where they genuinely beat prose (steps, comparisons, specifications).

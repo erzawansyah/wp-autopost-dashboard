@@ -7,7 +7,7 @@
     "minWordCount": 600,
     "perTool": {
       "web_search": 6,
-      "web_reader": 4,
+      "web_reader": 6,
       "image_search": 4,
       "upload_media": 4,
       "set_featured_image": 2,
@@ -21,7 +21,7 @@
     "minWordCount": 800,
     "perTool": {
       "web_search": 8,
-      "web_reader": 6,
+      "web_reader": 9,
       "image_search": 5,
       "upload_media": 5,
       "set_featured_image": 3,

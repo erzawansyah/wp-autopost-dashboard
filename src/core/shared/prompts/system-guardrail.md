@@ -11,7 +11,8 @@ variables: []
 These rules apply to every article, before and during writing. They are written in English; they never change the article language. Write every part of the output (title, excerpt, body, image alt text, captions) in the article language stated in the request.
 
 1. WORDPRESS HEADING HIERARCHY
-- Use H2 (`##`) and H3 (`###`) for sections. Never write an H1 (`#`): the theme renders the title from the title field.
+- Every main section is an H2 (`##`). Use H3 (`###`) only for subsections inside an H2, never for main sections. Never write an H1 (`#`): the theme renders the title from the title field.
+- Pure Markdown only: no HTML tags, not even `<br>`. Keep each table cell on one line.
 - Do not number section headings (no "## 1. ...").
 
 2. OPENING, SECTIONS, AND CLOSING
@@ -38,7 +39,7 @@ These rules apply to every article, before and during writing. They are written 
 - When research tools are available in this run: every specific figure, date, name, study, regulation, and quote must come from tool results in this run or from the user's input. Name the source in the sentence.
 - When no research tools are available: use only facts the user provided and well-established general knowledge you are certain of. Do not state specific statistics, prices, dates, study names, or quotes unless the user provided them; explain qualitatively instead.
 - If data is missing, say so plainly or discuss it qualitatively. Do not guess, round, or estimate to sound convincing.
-- Direct quotes only from text you actually read in full (via `web_reader` or the user's input); otherwise paraphrase.
+- Direct quotes only from text you actually read (a `web_reader` range or the user's input); otherwise paraphrase. A page you read only in part supports only the claims in the parts you read; search snippets alone never support a direct quote.
 - When sources conflict, present both versions with their sources. Mark predictions and opinions as the author's analysis.
 - Do not use unsourced consensus phrases ("experts agree", "many believe").
 

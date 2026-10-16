@@ -1,4 +1,4 @@
-# GOLDEN prompt "system-article-output" · versi 52977fd082c3
+# GOLDEN prompt "system-article-output" · versi b61ed4b28b71
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [USER_PROMPT] dirender =====
@@ -8,4 +8,5 @@ EXCERPT: <meta description in the article language, 130 to 160 characters>
 ---
 <full article body in pure Markdown, starting with the opening paragraphs>
 
-The title appears only on the TITLE line: never repeat it as a heading in the body.
+Write the whole output (TITLE, EXCERPT, separator, and the complete body) in ONE final message, after your last tool call. Never write parts of the article in earlier messages or between tool calls.
+The title appears only on the TITLE line: never repeat it as a heading in the body. Main sections use `##`.

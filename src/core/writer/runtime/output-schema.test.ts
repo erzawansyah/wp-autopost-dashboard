@@ -1,6 +1,6 @@
 import vm from "node:vm"
 import { describe, expect, it } from "vitest"
-import { detectRefusal, extractArticleJsonFromText, finalizeArticleFields } from "./output-schema"
+import { assembleAgentOutputText, deriveExcerpt, detectRefusal, extractArticleJsonFromText, finalizeArticleFields } from "./output-schema"
 
 /** Watchdog `vm` (timeout vitest tidak menghentikan loop sinkron) + anggaran waktu nyata. */
 // Anggaran longgar agar tidak flaky di CI yang sibuk; regresi kuadratik/ReDoS yang dicegah butuh > 6 detik.
@@ -229,5 +229,32 @@ describe("detectRefusal", () => {
     expect(detectRefusal(`TITLE: Kopi\n---\n${INTRO}`)).toBeNull()
     expect(detectRefusal(`REFUSED: ${"x".repeat(2000)}`)).toBeNull()
     expect(detectRefusal(`${INTRO}\nREFUSED: bukan di awal`)).toBeNull()
+  })
+})
+
+describe("assembleAgentOutputText", () => {
+  it("naskah terbagi di sela panggilan tool disambung mulai pesan terakhir yang memuat TITLE", () => {
+    const texts = ["Saya akan meriset dulu.", "TITLE: Kopi\nEXCERPT: Ringkas.\n---\nPembuka naskah.", "", "## Bagian Dua\n\nLanjutan."]
+    expect(assembleAgentOutputText(texts)).toBe("TITLE: Kopi\nEXCERPT: Ringkas.\n---\nPembuka naskah.\n\n## Bagian Dua\n\nLanjutan.")
+  })
+
+  it("tanpa TITLE → pesan terakhir saja; TITLE di draf lama tidak menggandakan naskah akhir yang lengkap", () => {
+    expect(assembleAgentOutputText(["Catatan riset.", "Naskah akhir."])).toBe("Naskah akhir.")
+    expect(assembleAgentOutputText(["TITLE: Draf\n---\nlama", "TITLE: Final\n---\nbaru"])).toBe("TITLE: Final\n---\nbaru")
+    expect(assembleAgentOutputText([])).toBe("")
+  })
+})
+
+describe("deriveExcerpt", () => {
+  it("dipotong di akhir kalimat atau batas kata (dengan elipsis), tidak di tengah kata", () => {
+    const sentences = `${"Kalimat pertama cukup panjang tentang kopi Gayo dan petani Aceh Tengah. ".repeat(2)}Kalimat ketiga menambah konteks lagi.`
+    const sentenceCut = deriveExcerpt(sentences)
+    expect(sentenceCut?.endsWith(".")).toBe(true)
+    expect(sentenceCut!.length).toBeLessThanOrEqual(160)
+
+    const longSentence = `Kopi ${"arabika ".repeat(40)}tumbuh di dataran tinggi.`
+    const wordCut = deriveExcerpt(longSentence)!
+    expect(wordCut.endsWith("arabika…")).toBe(true)
+    expect(wordCut.length).toBeLessThanOrEqual(160)
   })
 })

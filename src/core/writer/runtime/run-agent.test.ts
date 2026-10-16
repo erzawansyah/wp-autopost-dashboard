@@ -691,6 +691,27 @@ describe("runAgentWriter — kontrak keluaran naskah", () => {
     expect(result.article?.excerpt).toBe("Ringkasan kopi.")
   })
 
+  it("naskah terbagi di sela panggilan tool disambung utuh (bukan hanya pesan AI terakhir)", async () => {
+    const opening = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(15)}`
+    const rest = `## Siapa yang Terdampak?\n\n${PARAGRAPH.repeat(15)}`
+    mocks.buildWriterAgent.mockResolvedValue({
+      invoke: async () => ({
+        messages: [
+          { content: `TITLE: Harga Arabika Gayo Melonjak\nEXCERPT: Ringkasan harga.\n---\n${opening}` },
+          { content: "hasil image_search", getType: () => "tool" },
+          { content: rest },
+        ],
+      }),
+    })
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result.article?.title).toBe("Harga Arabika Gayo Melonjak")
+    expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak", "Siapa yang Terdampak?"])
+    expect(result.article?.markdownContent).not.toContain("hasil image_search")
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
   it("penolakan topik (REFUSED:) → gagal permanen tanpa finalize call", async () => {
     agentReplies("REFUSED: Topik ini memfasilitasi penipuan.")
 

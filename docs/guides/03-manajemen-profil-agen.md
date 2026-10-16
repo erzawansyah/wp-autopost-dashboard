@@ -49,7 +49,7 @@ Editor Agent Profile tidak memiliki pilihan model. Artikel (Tulis Cepat, antrean
 | :--- | :--- | :--- |
 | **Keyword & LSI Suggestions** | `keyword_suggestions` | Saran kata kunci turunan dan LSI untuk menyusun subjudul. |
 | **Web Search** | `web_search` | Mencari referensi dan data terbaru di web. |
-| **Web Reader** | `web_reader` | Membaca isi lengkap halaman web rujukan. |
+| **Web Reader** | `web_reader` | Membaca bagian halaman web rujukan per rentang (kata, baris, atau karakter; dari awal atau akhir halaman) beserta outline heading-nya. Agen dapat membaca satu sumber beberapa kali tanpa mengunduh ulang halaman. |
 | **Image Search** | `image_search` | Mencari foto landscape bebas royalti (lebar minimal 1280 px). |
 | **Set Featured Image** | `set_featured_image` | Memilih gambar sampul (featured image) artikel. |
 | **Upload Media to WordPress** | `upload_media` | Mengunggah foto ke Media Library WordPress; butuh website terhubung. |

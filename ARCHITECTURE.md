@@ -679,7 +679,7 @@ eligibilitas (kunci BYOK/situs) `tools/eligibility.ts`:
 | Tool | Fungsi |
 | :--- | :--- |
 | `web_search` | Pencarian faktual (rantai provider §6) |
-| `web_reader` | Ekstraksi teks artikel dari URL lewat `safeFetch` |
+| `web_reader` | Ekstraksi teks halaman dari URL lewat `safeFetch`, dibaca per rentang (`unit` kata/baris/karakter, `from` awal/akhir, `offset`, `length`) dengan ukuran total & outline heading; halaman di-cache per run sehingga satu sumber dapat dibaca berkali-kali |
 | `image_search` | Pencarian gambar bebas royalti (§6) |
 | `set_featured_image` | Cari & tetapkan gambar sampul landscape (diunggah saat publish) |
 | `upload_media` | Unggah gambar ke Media Library WordPress (dedup `uploaded_media` per pengguna + situs) |
