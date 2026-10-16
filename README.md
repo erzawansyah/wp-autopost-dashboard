@@ -2,7 +2,7 @@
 
 **Panitera** adalah dasbor SaaS multi-tenant untuk memproduksi, menjadwalkan, dan menerbitkan artikel ke banyak website WordPress. Artikel ditulis oleh **Agent Profile** (agen AI berbasis LangChain/Deep Agents) di antrean latar belakang, lalu dikirim lewat WordPress REST API + Application Passwords tanpa plugin apa pun di website pengguna.
 
-Versi saat ini: `0.2.0` (branch `main`, tag `v0.2.0`; versi lama: tag `v0.1.2`). Spesifikasi produk lengkap ada di [`PRD.md`](PRD.md); panduan pengguna ada di [`docs/guides/`](docs/guides/) (juga dibaca di aplikasi lewat menu **Help / Docs**).
+Versi saat ini: `0.3.0` (branch `main`, tag `v0.3.0`; versi sebelumnya: tag `v0.2.0`, `v0.1.2`). Spesifikasi produk lengkap ada di [`PRD.md`](PRD.md); panduan pengguna ada di [`docs/guides/`](docs/guides/) (juga dibaca di aplikasi lewat menu **Help / Docs**).
 
 ---
 
