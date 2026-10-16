@@ -41,7 +41,7 @@
   },
   "ai": {
     "$description": "Default gateway LLM per run (src/core/shared/llm/gateway.ts): model cadangan, retry transien, dan parameter panggilan. Setiap nilai di-clamp ke ai.bounds.",
-    "fallbackModels": ["openai/gpt-4o-mini", "google/gemini-2.5-flash"],
+    "fallbackModels": ["openai/gpt-4o-mini", "meta-llama/llama-3.3-70b-instruct"],
     "maxRetries": 2,
     "agentTemperature": 0.95,
     "agentMaxTokens": 16384,

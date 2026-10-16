@@ -1,5 +1,5 @@
-# GOLDEN prompt "system-tool-guard-blocked" · versi c5954c28fe87
+# GOLDEN prompt "system-tool-guard-blocked" · versi c56368654cf9
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [SYSTEM_PROMPT] dirender =====
-PERINGATAN: batas panggilan tool tercapai JANGAN memanggil ‹target› lagi. Lanjutkan dan selesaikan naskah artikel utuh menggunakan seluruh data dan konteks yang sudah Anda kumpulkan.
+WARNING: limit_reached Do NOT call ‹target› again. Continue and finish the complete article using the data and context you have already collected.

@@ -23,7 +23,7 @@ Untuk menyesuaikan preset, klik **Kloning & Modifikasi** pada kartunya; salinann
 Klik **Buat Profil Agen Baru** (atau **Edit** pada profil kustom). Formulir terdiri dari:
 
 - **Identitas Agen**: **Nama profil agen**, **Deskripsi singkat**, mode (**Standard** atau **Deep Agent**), dan **Jadikan default** (otomatis dipilih di Tulis Cepat & Tulis Massal).
-- **Alur Kerja Penulisan (Workflow Prompt)**: instruksi langkah demi langkah cara agen meriset dan menyusun artikel. Tab **Raw** untuk mengedit dan **Pratinjau** untuk membaca; tombol **Sisipkan ke kursor** membantu menyebut nama tool. Sebut tool secara eksplisit, misalnya "Gunakan `web_search` untuk…".
+- **Alur Kerja Penulisan (Workflow Prompt)**: instruksi langkah demi langkah cara agen meriset dan menyusun artikel. Tab **Raw** untuk mengedit dan **Pratinjau** untuk membaca; tombol **Sisipkan ke kursor** membantu menyebut nama tool. Sebut tool secara eksplisit, misalnya "Gunakan `web_search` untuk…". Template awal dan prompt bawaan berbahasa Inggris (lebih konsisten diikuti model), tetapi naskah selalu ditulis dalam **bahasa artikel** yang Anda pilih. Workflow boleh memakai `{{siteName}}`, `{{siteUrl}}`, `{{authorName}}`, `{{authorBio}}`, `{{categoryName}}`, dan `{{language}}`.
 - **Universal Tools**: centang tools yang diizinkan (lihat bagian 3).
 - **Skill Registry** (hanya mode Deep): centang skill `SKILL.md` yang dimuat agen.
 - **Parameter & Batas Runtime**: **Temperatur kreativitas**, **Maks. panggilan model**, **Maks. panggilan tool**, **Batas waktu (detik)**, dan **Target minimal kata**. Nilai di luar rentang otomatis disesuaikan ke batas sistem.
@@ -61,7 +61,7 @@ Editor Agent Profile tidak memiliki pilihan model. Artikel (Tulis Cepat, antrean
 ## 4. Yang Terjadi Saat Agen Menulis
 
 1. **Pre-Flight Resolver**: sebelum menulis, Panitera membaca author, kategori, dan tag dari WordPress target. Sistem memilih persona author yang sesuai (akun admin teknis tidak dipilih selama ada persona lain), memakai kategori pilihan Anda atau memilihkan dari kategori yang sudah ada, dan mencocokkan atau membuat tag. Kategori baru tidak dibuat otomatis; buat lewat [WP Tools](/docs?doc=05-wp-tools-dan-utilitas).
-2. **Penulisan**: agen menulis naskah Markdown dengan tools yang diizinkan, dibatasi kuota panggilan model, panggilan tool, dan batas waktu profil.
+2. **Penulisan**: agen menulis naskah Markdown dengan tools yang diizinkan, dibatasi kuota panggilan model, panggilan tool, dan batas waktu profil. Di semua mode, agen menerima aturan integritas (fakta, sumber, keamanan) dan **aturan gaya sesuai bahasa artikel** (Indonesia, Inggris, atau aturan umum untuk bahasa lain); skill mode Deep menambah pedoman di atasnya. Agen menulis judul dan excerpt sendiri, kecuali Anda menetapkan judul. Topik yang melanggar aturan konten ditolak agen; item langsung gagal tanpa dicoba ulang.
 3. **Perapian & konversi**: naskah dibersihkan dari pola tulisan AI yang klise, judul H1 ganda dirapikan, lalu dikonversi otomatis ke blok Gutenberg (`<!-- wp:paragraph -->`, `<!-- wp:heading -->`, dll.).
 4. **Pengiriman**: naskah dan metadata dikirim ke WordPress sesuai status yang Anda pilih.
 
@@ -73,7 +73,7 @@ Agen dilengkapi pengaman: panggilan tool identik berulang dicegah, tool yang gag
 
 Menu **Skill Registry** ([/skills](/skills)) berisi pedoman keahlian untuk Agent Profile mode Deep.
 
-- **Skill sistem** (misalnya `anti-ai-editor`, pedoman humanisasi naskah bahasa Indonesia) bersifat baca-saja. Buat skill baru bila ingin menyesuaikannya.
+- **Skill sistem** (misalnya `anti-ai-editor`, alur audit dan perbaikan naskah bahasa Indonesia) bersifat baca-saja. Buat skill baru bila ingin menyesuaikannya.
 - **Tambah Skill Baru** ([/skills/new](/skills/new)): isi **Nama keahlian**, **Slug (ID pemanggilan)**, **Deskripsi singkat**, dan **Isi SKILL.md**, atau klik **Unggah berkas .md**. Klik **Simpan Skill Baru**.
 - Skill kustom dapat diedit (slug tidak dapat diubah) dan dihapus. Agent Profile yang memakai slug yang dihapus tidak lagi memuat skill tersebut.
 - Filter **Sistem** / **Kustom Saya** dan kolom pencarian membantu menemukan skill.

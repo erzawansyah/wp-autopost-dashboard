@@ -1,0 +1,11 @@
+# GOLDEN prompt "system-article-output" · versi 52977fd082c3
+# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
+
+===== [USER_PROMPT] dirender =====
+OUTPUT FORMAT (exactly this, nothing before or after):
+TITLE: <article title in the article language, at most 60 characters>
+EXCERPT: <meta description in the article language, 130 to 160 characters>
+---
+<full article body in pure Markdown, starting with the opening paragraphs>
+
+The title appears only on the TITLE line: never repeat it as a heading in the body.

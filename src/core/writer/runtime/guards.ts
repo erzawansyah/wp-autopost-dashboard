@@ -5,7 +5,7 @@ import { AgentLimits } from "../types/profile"
 import { RunRecorder } from "./telemetry"
 import { createLoopGuardMiddleware } from "./loop-guard"
 
-const MODEL_CALL_LIMIT_FALLBACK = "Batas {{limit}} panggilan model untuk run ini sudah habis."
+const MODEL_CALL_LIMIT_FALLBACK = "The {{limit}} model call budget for this run is exhausted."
 
 /**
  * Anggaran panggilan model per RUN (bukan per graf): penghitung ada di closure instance middleware ini,

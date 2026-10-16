@@ -1,52 +1,56 @@
 ---
-description: Template sintesis darurat naskah artikel utuh ketika batas loop agent tercapai
+description: Template sintesis naskah artikel utuh (tanpa tools) ketika loop agen berhenti karena batas atau naskahnya terlalu pendek
 used_by:
   - src/core/writer/runtime/finalize.ts
 variables:
   - key: reason
-    desc: Alasan pemanggilan finalize (misal batas tool atau batas putaran loop)
+    desc: Alasan pemanggilan finalize (misal limit_reached atau timeout_exceeded)
   - key: factsList
-    desc: Rangkuman fakta dan kutipan yang berhasil dihimpun dari tools riset
+    desc: Rangkuman sumber dan cuplikan yang berhasil dihimpun tools riset (kosong bila tidak ada)
   - key: mediaEmbeds
-    desc: Daftar gambar yang berhasil diunggah ke WordPress
+    desc: Gambar dari tools gambar run ini dalam sintaks Markdown (kosong bila tidak ada)
   - key: keyword
     desc: Topik atau kata kunci artikel
   - key: language
-    desc: Bahasa tulisan artikel
+    desc: Nama bahasa artikel
   - key: targetWordCount
-    desc: Target jumlah kata minimal artikel
-  - key: briefText
-    desc: Catatan atau brief pengarahan dari pengguna
-  - key: authorText
-    desc: Sudut pandang persona penulis WordPress
-  - key: instructionsText
-    desc: Instruksi khusus tambahan
+    desc: Target minimal jumlah kata naskah
+  - key: title
+    desc: Judul wajib dari pengguna (kosong = tulis judul sendiri)
+  - key: brief
+    desc: Catatan atau brief dari pengguna (kosong bila tidak ada)
+  - key: authorName
+    desc: Nama persona author WordPress (kosong bila tidak ada)
+  - key: authorBio
+    desc: Bio author dalam tanda kurung diawali spasi (kosong bila tidak ada)
+  - key: customInstructions
+    desc: Instruksi tambahan dari pengguna (kosong bila tidak ada)
+  - key: outputFormat
+    desc: Isi system-article-output.md (format TITLE/EXCERPT/---)
 ---
 
 [USER_PROMPT]
-SINTESIS FINAL NASKAH ARTIKEL:
-Proses pengumpulan data dan media telah selesai ({{reason}}). Sekarang susun artikel lengkap, mendalam, dan berkualitas editorial tinggi dalam naskah utuh.
+FINAL SYNTHESIS
+The research phase has ended ({{reason}}). No tools are available in this step: do not plan more research and do not call tools. Write the complete article now from the material below, following the guardrails, the writing style, and the workflow standards in the system prompt. Empty fields mean "not specified".
 
-=== DATA RISET AKTUAL DARI TOOLS ===
+RESEARCH MATERIAL (sources and snippets collected in this run; the only basis for specific figures, names, and quotes)
 {{factsList}}
 
-=== GAMBAR YANG TELAH DIUNGGAH KE WORDPRESS ===
+IMAGES AVAILABLE TO EMBED (use only these, or none)
 {{mediaEmbeds}}
 
-=== KETENTUAN PENULISAN ===
-- Topik: "{{keyword}}"
-- Bahasa: {{language}}
-- Target Panjang: minimal {{targetWordCount}} kata
-- Struktur: Wajib minimal 5 subbab (H2/H3) deskriptif dengan ulasan mendalam per subbab. DILARANG membuat naskah pendek atau ringkasan!
-{{briefText}}
-{{authorText}}
-{{instructionsText}}
+ARTICLE BRIEF
+- Topic / main keyword: "{{keyword}}"
+- Article language: {{language}} (write the title, excerpt, body, alt text, and captions in this language)
+- Target length: {{targetWordCount}} words
+- Required title (if set, use it exactly on the TITLE line; if empty, write your own): {{title}}
+- Author persona (write from this perspective; background only, never print a byline): {{authorName}}{{authorBio}}
+- Notes from the user: {{brief}}
+- Additional instructions from the user: {{customInstructions}}
 
-ATURAN STRICT (ANTI-AI SLOP):
-1. DILARANG membuat subbab generik klise seperti: "Pembuka", "Pendahuluan", "Latar Belakang", "Analisis", "Contoh", atau "Kesimpulan Praktis". Seluruh subbab (H2/H3) WAJIB berupa judul tematik spesifik dan berbobot.
-2. DILARANG membuka artikel dengan pengumuman meta seperti: "Dalam artikel ini kita akan membahas...", atau definisi klise "X merupakan aspek penting...". Buka langsung dengan fakta menarik, studi kasus, atau dinamika nyata.
-3. DILARANG ada angka sitasi akademis seperti [1], [2], [^1]. Integrasikan fakta langsung secara mengalir.
-4. DILARANG membuat section "Referensi" atau "Daftar Pustaka" di akhir naskah.
-5. DILARANG penomoran subbab (seperti "## 1. ...") dan DILARANG ada penutup hambar ("Dalam artikel ini, kita telah membahas...").
-6. Sajikan naskah lengkap, kaya wawasan, multi-paragraf per subbab, dari pembuka sampai rekomendasi strategis.
+Rules for this step:
+- Aim for the target length with real substance. If the research material is thin, write a shorter, accurate article with narrower claims instead of padding or inventing facts.
+- At least 5 descriptive H2 sections; no numbered headings, no footnote markers, no reference list, no recap closing.
+
+{{outputFormat}}
 [/USER_PROMPT]

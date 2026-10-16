@@ -646,3 +646,62 @@ describe("runAgentWriter — prioritas model (Lab & antrean, resolve-model.ts)",
     expect(result.model).toBe("acme/default-akun")
   })
 })
+
+// ---------------------------------------------------------------------------
+// Kontrak keluaran naskah (TITLE/EXCERPT, judul, penolakan)
+// ---------------------------------------------------------------------------
+
+const PARAGRAPH = "Harga arabika Gayo naik tajam musim ini karena panen turun di dataran tinggi Aceh Tengah. "
+
+function agentReplies(text: string) {
+  mocks.buildWriterAgent.mockResolvedValue({ invoke: async () => ({ messages: [{ content: text }] }) })
+}
+
+describe("runAgentWriter — kontrak keluaran naskah", () => {
+  it("system & user prompt memakai paket gaya bahasa artikel, daftar tool aktif, dan format TITLE/EXCERPT", async () => {
+    agentReplies(`TITLE: Kopi Gayo\nEXCERPT: Ringkasan.\n---\n${LONG_ARTICLE}`)
+    await runAgentWriter({ request: WriterRequestSchema.parse({ content: { keyword: "kopi", language: "en" } }), profile, userKeys })
+
+    const { systemPrompt } = mocks.buildWriterAgent.mock.calls[0][0] as { systemPrompt: string }
+    expect(systemPrompt).toContain("# WRITER GUARDRAILS")
+    expect(systemPrompt).toContain("# WRITING STYLE: ENGLISH")
+    expect(systemPrompt).toContain("Tulis artikel informatif.")
+    expect(systemPrompt).not.toMatch(/\{\{\s*\w+\s*\}\}/)
+  })
+
+  it("naskah dibuka paragraf tanpa header: H2 pertama tetap subbab, bukan judul; excerpt dari pembuka", async () => {
+    const body = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(20)}\n\n## Siapa yang Terdampak?\n\n${PARAGRAPH.repeat(20)}`
+    agentReplies(body)
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result.success).toBe(true)
+    expect(result.article?.title).toBe("kopi arabika")
+    expect(result.article?.subheadings).toEqual(expect.arrayContaining(["Mengapa Harga Melonjak", "Siapa yang Terdampak?"]))
+    expect(result.article?.excerpt).toContain("Harga arabika Gayo naik tajam")
+  })
+
+  it("judul wajib dari pengguna mengalahkan judul TITLE dari model", async () => {
+    agentReplies(`TITLE: Judul Model\nEXCERPT: Ringkasan kopi.\n---\n${LONG_ARTICLE}`)
+    const titled = WriterRequestSchema.parse({ content: { keyword: "kopi arabika", title: "Judul Pengguna" } })
+
+    const result = await runAgentWriter({ request: titled, profile, userKeys })
+
+    expect(result.article?.title).toBe("Judul Pengguna")
+    expect(result.article?.excerpt).toBe("Ringkasan kopi.")
+  })
+
+  it("penolakan topik (REFUSED:) → gagal permanen tanpa finalize call", async () => {
+    agentReplies("REFUSED: Topik ini memfasilitasi penipuan.")
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({
+      success: false,
+      stopReason: "failed_content_refused",
+      error: { code: "CONTENT_REFUSED", retryable: false },
+    })
+    expect(result.error?.message).toContain("memfasilitasi penipuan")
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+})

@@ -37,7 +37,7 @@ const OPENROUTER_MODEL_ID = /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._:-]*$/i
 const MAX_MODEL_ID_LENGTH = 200
 const DEFAULT_SITE_URL = "http://localhost:3000"
 const DEFAULT_APP_NAME = "Panitera"
-const JSON_OUTPUT_FALLBACK = "Keluarkan hanya JSON valid tanpa teks lain."
+const JSON_OUTPUT_FALLBACK = "Output only valid JSON with no other text."
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))

@@ -2,17 +2,20 @@ import { getLanguageDisplayName } from "@/lib/constants/languages"
 import { describeLlmError } from "@/core/shared/llm/errors"
 import { LLM_GATEWAY_SETTINGS, type LlmGateway } from "@/core/shared/llm/gateway"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
-import { ArticleOutput, extractArticleJsonFromText } from "./output-schema"
-import { buildAuthorPersonaLine } from "./prompt-builder"
+import { ArticleOutput, extractArticleJsonFromText, finalizeArticleFields } from "./output-schema"
+import { formatAuthorBio, loadArticleOutputFormat } from "./prompt-builder"
 import { RunRecorder } from "./telemetry"
 
-const FINALIZE_PROMPT_FALLBACK = 'Susun naskah artikel lengkap tentang "{{keyword}}" dari data riset berikut: {{factsList}}'
-const FINALIZE_OUTPUT_FALLBACK = "Awali dengan baris TITLE: dan EXCERPT:, lalu --- dan naskah Markdown."
+const FINALIZE_PROMPT_FALLBACK = 'Write the complete article about "{{keyword}}" from this research material only: {{factsList}} {{outputFormat}}'
+/** Jumlah sumber riset maksimal yang diringkas untuk finalize call (hemat token). */
+const MAX_FINALIZE_SOURCES = 8
 
 export interface FinalizeCallParams {
   gateway: LlmGateway
   systemPrompt: string
   keyword: string
+  /** Judul wajib dari pengguna (opsional). */
+  title?: string
   language: string
   targetWordCount: number
   brief?: string
@@ -40,33 +43,31 @@ export async function executeSingleFinalizeCall(
   const { gateway, systemPrompt, keyword, language, targetWordCount, recorder } = params
 
   // Siapkan digest ringkas dari data yang sudah dikumpulkan oleh agent (hemat token)
+  // Data riset (bukan instruksi) dalam format netral bahasa; kosong → prompt menyatakan tidak ada bahan.
   const factsList = Array.from(recorder.sources.values())
-    .slice(0, 6)
-    .map((s, idx) => `[Fakta ${idx + 1}] Sumber: ${s.title || s.url}\nRingkasan: ${s.snippet || "-"}`)
+    .slice(0, MAX_FINALIZE_SOURCES)
+    .map((s, idx) => `[${idx + 1}] ${s.title || s.url} (${s.url})\n${s.snippet || ""}`.trim())
     .join("\n\n")
 
   const mediaEmbeds = recorder.inContentImages
     .map((img) => `![${img.altText || img.subheading}](${img.imageUrl} "${img.caption || ""}")`)
     .join("\n\n")
 
-  const briefText = params.brief ? `- Catatan Khusus Pengguna: ${params.brief}` : ""
-  const instructionsText = params.customInstructions
-    ? `- Instruksi Tambahan: ${params.customInstructions}`
-    : ""
-
-  const finalizeUserPrompt = renderPrompt(loadPrompt("system-finalize.md", FINALIZE_PROMPT_FALLBACK), {
+  // Format keluaran Markdown-first `system-article-output.md`: aman untuk semua model (tanpa risiko error tool_choice).
+  const finalizeUserPrompt = renderPrompt(loadPrompt("system-finalize.md", FINALIZE_PROMPT_FALLBACK, "user"), {
     reason: params.reason,
-    factsList: factsList || `Topik: "${keyword}"`,
-    mediaEmbeds: mediaEmbeds || "Tidak ada gambar subbab tambahan.",
+    factsList,
+    mediaEmbeds,
     keyword,
     language: getLanguageDisplayName(language),
     targetWordCount: Math.max(600, targetWordCount),
-    briefText,
-    authorText: buildAuthorPersonaLine(params.author),
-    instructionsText,
+    title: params.title || "",
+    brief: params.brief || "",
+    authorName: params.author?.name || "",
+    authorBio: formatAuthorBio(params.author?.bio),
+    customInstructions: params.customInstructions || "",
+    outputFormat: loadArticleOutputFormat(),
   })
-  // Format Markdown-First Universal: aman untuk semua model (termasuk model penalaran tanpa risiko error tool_choice)
-  const outputFormat = loadPrompt("system-finalize-output.md", FINALIZE_OUTPUT_FALLBACK, "user")
 
   try {
     let structuredResult: ArticleOutput | null = null
@@ -74,7 +75,7 @@ export async function executeSingleFinalizeCall(
     const directRes = await gateway.invoke(
       [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `${finalizeUserPrompt}\n\n${outputFormat}` },
+        { role: "user", content: finalizeUserPrompt },
       ],
       {
         signal: params.signal,
@@ -92,19 +93,11 @@ export async function executeSingleFinalizeCall(
     const parsed = extractArticleJsonFromText(contentStr)
 
     if (parsed?.markdownContent && parsed.markdownContent.length > 150) {
-      structuredResult = {
-        title: parsed.title || `Panduan Lengkap ${keyword}`,
-        excerpt: parsed.excerpt || `Ulasan lengkap dan terpercaya mengenai ${keyword}.`,
-        markdownContent: parsed.markdownContent,
-      }
+      structuredResult = finalizeArticleFields({ ...parsed, markdownContent: parsed.markdownContent }, { title: params.title, keyword })
     } else if (contentStr && contentStr.trim().length > 150) {
       // Jaring pengaman darurat jika model tidak mematuhi header TITLE/EXCERPT
       const cleanFallback = contentStr.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()
-      structuredResult = {
-        title: `Panduan Lengkap ${keyword}`,
-        excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
-        markdownContent: cleanFallback,
-      }
+      structuredResult = finalizeArticleFields({ markdownContent: cleanFallback }, { title: params.title, keyword })
     }
 
     const durationMs = Date.now() - start

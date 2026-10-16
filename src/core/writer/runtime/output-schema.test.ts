@@ -1,6 +1,6 @@
 import vm from "node:vm"
 import { describe, expect, it } from "vitest"
-import { extractArticleJsonFromText } from "./output-schema"
+import { detectRefusal, extractArticleJsonFromText, finalizeArticleFields } from "./output-schema"
 
 /** Watchdog `vm` (timeout vitest tidak menghentikan loop sinkron) + anggaran waktu nyata. */
 // Anggaran longgar agar tidak flaky di CI yang sibuk; regresi kuadratik/ReDoS yang dicegah butuh > 6 detik.
@@ -188,5 +188,46 @@ describe("extractArticleJsonFromText — kompleksitas linear", () => {
 
   it("blok <think> tertutup tetap dibuang, yang tidak tertutup dibiarkan", () => {
     expect(extractArticleJsonFromText(`<THINK>rahasia</think>TITLE: Kopi\n---\n${BODY_WITH_TABLE}`)?.markdownContent).toBe(BODY_WITH_TABLE)
+  })
+})
+
+describe("extractArticleJsonFromText — naskah dibuka paragraf tanpa header", () => {
+  it("H2 pertama tidak dijadikan judul dan tetap ada di badan naskah; excerpt dari paragraf pembuka", () => {
+    const text = `${INTRO}\n\n## Perbandingan Rasa\n\nGayo lebih asam daripada Toraja yang lebih pekat.\n\n## Mana yang Cocok untuk Pemula?\n\nToraja.`
+    const out = extractArticleJsonFromText(text)
+    expect(out?.title).toBeUndefined()
+    expect(out?.markdownContent).toBe(text)
+    expect(out?.excerpt).toBe(INTRO.slice(0, 160).trim())
+  })
+
+  it("heading yang membuka naskah tetap dibaca sebagai judul", () => {
+    const out = extractArticleJsonFromText(`# Kopi Nusantara\n\n${BODY_WITH_TABLE}`)
+    expect(out?.title).toBe("Kopi Nusantara")
+    expect(out?.markdownContent).toBe(BODY_WITH_TABLE)
+  })
+})
+
+describe("finalizeArticleFields", () => {
+  it("judul wajib pengguna > judul model > kata kunci; excerpt model > prosa pertama", () => {
+    const md = `![Foto](https://a.co/x.jpg)\n\n${INTRO}`
+    expect(finalizeArticleFields({ title: "Model", excerpt: "E", markdownContent: md }, { title: "Pengguna", keyword: "kopi" })).toEqual({
+      title: "Pengguna",
+      excerpt: "E",
+      markdownContent: md,
+    })
+    expect(finalizeArticleFields({ title: " Model ", markdownContent: md }, { keyword: "kopi" }).title).toBe("Model")
+    const bare = finalizeArticleFields({ markdownContent: md }, { keyword: " kopi gayo " })
+    expect(bare.title).toBe("kopi gayo")
+    expect(bare.excerpt).toBe(INTRO.slice(0, 160).trim())
+  })
+})
+
+describe("detectRefusal", () => {
+  it("pesan diawali REFUSED: → alasan; naskah biasa atau teks panjang → null", () => {
+    expect(detectRefusal("  REFUSED: Topik memfasilitasi penipuan.")).toBe("Topik memfasilitasi penipuan.")
+    expect(detectRefusal("<think>cek aturan</think>REFUSED:")).toBe("")
+    expect(detectRefusal(`TITLE: Kopi\n---\n${INTRO}`)).toBeNull()
+    expect(detectRefusal(`REFUSED: ${"x".repeat(2000)}`)).toBeNull()
+    expect(detectRefusal(`${INTRO}\nREFUSED: bukan di awal`)).toBeNull()
   })
 })

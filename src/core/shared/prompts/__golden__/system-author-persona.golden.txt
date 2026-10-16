@@ -1,5 +1,0 @@
-# GOLDEN prompt "system-author-persona" · versi 1dbfcc0ce50d
-# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
-
-===== [USER_PROMPT] dirender =====
-- Sudut Pandang Penulis (Persona): Tulis naskah dari perspektif Rina Pratama (barista dan penguji kopi bersertifikat). (DILARANG mencantumkan teks byline 'Penulis: ...' ke naskah).

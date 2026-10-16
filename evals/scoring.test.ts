@@ -10,6 +10,7 @@ import {
   findUnsafeHtml,
   markdownToPlainText,
   scoreWriterResult,
+  titleSourceCheck,
   validateGutenbergBlocks,
   type CheckStatus,
 } from "./scoring"
@@ -188,7 +189,9 @@ describe("scoreWriterResult", () => {
       "html-safe": "fail",
       "gutenberg-blocks": "fail",
       "title-length": "fail",
+      "title-source": "pass",
       "excerpt-length": "fail",
+      "no-dashes": "pass",
       language: "fail",
     })
   })
@@ -212,7 +215,18 @@ describe("scoreWriterResult", () => {
     const score = scoreWriterResult(evalCase, result({ article: longTitle }))
     expect(score.checks.find((c) => c.id === "title-length")?.status).toBe("warn")
     expect(score.passed).toBe(true)
-    expect(score.score).toBe(Math.round((11.5 / 12) * 1000) / 1000)
+    expect(score.score).toBe(Math.round((13.5 / 14) * 1000) / 1000)
+  })
+
+  it("judul hasil curian subbab gagal, judul = kata kunci warn; tanda pisah warn", () => {
+    const md = "Pembuka.\n\n## Mengapa Kopi Hitam Menyehatkan\n\nIsi.\n\n### Detail Kafein ##\n\nIsi."
+    expect(titleSourceCheck("Mengapa kopi hitam  menyehatkan", md, "kopi").status).toBe("fail")
+    expect(titleSourceCheck("Detail Kafein", md, "kopi").status).toBe("fail")
+    expect(titleSourceCheck("Manfaat Kopi Hitam", md, "manfaat kopi hitam").status).toBe("warn")
+    expect(titleSourceCheck("Kopi Hitam untuk Pekerja Kantoran", md, "manfaat kopi hitam").status).toBe("pass")
+
+    const dashed = { ...article(), markdownContent: `${article().markdownContent}\n\nKopi — minuman pagi.` }
+    expect(statuses(result({ article: dashed }))["no-dashes"]).toBe("warn")
   })
 })
 

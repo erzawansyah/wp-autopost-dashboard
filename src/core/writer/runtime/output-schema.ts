@@ -128,6 +128,43 @@ function proseExcerptLine(line: string): string | null {
   return text
 }
 
+/** Panjang maksimal pesan penolakan; teks lebih panjang dianggap naskah (bukan penolakan). */
+const MAX_REFUSAL_LENGTH = 1000
+
+/**
+ * Penolakan topik terlarang (guardrail aturan 14): pesan yang diawali `REFUSED:` → alasannya (bisa kosong);
+ * selain itu `null`.
+ */
+export function detectRefusal(text: string): string | null {
+  const message = stripThinkBlocks(text || "").trim()
+  if (message.length > MAX_REFUSAL_LENGTH || !/^REFUSED:/i.test(message)) return null
+  return message.slice("REFUSED:".length).trim()
+}
+
+/** Excerpt heuristik: baris prosa pertama (> 20 karakter) dari naskah, maksimal 160 karakter. */
+export function deriveExcerpt(markdown: string): string | undefined {
+  for (const line of markdown.split(/\r?\n/)) {
+    const prose = proseExcerptLine(line)
+    if (prose && prose.length > 20) return prose.slice(0, 160).trim()
+  }
+  return undefined
+}
+
+/**
+ * Lengkapi judul & excerpt naskah: judul wajib dari pengguna mengalahkan judul model, lalu judul model, lalu
+ * kata kunci (tanpa templat berbahasa tertentu); excerpt model, lalu prosa pertama naskah.
+ */
+export function finalizeArticleFields(
+  output: Partial<ArticleOutput> & { markdownContent: string },
+  fallback: { title?: string; keyword: string }
+): ArticleOutput {
+  return {
+    title: fallback.title?.trim() || output.title?.trim() || fallback.keyword.trim(),
+    excerpt: output.excerpt?.trim() || deriveExcerpt(output.markdownContent) || "",
+    markdownContent: output.markdownContent,
+  }
+}
+
 /** Label metadata header berhuruf kapital, mis. `TITLE: ...`, `EXCERPT: ...`, `SLUG: ...`. */
 const HEADER_LABEL_LINE_RE = /^[A-Z][A-Z_ ]{1,30}:/
 /** Label metadata bebas, opsional tebal: `Meta Description: …`, `**Kata kunci:** …`. */
@@ -256,47 +293,20 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
     }
   }
 
-  // 3. Parser Markdown Murni (jika diawali heading # atau ##)
-  if (markdown.startsWith("#") || markdown.includes("\n## ")) {
-    const lines = markdown.split(/\r?\n/)
-    let detectedTitle: string | undefined
-    let detectedExcerpt: string | undefined
-    const bodyLines: string[] = []
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (!detectedTitle && (line.startsWith("# ") || line.startsWith("## "))) {
-        detectedTitle = line.replace(/^#+\s*/, "").trim()
-        continue
-      }
-      const prose = detectedTitle && !detectedExcerpt ? proseExcerptLine(line) : null
-      if (prose && prose.length > 20) {
-        detectedExcerpt = prose.slice(0, 160).trim()
-      }
-      bodyLines.push(lines[i])
-    }
-
-    const cleanBody = bodyLines.join("\n").trim()
-    if (cleanBody.length > 150) {
-      return {
-        title: detectedTitle,
-        excerpt: detectedExcerpt,
-        markdownContent: cleanBody,
-      }
-    }
-  }
-
-  // 4. Parser Naskah Naratif Murni (bila naskah diawali langsung dengan paragraf pembuka tanpa heading/label)
+  // 3. Parser Markdown murni tanpa header TITLE/EXCERPT. Judul hanya diambil dari heading yang MEMBUKA naskah
+  //    (H1, atau H2 di baris pertama). Naskah yang dibuka paragraf (format yang diminta prompt agen) tidak
+  //    memuat judul: subbab H2 di tengah naskah tidak pernah dijadikan judul atau dibuang dari badan naskah.
   if (markdown.length > 150) {
-    const lines = markdown.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-    const firstHeading = lines.find((l) => l.startsWith("#") || l.startsWith("##"))
-    const title = firstHeading ? firstHeading.replace(/^#+\s*/, "").trim() : undefined
-    const excerpt = lines[0] ? proseExcerptLine(lines[0])?.slice(0, 160).trim() : undefined
+    const lines = markdown.split(/\r?\n/)
+    const firstIndex = lines.findIndex((line) => line.trim() !== "")
+    const firstLine = firstIndex === -1 ? "" : lines[firstIndex].trim()
+    const leadingTitle = /^#{1,2}[ \t]/.test(firstLine) ? firstLine.replace(/^#+\s*/, "").trim() : undefined
+    const body = leadingTitle ? lines.slice(firstIndex + 1).join("\n").trim() : markdown
 
     return {
-      title,
-      excerpt,
-      markdownContent: markdown,
+      title: leadingTitle || undefined,
+      excerpt: deriveExcerpt(body),
+      markdownContent: body.length > 150 ? body : markdown,
     }
   }
 

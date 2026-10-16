@@ -67,7 +67,7 @@ describe("compilePrompt — berkas valid", () => {
       required: ["title", "tags"],
     })
     expect(prompt?.userPromptTemplate).toBe(
-      'Analisis {{keyword}}.\n\nKeluarkan JSON murni persis dengan format berikut:\n{\n  "title": "string",\n  "excerpt": "string",\n  "tags": [\n    "string"\n  ]\n}',
+      'Analisis {{keyword}}.\n\nOutput raw JSON only, exactly in this format:\n{\n  "title": "string",\n  "excerpt": "string",\n  "tags": [\n    "string"\n  ]\n}',
     )
   })
 

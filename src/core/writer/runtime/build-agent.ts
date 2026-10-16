@@ -9,7 +9,7 @@ import { RunRecorder } from "./telemetry"
 import { buildGuardMiddlewareStack } from "./guards"
 import { resolveSkillsForAgent } from "./resolve-skills"
 
-const READONLY_FS_FALLBACK = "Operasi {{operation}} ditolak: filesystem agen bersifat read-only."
+const READONLY_FS_FALLBACK = "Operation {{operation}} rejected: the agent filesystem is read-only."
 
 /** Pesan penolakan operasi berkas (`system-readonly-filesystem.md`) yang dikembalikan ke agen. */
 function readOnlyFilesystemError(operation: string): { error: string } {

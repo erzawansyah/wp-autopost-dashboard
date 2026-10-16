@@ -1,8 +1,8 @@
-# GOLDEN prompt "system-tool-guard-deduped" · versi 282961c19f19
+# GOLDEN prompt "system-tool-guard-deduped" · versi 7115f08f8a34
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [SYSTEM_PROMPT] dirender =====
-[HASIL TERSIMPAN DARI PANGGILAN SEBELUMNYA]:
+[CACHED RESULT FROM AN EARLIER CALL]:
 ‹cachedContent›
 
-Catatan: Anda sudah pernah memanggil tool ini dengan parameter yang persis sama. Gunakan hasil di atas tanpa memanggil ulang.
+Note: you already called this tool with exactly the same arguments. Use the result above and do not call it again.

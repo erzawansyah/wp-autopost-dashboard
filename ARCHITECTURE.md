@@ -330,7 +330,7 @@ memfilter `user_id` eksplisit.
 | Tabel | `authenticated` (client sesi) | Penulis lain |
 | :--- | :--- | :--- |
 | `wp_sites`, `content_batches`, `agent_profiles`, `user_settings`, `webhooks` | CRUD baris sendiri (UPDATE `USING` + `WITH CHECK`; mis. cek ulang koneksi menulis `wp_sites.status` lewat client sesi) | worker (`wp_sites.status` hasil observasi, §4.8) |
-| `agent_skills` | SELECT skill sistem atau milik sendiri; INSERT/UPDATE/DELETE hanya skill non-sistem milik sendiri | `seed.sql` (skill sistem `anti-ai-editor`) |
+| `agent_skills` | SELECT skill sistem atau milik sendiri; INSERT/UPDATE/DELETE hanya skill non-sistem milik sendiri | Migrasi `20261019090000` (skill sistem `anti-ai-editor`) |
 | `post_items` | SELECT & DELETE milik sendiri; INSERT hanya `state = 'queued_input'` tanpa naskah/`wp_post_*`/lease/`next_attempt_at`, dan **hanya kolom input** (GRANT per kolom: `user_id, batch_id, wp_site_id, target_keyword, title, state, scheduled_for, wp_target_status, categories, tags, custom_instructions_override, source_payload`); **tanpa UPDATE** | transisi state, naskah, `wp_post_id`, lease: worker |
 | `execution_logs` | SELECT + INSERT milik sendiri (append-only) | worker; terhapus kaskade item |
 | `agent_runs`, `uploaded_media`, `generation_checkpoints` | SELECT milik sendiri | worker (checkpoint hanya lewat RPC §3.4) |
@@ -409,7 +409,8 @@ Klien: §11.5.
 | `20261018090000_backfill_requested_category_names.sql` | Data: salin kategori baris lama (`categories`) ke `source_payload.requested_category_names` untuk item batch yang masih akan di-pre-resolve |
 | `20261018100000_converge_legacy_columns.sql` | Konvergensi production lama: default & NOT NULL 50 kolom bawaan (NULL diisi default), hapus trigger `handle_updated_at()` duplikat `set_updated_at` |
 
-- `supabase/seed.sql`: skill sistem `anti-ai-editor` (dijalankan `db reset`; `db push` hanya dengan `--include-seed`).
+- `supabase/seed.sql`: data contoh non-produksi (dijalankan `db reset`; `db push` hanya dengan `--include-seed`). Skill sistem
+  `anti-ai-editor` disisipkan/diselaraskan migrasi `20261019090000_align_anti_ai_editor_skill.sql`.
 - `supabase/tests/` (PGlite, tanpa Docker; `npm run db:test`, juga ikut `npm test`): `rls`, `constraints`, `queue`,
   `queue-hardening`, `generation-checkpoints`, `realtime-broadcast`, `migrations` (idempotensi & konvergensi dari skema lama
   `fixtures/legacy-adhoc-schema.sql`); helper `helpers/test-db.ts` + prelude Supabase.
@@ -617,7 +618,8 @@ onCheckpoint }` dan `usageLedger` opsional; Lab & eval berjalan tanpa persistens
   `clampLimits()` (`types/profile.ts`); batas tersimpan dibaca ulang lewat `resolveStoredAgentLimits()`.
 - **Skill Deep mode** (`runtime/resolve-skills.ts`): hanya skill sistem + milik pengguna dari `agent_skills` (Service Role dengan
   filter pemilik eksplisit; milik pengguna menang bila slug sama), dimuat ke `ReadOnlyStoreBackend` (namespace `filesystem`,
-  tulis/edit ditolak dengan pesan `system-readonly-filesystem.md`).
+  tulis/edit ditolak dengan pesan `system-readonly-filesystem.md`). Skill hanya ada di mode Deep; aturan gaya yang berlaku di
+  semua mode ada di paket gaya prompt (§5.6), dan `anti-ai-editor` berisi alur audit yang merujuk paket itu.
 
 ### 5.2 LLM Gateway (`src/core/shared/llm/`)
 
@@ -625,7 +627,7 @@ onCheckpoint }` dan `usageLedger` opsional; Lab & eval berjalan tanpa persistens
   `ChatOpenRouter` tidak pernah dibuat). Urutan model writer (`writer/runtime/resolve-model.ts`, dipakai worker & `runAgentWriter`
   sehingga antrean dan Lab sama): `request.model (aiModel per item) → model Agent Profile kustom → defaultAiModel pengguna →
   model preset (preset tidak pernah mengalahkan default akun) → OPENROUTER_DEFAULT_MODEL → DEFAULT_AI_MODEL`
-  (`meta-llama/llama-3.3-70b-instruct`). Tingkat penalaran berpola sama (`resolveWriterReasoningEffort`):
+  (`google/gemini-2.5-flash`). Tingkat penalaran berpola sama (`resolveWriterReasoningEffort`):
   `reasoningEffort per item → nilai Agent Profile kustom → nilai akun (kosong = "Ikuti Agent Profile") → nilai preset → low`.
 - Retry bawaan model (backoff + jitter, berhenti saat abort; tanpa retry untuk 400/401/402/403/kuota). Middleware fallback model
   (`ai.fallbackModels`) hanya untuk model tidak tersedia / 429 / 5xx / jaringan setelah retry habis, lengket dalam run, berlaku
@@ -695,6 +697,24 @@ Prompt hanya berkas `.md` berprefix `wp-tools-*`, `system-*`, atau `agent-*` den
 `registry.generated.ts` (di-commit; runtime tidak membaca `.md` dari disk). Loader: `loadPrompt`, `loadSectionedPrompt`,
 `loadParsedPrompt`, `renderPrompt`. Setiap prompt berversi (hash); `createPromptVersionTracker()` mencatat versi ke
 `agent_runs.prompt_versions` dan checkpoint. Golden render prompt & formatter dijalankan `npm test`.
+
+Susunan prompt penulis (ADR-069) — instruksi berbahasa Inggris, naskah selalu dalam bahasa artikel:
+- **System prompt** (`runtime/prompt-builder.ts`, tata letak `system-writer-layout.md`): `system-guardrail.md` → paket gaya
+  sesuai kode bahasa artikel (`system-style-id.md`, `system-style-en.md`, selain itu `system-style-general.md`) → workflow
+  Agent Profile (preset `agent-*.md` atau kustom; boleh memakai `{{siteName}}`, `{{siteUrl}}`, `{{authorName}}`,
+  `{{authorBio}}`, `{{categoryName}}`, `{{language}}`).
+- **Pesan pengguna** `agent-user-prompt.md` (brief: bahasa, target kata, situs, judul wajib, kategori/tag hasil resolver,
+  persona, daftar tool aktif) + format keluaran `system-article-output.md` (`TITLE:` / `EXCERPT:` / `---` / Markdown). Finalize
+  call (`system-finalize.md`) memakai format yang sama. Seluruh teks prompt ada di `.md`; TypeScript hanya mengisi nilai.
+- **Judul & excerpt** (`output-schema.ts`): judul wajib pengguna → baris `TITLE` → heading yang MEMBUKA naskah → kata kunci;
+  subbab H2 tidak pernah dijadikan judul. Excerpt: baris `EXCERPT` → prosa pertama naskah.
+- **Penolakan**: guardrail meminta balasan tunggal `REFUSED: <alasan>` untuk topik terlarang; `detectRefusal` mengubahnya menjadi
+  kegagalan permanen `CONTENT_REFUSED` tanpa finalize maupun retry.
+- **Gambar**: agen hanya menyematkan URL dari `image_search`/`upload_media` run ini (`![alt](url "caption")`); auto-media pipeline
+  menyalinnya ke Media Library saat sinkronisasi, jadi `upload_media` opsional.
+- WP Tools & resolver menerima data WordPress hanya di blok bertag ter-escape (`<data_wordpress>`, `<kategori_terdaftar>`,
+  `<author_terdaftar>`, `<artikel_baru>`, `<artikel_lama>`); field yang tampil di dasbor (`rationale`, `relevanceReason`) diminta
+  dalam bahasa Indonesia. Link-extract membaca judul & cuplikan artikel baru via slug URL (`fetchWordPressPostBySlug`).
 
 ### 5.7 Postprocess: Markdown → Gutenberg (`src/core/shared/formatters/`)
 

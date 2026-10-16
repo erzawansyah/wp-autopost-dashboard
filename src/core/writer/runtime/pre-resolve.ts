@@ -14,7 +14,7 @@ import { sanitizeTermNames, stripToPlainText, WP_TERM_NAME_MAX_LENGTH } from "@/
 import { classifyLlmError, describeLlmError } from "@/core/shared/llm/errors"
 import type { LlmGateway } from "@/core/shared/llm/gateway"
 import { loadSectionedPrompt, renderPrompt } from "@/core/shared/prompts/loader"
-import { PROMPT_AUTHOR_BIO_MAX, toPromptAuthorProfile, toUntrustedPromptJson } from "@/core/shared/prompts/untrusted-data"
+import { toPromptAuthorProfile, toUntrustedPromptJson } from "@/core/shared/prompts/untrusted-data"
 import { RunRecorder } from "./telemetry"
 
 export interface PreResolveOptions {
@@ -391,26 +391,25 @@ export async function preResolveTaxonomyAndAuthor(
 
       if (systemPrompt && userPromptTemplate) {
         const renderedUserPrompt = renderPrompt(userPromptTemplate, {
-          keyword: keyword || "Artikel Informatif",
-          // Nama bahasa (bukan kode "en"): prompt resolver berbahasa Indonesia, kode saja kerap diabaikan model.
+          keyword,
+          // Nama bahasa (bukan kode "en"): kode saja kerap diabaikan model.
           language: getLanguageDisplayName(language),
-          brief: brief || "-",
+          brief,
           // Data WordPress hanya di blok data bertag pada pesan pengguna (bukan system prompt).
           wordpressData: toUntrustedPromptJson({
             categories: existingCategories,
             authors: authorCandidates,
             tags: existingTagNames.slice(0, PROMPT_TAG_SAMPLE_MAX),
           }),
-          requestedCategory: hasRequestedCategories ? result.categoryIds.join(", ") : "Otomatis oleh AI",
-          requestedAuthor: requestedAuthorId ? String(requestedAuthorId) : "Otomatis oleh AI",
-          requestedTags: requestedTagNames.length > 0 ? requestedTagNames.join(", ") : "Otomatis oleh AI",
+          requestedCategory: hasRequestedCategories ? result.categoryIds.join(", ") : "",
+          requestedAuthor: requestedAuthorId ? String(requestedAuthorId) : "",
+          requestedTags: requestedTagNames.length > 0 ? requestedTagNames.join(", ") : "",
         })
 
         /** Field keluaran LLM yang dibaca server; nilainya tidak tepercaya dan selalu divalidasi. */
         interface LlmTaxonomyResolution {
           selectedCategoryId?: unknown
           selectedAuthorId?: unknown
-          selectedAuthorBio?: unknown
           tagNames?: unknown
           rationale?: unknown
         }
@@ -438,7 +437,8 @@ export async function preResolveTaxonomyAndAuthor(
               result.author = {
                 id: matchedUser.id,
                 name: matchedUser.name,
-                bio: matchedUser.bio || stripToPlainText(llmResult.selectedAuthorBio, PROMPT_AUTHOR_BIO_MAX) || undefined,
+                // Bio hanya dari profil WordPress; bio karangan LLM tidak pernah menjadi persona penulis.
+                bio: matchedUser.bio || undefined,
                 slug: matchedUser.slug,
               }
             } else {

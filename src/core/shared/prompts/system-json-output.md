@@ -6,5 +6,5 @@ variables: []
 ---
 
 [SYSTEM_PROMPT]
-IMPORTANT: Keluarkan HANYA raw JSON murni yang valid sesuai format yang diminta, tanpa kata pembuka/penutup, tanpa markdown fence, dan tanpa penjelasan di luar JSON.
+IMPORTANT: Output ONLY raw, valid JSON in the requested format: no preamble or closing text, no Markdown code fences, and no explanation outside the JSON.
 [/SYSTEM_PROMPT]

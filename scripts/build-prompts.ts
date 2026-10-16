@@ -55,8 +55,8 @@ type SectionTag = (typeof SECTION_TAGS)[number]
 const TAG_LINE = /^\s*\[(\/?)([A-Z][A-Z0-9_]*)\]\s*$/
 const INLINE_TAG = new RegExp(`\\[\\/?(?:${SECTION_TAGS.join("|")})\\]`)
 /** Kalimat format JSON yang disisipkan ke USER_PROMPT bila prompt punya [OUTPUT_FORMAT] (perilaku loader lama). */
-const JSON_INSTRUCTION = "Keluarkan JSON murni persis dengan format berikut:"
-const JSON_INSTRUCTION_MARKERS = ["Keluarkan JSON", "JSON format"]
+const JSON_INSTRUCTION = "Output raw JSON only, exactly in this format:"
+const JSON_INSTRUCTION_MARKERS = ["Output raw JSON", "JSON format"]
 const VERSION_LENGTH = 12
 const SOURCE_EXT = /\.tsx?$/
 const TEST_FILE = /\.(?:test|spec)\.tsx?$/

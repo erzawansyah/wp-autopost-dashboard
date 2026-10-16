@@ -225,9 +225,29 @@ const ARTICLE_CHECK_IDS = [
   "html-safe",
   "gutenberg-blocks",
   "title-length",
+  "title-source",
   "excerpt-length",
+  "no-dashes",
   "language",
 ] as const
+
+const normalizeHeading = (text: string): string => text.trim().replace(/\s+/g, " ").toLowerCase()
+
+/**
+ * Judul harus ditulis model (baris TITLE) atau pengguna: sama dengan subbab di naskah → gagal (subbab dicuri
+ * jadi judul); sama dengan kata kunci → warn (judul cadangan dipakai karena model tidak menulis TITLE).
+ */
+export function titleSourceCheck(title: string, markdown: string, keyword: string): CheckResult {
+  const normalized = normalizeHeading(title)
+  const headings = Array.from(markdown.matchAll(/^ {0,3}#{2,6}[ \t]+(.+?)[ \t#]*$/gm), (m) => normalizeHeading(m[1]))
+  if (normalized && headings.includes(normalized)) {
+    return { id: "title-source", status: "fail", detail: `judul sama dengan subbab naskah: "${title}"` }
+  }
+  if (normalized === normalizeHeading(keyword)) {
+    return { id: "title-source", status: "warn", detail: "judul = kata kunci (model tidak menulis baris TITLE)" }
+  }
+  return { id: "title-source", status: "pass", detail: "judul berbeda dari subbab & kata kunci" }
+}
 
 export function scoreWriterResult(evalCase: EvalCase, result: WriterResult): CaseScore {
   const metrics = extractMetrics(result)
@@ -294,7 +314,15 @@ export function scoreWriterResult(evalCase: EvalCase, result: WriterResult): Cas
   })
 
   checks.push(lengthCheck("title-length", "judul", article.title ?? "", TITLE_BOUNDS))
+  checks.push(titleSourceCheck(article.title ?? "", markdown, evalCase.keyword))
   checks.push(lengthCheck("excerpt-length", "excerpt", article.excerpt ?? "", EXCERPT_BOUNDS))
+
+  const dashes = plain.match(/[\u2013\u2014]/g)?.length ?? 0
+  checks.push({
+    id: "no-dashes",
+    status: dashes === 0 ? "pass" : "warn",
+    detail: dashes === 0 ? "tanpa tanda pisah panjang/pendek" : `${dashes} tanda pisah (— / –) di naskah`,
+  })
 
   const expectedLang = evalCase.language.toLowerCase().slice(0, 2)
   const detected = detectLanguage(plain)

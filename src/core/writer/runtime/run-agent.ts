@@ -26,7 +26,7 @@ import { buildWriterAgent } from "./build-agent";
 import { executeSingleFinalizeCall } from "./finalize";
 import { postprocessArticle } from "./postprocess";
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
-import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
+import { detectRefusal, extractArticleJsonFromText, finalizeArticleFields, ArticleOutput } from "./output-schema";
 import { preResolveTaxonomyAndAuthor, type PreResolvedContext } from "./pre-resolve";
 import { resolveWriterReasoningEffort, writerModelCandidates } from "./resolve-model";
 import {
@@ -44,7 +44,6 @@ import {
   type GenerationCheckpointOptions,
   type IgnoredCheckpointReason,
 } from "./checkpoints";
-import { getLanguageDisplayName } from "@/lib/constants/languages";
 import "../tools"; // Pastikan seluruh tool terdaftar ke registry
 
 export interface RunAgentOptions {
@@ -160,11 +159,11 @@ function completeArticle(params: CompleteArticleParams): RunAgentResult {
   const { request, keyword, rawOutput, preResolved, recorder, stopReason } = params;
 
   // Postprocessing ke Native WordPress Gutenberg Blocks (Global & Tersembunyi dari User)
+  const fields = finalizeArticleFields(rawOutput, { title: request.content.title, keyword });
   const generatedArticle = postprocessArticle({
-    rawTitle:
-      rawOutput.title || request.content.title || `Panduan Lengkap ${keyword}`,
-    rawExcerpt: rawOutput.excerpt || `Ulasan lengkap mengenai ${keyword}.`,
-    rawMarkdown: rawOutput.markdownContent,
+    rawTitle: fields.title,
+    rawExcerpt: fields.excerpt,
+    rawMarkdown: fields.markdownContent,
   });
 
   // Taksonomi, author, & media: pilihan pengguna → hasil Pre-Flight Resolver / tool `set_featured_image`.
@@ -490,6 +489,7 @@ export async function runAgentWriter(
     }
 
     const systemPrompt = buildSystemPrompt(profile.workflowPrompt, {
+      languageCode: language,
       siteName,
       siteUrl,
       authorName: preResolved.author?.name,
@@ -498,13 +498,14 @@ export async function runAgentWriter(
         preResolved.categoryNames.length > 0
           ? preResolved.categoryNames.join(", ")
           : undefined,
-      language: getLanguageDisplayName(language),
     });
     const userPromptText = buildUserPrompt({
       keyword,
       title: request.content.title,
       language,
       wordCountTarget: targetWordCount,
+      siteName,
+      siteUrl,
       brief: request.content.brief,
       author: preResolved.author
         ? { name: preResolved.author.name, bio: preResolved.author.bio }
@@ -518,7 +519,7 @@ export async function runAgentWriter(
           ? preResolved.tagNames.join(", ")
           : undefined,
       customInstructions: request.customInstructions,
-      hasTools: activeTools.length > 0,
+      toolNames: activeTools.map((tool) => tool.name),
     });
 
     // 6. Bangun Writer Agent
@@ -626,14 +627,29 @@ export async function runAgentWriter(
         stopReason = "limit_reached";
       }
 
+      // Penolakan topik terlarang (guardrail aturan 14): gagal permanen tanpa finalize call maupun retry.
+      const refusal = detectRefusal(rawText);
+      if (refusal !== null) {
+        recorder.recordEvent({
+          kind: "summary",
+          status: "error",
+          durationMs: 1,
+          summary: `Agent menolak topik: ${refusal.slice(0, 200)}`,
+        });
+        return failure("failed_content_refused", {
+          code: "CONTENT_REFUSED",
+          message: refusal
+            ? `Topik ditolak oleh agent karena melanggar aturan konten: ${refusal.slice(0, 300)}`
+            : "Topik ditolak oleh agent karena melanggar aturan konten.",
+          node: "agent_loop",
+          retryable: false,
+        });
+      }
+
       rawOutput = extractArticleJsonFromText(rawText);
       if (!rawOutput?.markdownContent && rawText.length > 200) {
-        rawOutput = {
-          title: request.content.title || `Panduan Lengkap ${keyword}`,
-          excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
-          // Pulihkan literal "\n" tanpa menyentuh isi blok kode
-          markdownContent: unescapeLiteralNewlines(rawText),
-        };
+        // Pulihkan literal "\n" tanpa menyentuh isi blok kode
+        rawOutput = { markdownContent: unescapeLiteralNewlines(rawText) };
       }
     } catch (invokeErr: unknown) {
       clearTimeout(timer);
@@ -692,6 +708,7 @@ export async function runAgentWriter(
         gateway,
         systemPrompt,
         keyword,
+        title: request.content.title,
         language,
         targetWordCount,
         brief: request.content.brief,

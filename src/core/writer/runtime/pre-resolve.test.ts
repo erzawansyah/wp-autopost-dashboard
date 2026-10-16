@@ -118,9 +118,20 @@ describe("preResolveTaxonomyAndAuthor — bahasa artikel", () => {
 
     const result = await preResolveTaxonomyAndAuthor({ wpCredentials, keyword: "kopi hitam", language: "en", gateway })
 
-    expect(requests[0].userPrompt).toContain("BAHASA ARTIKEL: English (US/UK)")
-    expect(requests[0].systemPrompt).toContain("SEMUA tag WAJIB ditulis dalam BAHASA ARTIKEL")
+    expect(requests[0].userPrompt).toContain("ARTICLE LANGUAGE: English (US/UK)")
+    expect(requests[0].systemPrompt).toContain("all written in the ARTICLE LANGUAGE")
     expect(result.tagNames).toEqual(["black coffee"])
+  })
+
+  it("author tanpa bio di WordPress tidak diberi bio karangan LLM", async () => {
+    wp.fetchWordPressUsers.mockResolvedValue({ ok: true, users: [{ id: 3, name: "Sari", slug: "sari", description: "" }] })
+    const { gateway, requests } = llmGateway({ selectedAuthorId: 3, selectedAuthorBio: "Ahli gizi bersertifikat 15 tahun", tagNames: ["kopi"] })
+
+    const result = await preResolveTaxonomyAndAuthor({ wpCredentials, keyword: "kopi hitam", language: "id", gateway })
+
+    expect(result.author).toMatchObject({ id: 3, name: "Sari" })
+    expect(result.author?.bio).toBeUndefined()
+    expect(JSON.stringify(requests[0].jsonSchema ?? {})).not.toContain("selectedAuthorBio")
   })
 })
 
