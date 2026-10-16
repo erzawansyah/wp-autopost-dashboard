@@ -71,10 +71,11 @@ export async function getUserDecryptedKeys(userId: string): Promise<DecryptedUse
         (typeof searchPrefs?.default_ai_model === "string" ? searchPrefs.default_ai_model : undefined) ||
         (typeof notifPrefs?.default_ai_model === "string" ? notifPrefs.default_ai_model : undefined) ||
         serverEnv().OPENROUTER_DEFAULT_MODEL,
+      // Tanpa default: hanya nilai yang ditetapkan akun (preset tetap memakai nilai bawaannya bila kosong).
       reasoningEffort:
         (searchPrefs?.reasoning_effort as "low" | "medium" | "high" | undefined) ||
         (notifPrefs?.reasoning_effort as "low" | "medium" | "high" | undefined) ||
-        "low",
+        undefined,
       searchPreferences: (data.search_preferences as DecryptedUserKeys["searchPreferences"]) || {
         default_provider: "auto",
       },

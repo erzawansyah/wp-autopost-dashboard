@@ -92,6 +92,12 @@ describe("getUserDecryptedKeys", () => {
     expect(keys.reasoningEffort).toBe("medium")
   })
 
+  it("tingkat penalaran tidak diberi default: kosong bila akun memilih 'Ikuti Agent Profile'", async () => {
+    db.row = { search_preferences: { default_provider: "auto" }, notification_prefs: {} }
+    const keys = await getUserDecryptedKeys("tenant-a")
+    expect(keys.reasoningEffort).toBeUndefined()
+  })
+
   it("tanpa baris → default aman tanpa kunci", async () => {
     const keys = await getUserDecryptedKeys("tenant-a")
     expect(keys).toEqual({ searchPreferences: { default_provider: "auto" } })

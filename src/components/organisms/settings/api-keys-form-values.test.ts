@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
-import { ApiKeysFormSchema, UpdateUserSettingsBodySchema } from "@/lib/validation/settings"
+import { ApiKeysFormSchema, FOLLOW_PROFILE_REASONING, UpdateUserSettingsBodySchema } from "@/lib/validation/settings"
 import type { UserSettings } from "@/types/settings"
 import {
   EMPTY_BYOK_KEYS,
@@ -22,6 +22,7 @@ function settings(overrides: Partial<UserSettings> = {}): UserSettings {
       pexafy: notConfigured,
       langsmith: notConfigured,
     },
+    reasoningEffort: null,
     searxngUrl: null,
     searchPreferences: { default_provider: "auto" },
     developerMode: false,
@@ -48,17 +49,12 @@ describe("toApiKeysFormValues", () => {
     })
   })
 
-  it("nilai kosong jatuh ke default (model global, low, auto, panitera)", () => {
+  it("nilai kosong jatuh ke default (model global, ikuti Agent Profile, auto, panitera)", () => {
     const values = toApiKeysFormValues(settings({ defaultAiModel: null, searchPreferences: {} }))
     expect(values.defaultAiModel).toBe(DEFAULT_AI_MODEL)
-    expect(values.reasoningEffort).toBe("low")
+    expect(values.reasoningEffort).toBe(FOLLOW_PROFILE_REASONING)
     expect(values.defaultSearchProvider).toBe("auto")
     expect(values.langsmithProject).toBe("panitera")
-  })
-
-  it("reasoning lama di searchPreferences dipakai bila reasoningEffort kosong", () => {
-    const values = toApiKeysFormValues(settings({ searchPreferences: { reasoning_effort: "medium" } }))
-    expect(values.reasoningEffort).toBe("medium")
   })
 
   it("lolos skema form", () => {
@@ -74,11 +70,14 @@ describe("toUserSettingsUpdate", () => {
     expect(update).not.toHaveProperty("openrouterKey")
     expect(update).not.toHaveProperty("langsmithApiKey")
     expect(update).not.toHaveProperty("searxngUrl")
-    expect(update.searchPreferences).toEqual({
-      default_provider: "auto",
-      default_ai_model: DEFAULT_AI_MODEL,
-      reasoning_effort: "low",
-    })
+    expect(update.searchPreferences).toEqual({ default_provider: "auto", default_ai_model: DEFAULT_AI_MODEL })
+    expect(UpdateUserSettingsBodySchema.safeParse(update).success).toBe(true)
+  })
+
+  it("tingkat penalaran: 'Ikuti Agent Profile' dikirim sebagai null (hapus), selain itu nilainya", () => {
+    expect(toUserSettingsUpdate(base).reasoningEffort).toBeNull()
+    const update = toUserSettingsUpdate({ ...base, reasoningEffort: "high" })
+    expect(update.reasoningEffort).toBe("high")
     expect(UpdateUserSettingsBodySchema.safeParse(update).success).toBe(true)
   })
 

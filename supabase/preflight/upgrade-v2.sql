@@ -282,7 +282,8 @@ as $fn$
     ('20261015110000'),
     ('20261016090000'),
     ('20261017090000'),
-    ('20261017100000')
+    ('20261017100000'),
+    ('20261018090000')
 $fn$;
 
 
@@ -747,12 +748,27 @@ begin
       (502, 'Normalisasi post_items.retry_count > 1000 → 1000', 'INFO',
        'Dinormalkan migrasi 20261015110000 sebelum CHECK 0..1000 dipasang. Tidak perlu tindakan.',
        $q$select count(*) from public.post_items where retry_count > 1000$q$),
+      (504, 'Backfill kategori per baris Tulis Terstruktur (item menunggu)', 'INFO',
+       'Migrasi 20261018090000 menyalin kategori baris (label `categories`) ke source_payload.requested_category_names '
+       || 'agar dicocokkan ke kategori WordPress yang ada saat diproses. Nama yang tidak ditemukan tidak membuat '
+       || 'kategori baru (jatuh ke kategori batch). Tidak perlu tindakan.',
+       $q$select count(*) from public.post_items as p
+          join public.content_batches as b on b.id = p.batch_id and b.user_id = p.user_id
+          where p.state in ('queued_input', 'failed_generation')
+            and p.wp_post_id is null
+            and jsonb_typeof(p.source_payload) = 'object'
+            and not (p.source_payload ? 'requested_category_names')
+            and jsonb_typeof(p.categories) = 'array'
+            and jsonb_array_length(p.categories) = 1
+            and jsonb_typeof(p.categories -> 0) = 'string'
+            and btrim(p.categories ->> 0) <> ''
+            and p.categories is distinct from coalesce(b.ai_config -> 'category_names', '[]'::jsonb)$q$),
       (503, 'Normalisasi wp_sites.max_concurrency > 10 → 10', 'INFO',
        'Dinormalkan migrasi 20261015110000 sebelum CHECK 1..10 dipasang. Tidak perlu tindakan.',
        $q$select count(*) from public.wp_sites where max_concurrency > 10$q$),
       (510, 'Tenant bersitus tanpa kunci OpenRouter tersimpan di server', 'INFO',
        'v2 BYOK-only dan tidak lagi memakai kunci dari localStorage browser: artikel tenant ini gagal "kunci '
-       || 'OpenRouter belum dikonfigurasi" sampai kunci dimasukkan di Pengaturan → Kunci API. Sertakan di pemberitahuan.',
+       || 'OpenRouter belum dikonfigurasi" sampai kunci dimasukkan di Pengaturan → Kunci API & Model AI. Sertakan di pemberitahuan.',
        $q$select count(distinct s.user_id) from public.wp_sites as s
           where not exists (
             select 1 from public.user_settings as u

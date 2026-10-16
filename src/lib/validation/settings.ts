@@ -33,6 +33,15 @@ export const ReasoningEffortSchema = z.enum(["low", "medium", "high"], {
   error: "Tingkat reasoning harus low, medium, atau high.",
 })
 
+/**
+ * Pilihan form "Ikuti Agent Profile": akun tidak menetapkan tingkat penalaran sehingga preset memakai nilai
+ * bawaannya. Disimpan sebagai ketiadaan nilai (`reasoningEffort: null` di body PUT), bukan string ini.
+ */
+export const FOLLOW_PROFILE_REASONING = "profile"
+
+/** Tingkat penalaran akun di body PUT: `null` = hapus (ikuti Agent Profile). */
+const AccountReasoningEffortInputSchema = ReasoningEffortSchema.nullable().optional()
+
 /** Kunci BYOK di body PUT: "" = hapus, nilai tersamar (•/*) = tidak berubah, selain itu = kunci baru. */
 const ByokKeyInputSchema = z.string().trim().max(1000, "Kunci API terlalu panjang.").optional()
 
@@ -54,14 +63,14 @@ export const UpdateUserSettingsBodySchema = z.object({
   langsmithApiKey: ByokKeyInputSchema,
   langsmithProject: LangsmithProjectSchema.optional(),
   defaultAiModel: AiModelInputSchema,
-  reasoningEffort: ReasoningEffortSchema.optional(),
+  reasoningEffort: AccountReasoningEffortInputSchema,
   /** String kosong/null = kembali ke SearXNG bawaan platform. */
   searxngUrl: z.string().trim().max(2048, "URL SearxNG terlalu panjang.").nullish(),
   searchPreferences: z
     .object({
       default_provider: SearchProviderSchema.optional(),
       default_ai_model: AiModelInputSchema,
-      reasoning_effort: ReasoningEffortSchema.optional(),
+      reasoning_effort: AccountReasoningEffortInputSchema,
     })
     .nullish(),
   developerMode: z.boolean({ error: "developerMode harus boolean." }).optional(),
@@ -131,7 +140,9 @@ export const ApiKeysFormSchema = z.object({
   pexafyKey: NewByokKeySchema,
   langsmithApiKey: NewByokKeySchema,
   defaultAiModel: z.string().trim().min(1, "Pilih model AI default.").max(200, "ID model AI terlalu panjang."),
-  reasoningEffort: ReasoningEffortSchema,
+  reasoningEffort: z.enum([FOLLOW_PROFILE_REASONING, ...ReasoningEffortSchema.options], {
+    error: "Pilih tingkat penalaran.",
+  }),
   defaultSearchProvider: SearchProviderSchema,
   langsmithProject: LangsmithProjectSchema,
 })

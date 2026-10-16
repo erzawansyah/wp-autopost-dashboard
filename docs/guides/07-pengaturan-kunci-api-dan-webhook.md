@@ -12,7 +12,7 @@ Panitera memakai sistem **BYOK** (*Bring Your Own Key*): semua panggilan AI dan 
 
 - **OpenRouter**: tempel kunci (`sk-or-v1-…`). Tautan **Daftar / Buat Kunci** membuka halaman kunci OpenRouter.
 - **Model Default Penulisan Artikel**: daftar model OpenRouter yang mendukung tool calling; Anda juga dapat mengetik ID model `provider/model`. Model ini dipakai untuk semua artikel (Tulis Cepat, antrean batch, Laboratorium) dengan preset bawaan maupun Agent Profile kustom, kecuali Agent Profile kustom yang membawa model sendiri.
-- **Tingkat Penalaran (Reasoning Effort)**: **Low (Hemat & Cepat)**, **Medium (Seimbang)**, atau **High (Maksimal / Unlimited)**, untuk model yang mendukung penalaran.
+- **Tingkat Penalaran (Reasoning Effort)**: **Ikuti Agent Profile** (bawaan; setiap preset memakai tingkatnya sendiri), **Low (Hemat & Cepat)**, **Medium (Seimbang)**, atau **High (Maksimal / Unlimited)**, untuk model yang mendukung penalaran. Low, Medium, atau High berlaku untuk semua Agent Profile, termasuk preset bawaan; makin tinggi, makin lambat dan makin banyak token terpakai.
 
 ### Bagian 2 — Mesin Pencari Web & Riset Fakta
 

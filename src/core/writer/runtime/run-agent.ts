@@ -28,7 +28,7 @@ import { postprocessArticle } from "./postprocess";
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
 import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
 import { preResolveTaxonomyAndAuthor, type PreResolvedContext } from "./pre-resolve";
-import { writerModelCandidates } from "./resolve-model";
+import { resolveWriterReasoningEffort, writerModelCandidates } from "./resolve-model";
 import {
   GENERATION_CHECKPOINT_MAX_BYTES,
   GENERATION_CHECKPOINT_SCHEMA_VERSION,
@@ -371,8 +371,11 @@ export async function runAgentWriter(
       userDefaultModel: userKeys.defaultAiModel,
     }),
     temperature: profile.temperature,
-    reasoningEffort:
-      request.reasoningEffort || profile.reasoningEffort || userKeys.reasoningEffort,
+    reasoningEffort: resolveWriterReasoningEffort({
+      requestEffort: request.reasoningEffort,
+      profile,
+      userEffort: userKeys.reasoningEffort,
+    }),
     tracing: userKeys,
     usage: recorder.usage,
     signal: abortSignal,

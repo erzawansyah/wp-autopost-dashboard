@@ -100,7 +100,7 @@ export async function getUserSettings(supabase: SupabaseClient, userId: string):
     langsmithProject: nonEmptyString(notif.langsmith_project) ?? DEFAULT_LANGSMITH_PROJECT,
     searxngUrl: nonEmptyString(row.searxng_url) ?? null,
     defaultAiModel: nonEmptyString(search.default_ai_model) ?? nonEmptyString(notif.default_ai_model) ?? null,
-    reasoningEffort: asReasoningEffort(search.reasoning_effort) ?? asReasoningEffort(notif.reasoning_effort) ?? "low",
+    reasoningEffort: asReasoningEffort(search.reasoning_effort) ?? asReasoningEffort(notif.reasoning_effort) ?? null,
     searchPreferences: pickClientSearchPreferences(search),
     developerMode: notif.developer_mode === true,
     updatedAt: nonEmptyString(row.updated_at),
@@ -173,14 +173,17 @@ export async function updateUserSettings(
   const searchInput = input.searchPreferences ?? {}
   if (searchInput.default_provider !== undefined) searchPrefs.default_provider = searchInput.default_provider
   if (searchInput.default_ai_model !== undefined) searchPrefs.default_ai_model = searchInput.default_ai_model || null
-  if (searchInput.reasoning_effort !== undefined) searchPrefs.reasoning_effort = searchInput.reasoning_effort
   if (input.defaultAiModel !== undefined) searchPrefs.default_ai_model = input.defaultAiModel || null
-  if (input.reasoningEffort !== undefined) searchPrefs.reasoning_effort = input.reasoningEffort
+  // Tingkat penalaran: `null` = hapus (ikuti Agent Profile), termasuk salinan lama di `notification_prefs`.
+  const reasoningEffort = input.reasoningEffort !== undefined ? input.reasoningEffort : searchInput.reasoning_effort
+  if (reasoningEffort === null) delete searchPrefs.reasoning_effort
+  else if (reasoningEffort !== undefined) searchPrefs.reasoning_effort = reasoningEffort
   updates.search_preferences = searchPrefs
 
   // Kredensial LangSmith (terenkripsi) ikut di jsonb notification_prefs; selalu ditetapkan server. Kunci tersimpan
   // lain dipertahankan apa adanya (kunci yang tidak lagi dipakai cukup diabaikan saat dibaca).
   const existingPrefs = asRecord(existing?.notification_prefs)
+  if (reasoningEffort === null) delete existingPrefs.reasoning_effort
   const nextLangsmithKey = nextEncryptedKey(input.langsmithApiKey)
   updates.notification_prefs = {
     ...existingPrefs,

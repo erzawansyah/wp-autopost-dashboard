@@ -21,7 +21,8 @@ export interface UserSettingsResponse {
     langsmith: MaskedKeyInfo
   }
   defaultAiModel?: string | null
-  reasoningEffort?: "low" | "medium" | "high"
+  /** Tingkat penalaran akun; `null` = tidak ditetapkan (preset memakai nilai bawaannya). */
+  reasoningEffort: "low" | "medium" | "high" | null
   langsmithProject?: string | null
   searxngUrl: string | null
   searchPreferences: SearchPreferences
@@ -36,6 +37,7 @@ export type UserSettings = Omit<UserSettingsResponse, "ok">
 export interface DecryptedUserKeys {
   openrouterKey?: string
   defaultAiModel?: string
+  /** Hanya bila akun menetapkannya; tanpa nilai → preset memakai nilai bawaannya (`resolveWriterReasoningEffort`). */
   reasoningEffort?: "low" | "medium" | "high"
   tavilyKey?: string
   braveKey?: string

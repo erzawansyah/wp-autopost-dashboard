@@ -7,11 +7,26 @@ import { FieldDescription, FieldSet, FieldLegend } from "@/components/atoms/fiel
 import { RadioGroup, RadioGroupItem } from "@/components/atoms/radio-group"
 import { REASONING_EFFORT_OPTIONS } from "@/lib/ai/reasoning"
 import { cn } from "@/lib/utils"
-import type { ApiKeysFormValues } from "@/lib/validation/settings"
+import { FOLLOW_PROFILE_REASONING, type ApiKeysFormValues } from "@/lib/validation/settings"
+
+/** "Ikuti Agent Profile" (tanpa nilai akun) + low/medium/high (berlaku untuk semua Agent Profile, termasuk preset). */
+const ACCOUNT_REASONING_OPTIONS: ReadonlyArray<{
+  value: ApiKeysFormValues["reasoningEffort"]
+  label: string
+  description: string
+}> = [
+  {
+    value: FOLLOW_PROFILE_REASONING,
+    label: "Ikuti Agent Profile",
+    description:
+      "Setiap preset memakai tingkat bawaannya (Quick Writer & Research & Media Writer: Low, Deep Research Specialist: Medium); Agent Profile kustom memakai Low.",
+  },
+  ...REASONING_EFFORT_OPTIONS,
+]
 
 /**
- * Pilihan tingkat penalaran (low/medium/high) sebagai kartu `RadioGroup`: panah keyboard berpindah opsi,
- * fokus terlihat di kartu, dan grup diberi nama lewat `legend`.
+ * Pilihan tingkat penalaran akun sebagai kartu `RadioGroup`: panah keyboard berpindah opsi, fokus terlihat di
+ * kartu, dan grup diberi nama lewat `legend`.
  */
 export function ReasoningEffortField({ control }: { control: Control<ApiKeysFormValues> }) {
   const idPrefix = React.useId()
@@ -25,23 +40,24 @@ export function ReasoningEffortField({ control }: { control: Control<ApiKeysForm
           <FieldLegend variant="label" className="mb-0 flex items-center gap-1.5 text-xs font-semibold text-foreground/90">
             Tingkat Penalaran (Reasoning Effort)
             <Badge variant="outline" className="font-mono text-2xs uppercase">
-              {field.value}
+              {field.value === FOLLOW_PROFILE_REASONING ? "profil" : field.value}
             </Badge>
           </FieldLegend>
           <FieldDescription className="text-xs leading-relaxed">
             Mengatur kedalaman &amp; budget penalaran (thinking tokens) untuk model penalaran seperti DeepSeek R1, Qwen
-            Thinking, dan OpenAI o-series.
+            Thinking, dan OpenAI o-series. Low, Medium, atau High berlaku untuk semua Agent Profile, termasuk preset
+            bawaan; makin tinggi, makin lambat dan makin banyak token terpakai.
           </FieldDescription>
           <RadioGroup
             value={field.value}
             onValueChange={(value) => {
-              const option = REASONING_EFFORT_OPTIONS.find((candidate) => candidate.value === value)
+              const option = ACCOUNT_REASONING_OPTIONS.find((candidate) => candidate.value === value)
               if (option) field.onChange(option.value)
             }}
             onBlur={field.onBlur}
-            className="grid-cols-1 gap-2.5 pt-1 sm:grid-cols-3"
+            className="grid-cols-1 gap-2.5 pt-1 sm:grid-cols-2 xl:grid-cols-4"
           >
-            {REASONING_EFFORT_OPTIONS.map((option) => {
+            {ACCOUNT_REASONING_OPTIONS.map((option) => {
               const isSelected = field.value === option.value
               const id = `${idPrefix}-${option.value}`
               return (

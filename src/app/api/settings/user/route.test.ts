@@ -184,6 +184,14 @@ describe("GET /api/settings/user", () => {
     expect((await (await getSettings()).json()).developerMode).toBe(false)
   })
 
+  it("reasoningEffort null bila akun belum menetapkan (form menampilkan 'Ikuti Agent Profile')", async () => {
+    withStoredRow({ search_preferences: { default_provider: "auto" } })
+    expect((await (await getSettings()).json()).reasoningEffort).toBeNull()
+
+    withStoredRow(null)
+    expect((await (await getSettings()).json()).reasoningEffort).toBeNull()
+  })
+
   it("status kunci SerpAPI hanya configured + mask tetap", async () => {
     const serpCipher = "ee55:ff66:serpapicipher"
     withStoredRow({ encrypted_serpapi_key: serpCipher })
@@ -335,6 +343,29 @@ describe("PUT /api/settings/user", () => {
       default_ai_model: "anthropic/claude",
       reasoning_effort: "high",
     })
+  })
+
+  it("reasoningEffort null menghapus nilai tersimpan, termasuk salinan lama di notification_prefs", async () => {
+    withStoredRow({
+      search_preferences: { default_provider: "tavily", reasoning_effort: "high" },
+      notification_prefs: { developer_mode: true, reasoning_effort: "medium" },
+    })
+
+    const res = await putSettings({ reasoningEffort: null, searchPreferences: { default_provider: "tavily" } })
+
+    expect(res.status).toBe(200)
+    const payload = lastUpsertPayload()
+    expect(payload.search_preferences).toEqual({ default_provider: "tavily" })
+    expect(payload.notification_prefs).toMatchObject({ developer_mode: true })
+    expect(payload.notification_prefs).not.toHaveProperty("reasoning_effort")
+  })
+
+  it("reasoningEffort tidak dikirim → nilai tersimpan tidak berubah", async () => {
+    withStoredRow({ search_preferences: { default_provider: "tavily", reasoning_effort: "high" } })
+
+    await putSettings({ defaultAiModel: "anthropic/claude" })
+
+    expect(lastUpsertPayload().search_preferences).toMatchObject({ reasoning_effort: "high" })
   })
 
   it("searxngUrl privat/lokal ditolak (Anti-SSRF), kosong = kembali ke default", async () => {

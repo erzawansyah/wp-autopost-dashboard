@@ -158,7 +158,7 @@ Untuk saat CLI tidak dapat terhubung (mis. hanya akses Dashboard):
    ```bash
    npx --yes supabase@2.121.0 migration repair --status applied \
      20261015090000 20261015090001 20261015100000 20261015110000 \
-     20261016090000 20261017090000 20261017100000 --db-url "$DB_URL"
+     20261016090000 20261017090000 20261017100000 20261018090000 --db-url "$DB_URL"
    npx --yes supabase@2.121.0 db push --dry-run --db-url "$DB_URL"   # harus: Remote database is up to date.
    ```
 `migration repair` hanya menulis riwayat (membuat tabel riwayat bila belum ada), tidak menjalankan SQL: jangan pernah menandai `applied` untuk berkas yang belum benar-benar dijalankan. Alur ini juga diuji dengan CLI 2.121.0.

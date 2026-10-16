@@ -8,7 +8,8 @@ import { processAndSyncArticleMedia } from "@/core/shared/media/auto-media-pipel
 import { createPromptVersionTracker } from "@/core/shared/prompts/loader"
 import { LlmUsageLedger, type LlmUsageSnapshot } from "@/core/shared/llm/usage"
 import { resolveAgentProfile } from "@/core/writer/runtime/resolve-profile"
-import { resolveWriterModel } from "@/core/writer/runtime/resolve-model"
+import { resolveWriterModel, resolveWriterReasoningEffort } from "@/core/writer/runtime/resolve-model"
+import { toReasoningEffort } from "@/lib/ai/reasoning"
 import { LEGACY_ENGINE_MAP } from "@/core/writer/profiles"
 import { AgentStepEvent } from "@/core/writer/runtime/telemetry"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
@@ -898,11 +899,11 @@ async function executePostItem(
               tagNames: sanitizeTermNames(storedTags),
             },
             model: aiModel,
-            reasoningEffort:
-              (payloadMeta.reasoningEffort as "low" | "medium" | "high" | undefined) ||
-              resolvedProfile.reasoningEffort ||
-              userKeys.reasoningEffort ||
-              "low",
+            reasoningEffort: resolveWriterReasoningEffort({
+              requestEffort: toReasoningEffort(payloadMeta.reasoningEffort),
+              profile: resolvedProfile,
+              userEffort: userKeys.reasoningEffort,
+            }),
             userId: post.user_id,
             customInstructions: post.custom_instructions_override || undefined,
           },

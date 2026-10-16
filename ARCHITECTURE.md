@@ -406,6 +406,7 @@ Klien: §11.5.
 | `20261016090000_generation_checkpoints.sql` | Tabel `generation_checkpoints`, RPC `save_generation_checkpoint`, metrik biaya/versi `agent_runs` |
 | `20261017090000_realtime_publication.sql` | (Digantikan) mendaftarkan 2 tabel antrean ke `supabase_realtime` |
 | `20261017100000_realtime_broadcast.sql` | Keluarkan dari publication, trigger Broadcast privat, policy `realtime.messages` |
+| `20261018090000_backfill_requested_category_names.sql` | Data: salin kategori baris lama (`categories`) ke `source_payload.requested_category_names` untuk item batch yang masih akan di-pre-resolve |
 
 - `supabase/seed.sql`: skill sistem `anti-ai-editor` (dijalankan `db reset`; `db push` hanya dengan `--include-seed`).
 - `supabase/tests/` (PGlite, tanpa Docker; `npm run db:test`, juga ikut `npm test`): `rls`, `constraints`, `queue`,
@@ -623,7 +624,8 @@ onCheckpoint }` dan `usageLedger` opsional; Lab & eval berjalan tanpa persistens
   `ChatOpenRouter` tidak pernah dibuat). Urutan model writer (`writer/runtime/resolve-model.ts`, dipakai worker & `runAgentWriter`
   sehingga antrean dan Lab sama): `request.model (aiModel per item) → model Agent Profile kustom → defaultAiModel pengguna →
   model preset (preset tidak pernah mengalahkan default akun) → OPENROUTER_DEFAULT_MODEL → DEFAULT_AI_MODEL`
-  (`meta-llama/llama-3.3-70b-instruct`).
+  (`meta-llama/llama-3.3-70b-instruct`). Tingkat penalaran berpola sama (`resolveWriterReasoningEffort`):
+  `reasoningEffort per item → nilai Agent Profile kustom → nilai akun (kosong = "Ikuti Agent Profile") → nilai preset → low`.
 - Retry bawaan model (backoff + jitter, berhenti saat abort; tanpa retry untuk 400/401/402/403/kuota). Middleware fallback model
   (`ai.fallbackModels`) hanya untuk model tidak tersedia / 429 / 5xx / jaringan setelah retry habis, lengket dalam run, berlaku
   juga untuk subagent Deep. Model `:free` tidak pernah dialihkan ke model berbayar; batas harian model gratis diperlakukan

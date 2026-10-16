@@ -1,4 +1,5 @@
 import { selectModelId } from "@/core/shared/llm/gateway"
+import type { ReasoningEffort } from "@/lib/ai/reasoning"
 import type { AgentProfile } from "../types/profile"
 
 /**
@@ -28,4 +29,27 @@ export function writerModelCandidates({ requestModel, profile, userDefaultModel 
 /** Model yang akan dipakai run: kandidat pertama, lalu env `OPENROUTER_DEFAULT_MODEL`, lalu `DEFAULT_AI_MODEL`. */
 export function resolveWriterModel(sources: WriterModelSources): string {
   return selectModelId(writerModelCandidates(sources))
+}
+
+/**
+ * Prioritas Tingkat Penalaran (reasoning effort) — sama polanya dengan model, satu sumber untuk worker antrean &
+ * `runAgentWriter` (Lab):
+ * 1. nilai eksplisit per permintaan (field `reasoningEffort` API antrean);
+ * 2. nilai pada Agent Profile kustom (bila suatu saat diisi);
+ * 3. Tingkat Penalaran akun (Pengaturan › Kunci API & Model AI) — berlaku juga untuk preset bawaan; kosong bila
+ *    akun memilih "Ikuti Agent Profile";
+ * 4. nilai bawaan preset (Quick Writer & Research & Media Writer: low, Deep Research Specialist: medium);
+ * 5. `low`.
+ */
+export interface WriterReasoningSources {
+  requestEffort?: ReasoningEffort | null
+  profile: Pick<AgentProfile, "reasoningEffort" | "isPreset">
+  userEffort?: ReasoningEffort | null
+}
+
+export function resolveWriterReasoningEffort({ requestEffort, profile, userEffort }: WriterReasoningSources): ReasoningEffort {
+  const ordered = profile.isPreset
+    ? [requestEffort, userEffort, profile.reasoningEffort]
+    : [requestEffort, profile.reasoningEffort, userEffort]
+  return ordered.find((effort): effort is ReasoningEffort => Boolean(effort)) ?? "low"
 }

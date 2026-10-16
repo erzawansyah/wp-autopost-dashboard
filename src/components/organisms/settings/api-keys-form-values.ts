@@ -1,6 +1,7 @@
 import { DEFAULT_AI_MODEL } from "@/lib/ai/settings"
 import {
   BYOK_KEY_FIELDS,
+  FOLLOW_PROFILE_REASONING,
   type ApiKeysFormValues,
   type ByokKeyField,
   type UpdateUserSettingsInput,
@@ -25,7 +26,7 @@ export function toApiKeysFormValues(settings: UserSettings): ApiKeysFormValues {
   return {
     ...EMPTY_BYOK_KEYS,
     defaultAiModel: settings.defaultAiModel || DEFAULT_AI_MODEL,
-    reasoningEffort: settings.reasoningEffort ?? settings.searchPreferences.reasoning_effort ?? "low",
+    reasoningEffort: settings.reasoningEffort ?? FOLLOW_PROFILE_REASONING,
     defaultSearchProvider: settings.searchPreferences.default_provider ?? "auto",
     langsmithProject: settings.langsmithProject || DEFAULT_LANGSMITH_PROJECT,
   }
@@ -37,13 +38,14 @@ export function toApiKeysFormValues(settings: UserSettings): ApiKeysFormValues {
  * sengaja tidak dikirim agar nilai tersimpan lama tidak divalidasi ulang dan tidak memblokir penyimpanan.
  */
 export function toUserSettingsUpdate(values: ApiKeysFormValues): UpdateUserSettingsInput {
+  // "Ikuti Agent Profile" disimpan sebagai ketiadaan nilai (`null` menghapus nilai tersimpan).
+  const reasoningEffort = values.reasoningEffort === FOLLOW_PROFILE_REASONING ? null : values.reasoningEffort
   const update: UpdateUserSettingsInput = {
     defaultAiModel: values.defaultAiModel,
-    reasoningEffort: values.reasoningEffort,
+    reasoningEffort,
     searchPreferences: {
       default_provider: values.defaultSearchProvider,
       default_ai_model: values.defaultAiModel,
-      reasoning_effort: values.reasoningEffort,
     },
     langsmithProject: values.langsmithProject.trim() || DEFAULT_LANGSMITH_PROJECT,
   }

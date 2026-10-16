@@ -62,7 +62,7 @@ Fungsi kolom yang tersedia:
 | **Kata kunci sekunder (LSI)** | Istilah yang wajib dibahas secara natural. |
 | **Fokus pembahasan / brief** | Arahan sudut pandang khusus untuk baris tersebut. |
 | **Tag WordPress** | Tag khusus baris, digabung dengan tag default batch. |
-| **Kategori WordPress** | Nama kategori yang **sudah ada** di website (dicocokkan dengan nama atau slug, huruf besar/kecil diabaikan) dan dipakai untuk baris itu, mengalahkan **Kategori WordPress default** di tab Lanjutan. Panitera tidak membuat kategori baru: bila nama tidak ditemukan, artikel memakai kategori default batch (atau dipilih AI bila kosong) dan peringatan tercatat di **Log aktivitas** artikel. |
+| **Kategori WordPress** | Nama kategori yang **sudah ada** di website (dicocokkan dengan nama atau slug, huruf besar/kecil diabaikan) dan dipakai untuk baris itu, mengalahkan **Kategori WordPress default** di tab Lanjutan. Panitera tidak membuat kategori baru: bila nama tidak ditemukan, artikel memakai kategori default batch (atau dipilih AI bila kosong) dan peringatan tercatat di **Log aktivitas** artikel. Artikel yang masih menunggu di antrean saat versi ini dipasang juga ikut memakai kategori barisnya. |
 | **Abaikan kolom ini** | Kolom tidak diproses. |
 
 Tips data:

@@ -6,6 +6,13 @@
 
 export type ReasoningEffort = "low" | "medium" | "high"
 
+const REASONING_EFFORTS: readonly ReasoningEffort[] = ["low", "medium", "high"]
+
+/** Nilai tingkat penalaran dari data tak bertipe (mis. jsonb `source_payload`); selain low/medium/high → undefined. */
+export function toReasoningEffort(value: unknown): ReasoningEffort | undefined {
+  return REASONING_EFFORTS.find((effort) => effort === value)
+}
+
 export interface OpenRouterReasoningPayload {
   effort: ReasoningEffort
 }

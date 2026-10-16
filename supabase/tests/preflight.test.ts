@@ -100,14 +100,15 @@ async function seedLegacyData(db: PGlite): Promise<LegacyData> {
 
   const { id: batchA } = await one<{ id: string }>(
     db,
-    `insert into public.content_batches (user_id, wp_site_id, name, execution_mode, status, total_items)
-     values ($1, $2, 'Batch lama', 'scheduled_drip', 'running', 2) returning id`,
+    `insert into public.content_batches (user_id, wp_site_id, name, execution_mode, status, total_items, ai_config)
+     values ($1, $2, 'Batch lama', 'scheduled_drip', 'running', 2, '{"category_names": ["Umum"]}') returning id`,
     [userA, siteA]
   )
   const { id: queuedA } = await one<{ id: string }>(
     db,
-    `insert into public.post_items (user_id, wp_site_id, batch_id, target_keyword, state, scheduled_for)
-     values ($1, $2, $3, 'antre', 'queued_input', now() + interval '1 day') returning id`,
+    // Kategori per baris Tulis Terstruktur (aplikasi lama hanya menyimpannya sebagai label) → di-backfill migrasi.
+    `insert into public.post_items (user_id, wp_site_id, batch_id, target_keyword, state, scheduled_for, categories)
+     values ($1, $2, $3, 'antre', 'queued_input', now() + interval '1 day', '["Resep"]') returning id`,
     [userA, siteA, batchA]
   )
   await db.query(
@@ -216,6 +217,7 @@ describe("(i) skema lama + data bersih", () => {
   it("data yang akan diubah migrasi dan dampak BYOK dilaporkan INFO", () => {
     expect(check(rows, "Data fix Fase 0: failed_sync tanpa naskah")).toMatchObject({ status: "INFO", jumlah: 1 })
     expect(check(rows, "uploaded_media.user_id kosong yang akan diisi")).toMatchObject({ status: "INFO", jumlah: 1 })
+    expect(check(rows, "Backfill kategori per baris")).toMatchObject({ status: "INFO", jumlah: 1 })
     expect(check(rows, "Tenant bersitus tanpa kunci OpenRouter")).toMatchObject({ status: "INFO", jumlah: 1 })
     expect(check(rows, "Antrean menunggu")).toMatchObject({ status: "INFO", jumlah: 1 })
     expect(check(rows, "Antrean in-flight")).toMatchObject({ status: "OK", jumlah: 0 })
@@ -452,6 +454,7 @@ describe("(iii) setelah seluruh migrasi", () => {
         "CHECK constraint yang tidak dikenal migrasi",
         "Data fix Fase 0: failed_sync tanpa naskah",
         "uploaded_media.user_id kosong yang akan diisi",
+        "Backfill kategori per baris",
       ]) {
         expect(check(after, prefix).status, prefix).toBe("OK")
       }
