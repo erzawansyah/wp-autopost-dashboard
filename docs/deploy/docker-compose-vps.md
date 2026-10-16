@@ -1,6 +1,6 @@
 # Deploy & Operasi Panitera di VPS (Docker Compose)
 
-Panduan operator untuk menjalankan Panitera (branch `v2`) di satu VPS dengan Docker Compose dan database Supabase Cloud. Upgrade satu kali dari production lama (`main`) punya runbook sendiri: [`upgrade-ke-v2.md`](upgrade-ke-v2.md).
+Panduan operator untuk menjalankan Panitera (branch `main`, versi `0.2.x`) di satu VPS dengan Docker Compose dan database Supabase Cloud. Upgrade satu kali dari production lama (`main`) punya runbook sendiri: [`upgrade-ke-v2.md`](upgrade-ke-v2.md).
 
 Konvensi: `<PROJECT_REF>`, `<POOLER_HOST>`, `<DOMAIN>`, `<COMMIT_ATAU_TAG>` adalah placeholder. Jangan pernah menulis nilai aslinya (apalagi password/kunci) ke berkas yang di-track Git, worklog, atau tiket.
 
@@ -216,7 +216,7 @@ Catatan:
 ### 8.1 Stack Portainer (Git repository)
 
 Production Panitera dijalankan sebagai stack Portainer yang dibuat dari **Repository** (Git): Portainer menyalin
-kode branch yang dipilih (*Repository reference*, sejak upgrade 16 Okt 2026 `refs/heads/v2`) ke folder stack
+kode branch yang dipilih (*Repository reference* `refs/heads/main`; saat upgrade 16 Okt 2026 sempat `refs/heads/v2`) ke folder stack
 `/var/lib/docker/volumes/portainer_data/_data/compose/<id>/` (tanpa `.git`) lalu membangun image dari folder itu.
 Perbedaan dengan langkah di atas:
 - **Env** diatur di UI stack (*Environment variables*), bukan `.env`. Portainer menulisnya ke `stack.env` di folder

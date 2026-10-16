@@ -2,6 +2,8 @@
 
 Runbook berlangkah untuk memindahkan production yang berjalan dari branch `main` (Docker Compose di VPS + Supabase Cloud, skema dibuat skrip ad-hoc tanpa riwayat migrasi) ke branch `v2`. Centang setiap langkah dan catat waktunya. Operasi sehari-hari setelah upgrade: [`docker-compose-vps.md`](docker-compose-vps.md) (selanjutnya "panduan VPS").
 
+> **Selesai 16 Okt 2026.** Branch `v2` kemudian digabung ke `main` (tag `v0.2.0`); versi lama ditandai tag `v0.1.2` (commit `624f37c`). Rujukan branch `v2` di runbook ini bersifat historis (kode yang dideploy saat upgrade: commit `e84c38f`).
+
 **Placeholder:** `<MAIN_COMMIT>` (commit production sekarang), `<V2_COMMIT>` (commit v2 yang dideploy), `<PROJECT_REF>`, `<POOLER_HOST>`, `<DEPLOY_DIR>` (folder checkout di VPS). Nama project Compose = nama folder `<DEPLOY_DIR>`; contoh di bawah memakai `wp-autopost-dashboard`, sehingga image aplikasi bernama `wp-autopost-dashboard-panitera` — cek dengan `docker compose config --images`. Koneksi database memakai `DB_URL` + `PGPASSWORD` seperti panduan VPS §2.
 
 **Peran:** operator (menjalankan langkah) dan pemilik produk (keputusan GO/rollback, keputusan perbaikan data). Rencanakan jendela pemeliharaan ±90 menit.

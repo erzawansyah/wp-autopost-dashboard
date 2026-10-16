@@ -1,7 +1,7 @@
 # PRD.md — Product Requirement Document
 
 **Nama Produk**: Panitera (WP Autopost & Multi-Site Content Dashboard)
-**Versi**: `0.2.0-dev` (branch `v2`, rombak v2)
+**Versi**: `0.2.0` (branch `main`, tag `v0.2.0`; versi lama: tag `v0.1.2`)
 **Status Dokumen**: Baseline spesifikasi produk, disinkronkan dengan kode pada Fase 5 rombak v2
 **Pemilik Dokumen**: Tim produk & pengembang Panitera (dokumen ini adalah sumber tunggal spesifikasi produk)
 **Referensi Silang**:
@@ -261,7 +261,7 @@ Aturan keandalan:
 
 ## 7. Status Rilis
 
-**Versi saat ini: `0.2.0-dev` (branch `v2`).**
+**Versi saat ini: `0.2.0` (branch `main`, tag `v0.2.0`) — di production sejak 16 Okt 2026.**
 
 | Fase rombak v2 | Status | Ringkasan |
 | :--- | :--- | :--- |
