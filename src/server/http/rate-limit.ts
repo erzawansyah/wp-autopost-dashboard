@@ -78,4 +78,10 @@ export const RATE_LIMITS = {
   outboundTest: { bucket: "outbound-test", limit: 15, windowMs: 60_000 },
   /** Pembuatan job antrean (Tulis Cepat, batch). */
   enqueue: { bucket: "enqueue", limit: 30, windowMs: 60_000 },
+  /**
+   * Ganti kata sandi akun (memverifikasi kata sandi lama). Sangat ketat: membatasi tebakan kata sandi dari sesi
+   * yang dibajak, dan verifikasi berjalan dari IP server sehingga ikut menghabiskan kuota rate limit Supabase Auth
+   * per IP yang dipakai bersama semua tenant.
+   */
+  credentialChange: { bucket: "credential-change", limit: 5, windowMs: 15 * 60_000 },
 } as const satisfies Record<string, RateLimitRule>

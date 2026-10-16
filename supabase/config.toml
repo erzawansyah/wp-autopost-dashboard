@@ -205,8 +205,8 @@ anonymous_users = 30
 # Number of sessions that can be refreshed in a 5 minute interval per IP address.
 token_refresh = 150
 # Number of sign up and sign-in requests that can be made in a 5 minute interval per IP address (excludes anonymous users).
-# Hanya stack LOKAL (Supabase CLI; production diatur di dashboard): satu run `npm run test:e2e` melakukan ±7 login/
-# daftar dari 127.0.0.1, jadi nilai bawaan 30 sudah habis setelah ±4 run beruntun. Test DB PGlite tidak membaca berkas ini.
+# Hanya stack LOKAL (Supabase CLI; production diatur di dashboard): satu run `npm run test:e2e` melakukan ±13 login/
+# daftar dari 127.0.0.1, jadi nilai bawaan 30 sudah habis setelah ±2 run beruntun. Test DB PGlite tidak membaca berkas ini.
 sign_in_sign_ups = 300
 # Number of OTP / Magic link verifications that can be made in a 5 minute interval per IP address.
 token_verifications = 30

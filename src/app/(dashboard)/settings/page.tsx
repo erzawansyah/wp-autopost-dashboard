@@ -41,7 +41,7 @@ export default function SettingsPage() {
           href="/settings/profile"
           icon={UserRound}
           title="Profil & Preferensi Akun"
-          description="Identitas tenant, status Row Level Security (RLS), preferensi notifikasi kegagalan posting, dan Developer Mode."
+          description="Identitas tenant, ganti kata sandi akun, status Row Level Security (RLS), preferensi notifikasi kegagalan posting, dan Developer Mode."
           cta="Buka profil & preferensi"
         />
         <SettingsLinkCard

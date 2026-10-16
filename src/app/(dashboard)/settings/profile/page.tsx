@@ -1,6 +1,7 @@
 import { UserRound } from "lucide-react"
 import { PageHeader } from "@/components/molecules/page-header"
 import { AccountIdentityCard } from "@/components/organisms/settings/account-identity-card"
+import { ChangePasswordForm } from "@/components/organisms/settings/change-password-form"
 import { ProfileSettingsForm } from "@/components/organisms/settings/profile-settings-form"
 import { PageContainer } from "@/components/templates/page-container"
 import { requireSession } from "@/lib/auth/session"
@@ -16,12 +17,13 @@ export default async function ProfileSettingsPage() {
     <PageContainer size="narrow">
       <PageHeader
         title="Profil & Preferensi Akun"
-        description="Kelola identitas tenant, preferensi notifikasi autoposting, dan akses Developer Mode akun Anda."
+        description="Kelola identitas tenant, kata sandi akun, preferensi notifikasi autoposting, dan akses Developer Mode akun Anda."
         icon={UserRound}
         backHref="/settings"
         backLabel="Kembali ke Pengaturan"
       />
       <AccountIdentityCard userId={user.id} email={user.email} />
+      <ChangePasswordForm email={user.email} />
       <ProfileSettingsForm initialSettings={settings} />
     </PageContainer>
   )
