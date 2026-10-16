@@ -499,7 +499,7 @@ begin
       || 'riwayat lalu menerapkan seluruh migrasi v2; jalur SQL Editor wajib diikuti `supabase migration repair`.';
   else
     jumlah := hasil.n;
-    if hasil.n = 7 then
+    if hasil.n = (select count(*) from pg_temp.pf_migrasi_ekspektasi()) then
       status := 'OK';
       tindakan := 'Seluruh migrasi v2 tercatat diterapkan.';
     elsif hasil.n = 0 then

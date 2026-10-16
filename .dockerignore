@@ -24,6 +24,8 @@ out
 .env*.local
 .env
 !.env.example
+# Ditulis Portainer ke folder stack (= build context) dan berisi seluruh variabel stack, termasuk rahasia.
+stack.env
 
 # Temporary & sandbox files
 .workspaces/temp

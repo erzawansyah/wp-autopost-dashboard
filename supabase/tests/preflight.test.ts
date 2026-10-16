@@ -400,6 +400,44 @@ describe("(iii) setelah seluruh migrasi", () => {
     })
   })
 
+  describe("riwayat migrasi CLI (supabase_migrations.schema_migrations)", () => {
+    let db: PGlite
+    const versions = readMigrations().map((file) => file.name.split("_")[0])
+
+    beforeAll(async () => {
+      db = await createTestDb()
+      await db.exec(`
+        create schema supabase_migrations;
+        create table supabase_migrations.schema_migrations (version text primary key, statements text[], name text);
+      `)
+    }, 60_000)
+
+    afterAll(async () => {
+      await db.close()
+    })
+
+    it("tabel riwayat kosong: INFO", async () => {
+      expect(check(await runPreflight(db), "Riwayat migrasi").status).toBe("INFO")
+    })
+
+    it("sebagian versi tercatat: PERINGATAN menyebut versi yang belum", async () => {
+      const [first, ...rest] = versions
+      if (!first || rest.length === 0) throw new Error("Daftar migrasi kosong")
+      await db.query("insert into supabase_migrations.schema_migrations (version) values ($1)", [first])
+      const riwayat = check(await runPreflight(db), "Riwayat migrasi")
+      expect(riwayat).toMatchObject({ status: "PERINGATAN", jumlah: 1 })
+      for (const version of rest) expect(riwayat.tindakan).toContain(version)
+    })
+
+    it("seluruh versi migrasi tercatat: OK", async () => {
+      await db.query(
+        "insert into supabase_migrations.schema_migrations (version) select unnest($1::text[]) on conflict do nothing",
+        [versions]
+      )
+      expect(check(await runPreflight(db), "Riwayat migrasi")).toMatchObject({ status: "OK", jumlah: versions.length })
+    })
+  })
+
   describe("upgrade dari skema lama", () => {
     let legacy: { db: PGlite; data: LegacyData }
     let before: PreflightRow[]

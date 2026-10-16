@@ -14,7 +14,7 @@ Konvensi: `<PROJECT_REF>`, `<POOLER_HOST>`, `<DOMAIN>`, `<COMMIT_ATAU_TAG>` adal
 | `searxng-internal` | image `searxng/searxng` (tag dipin di `docker-compose.yml`) | Hanya `expose: 8080` di jaringan Docker internal; tidak dipublikasikan ke host. |
 | Supabase Cloud | project Anda | PostgreSQL (skema dari `supabase/migrations/`), Auth, Realtime (Broadcast privat untuk status antrean live). |
 
-Tidak ada volume data di container: seluruh state ada di Supabase. Yang wajib dijaga di VPS hanya berkas `.env` (lihat §10).
+Tidak ada volume data di container: seluruh state ada di Supabase. Yang wajib dijaga di VPS hanya berkas `.env` (lihat §10) — atau env stack bila memakai Portainer (§8.1).
 
 > **Supabase self-hosted:** panduan ini memakai fitur Supabase Cloud (Dashboard, `supabase link`, pooler). Pada self-hosted gunakan `--db-url` ke Postgres Anda untuk semua perintah CLI, pastikan Postgres ≥ 15 dan layanan Realtime (skema `realtime`) tersedia, lalu atur "public access" Realtime lewat konfigurasi tenant Realtime — langkah self-hosted tidak diverifikasi di repo ini.
 
@@ -212,6 +212,26 @@ Catatan:
 - Ubah `NEXT_PUBLIC_*` → wajib langkah 3–4. Ubah variabel runtime lain → `docker compose up -d` (me-*recreate* container). `docker compose restart` **tidak** membaca ulang `.env`.
 - Image SearXNG dipin; perbarui tag di `docker-compose.yml` (PR Dependabot), lalu `docker compose pull searxng-internal && docker compose up -d`.
 - Rollback rilis rutin: checkout commit sebelumnya lalu build & up. Aman selama migrasi rilis tersebut kompatibel mundur (aturan langkah 2).
+
+### 8.1 Stack Portainer (Git repository)
+
+Production Panitera dijalankan sebagai stack Portainer yang dibuat dari **Repository** (Git): Portainer menyalin
+kode branch yang dipilih (*Repository reference*, sejak upgrade 16 Okt 2026 `refs/heads/v2`) ke folder stack
+`/var/lib/docker/volumes/portainer_data/_data/compose/<id>/` (tanpa `.git`) lalu membangun image dari folder itu.
+Perbedaan dengan langkah di atas:
+- **Env** diatur di UI stack (*Environment variables*), bukan `.env`. Portainer menulisnya ke `stack.env` di folder
+  stack dan memakainya untuk substitusi `${…}` compose. Jangan membuat `.env` atau mengedit `stack.env` manual:
+  Portainer menulis ulang berkas itu setiap stack di-update.
+- **Migrasi** (§5) dijalankan dari clone terpisah pada commit yang akan dideploy (folder stack bukan checkout Git),
+  memakai `--db-url "$DB_URL"`, **sebelum** redeploy.
+- **Deploy:** *Pull and redeploy* mengambil head reference terbaru dan membangun ulang image `panitera` (teramati
+  pada upgrade v2). *Re-pull image* boleh dimatikan; nyalakan *Prune services* bila rilis menghapus service.
+  Menyimpan perubahan env atau reference juga memicu redeploy.
+- **Automatic updates (GitOps)** dibiarkan mati: redeploy otomatis dapat mendahului migrasi rilis tersebut.
+- Jangan menjalankan `docker compose up`/`down` manual untuk stack ini — Portainer akan mencatat reference & env
+  yang berbeda dari container yang berjalan, dan *Pull and redeploy* berikutnya memasang ulang kode reference itu.
+- Rollback: ganti reference ke branch/tag sebelumnya lalu *Pull and redeploy*, dengan aturan kompatibilitas mundur
+  yang sama (langkah 2).
 
 ---
 
