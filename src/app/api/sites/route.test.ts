@@ -123,6 +123,7 @@ vi.mock("@/lib/wordpress/client", async (importOriginal) => ({
 
 import { GET as listSitesRoute, POST as createSiteRoute } from "@/app/api/sites/route"
 import { DELETE as deleteSiteRoute, PATCH as updateSiteRoute } from "@/app/api/sites/[id]/route"
+import { POST as checkSiteRoute } from "@/app/api/sites/[id]/check/route"
 import { GET as listCategoriesRoute, POST as createCategoryRoute } from "@/app/api/sites/[id]/categories/route"
 import { GET as listAuthorsRoute, POST as createAuthorRoute } from "@/app/api/sites/[id]/authors/route"
 import { POST as testSiteRoute } from "@/app/api/sites/test/route"
@@ -176,7 +177,11 @@ beforeEach(() => {
   state.tables = {}
   resetRateLimitStore()
   for (const fn of Object.values(wp)) fn.mockReset()
-  wp.testWordPressConnection.mockResolvedValue({ ok: true, user: { id: 7, name: "Admin WP", slug: "admin" } })
+  wp.testWordPressConnection.mockResolvedValue({
+    ok: true,
+    user: { id: 7, name: "Admin WP", slug: "admin" },
+    siteHealth: "connected",
+  })
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
@@ -463,6 +468,109 @@ describe("POST /api/sites/test", () => {
     expect(last?.status).toBe(429)
     expect(last?.headers.get("Retry-After")).toBeTruthy()
     expect((await last?.json()).code).toBe("rate_limited")
+  })
+})
+
+describe("POST /api/sites/[id]/check", () => {
+  const check = (id: string) => checkSiteRoute(new Request("http://localhost/x", { method: "POST" }), withId(id))
+
+  it("wajib sesi; ID bukan UUID → 400", async () => {
+    state.user = null
+    expect((await check(SITE_A)).status).toBe(401)
+
+    state.user = { id: USER_A }
+    const invalid = await check("bukan-uuid")
+    expect(invalid.status).toBe(400)
+    expect((await invalid.json()).code).toBe("validation_failed")
+  })
+
+  it("situs milik tenant lain → 404 tanpa request ke WordPress dan tanpa mengubah baris", async () => {
+    seedSite(SITE_B, USER_B, "https://b.example.com").status = "auth_error"
+
+    const res = await check(SITE_B)
+
+    expect(res.status).toBe(404)
+    expect(wp.testWordPressConnection).not.toHaveBeenCalled()
+    expect(state.tables.wp_sites[0]).toMatchObject({ status: "auth_error", last_checked_at: null })
+  })
+
+  it("kredensial valid → status connected + last_checked_at tersimpan; respons tanpa kredensial", async () => {
+    seedSite(SITE_A, USER_A, "https://a.example.com").status = "auth_error"
+
+    const res = await check(SITE_A)
+    const raw = await res.text()
+    const body = JSON.parse(raw)
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({
+      ok: true,
+      site: { id: SITE_A, status: "connected", last_checked_at: expect.any(String) },
+      message: "Koneksi berhasil! Terhubung sebagai pengguna 'Admin WP'.",
+      verified: true,
+    })
+    expect(state.tables.wp_sites[0]).toMatchObject({ status: "connected", last_checked_at: body.site.last_checked_at })
+    expect(wp.testWordPressConnection).toHaveBeenCalledWith({
+      baseUrl: "https://a.example.com",
+      username: "admin",
+      applicationPassword: PLAIN_PASSWORD,
+    })
+    expect(raw).not.toContain(PLAIN_PASSWORD)
+    expect(raw).not.toContain("encrypted_app_password")
+    expect(raw).not.toContain(String(state.tables.wp_sites[0].encrypted_app_password))
+  })
+
+  it.each([
+    ["auth_error", "Kredensial ditolak (HTTP 401). Pastikan Username dan Application Password sudah sesuai dan belum dicabut."],
+    ["rate_limited", "WordPress atau hosting membatasi jumlah request (HTTP 429). Tunggu beberapa menit lalu coba lagi."],
+    ["unreachable", "Kesalahan jaringan: fetch failed (ENOTFOUND)"],
+  ] as const)("WordPress gagal (%s) → 200 dengan status baru, verified false, dan alasan", async (siteHealth, error) => {
+    seedSite(SITE_A, USER_A, "https://a.example.com")
+    wp.testWordPressConnection.mockResolvedValue({ ok: false, error, siteHealth })
+
+    const res = await check(SITE_A)
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      ok: true,
+      site: { id: SITE_A, status: siteHealth, last_checked_at: expect.any(String) },
+      message: error,
+      verified: false,
+    })
+    expect(state.tables.wp_sites[0].status).toBe(siteHealth)
+  })
+
+  it("hasil tak terklasifikasi (mis. REST API 404) → status & waktu cek tidak berubah", async () => {
+    seedSite(SITE_A, USER_A, "https://a.example.com")
+    const error = "Endpoint REST API tidak ditemukan (404). Pastikan REST API aktif di WordPress Anda."
+    wp.testWordPressConnection.mockResolvedValue({ ok: false, error, siteHealth: null })
+
+    const res = await check(SITE_A)
+
+    expect(await res.json()).toEqual({
+      ok: true,
+      site: { id: SITE_A, status: "connected", last_checked_at: null },
+      message: error,
+      verified: false,
+    })
+    expect(state.tables.wp_sites[0]).toMatchObject({ status: "connected", last_checked_at: null })
+  })
+
+  it("kredensial tersimpan tidak dapat didekripsi → 422 tanpa request ke WordPress", async () => {
+    seedSite(SITE_A, USER_A, "https://a.example.com").encrypted_app_password = "bukan-ciphertext"
+
+    const res = await check(SITE_A)
+
+    expect(res.status).toBe(422)
+    expect((await res.json()).code).toBe("unprocessable")
+    expect(wp.testWordPressConnection).not.toHaveBeenCalled()
+  })
+
+  it("rate limit outboundTest → 429 dengan Retry-After", async () => {
+    seedSite(SITE_A, USER_A, "https://a.example.com")
+    let last: Response | undefined
+    for (let i = 0; i < 16; i++) last = await check(SITE_A)
+    expect(last?.status).toBe(429)
+    expect(last?.headers.get("Retry-After")).toBeTruthy()
   })
 })
 

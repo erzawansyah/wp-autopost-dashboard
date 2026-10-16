@@ -14,6 +14,7 @@ import {
   SsrfBlockedError,
   type SafeFetchOptions,
 } from "@/lib/net/safe-fetch"
+import type { SiteStatus } from "@/types/site"
 import { generateAutoWpAppName } from "./app-name"
 import {
   sanitizeTermName,
@@ -23,6 +24,7 @@ import {
   WP_TITLE_MAX_LENGTH,
   WP_EXCERPT_MAX_LENGTH,
 } from "./plain-text"
+import { readWpErrorCode, siteHealthFromError, siteHealthFromResponse } from "./site-health"
 
 export { generateAutoWpAppName }
 
@@ -34,6 +36,8 @@ export interface WPTestResult {
     slug: string
   }
   error?: string
+  /** Kesehatan situs hasil request ini (`site-health.ts`); `null` = tidak menjelaskan kesehatan situs. */
+  siteHealth: SiteStatus | null
 }
 
 export interface WPCreatePostPayload {
@@ -54,6 +58,8 @@ export interface WPCreatePostResult {
   wpPostUrl?: string
   status?: string
   error?: string
+  /** Kesehatan situs hasil request pembuatan post (`site-health.ts`); `null` = tidak mengubah status situs. */
+  siteHealth: SiteStatus | null
 }
 
 /**
@@ -164,7 +170,26 @@ export function makeAuthHeader(username: string, appPassword: string): string {
 }
 
 /**
- * Uji koneksi ke WordPress REST API menggunakan kredensial pengguna
+ * Kesehatan situs untuk request yang gagal setelah/tanpa respons: kode HTTP bila respons sudah diterima tetapi
+ * body-nya bukan JSON (mis. halaman HTML gateway 502), selain itu dari exception. 2xx dengan body rusak tidak dinilai.
+ */
+function siteHealthAfterFailure(httpStatus: number | undefined, err: unknown): SiteStatus | null {
+  if (httpStatus === undefined) return siteHealthFromError(err)
+  return httpStatus >= 200 && httpStatus < 300 ? null : siteHealthFromResponse(httpStatus)
+}
+
+/** User dari `GET /wp/v2/users/me`; `null` bila body bukan objek user WordPress (mis. halaman HTML). */
+function parseWpUser(body: unknown): NonNullable<WPTestResult["user"]> | null {
+  if (typeof body !== "object" || body === null) return null
+  const { id, name, slug } = body as { id?: unknown; name?: unknown; slug?: unknown }
+  if (typeof id !== "number" || !Number.isSafeInteger(id) || id <= 0) return null
+  const cleanSlug = typeof slug === "string" ? slug : ""
+  return { id, name: (typeof name === "string" && name) || cleanSlug, slug: cleanSlug }
+}
+
+/**
+ * Uji koneksi ke WordPress REST API menggunakan kredensial pengguna (`GET /wp/v2/users/me`).
+ * Selain pesan siap tampil, hasilnya membawa `siteHealth` untuk `wp_sites.status` (cek ulang koneksi).
  */
 export async function testWordPressConnection(params: {
   baseUrl: string
@@ -173,7 +198,7 @@ export async function testWordPressConnection(params: {
 }): Promise<WPTestResult> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
-    return { ok: false, error: error || "URL website WordPress tidak valid." }
+    return { ok: false, error: error || "URL website WordPress tidak valid.", siteHealth: null }
   }
 
   const endpoint = `${normalizedUrl}/wp-json/wp/v2/users/me`
@@ -192,42 +217,67 @@ export async function testWordPressConnection(params: {
       { timeoutMs: 12_000 }
     )
 
-    if (res.status === 401 || res.status === 403) {
+    // Body dibaca sekali (null bila bukan JSON): kode WP_Error membedakan 403 kredensial dari 403 izin/firewall.
+    const body: unknown = await res.json().catch(() => null)
+    const siteHealth = siteHealthFromResponse(res.status, readWpErrorCode(body))
+
+    if (siteHealth === "auth_error") {
       return {
         ok: false,
-        error: "Kredensial ditolak (401/403). Pastikan Username dan Application Password sudah sesuai.",
+        siteHealth,
+        error: `Kredensial ditolak (HTTP ${res.status}). Pastikan Username dan Application Password sudah sesuai dan belum dicabut.`,
+      }
+    }
+
+    if (res.status === 403) {
+      return {
+        ok: false,
+        siteHealth,
+        error:
+          "Akses ditolak WordPress (HTTP 403). Akun WordPress tidak memiliki izin, atau firewall/plugin keamanan memblokir REST API.",
       }
     }
 
     if (res.status === 404) {
       return {
         ok: false,
+        siteHealth,
         error: "Endpoint REST API tidak ditemukan (404). Pastikan REST API aktif di WordPress Anda.",
+      }
+    }
+
+    if (siteHealth === "rate_limited") {
+      return {
+        ok: false,
+        siteHealth,
+        error: "WordPress atau hosting membatasi jumlah request (HTTP 429). Tunggu beberapa menit lalu coba lagi.",
       }
     }
 
     if (!res.ok) {
       return {
         ok: false,
+        siteHealth,
         error: `Server WordPress merespons dengan status HTTP ${res.status}.`,
       }
     }
 
-    const user = await res.json()
-    return {
-      ok: true,
-      user: {
-        id: user.id,
-        name: user.name || user.slug,
-        slug: user.slug,
-      },
+    const user = parseWpUser(body)
+    if (!user) {
+      return {
+        ok: false,
+        siteHealth: null,
+        error: "Respons WordPress tidak dikenali. Pastikan alamat mengarah ke website WordPress dengan REST API aktif.",
+      }
     }
+    return { ok: true, user, siteHealth }
   } catch (err: unknown) {
+    const siteHealth = siteHealthFromError(err)
     if (isTimeoutError(err)) {
-      return { ok: false, error: "Koneksi ke website WordPress timeout (melebihi 12 detik)." }
+      return { ok: false, siteHealth, error: "Koneksi ke website WordPress timeout (melebihi 12 detik)." }
     }
     const message = describeWpNetworkError(err, "Tidak dapat terhubung ke website WordPress.")
-    return { ok: false, error: `Kesalahan jaringan: ${message}` }
+    return { ok: false, siteHealth, error: `Kesalahan jaringan: ${message}` }
   }
 }
 
@@ -242,10 +292,11 @@ export async function createWordPressPost(params: {
 }): Promise<WPCreatePostResult> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
-    return { ok: false, error: error || "URL website WordPress tidak valid." }
+    return { ok: false, error: error || "URL website WordPress tidak valid.", siteHealth: null }
   }
 
   const endpoint = `${normalizedUrl}/wp-json/wp/v2/posts`
+  let httpStatus: number | undefined
 
   try {
     // Satu-satunya titik encode judul/excerpt: WordPress tidak menyaring field ini untuk akun
@@ -290,12 +341,14 @@ export async function createWordPressPost(params: {
       },
       { timeoutMs: 20_000 }
     )
+    httpStatus = res.status
 
     const data = await res.json()
+    const siteHealth = siteHealthFromResponse(res.status, readWpErrorCode(data))
 
     if (!res.ok) {
       const errorMsg = data?.message || `Gagal membuat postingan (HTTP ${res.status}).`
-      return { ok: false, error: errorMsg }
+      return { ok: false, error: errorMsg, siteHealth }
     }
 
     return {
@@ -303,13 +356,15 @@ export async function createWordPressPost(params: {
       wpPostId: data.id,
       wpPostUrl: data.link,
       status: data.status,
+      siteHealth,
     }
   } catch (err: unknown) {
+    const siteHealth = siteHealthAfterFailure(httpStatus, err)
     if (isTimeoutError(err)) {
-      return { ok: false, error: "Pengiriman artikel ke WordPress timeout (melebihi 20 detik)." }
+      return { ok: false, siteHealth, error: "Pengiriman artikel ke WordPress timeout (melebihi 20 detik)." }
     }
     const message = describeWpNetworkError(err, "Gagal menghubungi WordPress REST API.")
-    return { ok: false, error: `Kesalahan jaringan: ${message}` }
+    return { ok: false, siteHealth, error: `Kesalahan jaringan: ${message}` }
   }
 }
 

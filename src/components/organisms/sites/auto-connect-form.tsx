@@ -1,19 +1,16 @@
 "use client"
 
 import * as React from "react"
-import { useMutation } from "@tanstack/react-query"
 import { AlertCircle, ArrowRight, Loader2 } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/atoms/alert"
 import { Button } from "@/components/atoms/button"
 import { FieldGroup } from "@/components/atoms/field"
 import { Input } from "@/components/atoms/input"
 import { ControlledField } from "@/components/molecules/controlled-field"
-import { apiFetch } from "@/lib/api/client"
-import { queryKeys } from "@/lib/api/query-keys"
 import { applyApiIssues, useZodForm } from "@/lib/hooks/use-zod-form"
 import { errorMessage } from "@/lib/ui/notify"
-import { ConnectSiteBodySchema, type ConnectSiteInput } from "@/lib/validation/sites"
-import { toBrowserRedirectUrl } from "./site-helpers"
+import { ConnectSiteBodySchema } from "@/lib/validation/sites"
+import { useStartSiteConnection } from "./use-start-site-connection"
 
 interface AutoConnectFormProps {
   /** Pindah ke tab input manual (WordPress lama / otorisasi gagal). */
@@ -26,23 +23,14 @@ interface AutoConnectFormProps {
  * `wp-admin/authorize-application.php`. WordPress lalu memanggil `/api/sites/callback`, yang kembali ke
  * `/sites?auth_status=…` (banner di halaman). Tidak ada kredensial yang melewati form ini.
  * Selama permintaan berjalan dialog tidak bisa ditutup (`ConnectSiteDialog` membaca mutation key yang sama), dan
- * pengalihan dipasang per panggilan `mutate` sehingga tidak pernah terjadi setelah form unmount.
+ * pengalihan dipasang per panggilan `mutate` sehingga tidak pernah terjadi setelah form unmount
+ * (`useStartSiteConnection`).
  */
 export function AutoConnectForm({ onUseManual, onCancel }: AutoConnectFormProps) {
   const [submitError, setSubmitError] = React.useState<string | null>(null)
   const form = useZodForm(ConnectSiteBodySchema, { defaultValues: { baseUrl: "", siteName: "" } })
 
-  const connect = useMutation({
-    mutationKey: queryKeys.sites.connect(),
-    mutationFn: async (values: ConnectSiteInput) => {
-      const { authorizeUrl } = await apiFetch<{ authorizeUrl: string }>("/api/sites/connect", {
-        method: "POST",
-        body: values,
-      })
-      const target = toBrowserRedirectUrl(authorizeUrl)
-      if (!target) throw new Error("URL otorisasi tidak valid")
-      return target
-    },
+  const connect = useStartSiteConnection({
     onError: (error) => {
       if (!applyApiIssues(form, error)) {
         setSubmitError(errorMessage(error, "Gagal menyiapkan otorisasi WordPress. Coba lagi."))

@@ -4,7 +4,7 @@ import { Button } from "@/components/atoms/button"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card"
 import { SiteBadge } from "@/components/molecules/site-badge"
 import { displayHost } from "@/components/organisms/sites/site-helpers"
-import { SiteStatusBadge } from "@/components/organisms/sites/site-status-badge"
+import { SiteStatusBadge } from "@/components/molecules/site-status-badge"
 import type { Site } from "@/types/site"
 
 const MAX_VISIBLE_SITES = 5

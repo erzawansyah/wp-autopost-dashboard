@@ -23,6 +23,15 @@ export interface Site {
 /** Respons `POST /api/sites` (`{ site, message }`). */
 export type CreatedSite = Pick<Site, "id" | "site_name" | "base_url" | "wp_username" | "status" | "created_at">
 
+/** Respons `POST /api/sites/[id]/check` — cek ulang koneksi dengan kredensial tersimpan (tanpa kredensial). */
+export interface SiteCheckResult {
+  site: Pick<Site, "id" | "status" | "last_checked_at">
+  /** Pesan siap tampil (berhasil: user WordPress yang terhubung; gagal: alasan dari WordPress/jaringan). */
+  message: string
+  /** true bila WordPress menerima kredensial tersimpan saat pengecekan ini. */
+  verified: boolean
+}
+
 /** Relasi situs yang di-embed di artikel/antrean/batch (`wp_sites ( id, site_name, base_url )`). */
 export type SiteRef = Pick<Site, "id" | "site_name" | "base_url">
 

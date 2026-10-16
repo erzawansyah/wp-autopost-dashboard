@@ -1,7 +1,7 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card"
 import type { Site } from "@/types/site"
 import { formatSiteDate } from "./site-helpers"
-import { SITE_STATUS_META } from "./site-status-badge"
+import { SITE_STATUS_META } from "@/components/molecules/site-status-badge"
 
 /** Ringkasan koneksi situs (Server Component). Kredensial tidak pernah dikirim ke halaman. */
 export function SiteConnectionCard({ site }: { site: Site }) {
@@ -9,7 +9,7 @@ export function SiteConnectionCard({ site }: { site: Site }) {
     { label: "Alamat", value: site.base_url, mono: true },
     { label: "Username WordPress", value: site.wp_username, mono: true },
     { label: "Application Password", value: "Tersimpan terenkripsi (AES-256-GCM)" },
-    { label: "Terakhir diverifikasi", value: formatSiteDate(site.last_checked_at, { withTime: true, fallback: "Belum pernah" }) },
+    { label: "Terakhir dicek", value: formatSiteDate(site.last_checked_at, { withTime: true, fallback: "Belum pernah" }) },
     { label: "Ditambahkan", value: formatSiteDate(site.created_at, { withTime: true }) },
   ]
 

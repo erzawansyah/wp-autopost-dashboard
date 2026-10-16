@@ -151,11 +151,111 @@ describe("wpFetch", () => {
 
   it("testWordPressConnection memakai jalur yang sama (Anti-SSRF)", async () => {
     const blocked = await testWordPressConnection({ baseUrl: base, username: "u", applicationPassword: "p" })
-    expect(blocked.ok).toBe(false)
+    // Ditolak validasi URL sebelum request keluar → tidak ada observasi kesehatan situs.
+    expect(blocked).toMatchObject({ ok: false, siteHealth: null })
 
     vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
     const ok = await testWordPressConnection({ baseUrl: base, username: "u", applicationPassword: "p" })
-    expect(ok).toEqual({ ok: true, user: { id: 1, name: "Editor", slug: "editor" } })
+    expect(ok).toEqual({ ok: true, user: { id: 1, name: "Editor", slug: "editor" }, siteHealth: "connected" })
+  })
+})
+
+describe("kesehatan situs dari respons WordPress (siteHealth)", () => {
+  /** Respons per prefix path situs: `/<kasus>/wp-json/...`. */
+  const RESPONSES: Record<string, { status: number; body: string; type?: string }> = {
+    revoked: { status: 401, body: '{"code":"incorrect_password","message":"The provided password is an invalid application password.","data":{"status":401}}' },
+    "auth-403": { status: 403, body: '{"code":"invalid_username","message":"Unknown username.","data":{"status":403}}' },
+    "cannot-create": { status: 403, body: '{"code":"rest_cannot_create","message":"Sorry, you are not allowed to create posts as this user.","data":{"status":403}}' },
+    waf: { status: 403, body: "<html>Access denied</html>", type: "text/html" },
+    limited: { status: 429, body: '{"code":"too_many_requests","message":"Too Many Requests"}' },
+    gateway: { status: 502, body: "<html>Bad Gateway</html>", type: "text/html" },
+    maintenance: { status: 503, body: "<html>Briefly unavailable for scheduled maintenance.</html>", type: "text/html" },
+    "no-rest": { status: 404, body: '{"code":"rest_no_route","message":"No route was found"}' },
+    "html-200": { status: 200, body: "<html>Situs parkir</html>", type: "text/html" },
+    "server-error": { status: 500, body: '{"code":"internal_server_error","message":"Critical error"}' },
+  }
+  let server: http.Server
+  let base: string
+  const site = (key: string) => ({ baseUrl: `${base}/${key}`, username: "u", applicationPassword: "p" })
+  const post = { title: "Judul", content: "<p>x</p>" }
+
+  beforeAll(async () => {
+    server = http.createServer((req, res) => {
+      const key = (req.url ?? "").split("/")[1] ?? ""
+      const reply = RESPONSES[key] ?? { status: 201, body: '{"id":77,"link":"https://contoh.test/?p=77","status":"draft"}' }
+      req.resume()
+      res.writeHead(reply.status, { "content-type": reply.type ?? "application/json" }).end(reply.body)
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+  })
+
+  afterAll(() => {
+    server.close()
+  })
+
+  it("testWordPressConnection: status & pesan per kelas respons", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
+
+    expect(await testWordPressConnection(site("revoked"))).toEqual({
+      ok: false,
+      siteHealth: "auth_error",
+      error: "Kredensial ditolak (HTTP 401). Pastikan Username dan Application Password sudah sesuai dan belum dicabut.",
+    })
+    expect(await testWordPressConnection(site("auth-403"))).toMatchObject({ ok: false, siteHealth: "auth_error" })
+
+    const waf = await testWordPressConnection(site("waf"))
+    expect(waf).toMatchObject({ ok: false, siteHealth: null })
+    expect(waf.error).toContain("HTTP 403")
+    expect(waf.error).not.toContain("Kredensial ditolak")
+
+    expect(await testWordPressConnection(site("limited"))).toMatchObject({ ok: false, siteHealth: "rate_limited" })
+    expect(await testWordPressConnection(site("maintenance"))).toMatchObject({
+      ok: false,
+      siteHealth: "unreachable",
+      error: "Server WordPress merespons dengan status HTTP 503.",
+    })
+    expect(await testWordPressConnection(site("no-rest"))).toMatchObject({ ok: false, siteHealth: null })
+    expect(await testWordPressConnection(site("server-error"))).toMatchObject({ ok: false, siteHealth: null })
+    // 200 tetapi bukan user REST API (mis. halaman HTML) → gagal, tanpa menandai situs tersambung.
+    expect(await testWordPressConnection(site("html-200"))).toMatchObject({ ok: false, siteHealth: null })
+  })
+
+  it("testWordPressConnection: koneksi ditolak → unreachable", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
+    const closed = http.createServer()
+    await new Promise<void>((resolve) => closed.listen(0, "127.0.0.1", resolve))
+    const port = (closed.address() as AddressInfo).port
+    await new Promise<void>((resolve) => closed.close(() => resolve()))
+
+    const result = await testWordPressConnection({ baseUrl: `http://127.0.0.1:${port}`, username: "u", applicationPassword: "p" })
+    expect(result).toMatchObject({ ok: false, siteHealth: "unreachable" })
+    expect(result.error).toContain("ECONNREFUSED")
+  })
+
+  it("createWordPressPost: 401 → auth_error, 403 kapabilitas → null, 429/502 → rate_limited/unreachable, sukses → connected", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
+
+    expect(await createWordPressPost({ ...site("revoked"), post })).toEqual({
+      ok: false,
+      siteHealth: "auth_error",
+      error: "The provided password is an invalid application password.",
+    })
+    expect(await createWordPressPost({ ...site("cannot-create"), post })).toEqual({
+      ok: false,
+      siteHealth: null,
+      error: "Sorry, you are not allowed to create posts as this user.",
+    })
+    expect(await createWordPressPost({ ...site("limited"), post })).toMatchObject({ ok: false, siteHealth: "rate_limited" })
+
+    // Halaman HTML gateway: body bukan JSON → pesan "Kesalahan jaringan" (klasifikasi retry tetap), status dari kode HTTP.
+    const gateway = await createWordPressPost({ ...site("gateway"), post })
+    expect(gateway).toMatchObject({ ok: false, siteHealth: "unreachable" })
+    expect(gateway.error).toMatch(/^Kesalahan jaringan: /)
+    // 2xx dengan body rusak tidak dinilai (post mungkin sudah dibuat).
+    expect(await createWordPressPost({ ...site("html-200"), post })).toMatchObject({ ok: false, siteHealth: null })
+
+    expect(await createWordPressPost({ ...site("ok"), post })).toMatchObject({ ok: true, wpPostId: 77, siteHealth: "connected" })
   })
 })
 

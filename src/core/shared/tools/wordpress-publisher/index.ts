@@ -4,6 +4,7 @@ import {
   WPCreatePostPayload,
   WPCreatePostResult,
 } from "@/lib/wordpress/client"
+import type { SiteStatus } from "@/types/site"
 import { processAndSyncArticleMedia } from "@/core/shared/media/auto-media-pipeline"
 
 export interface WordPressPublishParams {
@@ -37,6 +38,8 @@ export interface WordPressPublishResult {
   error?: string
   updatedContentHtml?: string
   featuredMediaId?: number
+  /** Kesehatan situs dari request pembuatan post terakhir (`site-health.ts`); `null` = status situs tidak diubah. */
+  siteHealth: SiteStatus | null
 }
 
 /**
@@ -139,5 +142,6 @@ export async function publishPostToWordPress(
     error: wpResult.error,
     updatedContentHtml: contentHtml,
     featuredMediaId,
+    siteHealth: wpResult.siteHealth,
   }
 }

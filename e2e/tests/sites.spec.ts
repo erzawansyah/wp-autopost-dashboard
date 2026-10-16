@@ -67,4 +67,45 @@ test.describe("Website WordPress", () => {
       await expect(categories.getByText(category.name, { exact: true })).toBeVisible({ timeout: 30_000 })
     }
   })
+
+  test("cek ulang koneksi memulihkan status error lama menjadi Tersambung bila kredensial valid", async ({
+    page,
+    signedIn,
+    connectedSite,
+    admin,
+  }) => {
+    // Status error lama (mis. hosting sempat mati) padahal kredensial tetap valid.
+    const { error: seedError } = await admin
+      .from("wp_sites")
+      .update({ status: "unreachable", last_checked_at: null })
+      .eq("id", connectedSite.id)
+      .eq("user_id", signedIn.id)
+    expect(seedError).toBeNull()
+
+    await page.goto(`/sites/${connectedSite.id}`)
+    await expect(page.getByRole("heading", { name: connectedSite.name })).toBeVisible()
+    const notice = page.getByRole("note").filter({ hasText: "Website tidak terjangkau" })
+    await expect(notice).toBeVisible()
+
+    // Klik sebelum hydrasi tidak memicu request → ulangi sampai toast hasil cek muncul (aksi idempoten).
+    const checkButton = page.getByRole("button", { name: "Cek ulang koneksi" })
+    const success = page.getByText(/^Koneksi berhasil! Terhubung sebagai pengguna/)
+    await expect(async () => {
+      if (!(await success.isVisible())) await checkButton.click({ timeout: 2_000 })
+      await expect(success).toBeVisible({ timeout: 15_000 })
+    }).toPass({ timeout: 90_000 })
+
+    // Halaman (RSC) disegarkan: petunjuk pemulihan hilang, badge kembali "Tersambung".
+    await expect(notice).toBeHidden({ timeout: 30_000 })
+    await expect(page.getByText("Tersambung", { exact: true })).toBeVisible()
+
+    const { data: stored, error } = await admin
+      .from("wp_sites")
+      .select("status, last_checked_at")
+      .eq("id", connectedSite.id)
+      .single()
+    expect(error).toBeNull()
+    expect(stored?.status).toBe("connected")
+    expect(stored?.last_checked_at).toBeTruthy()
+  })
 })

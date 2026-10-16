@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
-import { ExternalLink, Globe, Loader2, MoreHorizontal, RefreshCw, Settings2, ShieldCheck, Trash2 } from "lucide-react"
+import { ExternalLink, Globe, Loader2, MoreHorizontal, PlugZap, RefreshCw, Settings2, ShieldCheck, Trash2 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/atoms/alert"
 import { Button } from "@/components/atoms/button"
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card"
@@ -21,7 +21,8 @@ import { sitesQueries } from "@/lib/api/queries/sites"
 import { errorMessage } from "@/lib/ui/notify"
 import type { Site } from "@/types/site"
 import { displayHost, formatSiteDate, wpAdminUrl } from "./site-helpers"
-import { SiteStatusBadge } from "./site-status-badge"
+import { SiteStatusBadge } from "@/components/molecules/site-status-badge"
+import { useCheckSite } from "./use-check-site"
 import { useDeleteSite } from "./use-delete-site"
 
 interface SitesTableProps {
@@ -34,6 +35,7 @@ interface SitesTableProps {
 export function SitesTable({ initialSites, emptyAction }: SitesTableProps) {
   const { data: sites = [], error, isFetching, refetch } = useQuery({ ...sitesQueries.list(), initialData: initialSites })
   const { requestDelete, pendingId } = useDeleteSite()
+  const { checkSite, pendingId: checkingId } = useCheckSite()
 
   const refreshError = error ? (
     <Alert variant="destructive">
@@ -105,6 +107,7 @@ export function SitesTable({ initialSites, emptyAction }: SitesTableProps) {
           {sites.map((site) => {
             const adminUrl = wpAdminUrl(site.base_url)
             const isDeleting = pendingId === site.id
+            const isChecking = checkingId === site.id
             return (
               <TableRow key={site.id} className={isDeleting ? "opacity-60" : undefined}>
                 <TableCell className="max-w-72 pl-6">
@@ -129,7 +132,18 @@ export function SitesTable({ initialSites, emptyAction }: SitesTableProps) {
                 </TableCell>
                 <TableCell className="font-mono text-xs text-muted-foreground">{site.wp_username}</TableCell>
                 <TableCell>
-                  <SiteStatusBadge status={site.status} />
+                  <div className="flex flex-col items-start gap-1">
+                    <SiteStatusBadge status={site.status} />
+                    {site.status !== "connected" && (
+                      <Link
+                        href={`/sites/${site.id}`}
+                        className="rounded-sm text-xs text-muted-foreground underline underline-offset-2 hover:text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                      >
+                        Cara memperbaiki
+                        <span className="sr-only"> koneksi {site.site_name}</span>
+                      </Link>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="font-mono text-xs">{site.max_concurrency} request</TableCell>
                 <TableCell className="text-xs text-muted-foreground">{formatSiteDate(site.created_at)}</TableCell>
@@ -141,9 +155,10 @@ export function SitesTable({ initialSites, emptyAction }: SitesTableProps) {
                         size="icon-sm"
                         disabled={isDeleting}
                         aria-label={`Aksi untuk ${site.site_name}`}
+                        aria-busy={isDeleting || isChecking}
                         className="cursor-pointer"
                       >
-                        {isDeleting ? (
+                        {isDeleting || isChecking ? (
                           <Loader2 aria-hidden="true" className="animate-spin motion-reduce:animate-none" />
                         ) : (
                           <MoreHorizontal aria-hidden="true" />
@@ -152,6 +167,10 @@ export function SitesTable({ initialSites, emptyAction }: SitesTableProps) {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-52">
                       <DropdownMenuGroup>
+                        <DropdownMenuItem onSelect={() => checkSite(site.id)} disabled={isChecking} className="cursor-pointer">
+                          <PlugZap aria-hidden="true" />
+                          Cek ulang koneksi
+                        </DropdownMenuItem>
                         <DropdownMenuItem asChild className="cursor-pointer">
                           <Link href={`/sites/${site.id}`}>
                             <Settings2 aria-hidden="true" />

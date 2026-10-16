@@ -773,6 +773,93 @@ describe("runClaimedPostItem — pencatatan hasil WordPress", () => {
   })
 })
 
+describe("runClaimedPostItem — status koneksi situs (wp_sites.status)", () => {
+  const SITE_VERSION = "2026-10-16T09:00:00.123456+00:00"
+
+  /** Naskah tersimpan dengan baris situs berstatus tertentu (dibaca bersama item). */
+  function postWithSite(site: Record<string, unknown>) {
+    const post = storedRetryPost()
+    return { ...post, wp_sites: { ...(post.wp_sites as Record<string, unknown>), updated_at: SITE_VERSION, ...site } }
+  }
+
+  function siteUpdates(): RecordedOp[] {
+    return recordedOps().filter((op) => op.table === "wp_sites" && op.action === "update")
+  }
+
+  it("401 saat publish → auth_error SETELAH state item, berfilter pemilik + versi baris; job tetap failed_sync permanen", async () => {
+    setResolver(defaultResolver(postWithSite({ status: "connected", last_checked_at: new Date().toISOString() })))
+    mocks.publishPostToWordPress.mockResolvedValue({
+      ok: false,
+      error: "The provided password is an invalid application password.",
+      siteHealth: "auth_error",
+    })
+
+    const result = await run(syncClaim())
+
+    expect(result).toMatchObject({ success: false, state: "failed_sync", willRetry: false })
+    const [update] = siteUpdates()
+    expect(siteUpdates()).toHaveLength(1)
+    expect(update.payload).toEqual({ status: "auth_error", last_checked_at: expect.any(String) })
+    expect(hasFilter(update, ["eq", "id", "site-1"])).toBe(true)
+    expect(hasFilter(update, ["eq", "user_id", OWNER])).toBe(true)
+    expect(hasFilter(update, ["eq", "updated_at", SITE_VERSION])).toBe(true)
+    expect(recordedOps().indexOf(update)).toBeGreaterThan(recordedOps().indexOf(settledFailure() as RecordedOp))
+  })
+
+  it("sukses setelah error → kembali connected sesudah wp_post_id & state final tercatat", async () => {
+    setResolver(defaultResolver(postWithSite({ status: "unreachable", last_checked_at: "2026-10-16T08:00:00.000Z" })))
+    mocks.publishPostToWordPress.mockResolvedValue({
+      ok: true,
+      wpPostId: 77,
+      wpPostUrl: "https://contoh.test/?p=77",
+      siteHealth: "connected",
+    })
+
+    const result = await run(syncClaim())
+
+    expect(result.success).toBe(true)
+    const [update] = siteUpdates()
+    expect(update.payload).toMatchObject({ status: "connected" })
+    const finalState = postItemUpdates().find((op) => op.payload?.state === "saved_draft_on_wp")
+    expect(recordedOps().indexOf(update)).toBeGreaterThan(recordedOps().indexOf(finalState as RecordedOp))
+  })
+
+  it("status sama & last_checked_at masih segar, atau hasil tanpa observasi → tanpa query wp_sites", async () => {
+    setResolver(defaultResolver(postWithSite({ status: "connected", last_checked_at: new Date().toISOString() })))
+    mocks.publishPostToWordPress.mockResolvedValue({ ok: true, wpPostId: 77, siteHealth: "connected" })
+    await run(syncClaim())
+
+    mocks.publishPostToWordPress.mockResolvedValue({
+      ok: false,
+      error: "Sorry, you are not allowed to create posts as this user.",
+      siteHealth: null,
+    })
+    await run(syncClaim())
+
+    expect(siteUpdates()).toHaveLength(0)
+  })
+
+  it("gagal menulis status situs (error DB maupun exception) tidak menggagalkan job", async () => {
+    for (const failure of ["db_error", "throw"] as const) {
+      mocks.ops.length = 0
+      const post = postWithSite({ status: "rate_limited", last_checked_at: null })
+      setResolver((op) => {
+        if (op.table === "wp_sites") {
+          if (failure === "throw") throw new Error("koneksi DB putus")
+          return { data: null, error: { message: "permission denied" } }
+        }
+        return defaultResolver(post)(op)
+      })
+      mocks.publishPostToWordPress.mockResolvedValue({ ok: true, wpPostId: 77, siteHealth: "connected" })
+
+      const result = await run(syncClaim())
+
+      expect(result).toMatchObject({ success: true, wpPostId: 77, state: "saved_draft_on_wp" })
+      expect(siteUpdates()).toHaveLength(1)
+    }
+  })
+})
+
 describe("runClaimedPostItem — progres batch", () => {
   const BATCH_ID = "batch-1"
 

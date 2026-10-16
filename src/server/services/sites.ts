@@ -27,7 +27,7 @@ import type {
   UpdateSiteInput,
 } from "@/lib/validation/sites"
 import type { ConnectCallbackQuery } from "@/server/validation/sites"
-import type { CreatedSite, Site } from "@/types/site"
+import type { CreatedSite, Site, SiteCheckResult } from "@/types/site"
 
 /**
  * Service situs WordPress milik tenant: daftar/registrasi situs, alur otorisasi Application Password,
@@ -41,6 +41,8 @@ export const DUPLICATE_SITE_MESSAGE = "Website dengan alamat ini sudah terhubung
 const SITE_LIST_COLUMNS =
   "id, site_name, base_url, wp_username, status, default_author_id, default_category_id, max_concurrency, last_checked_at, created_at"
 const SITE_CREATED_COLUMNS = "id, site_name, base_url, wp_username, status, created_at"
+/** Kolom hasil cek ulang koneksi (`SiteCheckResult.site`). */
+const SITE_HEALTH_COLUMNS = "id, status, last_checked_at"
 
 interface SiteCredentials {
   baseUrl: string
@@ -52,6 +54,16 @@ function normalizeSiteUrl(rawUrl: string): string {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(rawUrl)
   if (!valid || !normalizedUrl) throw badRequest(error || "Format URL WordPress tidak valid.")
   return normalizedUrl
+}
+
+/** Application Password terdekripsi (hanya di server); gagal dekripsi → 422 tanpa detail kriptografi. */
+function decryptSitePassword(siteId: string, encryptedAppPassword: string): string {
+  try {
+    return decryptCredential(encryptedAppPassword)
+  } catch {
+    console.error(`[sites] Application Password situs ${siteId} tidak dapat didekripsi.`)
+    throw unprocessable("Kredensial website tidak dapat dibaca. Sambungkan ulang website ini.")
+  }
 }
 
 function isUniqueViolation(error: unknown): boolean {
@@ -170,6 +182,56 @@ export async function createSite(
     site: data as CreatedSite,
     message: `Berhasil menghubungkan website WordPress: ${input.site_name}!`,
   }
+}
+
+/**
+ * Cek ulang koneksi situs milik pengguna (tombol "Cek ulang koneksi"): uji Application Password tersimpan ke
+ * WordPress, lalu simpan `status` + `last_checked_at` bila hasilnya menjelaskan kesehatan situs
+ * (`src/lib/wordpress/site-health.ts`). Hasil yang tidak terklasifikasi (mis. 404 REST API nonaktif, 500) tidak
+ * mengubah status maupun waktu cek; pesannya tetap dikembalikan. Client sesi cukup: `authenticated` punya
+ * GRANT UPDATE `wp_sites` + policy `wp_sites_update_own` (baseline), jadi tanpa Service Role.
+ */
+export async function checkSiteConnection(
+  supabase: SupabaseClient,
+  userId: string,
+  siteId: string
+): Promise<SiteCheckResult> {
+  const { data, error } = await supabase
+    .from("wp_sites")
+    .select(`${SITE_HEALTH_COLUMNS}, base_url, wp_username, encrypted_app_password`)
+    .eq("id", siteId)
+    .eq("user_id", userId)
+    .maybeSingle()
+  throwIfDbError(error)
+  if (!data) throw notFound("Website tidak ditemukan.")
+
+  const result = await testWordPressConnection({
+    baseUrl: data.base_url,
+    username: data.wp_username,
+    applicationPassword: decryptSitePassword(siteId, data.encrypted_app_password),
+  })
+  const wpUser = result.ok ? result.user : undefined
+  const verified = wpUser !== undefined
+  const message = wpUser
+    ? `Koneksi berhasil! Terhubung sebagai pengguna '${wpUser.name}'.`
+    : result.error || "Gagal menghubungi website WordPress."
+
+  const observed = result.siteHealth
+  if (!observed) {
+    return { site: { id: data.id, status: data.status, last_checked_at: data.last_checked_at }, message, verified }
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("wp_sites")
+    .update({ status: observed, last_checked_at: new Date().toISOString() })
+    .eq("id", siteId)
+    .eq("user_id", userId)
+    .select(SITE_HEALTH_COLUMNS)
+    .maybeSingle()
+  throwIfDbError(updateError)
+  // Situs terhapus selama pengecekan berjalan.
+  if (!updated) throw notFound("Website tidak ditemukan.")
+  return { site: updated as SiteCheckResult["site"], message, verified }
 }
 
 /** Uji kredensial Application Password tanpa menyimpan apa pun. */
@@ -351,14 +413,11 @@ async function getSiteCredentials(supabase: SupabaseClient, userId: string, site
   throwIfDbError(error)
   if (!data) throw notFound("Website WordPress tidak ditemukan.")
 
-  let applicationPassword: string
-  try {
-    applicationPassword = decryptCredential(data.encrypted_app_password)
-  } catch {
-    console.error(`[sites] Application Password situs ${siteId} tidak dapat didekripsi.`)
-    throw unprocessable("Kredensial website tidak dapat dibaca. Sambungkan ulang website ini.")
+  return {
+    baseUrl: data.base_url,
+    username: data.wp_username,
+    applicationPassword: decryptSitePassword(siteId, data.encrypted_app_password),
   }
-  return { baseUrl: data.base_url, username: data.wp_username, applicationPassword }
 }
 
 export async function listSiteCategories(supabase: SupabaseClient, userId: string, siteId: string): Promise<WPCategoryItem[]> {

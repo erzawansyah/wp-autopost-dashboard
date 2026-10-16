@@ -14,6 +14,7 @@ import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import { serverEnv } from "@/lib/env/server"
 import { dispatchWebhookEvent } from "@/lib/webhooks/dispatcher"
 import { fetchWordPressCategories } from "@/lib/wordpress/client"
+import { recordObservedSiteHealth } from "@/lib/wordpress/site-health"
 import {
   sanitizeTermNames,
   toPlainText,
@@ -607,7 +608,10 @@ async function executePostItem(
         site_name,
         base_url,
         wp_username,
-        encrypted_app_password
+        encrypted_app_password,
+        status,
+        last_checked_at,
+        updated_at
       )
     `)
     .eq("id", postId)
@@ -1193,6 +1197,12 @@ async function executePostItem(
   })
   const wpPublishDuration = Date.now() - wpPublishStart
 
+  // Status koneksi situs dari request nyata (401 → auth_error, 429 → rate_limited, jaringan/5xx gateway →
+  // unreachable, sukses → connected). Best-effort & hanya bila berubah/basi: tidak pernah menggagalkan job, dan
+  // dicatat SETELAH state item (wp_post_id lebih dulu demi anti-duplikasi).
+  const recordSiteHealth = () =>
+    recordObservedSiteHealth(supabase, { userId: post.user_id, site, observed: wpResult.siteHealth })
+
   await insertLog(supabase, {
     postItemId: postId,
     userId: post.user_id,
@@ -1232,6 +1242,7 @@ async function executePostItem(
       step: "status_sync",
       keyword,
     })
+    await recordSiteHealth()
     return { success: false, postId, state: decision.state, error: message, willRetry: decision.willRetry }
   }
 
@@ -1274,6 +1285,7 @@ async function executePostItem(
     message: `[Queue Worker] Artikel sukses terbit/tersimpan di WordPress (${finalState}) dengan ID #${wpResult.wpPostId}`,
     details: { url: wpResult.wpPostUrl, totalDurationMs: Date.now() - startTime },
   })
+  await recordSiteHealth()
 
   // Kirim event webhook publikasi sukses
   const webhookEvent =

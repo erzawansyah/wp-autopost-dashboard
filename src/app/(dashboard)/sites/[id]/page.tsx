@@ -3,11 +3,13 @@ import { ExternalLink, Globe } from "lucide-react"
 import { Button } from "@/components/atoms/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card"
 import { PageHeader } from "@/components/molecules/page-header"
+import { CheckSiteButton } from "@/components/organisms/sites/check-site-button"
 import { DeleteSiteButton } from "@/components/organisms/sites/delete-site-button"
 import { SiteConnectionCard } from "@/components/organisms/sites/site-connection-card"
+import { SiteHealthNotice } from "@/components/organisms/sites/site-health-notice"
 import { DELETE_SITE_CONSEQUENCES, displayHost, wpAdminUrl } from "@/components/organisms/sites/site-helpers"
 import { SiteSettingsForm } from "@/components/organisms/sites/site-settings-form"
-import { SiteStatusBadge } from "@/components/organisms/sites/site-status-badge"
+import { SiteStatusBadge } from "@/components/molecules/site-status-badge"
 import { SiteAuthorsPanel, SiteCategoriesPanel } from "@/components/organisms/sites/site-wordpress-panels"
 import { PageContainer } from "@/components/templates/page-container"
 import { requireSession } from "@/lib/auth/session"
@@ -34,17 +36,22 @@ export default async function SiteDetailPage({ params }: { params: Promise<{ id:
         backHref="/sites"
         backLabel="Daftar Website"
         actions={
-          adminUrl && (
-            <Button asChild variant="outline" size="sm" className="cursor-pointer gap-1.5">
-              <a href={adminUrl} target="_blank" rel="noopener noreferrer">
-                Buka WP Admin
-                <ExternalLink aria-hidden="true" />
-                <span className="sr-only">(tab baru)</span>
-              </a>
-            </Button>
-          )
+          <>
+            <CheckSiteButton siteId={site.id} />
+            {adminUrl && (
+              <Button asChild variant="outline" size="sm" className="cursor-pointer gap-1.5">
+                <a href={adminUrl} target="_blank" rel="noopener noreferrer">
+                  Buka WP Admin
+                  <ExternalLink aria-hidden="true" />
+                  <span className="sr-only">(tab baru)</span>
+                </a>
+              </Button>
+            )}
+          </>
         }
       />
+
+      <SiteHealthNotice site={site} />
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="flex flex-col gap-6 lg:col-span-2">

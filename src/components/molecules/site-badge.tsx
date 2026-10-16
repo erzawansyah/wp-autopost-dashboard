@@ -2,6 +2,7 @@ import * as React from "react"
 import { Globe } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { SiteStatus } from "@/types/site"
+import { SITE_STATUS_META } from "./site-status-badge"
 
 interface SiteBadgeProps {
   siteName: string
@@ -11,13 +12,6 @@ interface SiteBadgeProps {
   showDomain?: boolean
 }
 
-const statusDotMap: Record<SiteStatus, { color: string; label: string }> = {
-  connected: { color: "bg-success", label: "Tersambung" },
-  auth_error: { color: "bg-destructive animate-pulse motion-reduce:animate-none", label: "Kredensial Error" },
-  rate_limited: { color: "bg-warning", label: "Terlimitasi" },
-  unreachable: { color: "bg-muted-foreground", label: "Tidak Terjangkau" },
-}
-
 export function SiteBadge({
   siteName,
   domain,
@@ -25,7 +19,7 @@ export function SiteBadge({
   className,
   showDomain = true,
 }: SiteBadgeProps) {
-  const currentStatus = statusDotMap[status] || statusDotMap.connected
+  const currentStatus = SITE_STATUS_META[status] ?? SITE_STATUS_META.connected
 
   return (
     <div className={cn("inline-flex items-center gap-2 max-w-full", className)}>
@@ -37,7 +31,8 @@ export function SiteBadge({
           role="img"
           className={cn(
             "absolute -bottom-0.5 -right-0.5 size-2 rounded-full ring-2 ring-background",
-            currentStatus.color
+            currentStatus.dot,
+            status === "auth_error" && "animate-pulse motion-reduce:animate-none"
           )}
         />
       </div>
