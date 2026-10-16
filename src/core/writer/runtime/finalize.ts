@@ -1,4 +1,5 @@
 import { getLanguageDisplayName } from "@/lib/constants/languages"
+import { countWords, markdownToPlainText } from "@/core/shared/formatters/article-metrics"
 import { describeLlmError } from "@/core/shared/llm/errors"
 import { LLM_GATEWAY_SETTINGS, type LlmGateway } from "@/core/shared/llm/gateway"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
@@ -36,18 +37,24 @@ export interface FinalizeCallParams {
 /** Hasil finalize call: naskah, atau penolakan topik (title `REFUSED: …`). */
 export type FinalizeResult = { kind: "article"; article: ArticleOutput } | { kind: "refused"; reason: string }
 
-/** JSON tiga field dari teks model (blok `<think>` & markdown fence dibuang); bukan JSON tiga field → null. */
-function parseFieldsJson(text: string): ReturnType<typeof readArticleFields> {
+/** Balasan model sebagai nilai JSON (blok `<think>` & markdown fence dibuang); bukan JSON → `undefined`. */
+function parseJsonReply(text: string): unknown {
   const cleaned = text
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```$/, "")
   try {
-    return readArticleFields(JSON.parse(cleaned))
+    return JSON.parse(cleaned)
   } catch {
-    return null
+    return undefined
   }
+}
+
+/** Field `title` string dari balasan JSON (dibaca walau field lain hilang, untuk deteksi `REFUSED:`). */
+function jsonTitle(json: unknown): string | null {
+  const title = typeof json === "object" && json !== null ? (json as Record<string, unknown>).title : undefined
+  return typeof title === "string" ? title : null
 }
 
 /**
@@ -55,8 +62,9 @@ function parseFieldsJson(text: string): ReturnType<typeof readArticleFields> {
  * Dieksekusi tepat 1x TANPA tools jika agent terhenti oleh batas kuota / timeout
  * atau naskah dari agent belum memenuhi target minimal kata.
  * Menggunakan seluruh data riset & media yang berhasil dikumpulkan oleh recorder.
- * Keluaran diminta sebagai JSON `{title, excerpt, body}` (json_schema strict → json_object); teks bebas tetap
- * diurai jalur Markdown/TITLE lama. Pelanggaran aturan field hanya dicatat (tidak ada putaran koreksi).
+ * Keluaran diminta sebagai JSON `{title, excerpt, body}` (json_schema strict → json_object); hanya balasan yang
+ * bukan JSON sama sekali (teks bebas/JSON terpotong) diurai jalur Markdown/TITLE lama. Pelanggaran aturan field
+ * hanya dicatat (tidak ada putaran koreksi).
  */
 export async function executeSingleFinalizeCall(
   params: FinalizeCallParams
@@ -113,8 +121,9 @@ export async function executeSingleFinalizeCall(
     )
 
     const contentStr = typeof directRes.content === "string" ? directRes.content : JSON.stringify(directRes.content)
-    const fields = parseFieldsJson(contentStr)
-    const refusal = detectRefusal(fields?.title ?? contentStr)
+    const json = parseJsonReply(contentStr)
+    const fields = readArticleFields(json)
+    const refusal = detectRefusal(json === undefined ? contentStr : (jsonTitle(json) ?? ""))
     if (refusal !== null) {
       recorder.recordEvent({
         kind: "finalize",
@@ -125,20 +134,23 @@ export async function executeSingleFinalizeCall(
       return { kind: "refused", reason: refusal }
     }
 
-    if (fields && fields.body.trim().length > 150) {
-      structuredResult = finalizeArticleFields(
-        { title: fields.title, excerpt: fields.excerpt, markdownContent: fields.body },
-        { title: params.title, keyword }
-      )
-      const issues = validateArticleFields(fields, { requiredTitle: params.title, targetWordCount })
-      if (issues.length > 0) {
-        recorder.recordEvent({
-          kind: "guard",
-          tool: "finalize_output",
-          status: "error",
-          durationMs: 0,
-          summary: `Naskah finalize melanggar aturan field (tanpa koreksi): ${issues.join("; ")}`,
-        })
+    if (json !== undefined) {
+      // Balasan JSON sah tidak pernah jatuh ke jalur teks: tanpa body yang layak, finalize gagal.
+      if (fields && fields.body.trim().length > 150) {
+        structuredResult = finalizeArticleFields(
+          { title: fields.title, excerpt: fields.excerpt, markdownContent: fields.body },
+          { title: params.title, keyword }
+        )
+        const issues = validateArticleFields(fields, { requiredTitle: params.title, targetWordCount, language })
+        if (issues.length > 0) {
+          recorder.recordEvent({
+            kind: "guard",
+            tool: "finalize_output",
+            status: "error",
+            durationMs: 0,
+            summary: `Naskah finalize melanggar aturan field (tanpa koreksi): ${issues.join("; ")}`,
+          })
+        }
       }
     } else {
       const parsed = extractArticleJsonFromText(contentStr)
@@ -154,7 +166,7 @@ export async function executeSingleFinalizeCall(
     const durationMs = Date.now() - start
 
     if (structuredResult && structuredResult.markdownContent) {
-      const words = structuredResult.markdownContent.split(/\s+/).filter(Boolean).length
+      const words = countWords(markdownToPlainText(structuredResult.markdownContent), language)
       recorder.recordEvent({
         kind: "finalize",
         status: "ok",

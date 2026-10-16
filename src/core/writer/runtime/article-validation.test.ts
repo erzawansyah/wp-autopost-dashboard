@@ -31,6 +31,14 @@ describe("validateArticleFields", () => {
     expect(validateArticleFields({ ...stolen, title: "" }, { ...context, requiredTitle: "Judul Pengguna" })).toEqual([])
   })
 
+  it("heading pembuka yang mengulang judul dibuang cleaner (bukan pelanggaran); subbab tengah = judul wajib dilaporkan", () => {
+    expect(validateArticleFields({ ...VALID, body: `## ${VALID.title}\n\n${VALID.body}` }, context)).toEqual([])
+    const required = { ...context, requiredTitle: "Subbab Bermakna 3" }
+    expect(validateArticleFields({ ...VALID, title: "" }, required)).toEqual([
+      'body: the section heading "Subbab Bermakna 3" repeats the article title; give that section its own heading',
+    ])
+  })
+
   it("H1, HTML, dan baris TITLE/EXCERPT di body dilaporkan; isi blok kode diabaikan", () => {
     const body = `# Judul\n\nTITLE: lagi\n\n${PARAGRAPH}<br>baris\n\n${sections(5)}\n\n\`\`\`bash\n# komentar\n<div>kode</div>\n\`\`\``
     const issues = validateArticleFields({ ...VALID, body }, context)
@@ -39,6 +47,19 @@ describe("validateArticleFields", () => {
       expect.stringContaining("body: HTML tags <br>"),
       expect.stringContaining('"TITLE:" or "EXCERPT:" line'),
     ])
+  })
+
+  it("label huruf kecil di prosa & label di blok kode ~~~ bukan pelanggaran", () => {
+    const body = `${PARAGRAPH}\n\ntitle: kata biasa di awal baris.\n\n${sections(5)}\n\n~~~\nTITLE: contoh format\n~~~`
+    expect(validateArticleFields({ ...VALID, body }, context)).toEqual([])
+  })
+
+  it("kata bahasa tanpa spasi (ja) dihitung dengan segmentasi sesuai bahasa artikel", () => {
+    const sentence = "東京の喫茶店ではコーヒーの価格が今年大きく上がりました。"
+    const body = Array.from({ length: 5 }, (_, i) => `## 第${i + 1}章のコーヒー事情\n\n${sentence.repeat(6)}`).join("\n\n")
+    const ja = { ...VALID, title: "東京のコーヒー価格が上昇した理由", body }
+    expect(validateArticleFields(ja, { targetWordCount: 300 })).toContainEqual(expect.stringMatching(/^body: \d+ words/))
+    expect(validateArticleFields(ja, { targetWordCount: 300, language: "ja" })).not.toContainEqual(expect.stringMatching(/^body: \d+ words/))
   })
 
   it("jumlah subbab H2 & kata dihitung setelah cleanMarkdown (subbab ### tanpa H2 dinaikkan, heading generik dibuang)", () => {

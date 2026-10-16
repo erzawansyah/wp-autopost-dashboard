@@ -259,7 +259,7 @@ export function scoreWriterResult(evalCase: EvalCase, result: WriterResult): Cas
   const markdown = article.markdownContent ?? ""
   const html = article.contentHtml ?? ""
   const plain = markdownToPlainText(markdown)
-  const words = countWords(plain)
+  const words = countWords(plain, evalCase.language)
   const ratio = words / evalCase.wordCountTarget
   checks.push({
     id: "word-count",

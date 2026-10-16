@@ -56,6 +56,24 @@ describe("executeSingleFinalizeCall", () => {
     expect(await result).toEqual({ kind: "refused", reason: "berbahaya" })
   })
 
+  it("penolakan REFUSED: tanpa excerpt/body tetap dikenali", async () => {
+    expect(await run(JSON.stringify({ title: "REFUSED: berbahaya" })).result).toEqual({ kind: "refused", reason: "berbahaya" })
+  })
+
+  it("JSON sah tanpa body yang layak → gagal (null), tidak pernah mempublikasikan JSON mentah", async () => {
+    const filler = "x".repeat(200)
+    for (const reply of [
+      { title: "Harga Gayo", excerpt: filler, body: "" },
+      { title: "Harga Gayo", excerpt: filler, body: "terlalu pendek" },
+      { title: "Harga Gayo", excerpt: filler, body: [BODY] },
+      [{ title: "Harga Gayo", excerpt: filler, body: BODY }],
+    ]) {
+      const { result, recorder } = run(JSON.stringify(reply))
+      expect(await result).toBeNull()
+      expect(recorder.getEvents().at(-1)).toMatchObject({ kind: "finalize", status: "error" })
+    }
+  })
+
   it("JSON terpotong dengan key body diselamatkan; teks Markdown bebas tetap diterima", async () => {
     const truncated = `{"title": "Harga Gayo", "excerpt": "Ringkas.", "body": "${BODY.replace(/\n/g, "\\n").slice(0, 600)}`
     expect(await run(truncated).result).toMatchObject({ kind: "article", article: { title: "Harga Gayo" } })

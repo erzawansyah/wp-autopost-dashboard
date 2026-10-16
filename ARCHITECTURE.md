@@ -710,14 +710,20 @@ Susunan prompt penulis (ADR-069) — instruksi berbahasa Inggris, naskah selalu 
   `extract-article` (`runtime/article-submission.ts`, LangChain `toolStrategy`, `tool_choice` wajib, hanya agen utama). Tool ini
   ditangani di node model (prefiks `extract-` → router mengakhiri loop), sehingga tidak melewati LoopGuard dan tidak terblokir
   kuota/dedup/circuit breaker. Setiap penyerahan divalidasi `runtime/article-validation.ts` (judul ≤ 60 & tidak sama dengan
-  subbab, excerpt 120–160, body tanpa H1/HTML/baris TITLE, ≥ 5 subbab H2 dan ≥ 75% target kata setelah `cleanMarkdown`);
-  pelanggaran dikirim balik ke agen (`system-article-output-invalid.md`) paling banyak `maxCorrectionRounds` (2) putaran, lalu
-  penyerahan berikutnya diterima apa adanya (stopReason `completed_with_output_violations`, event guard `extract-article`).
-  `RunModelCallBudgetMiddleware` mencadangkan `maxCorrectionRounds + 1` panggilan terakhir: tool riset dilepas agar model wajib
-  menyerahkan naskah. Bila loop berhenti sebelum naskah diterima, penyerahan terakhir dipakai; tanpa penyerahan, jalur teks lama
-  (`output-schema.ts`: header TITLE/EXCERPT, Markdown, JSON bebas; judul tidak pernah diambil dari subbab H2) tetap berlaku.
+  subbab yang tersisa setelah `cleanMarkdown`, excerpt 120–160, body tanpa H1/elemen HTML/baris `TITLE:` di luar blok kode,
+  ≥ 5 subbab H2 dan ≥ 75% target kata setelah `cleanMarkdown`; kata bahasa tanpa spasi seperti `ja`/`zh` dihitung dengan
+  `Intl.Segmenter`, metrik bersama di `formatters/article-metrics.ts`); pelanggaran dikirim balik ke agen
+  (`system-article-output-invalid.md`) paling banyak `maxCorrectionRounds` (2) putaran, lalu penyerahan berikutnya diterima
+  apa adanya (stopReason `completed_with_output_violations`, event guard `extract-article`). `ArticleSubmissionMiddleware`
+  menangani kasus yang tidak sampai ke `parse`: argumen bukan JSON valid (draf diselamatkan, agen diminta menyerahkan ulang
+  dengan riwayat tool call ↔ ToolMessage tetap berpasangan), penyerahan ganda (yang pertama dinilai), dan penyerahan bersama
+  tool lain (tool lain dijalankan dulu). `RunModelCallBudgetMiddleware` mencadangkan `maxCorrectionRounds + 1` panggilan
+  terakhir (dibatasi agar tetap ada panggilan riset): tool riset dilepas agar model wajib menyerahkan naskah, dan subagent tidak
+  boleh memakai cadangan. Bila loop berhenti sebelum naskah diterima, penyerahan terakhir dipakai; tanpa penyerahan, jalur
+  teks lama (`output-schema.ts`: header TITLE/EXCERPT, Markdown, JSON bebas; judul tidak pernah diambil dari subbab H2) berlaku.
 - **Finalize call** (`system-finalize.md`, tanpa tools) meminta JSON `{title, excerpt, body}` lewat `response_format` json_schema
-  strict (turun ke `json_object` bila ditolak provider, `LlmGateway.invoke({ jsonSchema })`); pelanggaran aturan field hanya
+  strict (turun ke `json_object` bila ditolak provider, `LlmGateway.invoke({ jsonSchema })`); balasan JSON sah tanpa body layak
+  dianggap gagal (tidak pernah jatuh ke jalur teks sehingga JSON mentah tidak terpublikasi); pelanggaran aturan field hanya
   dicatat (finalize tetap tepat 1×).
 - **Judul & excerpt** (`finalizeArticleFields`): judul wajib pengguna → field/baris judul model → kata kunci; excerpt model →
   prosa pertama naskah (dipotong di batas kalimat/kata).

@@ -313,7 +313,7 @@ export const PROMPT_REGISTRY: Readonly<Record<string, PromptRegistryEntry>> = {
   "system-readonly-filesystem": {
     "name": "system-readonly-filesystem",
     "file": "src/core/shared/prompts/system-readonly-filesystem.md",
-    "version": "b70a0bdb43b5",
+    "version": "1985ec9fb09f",
     "description": "Pesan penolakan operasi tulis/ubah/hapus pada filesystem virtual read-only Deep Agent (skill SKILL.md)",
     "usedBy": [
       "src/core/writer/runtime/build-agent.ts"
@@ -324,8 +324,8 @@ export const PROMPT_REGISTRY: Readonly<Record<string, PromptRegistryEntry>> = {
         "desc": "Nama operasi berkas yang ditolak (write_file, edit_file, atau delete)"
       }
     ],
-    "body": "[SYSTEM_PROMPT]\nSYSTEM NOTICE: The {{operation}} operation is disabled because the agent filesystem is read-only. Do not write, edit, or delete virtual files. Submit the complete article with `extract-article` now.\n[/SYSTEM_PROMPT]",
-    "systemPrompt": "SYSTEM NOTICE: The {{operation}} operation is disabled because the agent filesystem is read-only. Do not write, edit, or delete virtual files. Submit the complete article with `extract-article` now.",
+    "body": "[SYSTEM_PROMPT]\nSYSTEM NOTICE: The {{operation}} operation is disabled because the agent filesystem is read-only. Do not write, edit, or delete virtual files. If you are writing the article, submit the complete article with `extract-article` now; if you were delegated a research task, return your findings as your final message.\n[/SYSTEM_PROMPT]",
+    "systemPrompt": "SYSTEM NOTICE: The {{operation}} operation is disabled because the agent filesystem is read-only. Do not write, edit, or delete virtual files. If you are writing the article, submit the complete article with `extract-article` now; if you were delegated a research task, return your findings as your final message.",
     "userPromptTemplate": ""
   },
   "system-resolve-taxonomy-author": {
@@ -450,7 +450,7 @@ export const PROMPT_REGISTRY: Readonly<Record<string, PromptRegistryEntry>> = {
   "system-tool-guard-blocked": {
     "name": "system-tool-guard-blocked",
     "file": "src/core/shared/prompts/system-tool-guard-blocked.md",
-    "version": "a23f5661e1ca",
+    "version": "c66d9c9d3c55",
     "description": "Pemberitahuan ke agen saat panggilan tool diblokir loop guard (kuota global/per-tool habis atau circuit breaker terbuka)",
     "usedBy": [
       "src/core/writer/runtime/loop-guard.ts"
@@ -462,11 +462,11 @@ export const PROMPT_REGISTRY: Readonly<Record<string, PromptRegistryEntry>> = {
       },
       {
         "key": "target",
-        "desc": "Sasaran larangan pemanggilan ulang, mis. \"tool 'web_search'\" atau \"any research tool\" saat kuota global habis"
+        "desc": "Sasaran larangan pemanggilan ulang, mis. \"tool 'web_search'\" atau \"any tool except `extract-article`\" saat kuota global habis"
       }
     ],
-    "body": "[SYSTEM_PROMPT]\nWARNING: {{reason}} Do NOT call {{target}} again. Finish the complete article with the data and context you have already collected and submit it with `extract-article`.\n[/SYSTEM_PROMPT]",
-    "systemPrompt": "WARNING: {{reason}} Do NOT call {{target}} again. Finish the complete article with the data and context you have already collected and submit it with `extract-article`.",
+    "body": "[SYSTEM_PROMPT]\nWARNING: {{reason}} Do NOT call {{target}} again. Finish your work with the data and context you have already collected: if you are writing the article, submit the complete article with `extract-article`; if you were delegated a research task, return your findings as your final message.\n[/SYSTEM_PROMPT]",
+    "systemPrompt": "WARNING: {{reason}} Do NOT call {{target}} again. Finish your work with the data and context you have already collected: if you are writing the article, submit the complete article with `extract-article`; if you were delegated a research task, return your findings as your final message.",
     "userPromptTemplate": ""
   },
   "system-tool-guard-deduped": {

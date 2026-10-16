@@ -728,19 +728,19 @@ describe("runAgentWriter — kontrak keluaran naskah", () => {
     expect(result.article?.excerpt).toBe("Ringkasan harga kopi Gayo.")
     expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak", "Siapa yang Terdampak?"])
     expect(mocks.finalize).not.toHaveBeenCalled()
-    const built = mocks.buildWriterAgent.mock.calls[0][0] as { responseFormat: Array<{ name: string }>; reservedModelCalls: number }
-    expect(built.responseFormat.map((strategy) => strategy.name)).toEqual(["extract-article"])
-    expect(built.reservedModelCalls).toBeGreaterThan(0)
+    const built = mocks.buildWriterAgent.mock.calls[0][0] as { submission: { responseFormat: Array<{ name: string }>; reservedModelCalls: number } }
+    expect(built.submission.responseFormat.map((strategy) => strategy.name)).toEqual(["extract-article"])
+    expect(built.submission.reservedModelCalls).toBeGreaterThan(0)
   })
 
   /** Agen tiruan yang memanggil `parse` strategi extract-article seperti LangChain, lalu berakhir dengan pesan. */
   function agentSubmits(submissions: Array<Record<string, unknown>>, finalMessage: string, structured?: boolean) {
-    mocks.buildWriterAgent.mockImplementation(async ({ responseFormat }: { responseFormat: Array<{ parse: (args: Record<string, unknown>) => unknown }> }) => ({
+    mocks.buildWriterAgent.mockImplementation(async ({ submission }: { submission: { responseFormat: Array<{ parse: (args: Record<string, unknown>) => unknown }> } }) => ({
       invoke: async () => {
         let accepted: unknown
         for (const args of submissions) {
           try {
-            accepted = responseFormat[0].parse(args)
+            accepted = submission.responseFormat[0].parse(args)
           } catch {
             accepted = undefined
           }

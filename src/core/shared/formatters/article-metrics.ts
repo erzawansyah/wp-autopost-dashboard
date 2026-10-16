@@ -4,46 +4,98 @@
  * mengukur dengan cara yang sama. Modul murni tanpa I/O.
  */
 
-const WORD = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu
-const FENCED_CODE = /```[\s\S]*?```/g
+import { nodeRange, parseMarkdown, walkTree, type SourceRange } from "./markdown-ast"
 
-/** Naskah tanpa blok kode berpagar (isi kode bukan heading/HTML naskah). */
-function withoutFencedCode(markdown: string): string {
-  return markdown.replace(FENCED_CODE, " ")
+const WORD = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu
+/** Bahasa tanpa spasi antarkata: kata dihitung dengan segmentasi kamus ICU (`Intl.Segmenter`). */
+const UNSPACED_LANGUAGES = new Set(["ja", "zh", "th", "lo", "km", "my"])
+const segmenters = new Map<string, Intl.Segmenter>()
+
+/** Elemen HTML yang dikenali sebagai tag mentah; `<nama>` lain (placeholder, generik) dianggap teks. */
+const HTML_ELEMENTS = new Set(
+  (
+    "a abbr address article aside audio b bdi bdo blockquote body br button canvas caption center cite code col " +
+    "colgroup data dd del details dfn dialog div dl dt em embed fieldset figcaption figure font footer form h1 h2 h3 " +
+    "h4 h5 h6 head header hr html i iframe img input ins kbd label legend li link main mark meta meter nav noscript " +
+    "object ol optgroup option output p picture pre progress q s samp script section select small source span " +
+    "strike strong style sub summary sup svg table tbody td template textarea tfoot th thead time title tr track u " +
+    "ul var video wbr"
+  ).split(" ")
+)
+const TAG = /<\/?([a-zA-Z][a-zA-Z0-9-]*)(?:\s[^<>]*)?\/?>/g
+
+/** Rentang blok kode berpagar (``` maupun ~~~) menurut parser Markdown bersama (kode berindentasi dimatikan). */
+function codeBlockRanges(markdown: string): SourceRange[] {
+  const { root, codeRanges } = parseMarkdown(markdown)
+  if (!root) return codeRanges
+  const ranges: SourceRange[] = []
+  walkTree(root, (node) => {
+    if (node.type === "code") ranges.push(nodeRange(node))
+  })
+  return ranges
 }
 
-/** Teks polos dari Markdown: tanpa gambar, URL tautan, penanda heading/list/kutipan, dan kode. */
+/** Naskah dengan isi blok kode dikosongkan (baris dipertahankan): isi kode bukan heading, HTML, atau kata naskah. */
+export function markdownWithoutCodeBlocks(markdown: string): string {
+  let output = ""
+  let cursor = 0
+  for (const [start, end] of codeBlockRanges(markdown)) {
+    if (start < cursor) continue
+    output += markdown.slice(cursor, start) + markdown.slice(start, end).replace(/[^\n]/g, " ")
+    cursor = end
+  }
+  return output + markdown.slice(cursor)
+}
+
+/** Teks polos dari Markdown: tanpa gambar, URL tautan, penanda heading/list/kutipan, dan blok kode. */
 export function markdownToPlainText(markdown: string): string {
-  return withoutFencedCode(markdown)
+  return markdownWithoutCodeBlocks(markdown)
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")
     .replace(/[*_`~|]/g, " ")
 }
 
-/** Kata (huruf/angka, termasuk bentuk ulang "ibu-ibu") dalam teks polos. */
-export function wordsOf(text: string): string[] {
+/**
+ * Kata dalam teks polos: huruf/angka termasuk bentuk ulang "ibu-ibu". Untuk bahasa tanpa spasi antarkata
+ * (`ja`, `zh`, `th`, …) kata dipotong dengan `Intl.Segmenter`, karena satu kalimat utuh bukan satu kata.
+ */
+export function wordsOf(text: string, language?: string): string[] {
+  const code = language?.toLowerCase().split("-")[0]
+  if (code && UNSPACED_LANGUAGES.has(code)) {
+    let segmenter = segmenters.get(code)
+    if (!segmenter) {
+      segmenter = new Intl.Segmenter(code, { granularity: "word" })
+      segmenters.set(code, segmenter)
+    }
+    return Array.from(segmenter.segment(text))
+      .filter((part) => part.isWordLike)
+      .map((part) => part.segment)
+  }
   return text.match(WORD) ?? []
 }
 
-export function countWords(text: string): number {
-  return wordsOf(text).length
+export function countWords(text: string, language?: string): number {
+  return wordsOf(text, language).length
 }
 
-/** Jumlah heading ATX tingkat `level` di luar blok kode berpagar. */
+/** Jumlah heading ATX tingkat `level` di luar blok kode. */
 export function countMarkdownHeadings(markdown: string, level: number): number {
-  return withoutFencedCode(markdown).match(new RegExp(`^ {0,3}#{${level}}(?!#)\\s+\\S`, "gm"))?.length ?? 0
+  return markdownWithoutCodeBlocks(markdown).match(new RegExp(`^ {0,3}#{${level}}(?!#)\\s+\\S`, "gm"))?.length ?? 0
 }
 
-/** Teks heading ATX tingkat 2–6 (tanpa penanda `#` & `#` penutup) di luar blok kode berpagar. */
+/** Teks heading ATX tingkat 2–6 (tanpa penanda `#` & `#` penutup) di luar blok kode. */
 export function markdownSubheadings(markdown: string): string[] {
-  return Array.from(withoutFencedCode(markdown).matchAll(/^ {0,3}#{2,6}[ \t]+(.+?)[ \t#]*$/gm), (match) => match[1])
+  return Array.from(markdownWithoutCodeBlocks(markdown).matchAll(/^ {0,3}#{2,6}[ \t]+(.+?)[ \t#]*$/gm), (match) => match[1])
 }
 
-/** Tag HTML mentah di Markdown (LLM wajib menulis Markdown murni), di luar kode. */
+/** Tag elemen HTML mentah di Markdown (LLM wajib menulis Markdown murni), di luar kode. */
 export function findRawHtmlInMarkdown(markdown: string): string[] {
-  const withoutCode = withoutFencedCode(markdown).replace(/`[^`\n]*`/g, " ")
-  return [...new Set(withoutCode.match(/<\/?[a-zA-Z][a-zA-Z0-9-]*(?:\s[^<>]*)?\/?>/g) ?? [])]
+  const withoutCode = markdownWithoutCodeBlocks(markdown).replace(/`[^`\n]*`/g, " ")
+  const tags = Array.from(withoutCode.matchAll(TAG))
+    .filter((match) => HTML_ELEMENTS.has(match[1].toLowerCase()))
+    .map((match) => match[0])
+  return [...new Set(tags)]
 }
 
 /** Panjang teks dalam code point (emoji = 1), sama dengan cara eval mengukur judul/excerpt. */

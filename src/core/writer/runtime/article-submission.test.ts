@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import { AIMessage, HumanMessage, ToolMessage, type BaseMessage } from "@langchain/core/messages"
 import type { ChatResult } from "@langchain/core/outputs"
+import { createPatchToolCallsMiddleware } from "deepagents"
 import { createAgent, tool } from "langchain"
 import { z } from "zod"
 import { ARTICLE_OUTPUT_RULES } from "./article-validation"
@@ -55,11 +56,17 @@ const VALID = {
   body: `${paragraph.repeat(2)}\n\n${sections(5)}`,
 }
 
+/** Agen standard dengan susunan middleware penyerahan seperti `build-agent.ts`. */
 function setup(script: Array<() => AIMessage>, target = 300) {
   const recorder = new RunRecorder()
   const submission = createArticleSubmission({ recorder, targetWordCount: target })
   const model = new ScriptedModel(script)
-  const agent = createAgent({ model, tools: [], responseFormat: submission.responseFormat })
+  const agent = createAgent({
+    model,
+    tools: [],
+    responseFormat: submission.responseFormat,
+    middleware: [createPatchToolCallsMiddleware(), submission.middleware],
+  })
   return { recorder, submission, model, invoke: () => agent.invoke({ messages: [new HumanMessage("tulis")] }) }
 }
 
@@ -132,18 +139,44 @@ describe("createArticleSubmission", () => {
     expect(submission.refusal()).toBe("memfasilitasi penipuan")
   })
 
-  it("dua penyerahan dalam satu giliran → diminta menyerahkan sekali saja", async () => {
-    const twice = () =>
-      new AIMessage({
-        content: "",
-        tool_calls: [
-          { id: "d1", name: ARTICLE_SUBMIT_TOOL, args: VALID, type: "tool_call" },
-          { id: "d2", name: ARTICLE_SUBMIT_TOOL, args: VALID, type: "tool_call" },
-        ],
-      })
-    const { model, invoke } = setup([twice, submit(VALID)])
+  it("penolakan hanya dengan title REFUSED: (excerpt/body tidak diisi) tetap dikenali tanpa koreksi", async () => {
+    const { model, submission, invoke } = setup([submit({ title: "REFUSED: konten berbahaya" })])
     await invoke()
-    expect(String(model.calls[1].messages.at(-1)?.content)).toContain(`call ${ARTICLE_SUBMIT_TOOL} exactly once per turn`)
+    expect(model.calls).toHaveLength(1)
+    expect(submission.refusal()).toBe("konten berbahaya")
+  })
+
+  const twice = (args: Record<string, unknown>) => () =>
+    new AIMessage({
+      content: "",
+      tool_calls: [
+        { id: `d${++callId}`, name: ARTICLE_SUBMIT_TOOL, args, type: "tool_call" },
+        { id: `d${++callId}`, name: ARTICLE_SUBMIT_TOOL, args, type: "tool_call" },
+      ],
+    })
+
+  it("dua penyerahan valid dalam satu giliran → naskah pertama langsung diterima", async () => {
+    const { model, submission, invoke } = setup([twice(VALID)])
+    const result = await invoke()
+    expect(result.structuredResponse).toEqual(VALID)
+    expect(model.calls).toHaveLength(1)
+    expect(submission.attempts()).toBe(1)
+  })
+
+  it("dua penyerahan tidak valid dalam satu giliran → diminta menyerahkan sekali; sisa percobaan dihitung tepat", async () => {
+    const bad = { ...VALID, excerpt: "pendek" }
+    const { model, submission, invoke } = setup([twice(bad), submit(VALID)])
+    const result = await invoke()
+    expect(result.structuredResponse).toEqual(VALID)
+    const feedback = model.calls[1].messages.filter((m): m is ToolMessage => ToolMessage.isInstance(m))
+    const text = feedback.map((m) => String(m.content)).join("\n")
+    expect(text).toContain(`call ${ARTICLE_SUBMIT_TOOL} exactly once per turn`)
+    expect(text).toContain(`Remaining correction attempts: ${ARTICLE_OUTPUT_RULES.maxCorrectionRounds}`)
+    // Setiap tool call di riwayat terjawab tepat satu kali (penambal deepagents menutup panggilan kedua).
+    expect(feedback.map((m) => m.tool_call_id).sort()).toEqual(
+      (model.calls[1].messages.find((m): m is AIMessage => AIMessage.isInstance(m))?.tool_calls ?? []).map((c) => c.id).sort()
+    )
+    expect(submission.attempts()).toBe(2)
   })
 
   it("tool riset biasa tetap berjalan sebelum penyerahan", async () => {

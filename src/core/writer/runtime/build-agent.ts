@@ -1,11 +1,11 @@
-import { createAgent, type TypedToolStrategy } from "langchain"
+import { createAgent } from "langchain"
 import { createDeepAgent, createPatchToolCallsMiddleware, GENERAL_PURPOSE_SUBAGENT, StoreBackend } from "deepagents"
 import { InMemoryStore, MemorySaver } from "@langchain/langgraph"
 import { StructuredTool } from "@langchain/core/tools"
 import type { LlmGateway } from "@/core/shared/llm/gateway"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { AgentMode, AgentLimits } from "../types/profile"
-import type { ArticleFields } from "./article-validation"
+import type { ArticleSubmission } from "./article-submission"
 import { RunRecorder } from "./telemetry"
 import { buildGuardMiddlewareStack } from "./guards"
 import { resolveSkillsForAgent } from "./resolve-skills"
@@ -45,23 +45,22 @@ export interface BuildAgentParams {
   limits: AgentLimits
   recorder: RunRecorder
   /**
-   * Keluaran terstruktur naskah (tool `extract-article`, `createArticleSubmission`). Hanya untuk agen utama:
-   * subagent Deep mode tetap mengembalikan teks ke agen utama.
+   * Penyerahan naskah terstruktur (tool `extract-article`, `createArticleSubmission`): `responseFormat` hanya untuk
+   * agen utama (subagent Deep mode tetap mengembalikan teks), middleware-nya, dan cadangan panggilan model.
    */
-  responseFormat: TypedToolStrategy<ArticleFields>
-  /** Panggilan model di akhir anggaran yang hanya boleh dipakai menyerahkan/mengoreksi naskah. */
-  reservedModelCalls: number
+  submission: Pick<ArticleSubmission, "responseFormat" | "middleware" | "reservedModelCalls">
   skills?: string[]
   userId?: string
 }
 
 export async function buildWriterAgent(params: BuildAgentParams) {
-  const { mode, gateway, tools, systemPrompt, limits, recorder, responseFormat, reservedModelCalls, skills = [], userId } = params
+  const { mode, gateway, tools, systemPrompt, limits, recorder, submission, skills = [], userId } = params
+  const { responseFormat } = submission
   const model = gateway.agentModel()
-  // Fallback model dipasang paling dalam (setelah guard) agar telemetri & batas model call menghitung
-  // satu langkah logis meski model cadangan ikut dicoba. Retry transien terjadi di AsyncCaller model.
-  const guards = buildGuardMiddlewareStack(limits, recorder, { reservedModelCalls })
-  const middleware = [...guards, gateway.modelFallbackMiddleware()]
+  // Fallback model dipasang paling dalam (setelah guard & middleware penyerahan naskah) agar telemetri & batas model
+  // call menghitung satu langkah logis meski model cadangan ikut dicoba. Retry transien terjadi di AsyncCaller model.
+  const guards = buildGuardMiddlewareStack(limits, recorder, { reservedModelCalls: submission.reservedModelCalls })
+  const middleware = [...guards, submission.middleware, gateway.modelFallbackMiddleware()]
   const checkpointer = new MemorySaver()
 
   if (mode === "deep") {
@@ -125,7 +124,7 @@ export async function buildWriterAgent(params: BuildAgentParams) {
   // Standard Agent Mode (createAgent). Penambal tool call menggantung (bawaan deepagents, sudah terpasang di Deep
   // mode): penyerahan naskah tidak valid yang tercampur tool call riset di satu giliran tidak membuat tool call
   // riset tanpa ToolMessage (ditolak sebagian provider dengan HTTP 400).
-  const standardMiddleware = [...guards, createPatchToolCallsMiddleware(), gateway.modelFallbackMiddleware()]
+  const standardMiddleware = [...guards, createPatchToolCallsMiddleware(), submission.middleware, gateway.modelFallbackMiddleware()]
   const agent = createAgent({
     model,
     tools,

@@ -1,6 +1,5 @@
 import { createMiddleware } from "langchain"
 import { AIMessage } from "@langchain/core/messages"
-import { Command } from "@langchain/langgraph"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { AgentLimits } from "../types/profile"
 import { RunRecorder } from "./telemetry"
@@ -17,6 +16,11 @@ const MODEL_CALL_LIMIT_FALLBACK = "The {{limit}} model call budget for this run 
 function createModelCallBudgetMiddleware(limit: number, reserved: number, recorder: RunRecorder) {
   let used = 0
   let reserveAnnounced = false
+  // Cadangan tidak pernah menghabiskan seluruh anggaran kecil: minimal 2 panggilan tetap bebas untuk riset & menulis.
+  const reserve = reserved > 0 ? Math.min(reserved, Math.max(1, limit - 2)) : 0
+  const exhaustedNotice = () =>
+    new AIMessage(renderPrompt(loadPrompt("system-model-call-limit.md", MODEL_CALL_LIMIT_FALLBACK, "system"), { limit }))
+
   return createMiddleware({
     name: "RunModelCallBudgetMiddleware",
     wrapModelCall: async (request, handler) => {
@@ -28,14 +32,24 @@ function createModelCallBudgetMiddleware(limit: number, reserved: number, record
           durationMs: 0,
           summary: `Panggilan model diblokir: batas ${limit} panggilan model per run tercapai`,
         })
-        const notice = loadPrompt("system-model-call-limit.md", MODEL_CALL_LIMIT_FALLBACK, "system")
-        return new AIMessage(renderPrompt(notice, { limit }))
+        return exhaustedNotice()
       }
-      // Sisa anggaran dicadangkan untuk menyerahkan & mengoreksi naskah: panggilan agen utama (yang punya
-      // responseFormat) hanya membawa tool `extract-article`, sehingga model wajib menyerahkan naskahnya.
-      const reserveActive = Boolean(request.responseFormat) && reserved > 0 && limit - used <= reserved
+
+      // Sisa anggaran dicadangkan untuk menyerahkan & mengoreksi naskah (agen utama = panggilan ber-responseFormat).
+      const inReserve = reserve > 0 && limit - used <= reserve
+      if (inReserve && !request.responseFormat) {
+        // Subagent Deep mode tidak boleh memakai cadangan agen utama: loop subagent diakhiri tanpa menambah `used`.
+        recorder.recordEvent({
+          kind: "guard",
+          tool: "model_call_reserve",
+          status: "blocked",
+          durationMs: 0,
+          summary: `Panggilan model subagent diblokir: ${limit - used} panggilan terakhir dicadangkan untuk penyerahan naskah`,
+        })
+        return exhaustedNotice()
+      }
       used += 1
-      if (!reserveActive) return handler(request)
+      if (!inReserve) return handler(request)
       if (!reserveAnnounced) {
         reserveAnnounced = true
         recorder.recordEvent({
@@ -46,23 +60,22 @@ function createModelCallBudgetMiddleware(limit: number, reserved: number, record
           summary: `Sisa ${limit - used + 1} panggilan model dicadangkan untuk penyerahan naskah; tool riset dilepas`,
         })
       }
+      // Hanya tool `extract-article` (responseFormat) yang tetap ter-bind: model wajib menyerahkan naskahnya.
       return handler({ ...request, tools: [] })
     },
   })
 }
 
 /**
- * Pesan model dari hasil handler `wrapModelCall`: AIMessage biasa, objek `{structuredResponse, messages}` (naskah
- * terstruktur diterima), atau Command giliran ulang (naskah dikembalikan untuk dikoreksi).
+ * Pesan model dari hasil handler `wrapModelCall`: AIMessage biasa (LangChain juga menyerahkan AIMessage saat naskah
+ * dikembalikan untuk dikoreksi), atau objek `{structuredResponse, messages}` saat naskah terstruktur diterima.
  */
 function modelMessageOf(response: unknown): AIMessage | undefined {
   if (AIMessage.isInstance(response)) return response
   const messages =
-    response instanceof Command
-      ? (response.update as { messages?: unknown } | undefined)?.messages
-      : typeof response === "object" && response !== null && "structuredResponse" in response
-        ? (response as { messages?: unknown }).messages
-        : undefined
+    typeof response === "object" && response !== null && "structuredResponse" in response
+      ? (response as { messages?: unknown }).messages
+      : undefined
   const first = Array.isArray(messages) ? messages[0] : undefined
   return AIMessage.isInstance(first) ? first : undefined
 }

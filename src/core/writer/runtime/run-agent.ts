@@ -26,6 +26,7 @@ import { buildWriterAgent } from "./build-agent";
 import { executeSingleFinalizeCall } from "./finalize";
 import { postprocessArticle } from "./postprocess";
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
+import { countWords, markdownToPlainText } from "@/core/shared/formatters/article-metrics";
 import {
   assembleAgentOutputText,
   detectRefusal,
@@ -566,6 +567,7 @@ export async function runAgentWriter(
       recorder,
       targetWordCount,
       requiredTitle: request.content.title,
+      language,
     });
     let agent: Awaited<ReturnType<typeof buildWriterAgent>>;
     try {
@@ -576,8 +578,7 @@ export async function runAgentWriter(
         systemPrompt,
         limits,
         recorder,
-        responseFormat: submission.responseFormat,
-        reservedModelCalls: submission.reservedModelCalls,
+        submission,
         skills: profile.skills,
         userId: runUserId,
       });
@@ -754,7 +755,7 @@ export async function runAgentWriter(
 
     // 9. Evaluasi Kelengkapan Naskah & Trigger Single Finalize Call jika diperlukan
     const rawWords = rawOutput?.markdownContent
-      ? rawOutput.markdownContent.split(/\s+/).filter(Boolean).length
+      ? countWords(markdownToPlainText(rawOutput.markdownContent), language)
       : 0;
 
     const needsFinalize =

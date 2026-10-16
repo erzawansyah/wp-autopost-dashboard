@@ -8,5 +8,5 @@ variables:
 ---
 
 [SYSTEM_PROMPT]
-SYSTEM NOTICE: The {{operation}} operation is disabled because the agent filesystem is read-only. Do not write, edit, or delete virtual files. Submit the complete article with `extract-article` now.
+SYSTEM NOTICE: The {{operation}} operation is disabled because the agent filesystem is read-only. Do not write, edit, or delete virtual files. If you are writing the article, submit the complete article with `extract-article` now; if you were delegated a research task, return your findings as your final message.
 [/SYSTEM_PROMPT]
