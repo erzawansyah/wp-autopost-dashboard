@@ -236,6 +236,8 @@ describe("(ii) data bermasalah di skema lama", () => {
     await db.query("update public.wp_sites set max_concurrency = 0 where id = $1", [data.siteA])
     await db.query("update public.wp_sites set max_concurrency = 50, status = null where id = $1", [data.siteB])
     await db.query("insert into public.user_settings (user_id) values (null)")
+    // Kolom wajib di luar daftar konvergensi yang nullable tanpa NULL (dilaporkan bersama kolom konvergensi).
+    await db.exec("alter table public.webhooks alter column name drop not null")
     // Drift tipe: fatal (jsonb → json) dan non-fatal (bigint → integer).
     await db.exec(`
       alter table public.content_batches alter column ai_config drop default;
@@ -284,7 +286,6 @@ describe("(ii) data bermasalah di skema lama", () => {
   it.each([
     "Antrean in-flight",
     "post_items.state NULL",
-    "Nullability: kolom NOT NULL di migrasi",
     "CHECK constraint yang tidak dikenal migrasi",
     "Trigger yang tidak dikenal migrasi",
     "Tabel lain di skema public",
@@ -293,8 +294,15 @@ describe("(ii) data bermasalah di skema lama", () => {
     expect(check(rows, prefix).status).toBe("PERINGATAN")
   })
 
+  it("kolom nullable berisi NULL yang ditegakkan migrasi konvergensi dilaporkan INFO (NULL diisi default)", () => {
+    const nullability = check(rows, "Nullability: kolom NOT NULL di migrasi")
+    expect(nullability.status).toBe("INFO")
+    expect(nullability.tindakan).toContain("webhooks.name — tanpa nilai NULL")
+    expect(nullability.tindakan).toContain("Ditegakkan migrasi 20261018100000: ")
+    expect(nullability.tindakan).toContain("wp_sites.status (1 NULL)")
+  })
+
   it("rincian temuan katalog menyebut objeknya", () => {
-    expect(check(rows, "Nullability: kolom NOT NULL di migrasi").tindakan).toContain("wp_sites.status (1 NULL)")
     expect(check(rows, "CHECK constraint yang tidak dikenal migrasi").tindakan).toContain(
       "post_items.post_items_keyword_length_check"
     )
@@ -379,6 +387,17 @@ describe("(iii) setelah seluruh migrasi", () => {
       const files = readMigrations().map((file) => file.name.split("_")[0])
       expect(expected.rows.map((row) => row.versi)).toEqual(files)
     })
+
+    it("kolom konvergensi di skrip identik dengan daftar migrasi 20261018100000", async () => {
+      const expected = await db.query<{ item: string }>(
+        "select tabel || '.' || kolom as item from pg_temp.pf_kolom_konvergensi()"
+      )
+      const migration = readMigrations().find((file) => file.name.startsWith("20261018100000_"))
+      if (!migration) throw new Error("Migrasi konvergensi 20261018100000 tidak ditemukan")
+      const listed = [...migration.sql.matchAll(/\('([a-z_]+)', '([a-z_]+)', /g)].map((m) => `${m[1]}.${m[2]}`)
+      expect(listed.length).toBeGreaterThan(0)
+      expect(expected.rows.map((row) => row.item)).toEqual(listed)
+    })
   })
 
   describe("upgrade dari skema lama", () => {
@@ -418,8 +437,9 @@ describe("(iii) setelah seluruh migrasi", () => {
       }
     })
 
-    it("nullability kolom lama tidak diubah baseline: tetap dilaporkan (INFO, tanpa NULL)", () => {
-      expect(check(after, "Nullability: kolom NOT NULL di migrasi").status).toBe("INFO")
+    it("nullability kolom lama ditegakkan migrasi konvergensi: OK setelah upgrade", () => {
+      expect(check(before, "Nullability: kolom NOT NULL di migrasi").status).toBe("INFO")
+      expect(check(after, "Nullability: kolom NOT NULL di migrasi").status).toBe("OK")
     })
   })
 })

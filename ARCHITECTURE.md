@@ -407,6 +407,7 @@ Klien: §11.5.
 | `20261017090000_realtime_publication.sql` | (Digantikan) mendaftarkan 2 tabel antrean ke `supabase_realtime` |
 | `20261017100000_realtime_broadcast.sql` | Keluarkan dari publication, trigger Broadcast privat, policy `realtime.messages` |
 | `20261018090000_backfill_requested_category_names.sql` | Data: salin kategori baris lama (`categories`) ke `source_payload.requested_category_names` untuk item batch yang masih akan di-pre-resolve |
+| `20261018100000_converge_legacy_columns.sql` | Konvergensi production lama: default & NOT NULL 50 kolom bawaan (NULL diisi default), hapus trigger `handle_updated_at()` duplikat `set_updated_at` |
 
 - `supabase/seed.sql`: skill sistem `anti-ai-editor` (dijalankan `db reset`; `db push` hanya dengan `--include-seed`).
 - `supabase/tests/` (PGlite, tanpa Docker; `npm run db:test`, juga ikut `npm test`): `rls`, `constraints`, `queue`,

@@ -269,6 +269,66 @@ as $fn$
     ('wp_sites', 'wp_sites_status_check')
 $fn$;
 
+-- Kolom yang default-nya diset & NOT NULL-nya ditegakkan migrasi 20261018100000 (cermin daftar di migrasi itu).
+drop function if exists pg_temp.pf_kolom_konvergensi();
+create function pg_temp.pf_kolom_konvergensi()
+returns table (tabel text, kolom text)
+language sql
+immutable
+as $fn$
+  values
+    ('wp_sites', 'status'),
+    ('wp_sites', 'max_concurrency'),
+    ('wp_sites', 'created_at'),
+    ('wp_sites', 'updated_at'),
+    ('content_batches', 'source_type'),
+    ('content_batches', 'execution_mode'),
+    ('content_batches', 'ai_config'),
+    ('content_batches', 'schedule_config'),
+    ('content_batches', 'status'),
+    ('content_batches', 'total_items'),
+    ('content_batches', 'completed_items'),
+    ('content_batches', 'created_at'),
+    ('content_batches', 'updated_at'),
+    ('post_items', 'source_payload'),
+    ('post_items', 'categories'),
+    ('post_items', 'tags'),
+    ('post_items', 'state'),
+    ('post_items', 'wp_target_status'),
+    ('post_items', 'retry_count'),
+    ('post_items', 'created_at'),
+    ('post_items', 'updated_at'),
+    ('execution_logs', 'level'),
+    ('execution_logs', 'details'),
+    ('execution_logs', 'created_at'),
+    ('agent_profiles', 'temperature'),
+    ('agent_profiles', 'tool_ids'),
+    ('agent_profiles', 'skills'),
+    ('agent_profiles', 'limits'),
+    ('agent_profiles', 'version'),
+    ('agent_profiles', 'is_archived'),
+    ('agent_profiles', 'created_at'),
+    ('agent_profiles', 'updated_at'),
+    ('agent_runs', 'profile_snapshot'),
+    ('agent_runs', 'model_calls'),
+    ('agent_runs', 'tool_calls'),
+    ('agent_runs', 'created_at'),
+    ('agent_skills', 'is_system'),
+    ('agent_skills', 'created_at'),
+    ('agent_skills', 'updated_at'),
+    ('user_settings', 'search_preferences'),
+    ('user_settings', 'notification_prefs'),
+    ('user_settings', 'created_at'),
+    ('user_settings', 'updated_at'),
+    ('webhooks', 'events'),
+    ('webhooks', 'is_active'),
+    ('webhooks', 'created_at'),
+    ('webhooks', 'updated_at'),
+    ('uploaded_media', 'metadata'),
+    ('uploaded_media', 'created_at'),
+    ('uploaded_media', 'updated_at')
+$fn$;
+
 -- Versi berkas supabase/migrations/* (urut).
 create function pg_temp.pf_migrasi_ekspektasi()
 returns table (versi text)
@@ -283,7 +343,8 @@ as $fn$
     ('20261016090000'),
     ('20261017090000'),
     ('20261017100000'),
-    ('20261018090000')
+    ('20261018090000'),
+    ('20261018100000')
 $fn$;
 
 
@@ -354,6 +415,7 @@ declare
   hasil record;
   daftar text[];
   daftar_wajib text[];
+  daftar_konvergensi text[];
   total bigint;
   ada integer;
   pub_semua boolean;
@@ -994,6 +1056,7 @@ begin
   -- user_settings, webhooks dikecualikan karena ditegakkan baseline (lihat 300–303).
   daftar := array[]::text[];
   daftar_wajib := array[]::text[];
+  daftar_konvergensi := array[]::text[];
   total := 0;
   for r in
     select e.tabel, e.kolom
@@ -1007,7 +1070,10 @@ begin
   loop
     select h.n, h.galat into hasil
     from pg_temp.pf_hitung(format('select count(*) from public.%I where %I is null', r.tabel, r.kolom)) as h;
-    if coalesce(hasil.n, 0) > 0 then
+    if exists (select 1 from pg_temp.pf_kolom_konvergensi() as k where k.tabel = r.tabel and k.kolom = r.kolom) then
+      daftar_konvergensi := daftar_konvergensi
+        || (r.tabel || '.' || r.kolom || case when coalesce(hasil.n, 0) > 0 then ' (' || hasil.n || ' NULL)' else '' end);
+    elsif coalesce(hasil.n, 0) > 0 then
       total := total + hasil.n;
       daftar_wajib := daftar_wajib || (r.tabel || '.' || r.kolom || ' (' || hasil.n || ' NULL)');
     else
@@ -1016,21 +1082,29 @@ begin
   end loop;
   urut := 706;
   pemeriksaan := 'Nullability: kolom NOT NULL di migrasi tetapi nullable di production';
-  jumlah := cardinality(daftar) + cardinality(daftar_wajib);
+  jumlah := cardinality(daftar) + cardinality(daftar_wajib) + cardinality(daftar_konvergensi);
   if jumlah = 0 then
     status := 'OK';
     tindakan := '-';
+  elsif cardinality(daftar) + cardinality(daftar_wajib) = 0 then
+    status := 'INFO';
+    tindakan := array_to_string(daftar_konvergensi, ', ') || ' — default diselaraskan & NOT NULL ditegakkan migrasi '
+      || '20261018100000 (baris NULL diisi default kolom). Tidak perlu tindakan.';
   elsif cardinality(daftar_wajib) > 0 then
     status := 'PERINGATAN';
     tindakan := 'Berisi NULL: ' || array_to_string(daftar_wajib, ', ')
       || '. Baseline tidak mengubah nullability kolom lama; isi nilai default untuk baris NULL, lalu tegakkan NOT NULL '
       || 'lewat migrasi lanjutan yang disepakati.'
       || case when cardinality(daftar) > 0
-           then ' Kolom lain tanpa NULL: ' || array_to_string(daftar, ', ') || '.' else '' end;
+           then ' Kolom lain tanpa NULL: ' || array_to_string(daftar, ', ') || '.' else '' end
+      || case when cardinality(daftar_konvergensi) > 0
+           then ' Ditegakkan migrasi 20261018100000: ' || array_to_string(daftar_konvergensi, ', ') || '.' else '' end;
   else
     status := 'INFO';
     tindakan := array_to_string(daftar, ', ') || ' — tanpa nilai NULL; aman untuk v2. Selaraskan lewat migrasi '
-      || 'lanjutan bila perlu (`supabase db diff --linked`).';
+      || 'lanjutan bila perlu (`supabase db diff --linked`).'
+      || case when cardinality(daftar_konvergensi) > 0
+           then ' Ditegakkan migrasi 20261018100000: ' || array_to_string(daftar_konvergensi, ', ') || '.' else '' end;
   end if;
   return next;
 
@@ -1062,6 +1136,7 @@ begin
   where c.relnamespace = 'public'::regnamespace
     and c.relname::text = any (tabel_app)
     and not t.tgisinternal
+    and t.tgfoid is distinct from to_regprocedure('public.handle_updated_at()')
     and t.tgname not in ('set_updated_at', 'broadcast_post_item_update', 'broadcast_post_items_inserted',
                          'broadcast_post_items_deleted', 'broadcast_execution_log');
   urut := 708;
@@ -1069,8 +1144,24 @@ begin
   jumlah := coalesce(cardinality(daftar), 0);
   status := case when daftar is null then 'OK' else 'PERINGATAN' end;
   tindakan := case when daftar is null then '-'
-    else array_to_string(daftar, ', ') || ' — tetap aktif setelah migrasi. Trigger updated_at lama duplikat '
-      || 'set_updated_at; tinjau trigger lain (dapat mengubah/menolak penulisan worker) sebelum deploy.' end;
+    else array_to_string(daftar, ', ') || ' — tetap aktif setelah migrasi; tinjau (dapat mengubah/menolak penulisan '
+      || 'worker) sebelum deploy.' end;
+  return next;
+
+  select array_agg(c.relname || '.' || t.tgname order by c.relname, t.tgname) into daftar
+  from pg_trigger as t
+  join pg_class as c on c.oid = t.tgrelid
+  where c.relnamespace = 'public'::regnamespace
+    and c.relname::text = any (tabel_app)
+    and not t.tgisinternal
+    and t.tgfoid = to_regprocedure('public.handle_updated_at()');
+  urut := 708;
+  pemeriksaan := 'Trigger updated_at lama (public.handle_updated_at)';
+  jumlah := coalesce(cardinality(daftar), 0);
+  status := case when daftar is null then 'OK' else 'INFO' end;
+  tindakan := case when daftar is null then '-'
+    else array_to_string(daftar, ', ') || ' — duplikat set_updated_at; dihapus migrasi 20261018100000 (fungsinya '
+      || 'dibiarkan untuk rollback R1). Tidak perlu tindakan.' end;
   return next;
 
   select
