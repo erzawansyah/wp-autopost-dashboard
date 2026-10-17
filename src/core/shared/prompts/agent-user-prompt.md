@@ -38,7 +38,7 @@ Write a complete, publication-ready article for the brief below. Empty fields me
 
 ARTICLE BRIEF
 - Topic / main keyword: "{{keyword}}"
-- Article language: {{language}} (write the title, excerpt, body, alt text, and captions in this language)
+- Article language: {{language}}. Write the title, excerpt, body, alt text, and captions in {{language}}, even when the keyword, publication, category, tags, or notes below are in another language: they describe the topic and context, not the language of the article.
 - Minimum length: {{targetWords}} words
 - Publication: {{siteName}} {{siteUrl}}
 - Required title (if set, use it exactly as the title field; if empty, write your own): {{title}}

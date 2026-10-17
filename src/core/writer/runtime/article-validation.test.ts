@@ -86,4 +86,30 @@ describe("validateArticleFields", () => {
   it("literal \\n pada body dipulihkan sebelum diukur", () => {
     expect(validateArticleFields({ ...VALID, body: VALID.body.replace(/\n/g, "\\n") }, context)).toEqual([])
   })
+
+  it("bahasa artikel en: judul & excerpt berbahasa Indonesia dilaporkan (kasus nyata), body Inggris lolos", () => {
+    const en = "The price of coffee has risen, and many cafes in the city have to find a way to keep their doors open. "
+    const enSections = Array.from({ length: 5 }, (_, i) => `## Practical Step Number ${i + 1}\n\n${en.repeat(4)}`).join("\n\n")
+    const article = {
+      title: "Masa Probation: Hak Pekerja yang Wajib Anda Pahami",
+      excerpt: "Walk in interview memangkas proses rekrutmen menjadi satu hari. Pelajari cara menyiapkan CV dan tampil meyakinkan di hadapan HRD.",
+      body: `${en.repeat(2)}\n\n${enSections}`,
+    }
+    expect(validateArticleFields(article, { targetWordCount: 300, language: "en" })).toEqual([
+      "title: written in Bahasa Indonesia, but the article language is English (US/UK); write the title in English (US/UK)",
+      "excerpt: written in Bahasa Indonesia, but the article language is English (US/UK); write the excerpt in English (US/UK)",
+    ])
+    // Judul wajib pengguna tidak dinilai bahasanya.
+    expect(validateArticleFields(article, { targetWordCount: 300, language: "en", requiredTitle: article.title })).toHaveLength(1)
+  })
+
+  it("bahasa artikel id: body berbahasa Inggris dilaporkan; bahasa lain tidak dinilai", () => {
+    const en = "The price of coffee has risen, and many cafes in the city have to find a way to keep their doors open. "
+    const body = `${en.repeat(2)}\n\n${Array.from({ length: 5 }, (_, i) => `## Subbab ${i + 1}\n\n${en.repeat(4)}`).join("\n\n")}`
+    expect(validateArticleFields({ ...VALID, body }, { targetWordCount: 300, language: "id" })).toContain(
+      "body: written in English (US/UK), but the article language is Bahasa Indonesia; write the whole body in Bahasa Indonesia"
+    )
+    expect(validateArticleFields({ ...VALID, body }, { targetWordCount: 300, language: "de" })).toEqual([])
+    expect(validateArticleFields(VALID, { targetWordCount: 300, language: "id" })).toEqual([])
+  })
 })

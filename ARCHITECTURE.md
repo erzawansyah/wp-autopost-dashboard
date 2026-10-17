@@ -711,7 +711,8 @@ Susunan prompt penulis (ADR-069) — instruksi berbahasa Inggris, naskah selalu 
   ditangani di node model (prefiks `extract-` → router mengakhiri loop), sehingga tidak melewati LoopGuard dan tidak terblokir
   kuota/dedup/circuit breaker. Setiap penyerahan divalidasi `runtime/article-validation.ts` (judul ≤ 60 & tidak sama dengan
   subbab yang tersisa setelah `cleanMarkdown`, excerpt 120–160, body tanpa H1/elemen HTML/baris `TITLE:` di luar blok kode,
-  ≥ 5 subbab H2 dan ≥ 75% target kata setelah `cleanMarkdown`; kata bahasa tanpa spasi seperti `ja`/`zh` dihitung dengan
+  ≥ 5 subbab H2, ≥ 75% target kata setelah `cleanMarkdown`, dan judul/excerpt/body dalam bahasa artikel (heuristik kata fungsi
+  `detectLanguage`, hanya `id`/`en`; judul wajib pengguna tidak dinilai); kata bahasa tanpa spasi seperti `ja`/`zh` dihitung dengan
   `Intl.Segmenter`, metrik bersama di `formatters/article-metrics.ts`); pelanggaran dikirim balik ke agen
   (`system-article-output-invalid.md`) paling banyak `maxCorrectionRounds` (2) putaran, lalu penyerahan berikutnya diterima
   apa adanya (stopReason `completed_with_output_violations`, event guard `extract-article`). `ArticleSubmissionMiddleware`

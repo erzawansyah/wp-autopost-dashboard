@@ -10,10 +10,10 @@ import {
   codePointLength,
   countMarkdownHeadings,
   countWords,
+  detectLanguage,
   findRawHtmlInMarkdown,
   markdownSubheadings,
   markdownToPlainText,
-  wordsOf,
 } from "@/core/shared/formatters/article-metrics"
 import { ARTICLE_OUTPUT_RULES } from "@/core/writer/runtime/article-validation"
 import type { WriterResult } from "@/core/writer/types/contracts"
@@ -78,14 +78,6 @@ export const EXCERPT_BOUNDS = {
 /** Rasio kata aktual / target: < fail → fail; < pass → warn; > max → warn. */
 export const WORD_RATIO = { fail: ARTICLE_OUTPUT_RULES.minWordRatio, pass: 0.9, max: 2 } as const
 
-const ID_STOPWORDS = new Set(
-  "yang dan di ke dari untuk dengan ini itu pada adalah tidak dalam juga akan atau bisa lebih karena sebagai ada saat agar kita mereka sudah banyak jika namun hanya setiap antara menjadi tersebut dapat"
-    .split(" "),
-)
-const EN_STOPWORDS = new Set(
-  "the and of to in is that for with as on are this be by it from or an was can which not have more but their they also when these has will into than"
-    .split(" "),
-)
 // ---------------------------------------------------------------------------
 // Utilitas teks (metrik bersama ada di src/core/shared/formatters/article-metrics.ts)
 // ---------------------------------------------------------------------------
@@ -151,16 +143,6 @@ export function validateGutenbergBlocks(html: string): { blocks: number; errors:
   if (delimiterLike !== matched) errors.push(`${delimiterLike - matched} delimiter wp: berformat salah`)
   if (blocks === 0) errors.push("tidak ada blok Gutenberg")
   return { blocks, errors }
-}
-
-/** Heuristik bahasa berbasis rasio stopword Indonesia vs Inggris. */
-export function detectLanguage(text: string): { lang: "id" | "en" | "unknown"; idRatio: number; enRatio: number } {
-  const words = wordsOf(text.toLowerCase()).filter((w) => !/^\d+$/.test(w))
-  if (words.length < 30) return { lang: "unknown", idRatio: 0, enRatio: 0 }
-  const idRatio = words.filter((w) => ID_STOPWORDS.has(w)).length / words.length
-  const enRatio = words.filter((w) => EN_STOPWORDS.has(w)).length / words.length
-  const lang = idRatio >= 0.05 && idRatio > enRatio * 2 ? "id" : enRatio >= 0.05 && enRatio > idRatio * 2 ? "en" : "unknown"
-  return { lang, idRatio: round(idRatio, 3), enRatio: round(enRatio, 3) }
 }
 
 function round(value: number, digits: number): number {

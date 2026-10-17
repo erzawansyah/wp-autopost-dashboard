@@ -3,12 +3,15 @@ import {
   codePointLength,
   countMarkdownHeadings,
   countWords,
+  detectLanguage,
+  detectShortTextLanguage,
   findRawHtmlInMarkdown,
   markdownSubheadings,
   markdownToPlainText,
   markdownWithoutCodeBlocks,
 } from "@/core/shared/formatters/article-metrics"
 import { cleanMarkdown, prepareMarkdownSource } from "@/core/shared/formatters/markdown-cleaner"
+import { getLanguageDisplayName } from "@/lib/constants/languages"
 import { cleanArticleExcerpt, cleanArticleTitle } from "./postprocess"
 
 /**
@@ -107,6 +110,8 @@ export function validateArticleFields(fields: ArticleFields, context: ArticleVal
   if (sections < rules.minH2Sections) {
     issues.push(`body: ${sections} main sections ("## " headings), at least ${rules.minH2Sections} required`)
   }
+  issues.push(...languageIssues({ ...fields, body: markdownToPlainText(cleaned) }, context, Boolean(requiredTitle)))
+
   const minWords = Math.ceil(rules.minWordRatio * context.targetWordCount)
   const words = countWords(markdownToPlainText(cleaned), context.language)
   if (words < minWords) {
@@ -114,4 +119,26 @@ export function validateArticleFields(fields: ArticleFields, context: ArticleVal
   }
 
   return issues
+}
+
+/** Batas kata excerpt agar heuristik bahasa cukup yakin (excerpt 120–160 karakter ≈ 18–25 kata). */
+const EXCERPT_LANGUAGE_MIN_WORDS = 10
+
+/**
+ * Field yang ditulis dalam bahasa lain dari bahasa artikel (heuristik kata fungsi; hanya `id` & `en`). Model
+ * cenderung meniru bahasa kata kunci, kategori, dan situs, sehingga judul/excerpt bisa tertukar bahasa.
+ */
+function languageIssues(fields: ArticleFields, context: ArticleValidationContext, titleIsRequired: boolean): string[] {
+  const expected = context.language?.toLowerCase().split("-")[0]
+  if (expected !== "id" && expected !== "en") return []
+  const expectedName = getLanguageDisplayName(expected)
+  const mismatch = (detected: string, field: string, scope: string): string[] =>
+    detected !== "unknown" && detected !== expected
+      ? [`${field}: written in ${getLanguageDisplayName(detected)}, but the article language is ${expectedName}; write ${scope} in ${expectedName}`]
+      : []
+  return [
+    ...(titleIsRequired ? [] : mismatch(detectShortTextLanguage(cleanArticleTitle(fields.title || "")), "title", "the title")),
+    ...mismatch(detectLanguage(cleanArticleExcerpt(fields.excerpt || ""), EXCERPT_LANGUAGE_MIN_WORDS).lang, "excerpt", "the excerpt"),
+    ...mismatch(detectLanguage(fields.body).lang, "body", "the whole body"),
+  ]
 }

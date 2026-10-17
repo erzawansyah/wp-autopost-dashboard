@@ -83,6 +83,56 @@ export function countWords(text: string, language?: string): number {
   return wordsOf(text, language).length
 }
 
+const ID_STOPWORDS = new Set(
+  (
+    "yang dan di ke dari untuk dengan ini itu pada adalah tidak dalam juga akan atau bisa lebih karena sebagai ada " +
+    "saat agar kita mereka sudah banyak jika namun hanya setiap antara menjadi tersebut dapat anda cara bagi tentang " +
+    "oleh secara harus"
+  ).split(" ")
+)
+const EN_STOPWORDS = new Set(
+  (
+    "the and of to in is that for with as on are this be by it from or an was can which not have more but their they " +
+    "also when these has will into than your you how what why before after"
+  ).split(" ")
+)
+
+export type DetectedLanguage = "id" | "en" | "unknown"
+
+/** Jumlah kata fungsi Indonesia & Inggris dalam teks polos (angka diabaikan). */
+function stopwordCounts(text: string): { words: number; id: number; en: number } {
+  const words = wordsOf(text.toLowerCase()).filter((word) => !/^\d+$/.test(word))
+  return {
+    words: words.length,
+    id: words.filter((word) => ID_STOPWORDS.has(word)).length,
+    en: words.filter((word) => EN_STOPWORDS.has(word)).length,
+  }
+}
+
+/**
+ * Heuristik bahasa Indonesia vs Inggris dari rasio kata fungsi. Teks di bawah `minWords` kata → `unknown`;
+ * hasil hanya pasti bila satu bahasa ≥ 5% kata dan lebih dari dua kali bahasa lainnya.
+ */
+export function detectLanguage(
+  text: string,
+  minWords = 30
+): { lang: DetectedLanguage; idRatio: number; enRatio: number } {
+  const counts = stopwordCounts(text)
+  if (counts.words < minWords) return { lang: "unknown", idRatio: 0, enRatio: 0 }
+  const idRatio = counts.id / counts.words
+  const enRatio = counts.en / counts.words
+  const lang = idRatio >= 0.05 && idRatio > enRatio * 2 ? "id" : enRatio >= 0.05 && enRatio > idRatio * 2 ? "en" : "unknown"
+  return { lang, idRatio: Math.round(idRatio * 1000) / 1000, enRatio: Math.round(enRatio * 1000) / 1000 }
+}
+
+/** Bahasa teks pendek (judul): pasti hanya bila memuat kata fungsi satu bahasa saja. */
+export function detectShortTextLanguage(text: string): DetectedLanguage {
+  const counts = stopwordCounts(text)
+  if (counts.id > 0 && counts.en === 0) return "id"
+  if (counts.en > 0 && counts.id === 0) return "en"
+  return "unknown"
+}
+
 /** Jumlah heading ATX tingkat `level` di luar blok kode. */
 export function countMarkdownHeadings(markdown: string, level: number): number {
   return markdownWithoutCodeBlocks(markdown).match(new RegExp(`^ {0,3}#{${level}}(?!#)\\s+\\S`, "gm"))?.length ?? 0

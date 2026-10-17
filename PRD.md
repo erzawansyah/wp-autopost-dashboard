@@ -1,7 +1,7 @@
 # PRD.md — Product Requirement Document
 
 **Nama Produk**: Panitera (WP Autopost & Multi-Site Content Dashboard)
-**Versi**: `0.3.0` (branch `main`, tag `v0.3.0`; versi sebelumnya: tag `v0.2.0`, `v0.1.2`)
+**Versi**: `0.3.1` (branch `main`, tag `v0.3.1`; versi sebelumnya: tag `v0.3.0`, `v0.2.0`, `v0.1.2`)
 **Status Dokumen**: Baseline spesifikasi produk, disinkronkan dengan kode pada Fase 5 rombak v2
 **Pemilik Dokumen**: Tim produk & pengembang Panitera (dokumen ini adalah sumber tunggal spesifikasi produk)
 **Referensi Silang**:
@@ -261,7 +261,9 @@ Aturan keandalan:
 
 ## 7. Status Rilis
 
-**Versi saat ini: `0.3.0` (branch `main`, tag `v0.3.0`).** `0.2.0` (rombak v2) di production sejak 16 Okt 2026.
+**Versi saat ini: `0.3.1` (branch `main`, tag `v0.3.1`).** `0.2.0` (rombak v2) di production sejak 16 Okt 2026.
+
+`0.3.1` — bahasa naskah: judul, excerpt, dan isi wajib dalam bahasa artikel walau kata kunci/kategori/situs berbahasa lain; validator memeriksa bahasa field (heuristik `id`/`en`) dan pesan koreksi agen menyebut bahasa artikel.
 
 `0.3.0` — prompt & keluaran naskah (ADR-069, ADR-070): seluruh prompt berinstruksi Inggris dengan paket gaya per bahasa artikel; agen menyerahkan judul, excerpt, dan isi sebagai field terpisah yang divalidasi dan dikoreksi agen sendiri; `web_reader` membaca per rentang; model default `google/gemini-2.5-flash`; migrasi `20261019090000` (skill `anti-ai-editor`).
 

@@ -71,7 +71,7 @@ export const PROMPT_REGISTRY: Readonly<Record<string, PromptRegistryEntry>> = {
   "agent-user-prompt": {
     "name": "agent-user-prompt",
     "file": "src/core/shared/prompts/agent-user-prompt.md",
-    "version": "15da6e849df6",
+    "version": "4571bf0aabdf",
     "description": "Template pesan permintaan penulisan artikel (brief) dari pengguna ke agen penulis",
     "usedBy": [
       "src/core/writer/runtime/prompt-builder.ts"
@@ -134,9 +134,9 @@ export const PROMPT_REGISTRY: Readonly<Record<string, PromptRegistryEntry>> = {
         "desc": "Isi system-article-output.md (aturan field title, excerpt, body)"
       }
     ],
-    "body": "[USER_PROMPT]\nWrite a complete, publication-ready article for the brief below. Empty fields mean \"not specified\".\n\nARTICLE BRIEF\n- Topic / main keyword: \"{{keyword}}\"\n- Article language: {{language}} (write the title, excerpt, body, alt text, and captions in this language)\n- Minimum length: {{targetWords}} words\n- Publication: {{siteName}} {{siteUrl}}\n- Required title (if set, use it exactly as the title field; if empty, write your own): {{title}}\n- WordPress category: {{categoryName}}\n- WordPress tags: {{tagsList}}\n- Author persona (write from this perspective; background only, never print a byline): {{authorName}}{{authorBio}}\n- Research and image tools available in this run (if empty, there are none: write without research and without images): {{availableTools}}\n- Notes from the user: {{brief}}\n- Additional instructions from the user: {{customInstructions}}\n\nStructure: 1 to 2 opening paragraphs, then at least 5 descriptive H2 sections with multi-paragraph depth.\n\n{{outputFormat}}\n\nWhen the article is final, deliver it by calling `extract-article` with these three fields.\n[/USER_PROMPT]",
+    "body": "[USER_PROMPT]\nWrite a complete, publication-ready article for the brief below. Empty fields mean \"not specified\".\n\nARTICLE BRIEF\n- Topic / main keyword: \"{{keyword}}\"\n- Article language: {{language}}. Write the title, excerpt, body, alt text, and captions in {{language}}, even when the keyword, publication, category, tags, or notes below are in another language: they describe the topic and context, not the language of the article.\n- Minimum length: {{targetWords}} words\n- Publication: {{siteName}} {{siteUrl}}\n- Required title (if set, use it exactly as the title field; if empty, write your own): {{title}}\n- WordPress category: {{categoryName}}\n- WordPress tags: {{tagsList}}\n- Author persona (write from this perspective; background only, never print a byline): {{authorName}}{{authorBio}}\n- Research and image tools available in this run (if empty, there are none: write without research and without images): {{availableTools}}\n- Notes from the user: {{brief}}\n- Additional instructions from the user: {{customInstructions}}\n\nStructure: 1 to 2 opening paragraphs, then at least 5 descriptive H2 sections with multi-paragraph depth.\n\n{{outputFormat}}\n\nWhen the article is final, deliver it by calling `extract-article` with these three fields.\n[/USER_PROMPT]",
     "systemPrompt": "",
-    "userPromptTemplate": "Write a complete, publication-ready article for the brief below. Empty fields mean \"not specified\".\n\nARTICLE BRIEF\n- Topic / main keyword: \"{{keyword}}\"\n- Article language: {{language}} (write the title, excerpt, body, alt text, and captions in this language)\n- Minimum length: {{targetWords}} words\n- Publication: {{siteName}} {{siteUrl}}\n- Required title (if set, use it exactly as the title field; if empty, write your own): {{title}}\n- WordPress category: {{categoryName}}\n- WordPress tags: {{tagsList}}\n- Author persona (write from this perspective; background only, never print a byline): {{authorName}}{{authorBio}}\n- Research and image tools available in this run (if empty, there are none: write without research and without images): {{availableTools}}\n- Notes from the user: {{brief}}\n- Additional instructions from the user: {{customInstructions}}\n\nStructure: 1 to 2 opening paragraphs, then at least 5 descriptive H2 sections with multi-paragraph depth.\n\n{{outputFormat}}\n\nWhen the article is final, deliver it by calling `extract-article` with these three fields."
+    "userPromptTemplate": "Write a complete, publication-ready article for the brief below. Empty fields mean \"not specified\".\n\nARTICLE BRIEF\n- Topic / main keyword: \"{{keyword}}\"\n- Article language: {{language}}. Write the title, excerpt, body, alt text, and captions in {{language}}, even when the keyword, publication, category, tags, or notes below are in another language: they describe the topic and context, not the language of the article.\n- Minimum length: {{targetWords}} words\n- Publication: {{siteName}} {{siteUrl}}\n- Required title (if set, use it exactly as the title field; if empty, write your own): {{title}}\n- WordPress category: {{categoryName}}\n- WordPress tags: {{tagsList}}\n- Author persona (write from this perspective; background only, never print a byline): {{authorName}}{{authorBio}}\n- Research and image tools available in this run (if empty, there are none: write without research and without images): {{availableTools}}\n- Notes from the user: {{brief}}\n- Additional instructions from the user: {{customInstructions}}\n\nStructure: 1 to 2 opening paragraphs, then at least 5 descriptive H2 sections with multi-paragraph depth.\n\n{{outputFormat}}\n\nWhen the article is final, deliver it by calling `extract-article` with these three fields."
   },
   "system-article-output": {
     "name": "system-article-output",
@@ -172,7 +172,7 @@ export const PROMPT_REGISTRY: Readonly<Record<string, PromptRegistryEntry>> = {
   "system-article-output-invalid": {
     "name": "system-article-output-invalid",
     "file": "src/core/shared/prompts/system-article-output-invalid.md",
-    "version": "3fb4fde907f2",
+    "version": "bb013e80d70a",
     "description": "Pesan koreksi ke agen penulis saat naskah yang diserahkan lewat extract-article melanggar aturan field",
     "usedBy": [
       "src/core/writer/runtime/article-submission.ts"
@@ -185,10 +185,14 @@ export const PROMPT_REGISTRY: Readonly<Record<string, PromptRegistryEntry>> = {
       {
         "key": "attemptsLeft",
         "desc": "Sisa kesempatan menyerahkan ulang sebelum naskah diterima apa adanya"
+      },
+      {
+        "key": "language",
+        "desc": "Nama bahasa artikel (mis. English (US/UK)); pesan koreksi berbahasa Inggris tidak boleh menggeser bahasa naskah"
       }
     ],
-    "body": "[SYSTEM_PROMPT]\nThe article was NOT accepted. Fix every problem below, then call `extract-article` again with all three fields (title, excerpt, body) complete, not only the changed parts. Keep every fact, figure, quote, and source unchanged while fixing the format.\nProblems:\n{{issues}}\nRemaining correction attempts: {{attemptsLeft}}. After that, the last submission is published as it is.\n[/SYSTEM_PROMPT]",
-    "systemPrompt": "The article was NOT accepted. Fix every problem below, then call `extract-article` again with all three fields (title, excerpt, body) complete, not only the changed parts. Keep every fact, figure, quote, and source unchanged while fixing the format.\nProblems:\n{{issues}}\nRemaining correction attempts: {{attemptsLeft}}. After that, the last submission is published as it is.",
+    "body": "[SYSTEM_PROMPT]\nThe article was NOT accepted. Fix every problem below, then call `extract-article` again with all three fields (title, excerpt, body) complete, not only the changed parts. Keep every fact, figure, quote, and source unchanged while fixing the format, and keep all three fields in {{language}}, the article language.\nProblems:\n{{issues}}\nRemaining correction attempts: {{attemptsLeft}}. After that, the last submission is published as it is.\n[/SYSTEM_PROMPT]",
+    "systemPrompt": "The article was NOT accepted. Fix every problem below, then call `extract-article` again with all three fields (title, excerpt, body) complete, not only the changed parts. Keep every fact, figure, quote, and source unchanged while fixing the format, and keep all three fields in {{language}}, the article language.\nProblems:\n{{issues}}\nRemaining correction attempts: {{attemptsLeft}}. After that, the last submission is published as it is.",
     "userPromptTemplate": ""
   },
   "system-article-submit-tool": {

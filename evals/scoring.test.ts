@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { WriterResult } from "@/core/writer/types/contracts"
 import {
   EvalCaseSchema,
-  detectLanguage,
   findByline,
   findUnsafeHtml,
   scoreWriterResult,
@@ -115,14 +114,6 @@ describe("validateGutenbergBlocks", () => {
     expect(validateGutenbergBlocks("<!--wp:paragraph-->\n<p>x</p>\n<!--/wp:paragraph-->").errors).toEqual(
       expect.arrayContaining(["2 delimiter wp: berformat salah", "tidak ada blok Gutenberg"]),
     )
-  })
-})
-
-describe("detectLanguage", () => {
-  it("membedakan Indonesia, Inggris, dan teks terlalu pendek", () => {
-    expect(detectLanguage(`${ID_SENTENCE} ${ID_SENTENCE}`).lang).toBe("id")
-    expect(detectLanguage(`${EN_SENTENCE} ${EN_SENTENCE}`).lang).toBe("en")
-    expect(detectLanguage("Kopi hitam enak.").lang).toBe("unknown")
   })
 })
 
