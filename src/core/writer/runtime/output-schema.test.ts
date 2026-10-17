@@ -267,12 +267,18 @@ describe("deriveExcerpt", () => {
 })
 
 describe("trimCutOffTail", () => {
-  it("blok penutup terpotong dibuang beserta heading tanpa isi; naskah utuh tidak berubah", () => {
+  it("blok terakhir (titik potong) selalu dibuang, beserta heading tanpa isi di ujung", () => {
     expect(trimCutOffTail("Paragraf satu.\n\n## Bagian\n\nKalimat utuh.\n\n## Akhir\n\nPetani di Bener Mer")).toBe(
       "Paragraf satu.\n\n## Bagian\n\nKalimat utuh."
     )
-    expect(trimCutOffTail("Paragraf satu.\n\n## Bagian\n\nKalimat utuh.  ")).toBe("Paragraf satu.\n\n## Bagian\n\nKalimat utuh.")
+    // Potongan yang kebetulan berakhir pada tanda baca/penanda format tetap tidak utuh.
+    expect(trimCutOffTail("Satu.\n\n## Dampak\n\nMenurut data terbaru dari **Badan Pusat Statistik**")).toBe("Satu.")
+    expect(trimCutOffTail("Satu.\n\nDua.\n\n## Berapa Harga Kopi Gayo Sekarang?")).toBe("Satu.\n\nDua.")
     expect(trimCutOffTail("東京の喫茶店。\n\n価格が上が")).toBe("東京の喫茶店。")
+  })
+
+  it("blok kode yang tertinggal terbuka ikut dibuang; naskah satu blok dibiarkan", () => {
+    expect(trimCutOffTail("Pembuka.\n\n```bash\nnpm install\n\nnpm run bu")).toBe("Pembuka.")
     expect(trimCutOffTail("Satu blok terpotong di teng")).toBe("Satu blok terpotong di teng")
   })
 })

@@ -54,6 +54,12 @@ describe("article-metrics", () => {
     expect(findRawHtmlInMarkdown("<kotak-info>isi</kotak-info>")).toEqual(["<kotak-info>", "</kotak-info>"])
   })
 
+  it("findRawHtmlInMarkdown: singkatan & placeholder bukan tag, dan tag tidak melintasi baris", () => {
+    expect(findRawHtmlInMarkdown('Pilih laptop <Rp 7 juta agar hemat.\n\n> "Baterai jadi kunci," kata Budi.')).toEqual([])
+    expect(findRawHtmlInMarkdown("| Entry | <Rp 2 juta |\n| Premium | >Rp 5 juta |")).toEqual([])
+    expect(findRawHtmlInMarkdown("Ganti <image> lalu cd <dir>, git rebase <base>, komponen <Image>")).toEqual([])
+  })
+
   it("codePointLength menghitung emoji sebagai satu karakter", () => {
     expect(codePointLength("Kopi ☕️")).toBe(7)
     expect(codePointLength("😀😀")).toBe(2)

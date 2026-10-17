@@ -817,6 +817,32 @@ describe("runAgentWriter — kontrak keluaran naskah", () => {
     expect(mocks.finalize).not.toHaveBeenCalled()
   })
 
+  it("draf dari JSON utuh beresape rusak (tidak terpotong) dipakai utuh, tanpa pemangkasan", async () => {
+    const body = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(30)} Lihat C:\\Data.\n\n## Tips Memilih Biji\n\n- Pilih biji yang baru dipanggang\n- Giling sesaat sebelum diseduh`
+    const rawArgs = `{"title":"Harga Gayo Melonjak","excerpt":"Ringkas.","body":"${body.replace(/\n/g, "\\n")}"}`
+    mocks.buildWriterAgent.mockImplementation(
+      async ({ submission }: { submission: { middleware: { wrapModelCall?: (request: unknown, handler: () => Promise<unknown>) => Promise<unknown> } } }) => ({
+        invoke: async () => {
+          const badEscape = new AIMessage({
+            content: "",
+            invalid_tool_calls: [{ id: "x1", name: "extract-article", args: rawArgs, error: "Bad escaped character", type: "invalid_tool_call" }],
+            response_metadata: { finish_reason: "stop" },
+          })
+          for (let attempt = 0; attempt < 3; attempt++) {
+            await submission.middleware.wrapModelCall?.({ responseFormat: {} }, async () => badEscape)
+          }
+          return { messages: [badEscape] }
+        },
+      })
+    )
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({ success: true, stopReason: "completed_with_output_violations" })
+    expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak", "Tips Memilih Biji"])
+    expect(result.article?.markdownContent).toContain("Giling sesaat sebelum diseduh")
+  })
+
   it("penolakan finalize call (title REFUSED:) → gagal permanen CONTENT_REFUSED", async () => {
     agentReplies("pendek")
     mocks.finalize.mockResolvedValue({ kind: "refused", reason: "Konten berbahaya." })

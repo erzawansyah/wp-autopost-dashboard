@@ -67,6 +67,7 @@ describe("executeSingleFinalizeCall", () => {
       { title: "Harga Gayo", excerpt: filler, body: "terlalu pendek" },
       { title: "Harga Gayo", excerpt: filler, body: [BODY] },
       { title: "Harga Gayo", excerpt: filler, body: JSON.stringify({ isi: BODY }) },
+      { title: "Harga Gayo", excerpt: filler, body: `\`\`\`json\n${JSON.stringify({ isi: BODY })}\n\`\`\`` },
     ]) {
       const { result, recorder } = run(JSON.stringify(reply))
       expect(await result).toBeNull()
@@ -86,6 +87,22 @@ describe("executeSingleFinalizeCall", () => {
       if (!Array.isArray(reply) || reply.length !== 1) {
         expect(recorder.getEvents().find((e) => e.tool === "finalize_output")?.summary).toContain("JSON keys did not match")
       }
+    }
+  })
+
+  it("body Markdown yang diawali tautan atau label [..] diterima; body berisi JSON naskah dibuka", async () => {
+    for (const body of [`[Badan Pusat Statistik](https://bps.go.id) mencatat ${BODY}`, `[Advertorial] ${BODY}`]) {
+      expect(await run(JSON.stringify({ title: "Harga Gayo", excerpt: "Ringkas.", body })).result).toMatchObject({
+        kind: "article",
+        article: { markdownContent: body },
+      })
+    }
+    const encoded = JSON.stringify({ title: "Harga Gayo", excerpt: "Ringkas.", body: BODY })
+    for (const body of [encoded, `\`\`\`json\n${encoded}\n\`\`\``, `\`\`\`\n${encoded}\n\`\`\``]) {
+      expect(await run(JSON.stringify({ title: "Harga Gayo", excerpt: "Ringkas.", body })).result).toMatchObject({
+        kind: "article",
+        article: { markdownContent: BODY.trim() },
+      })
     }
   })
 

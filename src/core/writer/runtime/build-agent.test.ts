@@ -357,7 +357,8 @@ describe("buildWriterAgent — middleware penyerahan naskah", () => {
 
     expect(sent).toHaveLength(2)
     expect(sent[1].toolMessageIds).toEqual(["call_rusak"])
-    expect(sent[1].lastToolMessage).toContain("were not valid JSON")
+    // Argumen tidak ditutup `"}`: dianggap terpotong walau provider tidak melaporkan finish_reason "length".
+    expect(sent[1].lastToolMessage).toContain("cut off at the output length limit")
     expect(submission.attempts()).toBe(2)
     expect(result.structuredResponse).toEqual(ARTICLE)
   })
@@ -374,6 +375,7 @@ describe("buildWriterAgent — middleware penyerahan naskah", () => {
     expect(result.structuredResponse).toBeUndefined()
     expect(submission.lastSubmission()?.fields.title).toBe(ARTICLE.title)
     expect(submission.lastSubmission()?.fields.body).toContain("Kopi arabika Gayo tumbuh")
+    expect(submission.lastSubmission()?.cutOff).toBe(true)
   })
 
   it("dua extract-article valid dalam satu giliran → naskah langsung diterima tanpa giliran ulang", async () => {

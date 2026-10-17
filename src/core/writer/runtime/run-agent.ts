@@ -156,9 +156,9 @@ function fieldsToArticleOutput(fields: ArticleFields): Partial<ArticleOutput> & 
   return { title: fields.title, excerpt: fields.excerpt, markdownContent: fields.body };
 }
 
-/** Penyerahan terakhir yang belum diterima; draf dari argumen rusak dipangkas ke blok utuh terakhir. */
+/** Penyerahan terakhir yang belum diterima; draf dari argumen terpotong dipangkas ke blok utuh terakhir. */
 function submissionToArticleOutput(submitted: SubmittedArticle): Partial<ArticleOutput> & { markdownContent: string } {
-  const body = submitted.salvaged ? trimCutOffTail(submitted.fields.body) : submitted.fields.body;
+  const body = submitted.cutOff ? trimCutOffTail(submitted.fields.body) : submitted.fields.body;
   return fieldsToArticleOutput({ ...submitted.fields, body });
 }
 

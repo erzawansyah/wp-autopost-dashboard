@@ -67,6 +67,24 @@ function unwrapArticleJson(json: unknown): unknown {
   return value
 }
 
+/**
+ * Body Markdown dari field `body`. Body yang ternyata JSON utuh (naskah di-encode dua kali, boleh dibungkus fence)
+ * diganti naskah di dalamnya, atau `null` bila tidak ada naskah (JSON mentah tidak boleh terbit). Body Markdown biasa,
+ * termasuk yang diawali tautan `[teks](url)` atau label `[…]`, dikembalikan apa adanya.
+ */
+function markdownBodyOf(body: string): string | null {
+  const unfenced = body.trim().replace(/^```(?:json|markdown|md)?[ \t]*\n([\s\S]*?)\n[ \t]*```$/i, "$1").trim()
+  if (!/^[[{]/.test(unfenced)) return body
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(unfenced)
+  } catch {
+    return body
+  }
+  const inner = normalizeArticleOutput(unwrapArticleJson(parsed))?.markdownContent
+  return inner && inner.trim().length > 150 && markdownBodyOf(inner) === inner ? inner : null
+}
+
 /** Field `title` string dari balasan JSON (dibaca walau field lain hilang, untuk deteksi `REFUSED:`). */
 function jsonTitle(json: unknown): string | null {
   const title = typeof json === "object" && json !== null ? (json as Record<string, unknown>).title : undefined
@@ -152,21 +170,22 @@ export async function executeSingleFinalizeCall(
     }
 
     if (json !== undefined) {
-      // Balasan JSON sah tidak pernah jatuh ke jalur teks (JSON mentah tidak boleh terbit): tanpa body string yang
+      // Balasan JSON sah tidak pernah jatuh ke jalur teks (JSON mentah tidak boleh terbit): tanpa body Markdown yang
       // layak, finalize gagal. Bentuk menyimpang dari skema (provider mengabaikan json_schema) dipetakan lewat
-      // `normalizeArticleOutput`, yang hanya mengembalikan field string.
+      // `normalizeArticleOutput`, yang hanya mengembalikan field string; body berisi JSON dibuka `markdownBodyOf`.
       const normalized = fields ? null : normalizeArticleOutput(candidate)
       const article: ArticleFields | null = fields
         ? fields
         : normalized?.markdownContent
           ? { title: normalized.title ?? "", excerpt: normalized.excerpt ?? "", body: normalized.markdownContent }
           : null
-      if (article && article.body.trim().length > 150 && !/^[[{]/.test(article.body.trim())) {
+      const body = article ? markdownBodyOf(article.body) : null
+      if (article && body && body.trim().length > 150) {
         structuredResult = finalizeArticleFields(
-          { title: article.title, excerpt: article.excerpt, markdownContent: article.body },
+          { title: article.title, excerpt: article.excerpt, markdownContent: body },
           { title: params.title, keyword }
         )
-        const issues = validateArticleFields(article, { requiredTitle: params.title, targetWordCount, language })
+        const issues = validateArticleFields({ ...article, body }, { requiredTitle: params.title, targetWordCount, language })
         if (!fields) issues.unshift("reply: JSON keys did not match {title, excerpt, body}")
         if (issues.length > 0) {
           recorder.recordEvent({

@@ -180,22 +180,24 @@ function trimExcerpt(text: string): string {
   return `${cut.replace(/[\s,;:]+$/, "")}…`
 }
 
-/** Akhir blok yang dianggap utuh: tanda akhir kalimat, kutip/kurung penutup, penanda format, atau fence penutup. */
-const COMPLETE_BLOCK_END = /[.!?…。！？」』"”’')\]*_`]$/
 const LONE_HEADING_BLOCK = /^ {0,3}#{1,6}[ \t][^\n]*$/
+const FENCE_LINE = /^ {0,3}(?:```|~~~)/gm
 
 /**
- * Pangkas draf yang diselamatkan dari argumen tool terpotong ke blok utuh terakhir: blok penutup yang tidak
- * berakhir seperti kalimat/blok utuh dibuang, beserta heading tanpa isi yang tersisa di ujung naskah.
+ * Pangkas draf dari argumen tool yang terpotong batas panjang: titik potong selalu berada di blok terakhir, jadi blok
+ * itu dibuang, begitu pula blok kode yang tertinggal terbuka dan heading tanpa isi di ujung naskah. Naskah satu blok
+ * dibiarkan (tidak ada bagian utuh yang tersisa bila dipangkas).
  */
 export function trimCutOffTail(markdown: string): string {
-  const text = markdown.trimEnd()
-  if (COMPLETE_BLOCK_END.test(text)) return text
-  const blocks = text.split(/\n[ \t]*\n/)
-  if (blocks.length < 2) return text
+  const blocks = markdown.trimEnd().split(/\n[ \t]*\n/)
+  if (blocks.length < 2) return blocks.join("")
   blocks.pop()
-  while (blocks.length > 1 && LONE_HEADING_BLOCK.test(blocks[blocks.length - 1].trim())) blocks.pop()
-  return blocks.join("\n\n").trimEnd()
+  let text = blocks.join("\n\n")
+  const fences = Array.from(text.matchAll(FENCE_LINE))
+  if (fences.length % 2 === 1) text = text.slice(0, fences[fences.length - 1].index).trimEnd()
+  const kept = text.split(/\n[ \t]*\n/)
+  while (kept.length > 1 && LONE_HEADING_BLOCK.test(kept[kept.length - 1].trim())) kept.pop()
+  return kept.join("\n\n").trimEnd()
 }
 
 /** Excerpt heuristik: baris prosa pertama (> 20 karakter) dari naskah, maksimal 160 karakter. */

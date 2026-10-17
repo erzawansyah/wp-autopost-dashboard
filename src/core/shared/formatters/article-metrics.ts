@@ -12,21 +12,21 @@ const UNSPACED_LANGUAGES = new Set(["ja", "zh", "th", "lo", "km", "my"])
 const segmenters = new Map<string, Intl.Segmenter>()
 
 /**
- * Elemen HTML (standar & lawas) yang dikenali sebagai tag mentah. `<nama>` lain dianggap teks (placeholder,
- * generik) kecuali punya tag penutup `</nama>` di naskah yang sama.
+ * Elemen HTML umum yang selalu dikenali sebagai tag mentah. Nama lain (placeholder `<nama>`, generik, singkatan
+ * seperti `<Rp 7 juta`, elemen langka seperti `ruby`) hanya dihitung bila tag penutup `</nama>` ada di naskah.
  */
 const HTML_ELEMENTS = new Set(
   (
-    "a abbr acronym address applet area article aside audio b base basefont bdi bdo big blink blockquote body br " +
-    "button canvas caption center cite code col colgroup data datalist dd del details dfn dialog dir div dl dt em " +
-    "embed fieldset figcaption figure font footer form frame frameset h1 h2 h3 h4 h5 h6 head header hgroup hr html i " +
-    "iframe image img input ins kbd label legend li link listing main map mark marquee math menu meta meter nav " +
-    "nobr noembed noframes noscript object ol optgroup option output p param picture plaintext pre progress q rb rp " +
-    "rt rtc ruby s samp script search section select slot small source span strike strong style sub summary sup svg " +
-    "table tbody td template textarea tfoot th thead time title tr track tt u ul var video wbr xmp"
+    "a abbr address article aside audio b bdi bdo blockquote body br button canvas caption center cite code col " +
+    "colgroup data dd del details dfn dialog div dl dt em embed fieldset figcaption figure font footer form h1 h2 h3 " +
+    "h4 h5 h6 head header hr html i iframe img input ins kbd label legend li link main mark meta meter nav noscript " +
+    "object ol optgroup option output p picture pre progress q s samp script section select small source span " +
+    "strike strong style sub summary sup svg table tbody td template textarea tfoot th thead time title tr track u " +
+    "ul var video wbr"
   ).split(" ")
 )
-const TAG = /<\/?([a-zA-Z][a-zA-Z0-9-]*)(?:\s[^<>]*)?\/?>/g
+/** Tag satu baris: `<` dan `>` di baris berbeda (mis. `<Rp 7 juta` lalu kutipan `> …`) bukan tag. */
+const TAG = /<\/?([a-zA-Z][a-zA-Z0-9-]*)(?:\s[^<>\n]*)?\/?>/g
 
 /** Rentang blok kode berpagar (``` maupun ~~~) menurut parser Markdown bersama (kode berindentasi dimatikan). */
 function codeBlockRanges(markdown: string): SourceRange[] {

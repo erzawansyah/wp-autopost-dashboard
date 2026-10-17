@@ -261,7 +261,41 @@ describe("createArticleSubmission", () => {
     const rounds = ARTICLE_OUTPUT_RULES.maxCorrectionRounds
     const { submission, invoke } = setup(Array.from({ length: rounds + 1 }, () => cutOff))
     await invoke()
-    expect(submission.lastSubmission()).toMatchObject({ salvaged: true, fields: { title: "Judul" } })
+    expect(submission.lastSubmission()).toMatchObject({ salvaged: true, cutOff: true, fields: { title: "Judul" } })
+  })
+
+  it("JSON utuh dengan escape rusak (bukan terpotong) → draf diselamatkan tanpa tanda terpotong", async () => {
+    const badEscape = () =>
+      new AIMessage({
+        content: "",
+        invalid_tool_calls: [
+          { id: `x${++callId}`, name: ARTICLE_SUBMIT_TOOL, args: `{"title":"Judul","excerpt":"e","body":"${"kata ".repeat(20)}Lihat C:\\Data.\\n\\n- satu\\n- dua"}`, error: "bad escape", type: "invalid_tool_call" },
+        ],
+        response_metadata: { finish_reason: "stop" },
+      })
+    const rounds = ARTICLE_OUTPUT_RULES.maxCorrectionRounds
+    const { model, submission, invoke } = setup(Array.from({ length: rounds + 1 }, () => badEscape))
+    await invoke()
+    expect(submission.lastSubmission()).toMatchObject({ salvaged: true, cutOff: false })
+    expect(String(toolMessagesAt(model, 1).at(-1)?.content)).toContain("not valid JSON (badly escaped)")
+  })
+
+  it("penyerahan ganda bersama tool lain tetap ditolak setelah putaran koreksi habis → tool lain tetap dijalankan", async () => {
+    const executed: string[] = []
+    const withImage = () =>
+      new AIMessage({
+        content: "",
+        tool_calls: [
+          { id: "img3", name: "set_featured_image", args: { query: "kopi" }, type: "tool_call" },
+          { id: `d${++callId}`, name: ARTICLE_SUBMIT_TOOL, args: VALID, type: "tool_call" },
+          { id: `d${++callId}`, name: ARTICLE_SUBMIT_TOOL, args: VALID, type: "tool_call" },
+        ],
+      })
+    const image = () =>
+      new AIMessage({ content: "", tool_calls: [{ id: "img4", name: "set_featured_image", args: { query: "kopi" }, type: "tool_call" }] })
+    const { invoke } = setup([withImage, image, submit(VALID)], { maxCorrectionRounds: 0, tools: [imageTool(executed)] })
+    expect((await invoke()).structuredResponse).toEqual(VALID)
+    expect(executed).toEqual(["kopi"])
   })
 
   it("tool riset biasa tetap berjalan sebelum penyerahan", async () => {

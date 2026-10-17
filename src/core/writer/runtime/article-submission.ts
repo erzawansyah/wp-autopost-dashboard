@@ -98,8 +98,10 @@ export interface SubmittedArticle {
   fields: ArticleFields
   /** Pelanggaran yang tersisa (kosong = lolos validasi). */
   issues: string[]
-  /** Draf diselamatkan dari argumen `extract-article` yang bukan JSON valid: ekornya bisa terpotong. */
+  /** Draf diselamatkan dari argumen `extract-article` yang bukan JSON valid (tidak menimpa penyerahan utuh). */
   salvaged?: boolean
+  /** Argumen draf terpotong batas panjang keluaran: blok terakhirnya tidak utuh. */
+  cutOff?: boolean
 }
 
 export interface ArticleSubmission {
@@ -264,25 +266,24 @@ export function createArticleSubmission(options: ArticleSubmissionOptions): Arti
    * dengan permintaan penyerahan tunggal (`handleError`) dan memutar ulang giliran. Penyerahan pertama tetap dinilai
    * sebagai satu percobaan: lolos (atau putaran koreksi habis) → diterima langsung; tidak lolos → pelanggarannya
    * menjadi jawaban panggilan lainnya (Command tanpa `goto` yang ikut giliran ulang LangChain), sehingga setiap tool
-   * call terjawab tepat sekali. Selama putaran koreksi tersisa, naskah dari giliran yang juga memuat tool lain tidak
-   * diterima agar tool itu tidak hilang: penambal deepagents menandainya dibatalkan dan agen mengulangnya dulu.
+   * call terjawab tepat sekali. Naskah dari giliran yang juga memuat tool lain tidak pernah diterima (kecuali
+   * penolakan topik) agar tool itu tidak hilang: penambal deepagents menandainya dibatalkan dan agen mengulangnya
+   * dulu. Loop tetap berakhir: di panggilan cadangan anggaran model tool riset dilepas, sehingga giliran tanpa tool
+   * lain diterima lewat `judge`.
    */
   const acceptDuplicateSubmission = (message: AIMessage, calls: ToolCall[]): StructuredResult | Command => {
     const others = (message.tool_calls ?? []).filter((call) => call.name !== ARTICLE_SUBMIT_TOOL)
-    const otherNames = others.map((call) => call.name).join(", ")
     let issues: string[]
-    if (others.length > 0 && refusalOf(calls[0].args) === null && attempts < rounds) {
+    if (others.length > 0 && refusalOf(calls[0].args) === null) {
       attempts += 1
       const fields = readArticleFields(calls[0].args)
       issues = [BATCHED_SUBMISSION_ISSUE, ...(fields ? validateArticleFields(fields, options) : shapeIssues(calls[0].args))]
       if (fields) last = { fields, issues: issues.slice(1) }
+      const otherNames = others.map((call) => call.name).join(", ")
       record("blocked", `Penyerahan ganda bersama tool lain (${otherNames}) dikembalikan ke agen (penyerahan ke-${attempts}): ${issues.join("; ")}`)
     } else {
       const verdict = judge(calls[0].args)
-      if (verdict.accepted) {
-        if (others.length > 0 && refusal === null) record("error", `Tool lain di giliran penyerahan tidak dijalankan: ${otherNames}`)
-        return acceptedResult(message, calls, verdict.fields)
-      }
+      if (verdict.accepted) return acceptedResult(message, calls, verdict.fields)
       issues = verdict.issues
     }
     const feedback = handleError(new StructuredOutputParsingError(ARTICLE_SUBMIT_TOOL, issues))
@@ -308,12 +309,16 @@ export function createArticleSubmission(options: ArticleSubmissionOptions): Arti
       refusal = refused
       return message
     }
-    const issue = isCutOff(message) ? CUT_OFF_ARGUMENTS_ISSUE : INVALID_ARGUMENTS_ISSUE
+    // Terpotong: provider melaporkan batas panjang, atau argumen mentah tidak ditutup seperti objek JSON utuh
+    // (escape rusak pada JSON yang utuh tetap diakhiri `"}`).
+    const cutOff = isCutOff(message) || !/"\s*\}\s*$/.test(typeof invalid.args === "string" ? invalid.args : "")
+    const issue = cutOff ? CUT_OFF_ARGUMENTS_ISSUE : INVALID_ARGUMENTS_ISSUE
     if (salvaged?.markdownContent?.trim() && (last === null || last.salvaged)) {
       last = {
         fields: { title: salvaged.title ?? "", excerpt: salvaged.excerpt ?? "", body: salvaged.markdownContent },
         issues: [issue],
         salvaged: true,
+        cutOff,
       }
     }
     if (attempts > rounds || !invalid.id) {
