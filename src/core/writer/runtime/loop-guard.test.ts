@@ -69,7 +69,7 @@ describe("circuit breaker berbasis artifact", () => {
     expect(handler).toHaveBeenCalledTimes(2)
     expect(blocked.status).toBe("error")
     expect(readToolArtifact(blocked)).toMatchObject({ ok: false, code: "circuit_open", retryable: false })
-    expect(blocked.content).toContain("JANGAN memanggil tool 'web_search' lagi")
+    expect(blocked.content).toContain("Do NOT call tool 'web_search' again")
     expect(recorder.getEvents().map((e) => [e.kind, e.status])).toEqual([
       ["tool_call", "error"],
       ["guard", "blocked"],
@@ -189,7 +189,7 @@ describe("deduplikasi", () => {
     const deduped = await run(request("web_search", { limit: 3, query: "a" }), handler)
 
     expect(handler).toHaveBeenCalledTimes(1)
-    expect(deduped.content).toContain("HASIL TERSIMPAN")
+    expect(deduped.content).toContain("CACHED RESULT")
     expect(deduped.content).toContain("Ditemukan 1 sumber web")
     expect(readToolArtifact(deduped)).toEqual(readToolArtifact(first))
     expect(recorder.getEvents().at(-1)).toMatchObject({ kind: "guard", status: "deduped" })
@@ -220,7 +220,7 @@ describe("kuota", () => {
     expect(blocked.status).toBe("error")
     expect(readToolArtifact(blocked)).toMatchObject({ ok: false, code: "quota_exceeded", retryable: false })
     expect(blocked.content).toContain("Batas total panggilan tool sistem (2 kali) telah tercapai.")
-    expect(blocked.content).toContain("JANGAN memanggil tool apa pun lagi")
+    expect(blocked.content).toContain("Do NOT call any tool except `extract-article` again")
   })
 
   it("kuota per-tool hanya memblokir tool itu; panggilan diblokir tidak membuka breaker", async () => {

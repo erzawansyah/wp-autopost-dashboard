@@ -8,5 +8,5 @@ variables:
 ---
 
 [SYSTEM_PROMPT]
-PEMBERITAHUAN SISTEM: Batas total {{limit}} panggilan model untuk run ini sudah habis, sehingga eksekusi agen dihentikan. Naskah akhir disusun dari data dan konteks yang sudah terkumpul.
+SYSTEM NOTICE: The budget of {{limit}} model calls for this run is exhausted, so agent execution has stopped. The final article will be composed from the data and context already collected.
 [/SYSTEM_PROMPT]

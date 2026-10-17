@@ -1,8 +1,9 @@
 import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner"
 
 /**
- * Bentuk naskah hasil agent/finalize setelah diekstrak dari teks model (Markdown-first; agen tidak
- * memakai structured output sehingga tidak ada skema yang dikirim ke LLM).
+ * Bentuk naskah runtime hasil agent/finalize. Jalur utama: field terstruktur `{title, excerpt, body}` dari tool
+ * `extract-article` (`article-submission.ts`) atau JSON finalize call; parser teks di modul ini adalah jalur
+ * cadangan untuk model yang tidak memakai keluaran terstruktur (Markdown, header TITLE/EXCERPT, atau JSON bebas).
  *
  * Sengaja tanpa kategori/tag/author/media: taksonomi & author dikunci Pre-Flight Resolver sebelum agen
  * menulis, dan featured image hanya dari tool `set_featured_image`. Teks agen dapat dipengaruhi konten web
@@ -128,6 +129,101 @@ function proseExcerptLine(line: string): string | null {
   return text
 }
 
+/** Panjang maksimal pesan penolakan; teks lebih panjang dianggap naskah (bukan penolakan). */
+const MAX_REFUSAL_LENGTH = 1000
+
+/**
+ * Penolakan topik terlarang (guardrail aturan 14): pesan yang diawali `REFUSED:` → alasannya (bisa kosong);
+ * selain itu `null`.
+ */
+export function detectRefusal(text: string): string | null {
+  const message = stripThinkBlocks(text || "").trim()
+  if (message.length > MAX_REFUSAL_LENGTH || !/^REFUSED:/i.test(message)) return null
+  return message.slice("REFUSED:".length).trim()
+}
+
+const TITLE_LINE_RE = /^[ \t]*TITLE:/im
+
+/**
+ * Teks keluaran akhir agen dari teks pesan model (urut kronologis). Model dapat menulis naskah terbagi di sela
+ * panggilan tool, sehingga pesan terakhir saja kehilangan bagian awal: teks disambung mulai pesan terakhir yang
+ * memuat baris `TITLE:` hingga pesan terakhir. Tanpa baris `TITLE:` → pesan terakhir saja.
+ */
+export function assembleAgentOutputText(aiTexts: readonly string[]): string {
+  if (aiTexts.length === 0) return ""
+  let start = aiTexts.length - 1
+  for (let index = aiTexts.length - 1; index >= 0; index--) {
+    if (TITLE_LINE_RE.test(stripThinkBlocks(aiTexts[index]))) {
+      start = index
+      break
+    }
+  }
+  return aiTexts
+    .slice(start)
+    .map((text) => text.trim())
+    .filter(Boolean)
+    .join("\n\n")
+}
+
+const EXCERPT_MAX_CHARS = 160
+/** Akhir kalimat paling awal yang masih dipakai sebagai batas potong excerpt (agar tidak terlalu pendek). */
+const EXCERPT_MIN_SENTENCE_CHARS = 80
+
+/** Potong prosa ke ≤ 160 karakter di akhir kalimat, atau di batas kata dengan elipsis (tidak di tengah kata). */
+function trimExcerpt(text: string): string {
+  if (text.length <= EXCERPT_MAX_CHARS) return text
+  const head = text.slice(0, EXCERPT_MAX_CHARS + 1)
+  const sentenceEnd = Math.max(head.lastIndexOf(". "), head.lastIndexOf("? "), head.lastIndexOf("! "))
+  if (sentenceEnd + 1 >= EXCERPT_MIN_SENTENCE_CHARS) return head.slice(0, sentenceEnd + 1)
+  const space = head.lastIndexOf(" ", EXCERPT_MAX_CHARS - 1)
+  const cut = space > 0 ? head.slice(0, space) : head.slice(0, EXCERPT_MAX_CHARS - 1)
+  return `${cut.replace(/[\s,;:]+$/, "")}…`
+}
+
+const LONE_HEADING_BLOCK = /^ {0,3}#{1,6}[ \t][^\n]*$/
+const FENCE_LINE = /^ {0,3}(?:```|~~~)/gm
+
+/**
+ * Pangkas draf dari argumen tool yang terpotong batas panjang: titik potong selalu berada di blok terakhir, jadi blok
+ * itu dibuang, begitu pula blok kode yang tertinggal terbuka dan heading tanpa isi di ujung naskah. Naskah satu blok
+ * dibiarkan (tidak ada bagian utuh yang tersisa bila dipangkas).
+ */
+export function trimCutOffTail(markdown: string): string {
+  const blocks = markdown.trimEnd().split(/\n[ \t]*\n/)
+  if (blocks.length < 2) return blocks.join("")
+  blocks.pop()
+  let text = blocks.join("\n\n")
+  const fences = Array.from(text.matchAll(FENCE_LINE))
+  if (fences.length % 2 === 1) text = text.slice(0, fences[fences.length - 1].index).trimEnd()
+  const kept = text.split(/\n[ \t]*\n/)
+  while (kept.length > 1 && LONE_HEADING_BLOCK.test(kept[kept.length - 1].trim())) kept.pop()
+  return kept.join("\n\n").trimEnd()
+}
+
+/** Excerpt heuristik: baris prosa pertama (> 20 karakter) dari naskah, maksimal 160 karakter. */
+export function deriveExcerpt(markdown: string): string | undefined {
+  for (const line of markdown.split(/\r?\n/)) {
+    const prose = proseExcerptLine(line)
+    if (prose && prose.length > 20) return trimExcerpt(prose.trim())
+  }
+  return undefined
+}
+
+/**
+ * Lengkapi judul & excerpt naskah: judul wajib dari pengguna mengalahkan judul model, lalu judul model, lalu
+ * kata kunci (tanpa templat berbahasa tertentu); excerpt model, lalu prosa pertama naskah.
+ */
+export function finalizeArticleFields(
+  output: Partial<ArticleOutput> & { markdownContent: string },
+  fallback: { title?: string; keyword: string }
+): ArticleOutput {
+  return {
+    title: fallback.title?.trim() || output.title?.trim() || fallback.keyword.trim(),
+    excerpt: output.excerpt?.trim() || deriveExcerpt(output.markdownContent) || "",
+    markdownContent: output.markdownContent,
+  }
+}
+
 /** Label metadata header berhuruf kapital, mis. `TITLE: ...`, `EXCERPT: ...`, `SLUG: ...`. */
 const HEADER_LABEL_LINE_RE = /^[A-Z][A-Z_ ]{1,30}:/
 /** Label metadata bebas, opsional tebal: `Meta Description: …`, `**Kata kunci:** …`. */
@@ -202,14 +298,14 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
   // 1b. Salvage parser jika JSON terpotong / unclosed string (e.g. Unterminated string in JSON).
   //     Hanya bila pesan memang diawali objek JSON (bukan artikel yang memuat contoh JSON).
   if (
-    (trimmed.includes('"markdownContent"') || trimmed.includes('"content"')) &&
+    (trimmed.includes('"markdownContent"') || trimmed.includes('"content"') || trimmed.includes('"body"')) &&
     firstBrace !== -1 &&
     isPredominantJson(trimmed, firstBrace, trimmed.length)
   ) {
     try {
       const titleMatch = trimmed.match(/"title"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i)
       const excerptMatch = trimmed.match(/"excerpt"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i)
-      const mdContentMatch = trimmed.match(/"(?:markdownContent|content)"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"|"\s*\}|$)/i)
+      const mdContentMatch = trimmed.match(/"(?:markdownContent|content|body)"\s*:\s*"([\s\S]*?)(?:"\s*,\s*"|"\s*\}|$)/i)
 
       if (mdContentMatch && mdContentMatch[1]) {
         const cleanMd = mdContentMatch[1]
@@ -256,47 +352,20 @@ export function extractArticleJsonFromText(text: string): Partial<ArticleOutput>
     }
   }
 
-  // 3. Parser Markdown Murni (jika diawali heading # atau ##)
-  if (markdown.startsWith("#") || markdown.includes("\n## ")) {
-    const lines = markdown.split(/\r?\n/)
-    let detectedTitle: string | undefined
-    let detectedExcerpt: string | undefined
-    const bodyLines: string[] = []
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (!detectedTitle && (line.startsWith("# ") || line.startsWith("## "))) {
-        detectedTitle = line.replace(/^#+\s*/, "").trim()
-        continue
-      }
-      const prose = detectedTitle && !detectedExcerpt ? proseExcerptLine(line) : null
-      if (prose && prose.length > 20) {
-        detectedExcerpt = prose.slice(0, 160).trim()
-      }
-      bodyLines.push(lines[i])
-    }
-
-    const cleanBody = bodyLines.join("\n").trim()
-    if (cleanBody.length > 150) {
-      return {
-        title: detectedTitle,
-        excerpt: detectedExcerpt,
-        markdownContent: cleanBody,
-      }
-    }
-  }
-
-  // 4. Parser Naskah Naratif Murni (bila naskah diawali langsung dengan paragraf pembuka tanpa heading/label)
+  // 3. Parser Markdown murni tanpa header TITLE/EXCERPT. Judul hanya diambil dari heading yang MEMBUKA naskah
+  //    (H1, atau H2 di baris pertama). Naskah yang dibuka paragraf (format yang diminta prompt agen) tidak
+  //    memuat judul: subbab H2 di tengah naskah tidak pernah dijadikan judul atau dibuang dari badan naskah.
   if (markdown.length > 150) {
-    const lines = markdown.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
-    const firstHeading = lines.find((l) => l.startsWith("#") || l.startsWith("##"))
-    const title = firstHeading ? firstHeading.replace(/^#+\s*/, "").trim() : undefined
-    const excerpt = lines[0] ? proseExcerptLine(lines[0])?.slice(0, 160).trim() : undefined
+    const lines = markdown.split(/\r?\n/)
+    const firstIndex = lines.findIndex((line) => line.trim() !== "")
+    const firstLine = firstIndex === -1 ? "" : lines[firstIndex].trim()
+    const leadingTitle = /^#{1,2}[ \t]/.test(firstLine) ? firstLine.replace(/^#+\s*/, "").trim() : undefined
+    const body = leadingTitle ? lines.slice(firstIndex + 1).join("\n").trim() : markdown
 
     return {
-      title,
-      excerpt,
-      markdownContent: markdown,
+      title: leadingTitle || undefined,
+      excerpt: deriveExcerpt(body),
+      markdownContent: body.length > 150 ? body : markdown,
     }
   }
 

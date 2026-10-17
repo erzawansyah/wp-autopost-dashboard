@@ -10,9 +10,10 @@
  * - naskah di luar batas parse AST (jalur teks polos) hanya dinormalkan baris kosongnya.
  *
  * Dua tahap dengan parse ulang di antaranya agar edit tidak bertumpuk:
- * A. struktur: basa-basi pembuka/penutup, judul ganda & H1, heading generik/bernomor/kesimpulan,
+ * A. struktur: basa-basi pembuka/penutup, judul ganda & H1, heading generik/bernomor/kesimpulan, subbab `###`
+ *    tanpa H2 dinaikkan satu level,
  *    byline & profil penulis (penulis hanya referensi persona), blok referensi, gambar fiktif;
- * B. teks: dash naratif (nol dash), penanda sitasi, spasi ganda, frasa klise & pengumuman meta.
+ * B. teks: dash naratif (nol dash), penanda sitasi, spasi ganda, frasa klise & pengumuman meta, `<br>` → spasi.
  */
 
 import type { Heading, Nodes, Paragraph, Parents, Root, RootContent } from "mdast"
@@ -279,7 +280,13 @@ function structuralEdits(source: string, root: Root, expectedTitle?: string): So
   })
   if (cutAt < source.length) edits.push({ start: cutAt, end: source.length, text: "" })
 
-  // 4. Heading: H1 → H2, "Pembuka" generik dibuang, penomoran & "Kesimpulan" diganti.
+  // 4. Heading: H1 → H2, "Pembuka" generik dibuang, penomoran & "Kesimpulan" diganti. Naskah tanpa satu pun
+  //    subbab H2 (model menulis seluruh subbab sebagai `###`) dinaikkan satu level: H3 → H2, H4 → H3, dst.
+  let hasSectionHeading = false
+  walkTree(root, (node) => {
+    if (node.type === "heading" && node !== titleHeading && effectiveDepth(node) === 2) hasSectionHeading = true
+  })
+  const promoteHeadings = !hasSectionHeading
   let openingHeadingRemoved = false
   walkTree(root, (node) => {
     if (node.type !== "heading" || node === titleHeading) return
@@ -295,6 +302,7 @@ function structuralEdits(source: string, root: Root, expectedTitle?: string): So
       return
     }
     if (node.depth === 1 && source[start] === "#") edits.push({ start, end: start, text: "#" })
+    if (promoteHeadings && node.depth >= 3 && source[start] === "#") edits.push({ start, end: start + 1, text: "" })
 
     if (depth <= 3 && GENERIC_CONCLUSION_HEADING_RE.test(text)) {
       edits.push({ start: content[0], end: content[1], text: "Langkah Nyata dan Rekomendasi" })
@@ -488,6 +496,12 @@ function cleanTextNode(source: string, start: number, end: number, paragraphStar
   return text.replace(SLOP_FILLER_RE, (match: string, lead: string) => (lead || paragraphStart ? lead : match))
 }
 
+/**
+ * Tag `<br>` di teks (sering di sel tabel): HTML tidak di-parse, sehingga tag ini bukan Markdown murni dan tampil
+ * sebagai teks literal setelah escape Gutenberg. Diganti spasi.
+ */
+const BR_TAG_RE = /[ \t]*<br\s*\/?>[ \t]*/gi
+
 function textEdits(source: string, root: Root): SourceEdit[] {
   const edits: SourceEdit[] = []
   const rootParagraphs = new Set<Parents>(root.children.filter((node) => node.type === "paragraph"))
@@ -505,7 +519,7 @@ function textEdits(source: string, root: Root): SourceEdit[] {
     if (node.type !== "text") return
     const [start, end] = nodeRange(node)
     const paragraphStart = Boolean(parent && rootParagraphs.has(parent) && parent.children[0] === node)
-    const cleaned = cleanTextNode(source, start, end, paragraphStart)
+    const cleaned = cleanTextNode(source, start, end, paragraphStart).replace(BR_TAG_RE, " ")
     if (cleaned !== source.slice(start, end)) edits.push({ start, end, text: cleaned })
   })
   return edits
@@ -580,9 +594,18 @@ function capLength(text: string, maxLength: number): string {
   return text.slice(0, code >= 0xd800 && code <= 0xdbff ? maxLength - 1 : maxLength)
 }
 
+/**
+ * Langkah pra-parse `cleanMarkdown`: potong panjang, normalisasi CRLF, buka pembungkus ```markdown, dan pulihkan
+ * literal `\n`. Dipakai juga oleh pengukur naskah mentah (validator, hitung kata) agar melihat teks yang sama
+ * dengan yang dibersihkan, bukan satu blok kode pembungkus.
+ */
+export function prepareMarkdownSource(rawMarkdown: string): string {
+  const text = capLength(rawMarkdown || "", MAX_MARKDOWN_LENGTH).replace(/\r\n?/g, "\n").trim()
+  return unescapeLiteralNewlines(stripMarkdownWrapperFence(text)).trim()
+}
+
 export function cleanMarkdown(rawMarkdown: string, expectedTitle?: string): string {
-  let text = capLength(rawMarkdown || "", MAX_MARKDOWN_LENGTH).replace(/\r\n?/g, "\n").trim()
-  text = unescapeLiteralNewlines(stripMarkdownWrapperFence(text)).trim()
+  let text = prepareMarkdownSource(rawMarkdown)
   // Langkah teks eksplisit sebelum parse pertama: seluruh edit di bawah dihitung terhadap teks hasilnya.
   text = normalizeListIndentation(text)
 

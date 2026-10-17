@@ -1,29 +1,33 @@
-# GOLDEN prompt "system-finalize" · versi 489d1946d7c5
+# GOLDEN prompt "system-finalize" · versi b5138e747cd4
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [USER_PROMPT] dirender =====
-SINTESIS FINAL NASKAH ARTIKEL:
-Proses pengumpulan data dan media telah selesai (batas panggilan tool tercapai). Sekarang susun artikel lengkap, mendalam, dan berkualitas editorial tinggi dalam naskah utuh.
+FINAL SYNTHESIS
+The research phase has ended (limit_reached). No tools are available in this step (not even `extract-article`): do not plan more research and do not call tools. Write the complete article now from the material below, following the guardrails, the writing style, and the workflow standards in the system prompt. Empty fields mean "not specified".
 
-=== DATA RISET AKTUAL DARI TOOLS ===
-- [web_reader] Kopi hitam tanpa gula hampir tidak mengandung kalori.
-- [web_search] Batas kafein harian yang umum dianjurkan untuk orang dewasa sehat sekitar 400 mg.
+RESEARCH MATERIAL (sources and snippets collected in this run; the only basis for specific figures, names, and quotes)
+[1] Kalori Kopi Hitam (https://gizi.example/kopi)
+Kopi hitam tanpa gula hampir tidak mengandung kalori.
 
-=== GAMBAR YANG TELAH DIUNGGAH KE WORDPRESS ===
+[2] Batas Kafein Harian (https://kesehatan.example/kafein)
+Batas kafein harian yang umum dianjurkan untuk orang dewasa sehat sekitar 400 mg.
+
+IMAGES AVAILABLE TO EMBED (use only these, or none)
 ![Secangkir kopi hitam di meja kayu](https://kopinusantara.example/wp-content/uploads/kopi-hitam.jpg "Kopi hitam tanpa gula")
 
-=== KETENTUAN PENULISAN ===
-- Topik: "manfaat kopi hitam tanpa gula untuk kesehatan"
-- Bahasa: Bahasa Indonesia
-- Target Panjang: minimal 1200 kata
-- Struktur: Wajib minimal 5 subbab (H2/H3) deskriptif dengan ulasan mendalam per subbab. DILARANG membuat naskah pendek atau ringkasan!
-- Catatan Khusus Pengguna: Sasar pekerja kantoran usia 25-40 tahun.
-- Sudut Pandang Penulis (Persona): Rina Pratama.
+ARTICLE BRIEF
+- Topic / main keyword: "manfaat kopi hitam tanpa gula untuk kesehatan"
+- Article language: Bahasa Indonesia (write the title, excerpt, body, alt text, and captions in this language)
+- Target length: 1200 words
+- Required title (if set, use it exactly as the title field; if empty, write your own): Manfaat Kopi Hitam Tanpa Gula bagi Pekerja Kantoran
+- Author persona (write from this perspective; background only, never print a byline): Rina Pratama (barista dan penguji kopi bersertifikat)
+- Notes from the user: Sasar pekerja kantoran usia 25-40 tahun.
+- Additional instructions from the user: Sertakan satu tabel perbandingan kandungan kafein.
 
-ATURAN STRICT (ANTI-AI SLOP):
-1. DILARANG membuat subbab generik klise seperti: "Pembuka", "Pendahuluan", "Latar Belakang", "Analisis", "Contoh", atau "Kesimpulan Praktis". Seluruh subbab (H2/H3) WAJIB berupa judul tematik spesifik dan berbobot.
-2. DILARANG membuka artikel dengan pengumuman meta seperti: "Dalam artikel ini kita akan membahas...", atau definisi klise "X merupakan aspek penting...". Buka langsung dengan fakta menarik, studi kasus, atau dinamika nyata.
-3. DILARANG ada angka sitasi akademis seperti [1], [2], [^1]. Integrasikan fakta langsung secara mengalir.
-4. DILARANG membuat section "Referensi" atau "Daftar Pustaka" di akhir naskah.
-5. DILARANG penomoran subbab (seperti "## 1. ...") dan DILARANG ada penutup hambar ("Dalam artikel ini, kita telah membahas...").
-6. Sajikan naskah lengkap, kaya wawasan, multi-paragraf per subbab, dari pembuka sampai rekomendasi strategis.
+Rules for this step:
+- Aim for the target length with real substance. If the research material is thin, write a shorter, accurate article with narrower claims instead of padding or inventing facts.
+- At least 5 descriptive H2 sections; no numbered headings, no footnote markers, no reference list, no recap closing.
+
+‹isi system-article-output.md›
+
+Reply with ONLY a JSON object with exactly the keys "title", "excerpt", and "body" (strings) following the ARTICLE FIELDS rules. No text before or after the JSON. If the guardrails require refusing the topic, use the title `REFUSED: <short reason>` with an empty excerpt and body.

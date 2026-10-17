@@ -1,43 +1,57 @@
 ---
-description: Template utama prompt permintaan penulisan artikel dari pengguna ke agen AI
+description: Template pesan permintaan penulisan artikel (brief) dari pengguna ke agen penulis
 used_by:
   - src/core/writer/runtime/prompt-builder.ts
 variables:
   - key: keyword
     desc: Kata kunci atau topik utama artikel
   - key: language
-    desc: Nama bahasa penulisan artikel (misal Bahasa Indonesia)
+    desc: Nama bahasa artikel (misal Bahasa Indonesia)
   - key: targetWords
-    desc: Target jumlah kata naskah artikel
-  - key: categoryInfo
-    desc: Nama kategori WordPress yang ditetapkan
-  - key: tagsInfo
-    desc: Daftar tag WordPress yang dikaitkan
-  - key: briefNote
-    desc: Catatan atau brief pengarahan dari pengguna
-  - key: titleInstruction
-    desc: Instruksi penetapan judul artikel spesifik jika ditentukan oleh pengguna
-  - key: authorPersona
-    desc: Sudut pandang kepengarangan persona author WordPress
+    desc: Target minimal jumlah kata naskah
+  - key: siteName
+    desc: Nama website WordPress target (kosong bila tidak ada situs, mis. Lab)
+  - key: siteUrl
+    desc: URL website WordPress target (kosong bila tidak ada situs)
+  - key: title
+    desc: Judul wajib dari pengguna (kosong = agen menulis judul sendiri)
+  - key: categoryName
+    desc: Nama kategori WordPress hasil Pre-Flight Resolver (kosong bila tidak ada)
+  - key: tagsList
+    desc: Daftar tag WordPress hasil Pre-Flight Resolver (kosong bila tidak ada)
+  - key: authorName
+    desc: Nama persona author WordPress (kosong bila tidak ada)
+  - key: authorBio
+    desc: Bio author dalam tanda kurung diawali spasi (kosong bila author tidak punya bio)
+  - key: availableTools
+    desc: Daftar nama tool riset/visual yang aktif di run ini, dipisah koma (kosong bila tanpa tools)
+  - key: brief
+    desc: Catatan atau brief dari pengguna (kosong bila tidak ada)
   - key: customInstructions
-    desc: Instruksi tambahan khusus dari form permintaan penulisan
-  - key: researchInstruction
-    desc: Instruksi penelusuran mandiri menggunakan tools riset jika tersedia
+    desc: Instruksi tambahan dari form permintaan (kosong bila tidak ada)
+  - key: outputFormat
+    desc: Isi system-article-output.md (aturan field title, excerpt, body)
 ---
 
 [USER_PROMPT]
-Tuliskan artikel mendalam, komprehensif, mengalir alami, dan tuntas dengan ketentuan berikut:
-- Topik / Kata Kunci Utama: "{{keyword}}"
-- Bahasa: {{language}}
-- Target Panjang: minimal {{targetWords}} kata
-{{researchInstruction}}
-{{titleInstruction}}
-{{categoryInfo}}
-{{tagsInfo}}
-- Struktur Wajib: Rancang minimal 5 subbab (H2/H3) deskriptif dengan pembahasan multi-paragraf yang tuntas. DILARANG membuat naskah pendek atau ringkasan!
-{{briefNote}}
-{{authorPersona}}
-{{customInstructions}}
+Write a complete, publication-ready article for the brief below. Empty fields mean "not specified".
 
-Sajikan naskah lengkap dan seluruh metadata artikel sesuai instruksi alur kerja editorial.
+ARTICLE BRIEF
+- Topic / main keyword: "{{keyword}}"
+- Article language: {{language}} (write the title, excerpt, body, alt text, and captions in this language)
+- Minimum length: {{targetWords}} words
+- Publication: {{siteName}} {{siteUrl}}
+- Required title (if set, use it exactly as the title field; if empty, write your own): {{title}}
+- WordPress category: {{categoryName}}
+- WordPress tags: {{tagsList}}
+- Author persona (write from this perspective; background only, never print a byline): {{authorName}}{{authorBio}}
+- Research and image tools available in this run (if empty, there are none: write without research and without images): {{availableTools}}
+- Notes from the user: {{brief}}
+- Additional instructions from the user: {{customInstructions}}
+
+Structure: 1 to 2 opening paragraphs, then at least 5 descriptive H2 sections with multi-paragraph depth.
+
+{{outputFormat}}
+
+When the article is final, deliver it by calling `extract-article` with these three fields.
 [/USER_PROMPT]

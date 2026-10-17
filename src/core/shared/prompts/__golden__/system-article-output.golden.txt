@@ -1,0 +1,8 @@
+# GOLDEN prompt "system-article-output" · versi f4b847abb52c
+# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
+
+===== [USER_PROMPT] dirender =====
+ARTICLE FIELDS (the article is delivered as exactly three separate fields):
+- title: the article title in the article language, plain text, at most 60 characters. If the brief sets a required title, use it exactly.
+- excerpt: the meta description in the article language, plain text, 120 to 160 characters, a complete sentence or two.
+- body: the complete article in pure Markdown. Start with the 1 to 2 opening paragraphs (no heading above them), then at least 5 main sections as `## ` headings, with `### ` only for subsections inside them. Never put the title, a `# ` heading, HTML tags (not even `<br>`), or "TITLE:"/"EXCERPT:" lines in the body.

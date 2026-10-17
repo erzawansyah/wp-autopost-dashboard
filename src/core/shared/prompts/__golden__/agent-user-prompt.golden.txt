@@ -1,18 +1,24 @@
-# GOLDEN prompt "agent-user-prompt" · versi 950198de6a21
+# GOLDEN prompt "agent-user-prompt" · versi 15da6e849df6
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [USER_PROMPT] dirender =====
-Tuliskan artikel mendalam, komprehensif, mengalir alami, dan tuntas dengan ketentuan berikut:
-- Topik / Kata Kunci Utama: "manfaat kopi hitam tanpa gula untuk kesehatan"
-- Bahasa: Bahasa Indonesia
-- Target Panjang: minimal 1200 kata
+Write a complete, publication-ready article for the brief below. Empty fields mean "not specified".
 
-- Judul Artikel Wajib: "Manfaat Kopi Hitam Tanpa Gula bagi Pekerja Kantoran"
-- Target Kategori: Kesehatan
-- Tag Terkait: kopi hitam, kafein, gaya hidup sehat
-- Struktur Wajib: Rancang minimal 5 subbab (H2/H3) deskriptif dengan pembahasan multi-paragraf yang tuntas. DILARANG membuat naskah pendek atau ringkasan!
-- Catatan Khusus dari Pengguna: Sasar pekerja kantoran usia 25-40 tahun.
-- Sudut Pandang Penulis (Persona): Rina Pratama (barista dan penguji kopi bersertifikat).
-- Instruksi Tambahan: Sertakan satu tabel perbandingan kandungan kafein.
+ARTICLE BRIEF
+- Topic / main keyword: "manfaat kopi hitam tanpa gula untuk kesehatan"
+- Article language: Bahasa Indonesia (write the title, excerpt, body, alt text, and captions in this language)
+- Minimum length: 1200 words
+- Publication: Kopi Nusantara https://kopinusantara.example
+- Required title (if set, use it exactly as the title field; if empty, write your own): Manfaat Kopi Hitam Tanpa Gula bagi Pekerja Kantoran
+- WordPress category: Kesehatan
+- WordPress tags: kopi hitam, kafein, gaya hidup sehat
+- Author persona (write from this perspective; background only, never print a byline): Rina Pratama (barista dan penguji kopi bersertifikat)
+- Research and image tools available in this run (if empty, there are none: write without research and without images): keyword_suggestions, web_search, web_reader, image_search, set_featured_image
+- Notes from the user: Sasar pekerja kantoran usia 25-40 tahun.
+- Additional instructions from the user: Sertakan satu tabel perbandingan kandungan kafein.
 
-Sajikan naskah lengkap dan seluruh metadata artikel sesuai instruksi alur kerja editorial.
+Structure: 1 to 2 opening paragraphs, then at least 5 descriptive H2 sections with multi-paragraph depth.
+
+‹isi system-article-output.md›
+
+When the article is final, deliver it by calling `extract-article` with these three fields.

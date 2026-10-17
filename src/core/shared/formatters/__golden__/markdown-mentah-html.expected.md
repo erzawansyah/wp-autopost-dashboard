@@ -1,4 +1,4 @@
-Beberapa model mencampur HTML ke dalam Markdown. <b>Teks tebal HTML</b> dan baris<br>baru.
+Beberapa model mencampur HTML ke dalam Markdown. <b>Teks tebal HTML</b> dan baris baru.
 
 <p>Paragraf HTML mentah.</p>
 

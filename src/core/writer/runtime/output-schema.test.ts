@@ -1,6 +1,13 @@
 import vm from "node:vm"
 import { describe, expect, it } from "vitest"
-import { extractArticleJsonFromText } from "./output-schema"
+import {
+  assembleAgentOutputText,
+  deriveExcerpt,
+  detectRefusal,
+  extractArticleJsonFromText,
+  finalizeArticleFields,
+  trimCutOffTail,
+} from "./output-schema"
 
 /** Watchdog `vm` (timeout vitest tidak menghentikan loop sinkron) + anggaran waktu nyata. */
 // Anggaran longgar agar tidak flaky di CI yang sibuk; regresi kuadratik/ReDoS yang dicegah butuh > 6 detik.
@@ -188,5 +195,90 @@ describe("extractArticleJsonFromText — kompleksitas linear", () => {
 
   it("blok <think> tertutup tetap dibuang, yang tidak tertutup dibiarkan", () => {
     expect(extractArticleJsonFromText(`<THINK>rahasia</think>TITLE: Kopi\n---\n${BODY_WITH_TABLE}`)?.markdownContent).toBe(BODY_WITH_TABLE)
+  })
+})
+
+describe("extractArticleJsonFromText — naskah dibuka paragraf tanpa header", () => {
+  it("H2 pertama tidak dijadikan judul dan tetap ada di badan naskah; excerpt dari paragraf pembuka", () => {
+    const text = `${INTRO}\n\n## Perbandingan Rasa\n\nGayo lebih asam daripada Toraja yang lebih pekat.\n\n## Mana yang Cocok untuk Pemula?\n\nToraja.`
+    const out = extractArticleJsonFromText(text)
+    expect(out?.title).toBeUndefined()
+    expect(out?.markdownContent).toBe(text)
+    expect(out?.excerpt).toBe(INTRO.slice(0, 160).trim())
+  })
+
+  it("heading yang membuka naskah tetap dibaca sebagai judul", () => {
+    const out = extractArticleJsonFromText(`# Kopi Nusantara\n\n${BODY_WITH_TABLE}`)
+    expect(out?.title).toBe("Kopi Nusantara")
+    expect(out?.markdownContent).toBe(BODY_WITH_TABLE)
+  })
+})
+
+describe("finalizeArticleFields", () => {
+  it("judul wajib pengguna > judul model > kata kunci; excerpt model > prosa pertama", () => {
+    const md = `![Foto](https://a.co/x.jpg)\n\n${INTRO}`
+    expect(finalizeArticleFields({ title: "Model", excerpt: "E", markdownContent: md }, { title: "Pengguna", keyword: "kopi" })).toEqual({
+      title: "Pengguna",
+      excerpt: "E",
+      markdownContent: md,
+    })
+    expect(finalizeArticleFields({ title: " Model ", markdownContent: md }, { keyword: "kopi" }).title).toBe("Model")
+    const bare = finalizeArticleFields({ markdownContent: md }, { keyword: " kopi gayo " })
+    expect(bare.title).toBe("kopi gayo")
+    expect(bare.excerpt).toBe(INTRO.slice(0, 160).trim())
+  })
+})
+
+describe("detectRefusal", () => {
+  it("pesan diawali REFUSED: → alasan; naskah biasa atau teks panjang → null", () => {
+    expect(detectRefusal("  REFUSED: Topik memfasilitasi penipuan.")).toBe("Topik memfasilitasi penipuan.")
+    expect(detectRefusal("<think>cek aturan</think>REFUSED:")).toBe("")
+    expect(detectRefusal(`TITLE: Kopi\n---\n${INTRO}`)).toBeNull()
+    expect(detectRefusal(`REFUSED: ${"x".repeat(2000)}`)).toBeNull()
+    expect(detectRefusal(`${INTRO}\nREFUSED: bukan di awal`)).toBeNull()
+  })
+})
+
+describe("assembleAgentOutputText", () => {
+  it("naskah terbagi di sela panggilan tool disambung mulai pesan terakhir yang memuat TITLE", () => {
+    const texts = ["Saya akan meriset dulu.", "TITLE: Kopi\nEXCERPT: Ringkas.\n---\nPembuka naskah.", "", "## Bagian Dua\n\nLanjutan."]
+    expect(assembleAgentOutputText(texts)).toBe("TITLE: Kopi\nEXCERPT: Ringkas.\n---\nPembuka naskah.\n\n## Bagian Dua\n\nLanjutan.")
+  })
+
+  it("tanpa TITLE → pesan terakhir saja; TITLE di draf lama tidak menggandakan naskah akhir yang lengkap", () => {
+    expect(assembleAgentOutputText(["Catatan riset.", "Naskah akhir."])).toBe("Naskah akhir.")
+    expect(assembleAgentOutputText(["TITLE: Draf\n---\nlama", "TITLE: Final\n---\nbaru"])).toBe("TITLE: Final\n---\nbaru")
+    expect(assembleAgentOutputText([])).toBe("")
+  })
+})
+
+describe("deriveExcerpt", () => {
+  it("dipotong di akhir kalimat atau batas kata (dengan elipsis), tidak di tengah kata", () => {
+    const sentences = `${"Kalimat pertama cukup panjang tentang kopi Gayo dan petani Aceh Tengah. ".repeat(2)}Kalimat ketiga menambah konteks lagi.`
+    const sentenceCut = deriveExcerpt(sentences)
+    expect(sentenceCut?.endsWith(".")).toBe(true)
+    expect(sentenceCut!.length).toBeLessThanOrEqual(160)
+
+    const longSentence = `Kopi ${"arabika ".repeat(40)}tumbuh di dataran tinggi.`
+    const wordCut = deriveExcerpt(longSentence)!
+    expect(wordCut.endsWith("arabika…")).toBe(true)
+    expect(wordCut.length).toBeLessThanOrEqual(160)
+  })
+})
+
+describe("trimCutOffTail", () => {
+  it("blok terakhir (titik potong) selalu dibuang, beserta heading tanpa isi di ujung", () => {
+    expect(trimCutOffTail("Paragraf satu.\n\n## Bagian\n\nKalimat utuh.\n\n## Akhir\n\nPetani di Bener Mer")).toBe(
+      "Paragraf satu.\n\n## Bagian\n\nKalimat utuh."
+    )
+    // Potongan yang kebetulan berakhir pada tanda baca/penanda format tetap tidak utuh.
+    expect(trimCutOffTail("Satu.\n\n## Dampak\n\nMenurut data terbaru dari **Badan Pusat Statistik**")).toBe("Satu.")
+    expect(trimCutOffTail("Satu.\n\nDua.\n\n## Berapa Harga Kopi Gayo Sekarang?")).toBe("Satu.\n\nDua.")
+    expect(trimCutOffTail("東京の喫茶店。\n\n価格が上が")).toBe("東京の喫茶店。")
+  })
+
+  it("blok kode yang tertinggal terbuka ikut dibuang; naskah satu blok dibiarkan", () => {
+    expect(trimCutOffTail("Pembuka.\n\n```bash\nnpm install\n\nnpm run bu")).toBe("Pembuka.")
+    expect(trimCutOffTail("Satu blok terpotong di teng")).toBe("Satu blok terpotong di teng")
   })
 })

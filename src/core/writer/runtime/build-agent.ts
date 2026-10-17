@@ -1,15 +1,16 @@
 import { createAgent } from "langchain"
-import { createDeepAgent, GENERAL_PURPOSE_SUBAGENT, StoreBackend } from "deepagents"
+import { createDeepAgent, createPatchToolCallsMiddleware, GENERAL_PURPOSE_SUBAGENT, StoreBackend } from "deepagents"
 import { InMemoryStore, MemorySaver } from "@langchain/langgraph"
 import { StructuredTool } from "@langchain/core/tools"
 import type { LlmGateway } from "@/core/shared/llm/gateway"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { AgentMode, AgentLimits } from "../types/profile"
+import type { ArticleSubmission } from "./article-submission"
 import { RunRecorder } from "./telemetry"
 import { buildGuardMiddlewareStack } from "./guards"
 import { resolveSkillsForAgent } from "./resolve-skills"
 
-const READONLY_FS_FALLBACK = "Operasi {{operation}} ditolak: filesystem agen bersifat read-only."
+const READONLY_FS_FALLBACK = "Operation {{operation}} rejected: the agent filesystem is read-only."
 
 /** Pesan penolakan operasi berkas (`system-readonly-filesystem.md`) yang dikembalikan ke agen. */
 function readOnlyFilesystemError(operation: string): { error: string } {
@@ -43,16 +44,23 @@ export interface BuildAgentParams {
   systemPrompt: string
   limits: AgentLimits
   recorder: RunRecorder
+  /**
+   * Penyerahan naskah terstruktur (tool `extract-article`, `createArticleSubmission`): `responseFormat` hanya untuk
+   * agen utama (subagent Deep mode tetap mengembalikan teks), middleware-nya, dan cadangan panggilan model.
+   */
+  submission: Pick<ArticleSubmission, "responseFormat" | "middleware" | "reservedModelCalls">
   skills?: string[]
   userId?: string
 }
 
 export async function buildWriterAgent(params: BuildAgentParams) {
-  const { mode, gateway, tools, systemPrompt, limits, recorder, skills = [], userId } = params
+  const { mode, gateway, tools, systemPrompt, limits, recorder, submission, skills = [], userId } = params
+  const { responseFormat } = submission
   const model = gateway.agentModel()
-  // Fallback model dipasang paling dalam (setelah guard) agar telemetri & batas model call menghitung
-  // satu langkah logis meski model cadangan ikut dicoba. Retry transien terjadi di AsyncCaller model.
-  const middleware = [...buildGuardMiddlewareStack(limits, recorder), gateway.modelFallbackMiddleware()]
+  // Fallback model dipasang paling dalam (setelah guard & middleware penyerahan naskah) agar telemetri & batas model
+  // call menghitung satu langkah logis meski model cadangan ikut dicoba. Retry transien terjadi di AsyncCaller model.
+  const guards = buildGuardMiddlewareStack(limits, recorder, { reservedModelCalls: submission.reservedModelCalls })
+  const middleware = [...guards, submission.middleware, gateway.modelFallbackMiddleware()]
   const checkpointer = new MemorySaver()
 
   if (mode === "deep") {
@@ -106,18 +114,23 @@ export async function buildWriterAgent(params: BuildAgentParams) {
       backend: (config) => new ReadOnlyStoreBackend(config, { namespace: ["filesystem"] }),
       store,
       skills: skillSources,
+      responseFormat,
       checkpointer,
     })
 
     return agent
   }
 
-  // Standard Agent Mode (createAgent)
+  // Standard Agent Mode (createAgent). Penambal tool call menggantung (bawaan deepagents, sudah terpasang di Deep
+  // mode): penyerahan naskah tidak valid yang tercampur tool call riset di satu giliran tidak membuat tool call
+  // riset tanpa ToolMessage (ditolak sebagian provider dengan HTTP 400).
+  const standardMiddleware = [...guards, createPatchToolCallsMiddleware(), submission.middleware, gateway.modelFallbackMiddleware()]
   const agent = createAgent({
     model,
     tools,
     systemPrompt,
-    middleware,
+    middleware: standardMiddleware,
+    responseFormat,
     checkpointer,
   })
 

@@ -808,26 +808,27 @@ export interface WPPostSummary {
   content: string
 }
 
-/**
- * Mencari postingan artikel WordPress berdasarkan search query
- */
-export async function searchWordPressPosts(params: {
+interface WordPressPostQueryParams {
   baseUrl: string
   username: string
   applicationPassword: string
-  query: string
-  perPage?: number
   /** Pembatalan request (digabung dengan timeout request). */
   signal?: AbortSignal
-}): Promise<{ ok: boolean; posts?: WPPostSummary[]; error?: string }> {
+}
+
+/** GET `/wp/v2/posts` (hanya yang terbit) dengan filter `query` → ringkasan post (judul & konten ter-render). */
+async function queryWordPressPosts(
+  params: WordPressPostQueryParams,
+  query: string,
+  failureLabel: string
+): Promise<{ ok: boolean; posts?: WPPostSummary[]; error?: string }> {
   const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
   if (!valid || !normalizedUrl) {
     return { ok: false, error: error || "Alamat website WordPress tidak valid." }
   }
 
   try {
-    const count = params.perPage || 10
-    const endpoint = `${normalizedUrl}/wp-json/wp/v2/posts?search=${encodeURIComponent(params.query)}&status=publish&per_page=${count}&_fields=id,title,link,slug,date,content`
+    const endpoint = `${normalizedUrl}/wp-json/wp/v2/posts?${query}&status=publish&_fields=id,title,link,slug,date,content`
 
     const res = await wpFetch(endpoint, {
       headers: {
@@ -839,7 +840,7 @@ export async function searchWordPressPosts(params: {
     })
 
     if (!res.ok) {
-      return { ok: false, error: `Gagal mencari artikel di WordPress (HTTP ${res.status}).` }
+      return { ok: false, error: `${failureLabel} (HTTP ${res.status}).` }
     }
 
     const data = await res.json()
@@ -860,6 +861,32 @@ export async function searchWordPressPosts(params: {
   } catch (err: unknown) {
     return { ok: false, error: describeWpNetworkError(err, "Gangguan koneksi ke WordPress") }
   }
+}
+
+/**
+ * Mencari postingan artikel WordPress berdasarkan search query
+ */
+export async function searchWordPressPosts(
+  params: WordPressPostQueryParams & { query: string; perPage?: number }
+): Promise<{ ok: boolean; posts?: WPPostSummary[]; error?: string }> {
+  const count = params.perPage || 10
+  return queryWordPressPosts(
+    params,
+    `search=${encodeURIComponent(params.query)}&per_page=${count}`,
+    "Gagal mencari artikel di WordPress"
+  )
+}
+
+/** Satu post terbit berdasarkan slug (mis. segmen terakhir URL artikel); `post` kosong bila tidak ditemukan. */
+export async function fetchWordPressPostBySlug(
+  params: WordPressPostQueryParams & { slug: string }
+): Promise<{ ok: boolean; post?: WPPostSummary; error?: string }> {
+  const res = await queryWordPressPosts(
+    params,
+    `slug=${encodeURIComponent(params.slug)}&per_page=1`,
+    "Gagal mengambil artikel dari WordPress"
+  )
+  return res.ok ? { ok: true, post: res.posts?.[0] } : { ok: false, error: res.error }
 }
 
 /** true bila nilai adalah ID post WordPress yang sah (bilangan bulat positif aman). */

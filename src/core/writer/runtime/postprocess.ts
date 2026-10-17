@@ -32,6 +32,19 @@ function cleanPlainField(raw: string, labelPattern: RegExp, maxLength: number): 
   return truncatePlainText(stripWrappingQuotes(unlabeled).trim(), maxLength)
 }
 
+const TITLE_LABEL_RE = /^(?:judul\s*artikel|judul|title)\s*:\s*/i
+const EXCERPT_LABEL_RE = /^(?:ringkasan\s*artikel|ringkasan|excerpt)\s*:\s*/i
+
+/** Judul teks polos satu baris seperti yang dikirim ke WordPress (dipakai juga validator keluaran agen). */
+export function cleanArticleTitle(raw: string): string {
+  return cleanPlainField(raw, TITLE_LABEL_RE, WP_TITLE_MAX_LENGTH)
+}
+
+/** Excerpt teks polos satu baris seperti yang dikirim ke WordPress (dipakai juga validator keluaran agen). */
+export function cleanArticleExcerpt(raw: string): string {
+  return cleanPlainField(raw, EXCERPT_LABEL_RE, WP_EXCERPT_MAX_LENGTH)
+}
+
 export function postprocessArticle(input: PostprocessInput): GeneratedArticle {
   let md = (input.rawMarkdown || "").trim()
 
@@ -58,16 +71,8 @@ export function postprocessArticle(input: PostprocessInput): GeneratedArticle {
     } catch {}
   }
 
-  const plainTitle = cleanPlainField(
-    input.rawTitle || "",
-    /^(?:judul\s*artikel|judul|title)\s*:\s*/i,
-    WP_TITLE_MAX_LENGTH
-  )
-  const plainExcerpt = cleanPlainField(
-    input.rawExcerpt || "",
-    /^(?:ringkasan\s*artikel|ringkasan|excerpt)\s*:\s*/i,
-    WP_EXCERPT_MAX_LENGTH
-  )
+  const plainTitle = cleanArticleTitle(input.rawTitle || "")
+  const plainExcerpt = cleanArticleExcerpt(input.rawExcerpt || "")
   // Literal "\n" (teks ter-escape) dipulihkan di cleanMarkdown lewat unescapeLiteralNewlines,
   // yang tidak menyentuh isi fenced code & kode inline.
   const cleanedMarkdown = cleanMarkdown(md, plainTitle)

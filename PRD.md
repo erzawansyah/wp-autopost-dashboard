@@ -1,7 +1,7 @@
 # PRD.md — Product Requirement Document
 
 **Nama Produk**: Panitera (WP Autopost & Multi-Site Content Dashboard)
-**Versi**: `0.2.0` (branch `main`, tag `v0.2.0`; versi lama: tag `v0.1.2`)
+**Versi**: `0.3.0` (branch `main`, tag `v0.3.0`; versi sebelumnya: tag `v0.2.0`, `v0.1.2`)
 **Status Dokumen**: Baseline spesifikasi produk, disinkronkan dengan kode pada Fase 5 rombak v2
 **Pemilik Dokumen**: Tim produk & pengembang Panitera (dokumen ini adalah sumber tunggal spesifikasi produk)
 **Referensi Silang**:
@@ -26,7 +26,7 @@
 | P3 | Pola terbit massal yang kaku mudah dikenali | Jadwal tayang pola interval atau tanggal acak dengan variasi menit acak |
 | P4 | Token AI terbuang saat koneksi WordPress gagal | Kirim ulang hemat biaya: `failed_sync` dikirim ulang dari naskah tersimpan tanpa LLM |
 | P5 | Plugin custom memperberat dan berisiko | Zero-Friction Onboarding: hanya WordPress REST API + Application Passwords |
-| P6 | Format naskah AI berantakan | Markdown-first + pembersih tersembunyi + konversi deterministik ke blok Gutenberg |
+| P6 | Format naskah AI berantakan | Judul, excerpt, dan isi diserahkan agen sebagai field terpisah lalu divalidasi (agen mengoreksi sendiri) + pembersih tersembunyi + konversi deterministik ke blok Gutenberg |
 | P7 | Biaya API pencarian & foto | SearXNG internal, sumber terbuka sebagai cadangan, dan Pexafy (BYOK) untuk foto |
 
 ### 1.2 Prinsip Produk
@@ -180,8 +180,8 @@ Pengalihan lama
 - Preset bawaan (baca-saja, dapat dikloning): **Quick Writer** (standard, tanpa tools, default), **Research & Media Writer** (standard, 6 tools), **Deep Research Specialist** (deep, 6 tools + skill `anti-ai-editor`).
 - Profil kustom: nama, deskripsi, mode `standard` (LangChain `createAgent`) atau `deep` (Deep Agents + skill `SKILL.md`), workflow prompt (Raw/Pratinjau), tools yang diizinkan (dengan status **Siap**/**Perlu konfigurasi**), skill (mode Deep), temperatur, dan batas eksekusi (model calls, tool calls, timeout, minimal kata) yang selalu dijepit ke batas sistem. Satu profil dapat dijadikan default. Hapus = arsip (antrean lama tetap dapat diproses).
 - Model: editor tidak menyediakan pilihan model (model profil kustom hanya dapat diisi lewat API `modelName`). Prioritas model penulisan, sama untuk antrean & Lab (`runtime/resolve-model.ts`): model per item (API `aiModel`) → model eksplisit Agent Profile kustom → **Model Default** pengguna (berlaku juga untuk preset bawaan) → model preset (bila ada) → `OPENROUTER_DEFAULT_MODEL` → `DEFAULT_AI_MODEL`.
-- **6 Universal Tools** (riset & visual saja): `keyword_suggestions`, `web_search`, `web_reader`, `image_search`, `set_featured_image`, `upload_media`.
-- Pipeline penulisan: Pre-Flight Resolver (author persona tanpa akun admin teknis selama ada persona lain, kategori dari yang ada, tag dicocokkan/dibuat) → agen menulis Markdown → pembersih anti-slop & normalisasi heading → serializer Markdown → Gutenberg berbasis AST (escape penuh, `[` dinetralkan) → kirim ke WordPress. Guard anti-loop: deduplikasi panggilan identik, circuit breaker tool, kuota global & per-tool, satu kali finalize darurat. Checkpoint `pre_resolve`/`draft` memungkinkan resume tanpa LLM.
+- **6 Universal Tools** (riset & visual saja): `keyword_suggestions`, `web_search`, `web_reader` (membaca per rentang kata/baris/karakter dari awal atau akhir halaman, satu sumber boleh dibaca berkali-kali), `image_search`, `set_featured_image`, `upload_media`.
+- Pipeline penulisan: Pre-Flight Resolver (author persona tanpa akun admin teknis selama ada persona lain, kategori dari yang ada, tag dicocokkan/dibuat) → agen menyerahkan `{title, excerpt, body}` lewat `extract-article`; pelanggaran aturan field dikembalikan ke agen untuk dikoreksi (maks. 2 putaran) → pembersih anti-slop & normalisasi heading → serializer Markdown → Gutenberg berbasis AST (escape penuh, `[` dinetralkan) → kirim ke WordPress. Guard anti-loop: deduplikasi panggilan identik, circuit breaker tool, kuota global & per-tool, satu kali finalize darurat. Checkpoint `pre_resolve`/`draft` memungkinkan resume tanpa LLM.
 
 ### 4.11 Skill Registry (`/skills`)
 
@@ -261,7 +261,9 @@ Aturan keandalan:
 
 ## 7. Status Rilis
 
-**Versi saat ini: `0.2.0` (branch `main`, tag `v0.2.0`) — di production sejak 16 Okt 2026.**
+**Versi saat ini: `0.3.0` (branch `main`, tag `v0.3.0`).** `0.2.0` (rombak v2) di production sejak 16 Okt 2026.
+
+`0.3.0` — prompt & keluaran naskah (ADR-069, ADR-070): seluruh prompt berinstruksi Inggris dengan paket gaya per bahasa artikel; agen menyerahkan judul, excerpt, dan isi sebagai field terpisah yang divalidasi dan dikoreksi agen sendiri; `web_reader` membaca per rentang; model default `google/gemini-2.5-flash`; migrasi `20261019090000` (skill `anti-ai-editor`).
 
 | Fase rombak v2 | Status | Ringkasan |
 | :--- | :--- | :--- |

@@ -1,5 +1,5 @@
-# GOLDEN prompt "system-readonly-filesystem" · versi 84e4c4374fdf
+# GOLDEN prompt "system-readonly-filesystem" · versi 1985ec9fb09f
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [SYSTEM_PROMPT] dirender =====
-PEMBERITAHUAN SISTEM: Operasi write_file dinonaktifkan karena filesystem agen bersifat read-only. Anda DILARANG menulis, mengubah, atau menghapus berkas virtual. Segera sajikan seluruh naskah artikel lengkap dan tuntas langsung sebagai pesan teks respons akhir Anda.
+SYSTEM NOTICE: The write_file operation is disabled because the agent filesystem is read-only. Do not write, edit, or delete virtual files. If you are writing the article, submit the complete article with `extract-article` now; if you were delegated a research task, return your findings as your final message.

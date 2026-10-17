@@ -265,21 +265,22 @@ describe("instalasi baru", () => {
     expect(fn).toEqual({ anon: false, authenticated: false })
   })
 
-  it("seed: tepat satu skill sistem anti-ai-editor; konten yang sudah ada tidak ditimpa", async () => {
-    const seeded = await one<{ n: number; content: string; user_id: string | null }>(
-      `select count(*) over ()::int as n, content, user_id
-       from public.agent_skills where is_system and slug = 'anti-ai-editor'`
-    )
-    expect(seeded.n).toBe(1)
-    expect(seeded.user_id).toBeNull()
-    expect(seeded.content).toMatch(/^---\nname: anti-ai-editor\n/)
+  it("skill sistem anti-ai-editor dari migrasi: tepat satu, menimpa isi lama, idempoten; seed tidak mengubahnya", async () => {
+    const query = "select content, count(*) over ()::int as n, user_id from public.agent_skills where is_system and slug = 'anti-ai-editor'"
+    const installed = await one<{ n: number; content: string; user_id: string | null }>(query)
+    expect(installed.n).toBe(1)
+    expect(installed.user_id).toBeNull()
+    expect(installed.content).toMatch(/^---\nname: anti-ai-editor\n/)
+    expect(installed.content).toContain("WRITING STYLE")
 
-    await db.query("update public.agent_skills set content = 'versi production' where slug = 'anti-ai-editor'")
+    await db.query("update public.agent_skills set content = 'versi lama production' where slug = 'anti-ai-editor'")
     await runSqlFile(db, { name: "seed.sql", sql: readSupabaseFile("seed.sql") })
-    const after = await one<{ content: string; n: number }>(
-      "select content, count(*) over ()::int as n from public.agent_skills where is_system and slug = 'anti-ai-editor'"
-    )
-    expect(after).toEqual({ content: "versi production", n: 1 })
+    expect((await one<{ content: string }>(query)).content).toBe("versi lama production")
+
+    const align = readMigration("_align_anti_ai_editor_skill.sql")
+    await runSqlFile(db, align)
+    await runSqlFile(db, align)
+    expect(await one(query)).toEqual(installed)
   })
 
   it("data fix Fase 0 hanya menyentuh baris berpola lama dan aman dijalankan ulang", async () => {

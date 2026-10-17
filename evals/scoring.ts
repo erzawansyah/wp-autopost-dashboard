@@ -6,6 +6,16 @@
  * mis. naskah tidak ada karena run gagal). Skor kasus = poin / jumlah cek non-skip.
  */
 import { z } from "zod"
+import {
+  codePointLength,
+  countMarkdownHeadings,
+  countWords,
+  findRawHtmlInMarkdown,
+  markdownSubheadings,
+  markdownToPlainText,
+  wordsOf,
+} from "@/core/shared/formatters/article-metrics"
+import { ARTICLE_OUTPUT_RULES } from "@/core/writer/runtime/article-validation"
 import type { WriterResult } from "@/core/writer/types/contracts"
 
 export const EvalCaseSchema = z.object({
@@ -56,11 +66,17 @@ export interface CaseScore {
   error: string | null
 }
 
-/** Batas panjang (karakter) judul & excerpt: [pass min, pass max] dan [warn min, warn max]. */
-export const TITLE_BOUNDS = { pass: [20, 60], warn: [10, 70] } as const
-export const EXCERPT_BOUNDS = { pass: [120, 160], warn: [80, 200] } as const
+/**
+ * Batas panjang (karakter) judul & excerpt: [pass min, pass max] dan [warn min, warn max]. Batas atas "pass" dan
+ * rentang excerpt mengikuti aturan keluaran writer (`settings.json` → `articleOutput`) yang ditegakkan validator agen.
+ */
+export const TITLE_BOUNDS = { pass: [20, ARTICLE_OUTPUT_RULES.titleMaxChars], warn: [ARTICLE_OUTPUT_RULES.titleMinChars, 70] } as const
+export const EXCERPT_BOUNDS = {
+  pass: [ARTICLE_OUTPUT_RULES.excerptMinChars, ARTICLE_OUTPUT_RULES.excerptMaxChars],
+  warn: [80, 200],
+} as const
 /** Rasio kata aktual / target: < fail → fail; < pass → warn; > max → warn. */
-export const WORD_RATIO = { fail: 0.75, pass: 0.9, max: 2 } as const
+export const WORD_RATIO = { fail: ARTICLE_OUTPUT_RULES.minWordRatio, pass: 0.9, max: 2 } as const
 
 const ID_STOPWORDS = new Set(
   "yang dan di ke dari untuk dengan ini itu pada adalah tidak dalam juga akan atau bisa lebih karena sebagai ada saat agar kita mereka sudah banyak jika namun hanya setiap antara menjadi tersebut dapat"
@@ -70,29 +86,9 @@ const EN_STOPWORDS = new Set(
   "the and of to in is that for with as on are this be by it from or an was can which not have more but their they also when these has will into than"
     .split(" "),
 )
-const WORD = /[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu
-
 // ---------------------------------------------------------------------------
-// Utilitas teks
+// Utilitas teks (metrik bersama ada di src/core/shared/formatters/article-metrics.ts)
 // ---------------------------------------------------------------------------
-
-/** Teks polos dari Markdown: tanpa gambar, URL tautan, penanda heading/list/kutipan, dan kode. */
-export function markdownToPlainText(markdown: string): string {
-  return markdown
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/^\s{0,3}(?:#{1,6}|>|[-*+]|\d+[.)])\s+/gm, "")
-    .replace(/[*_`~|]/g, " ")
-}
-
-export function countWords(text: string): number {
-  return text.match(WORD)?.length ?? 0
-}
-
-export function countMarkdownHeadings(markdown: string, level: number): number {
-  return markdown.match(new RegExp(`^ {0,3}#{${level}}(?!#)\\s+\\S`, "gm"))?.length ?? 0
-}
 
 const BYLINE_PREFIX = /^(?:[*_>]+\s*)?(?:(?:penulis|author|oleh)\s*[:：]|ditulis oleh\s|written by\s)/i
 
@@ -103,12 +99,6 @@ export function findByline(text: string): string | null {
     if (line.length <= 80 && BYLINE_PREFIX.test(line)) return line
   }
   return null
-}
-
-/** Tag HTML mentah di Markdown (LLM wajib menulis Markdown murni). */
-export function findRawHtmlInMarkdown(markdown: string): string[] {
-  const withoutCode = markdown.replace(/```[\s\S]*?```/g, " ").replace(/`[^`\n]*`/g, " ")
-  return [...new Set(withoutCode.match(/<\/?[a-zA-Z][a-zA-Z0-9-]*(?:\s[^<>]*)?\/?>/g) ?? [])]
 }
 
 const UNSAFE_HTML: ReadonlyArray<{ pattern: RegExp; label: string }> = [
@@ -165,7 +155,7 @@ export function validateGutenbergBlocks(html: string): { blocks: number; errors:
 
 /** Heuristik bahasa berbasis rasio stopword Indonesia vs Inggris. */
 export function detectLanguage(text: string): { lang: "id" | "en" | "unknown"; idRatio: number; enRatio: number } {
-  const words = (text.toLowerCase().match(WORD) ?? []).filter((w) => !/^\d+$/.test(w))
+  const words = wordsOf(text.toLowerCase()).filter((w) => !/^\d+$/.test(w))
   if (words.length < 30) return { lang: "unknown", idRatio: 0, enRatio: 0 }
   const idRatio = words.filter((w) => ID_STOPWORDS.has(w)).length / words.length
   const enRatio = words.filter((w) => EN_STOPWORDS.has(w)).length / words.length
@@ -179,7 +169,7 @@ function round(value: number, digits: number): number {
 }
 
 function lengthCheck(id: string, label: string, text: string, bounds: { pass: readonly [number, number]; warn: readonly [number, number] }): CheckResult {
-  const length = [...text.trim()].length
+  const length = codePointLength(text.trim())
   const [passMin, passMax] = bounds.pass
   const [warnMin, warnMax] = bounds.warn
   const status: CheckStatus = length >= passMin && length <= passMax ? "pass" : length >= warnMin && length <= warnMax ? "warn" : "fail"
@@ -225,9 +215,29 @@ const ARTICLE_CHECK_IDS = [
   "html-safe",
   "gutenberg-blocks",
   "title-length",
+  "title-source",
   "excerpt-length",
+  "no-dashes",
   "language",
 ] as const
+
+const normalizeHeading = (text: string): string => text.trim().replace(/\s+/g, " ").toLowerCase()
+
+/**
+ * Judul harus ditulis model (field `title`) atau pengguna: sama dengan subbab di naskah → gagal (subbab dicuri
+ * jadi judul); sama dengan kata kunci → warn (judul cadangan dipakai karena model tidak mengisi judul).
+ */
+export function titleSourceCheck(title: string, markdown: string, keyword: string): CheckResult {
+  const normalized = normalizeHeading(title)
+  const headings = markdownSubheadings(markdown).map(normalizeHeading)
+  if (normalized && headings.includes(normalized)) {
+    return { id: "title-source", status: "fail", detail: `judul sama dengan subbab naskah: "${title}"` }
+  }
+  if (normalized === normalizeHeading(keyword)) {
+    return { id: "title-source", status: "warn", detail: "judul = kata kunci (model tidak mengisi judul sendiri)" }
+  }
+  return { id: "title-source", status: "pass", detail: "judul berbeda dari subbab & kata kunci" }
+}
 
 export function scoreWriterResult(evalCase: EvalCase, result: WriterResult): CaseScore {
   const metrics = extractMetrics(result)
@@ -249,7 +259,7 @@ export function scoreWriterResult(evalCase: EvalCase, result: WriterResult): Cas
   const markdown = article.markdownContent ?? ""
   const html = article.contentHtml ?? ""
   const plain = markdownToPlainText(markdown)
-  const words = countWords(plain)
+  const words = countWords(plain, evalCase.language)
   const ratio = words / evalCase.wordCountTarget
   checks.push({
     id: "word-count",
@@ -294,7 +304,15 @@ export function scoreWriterResult(evalCase: EvalCase, result: WriterResult): Cas
   })
 
   checks.push(lengthCheck("title-length", "judul", article.title ?? "", TITLE_BOUNDS))
+  checks.push(titleSourceCheck(article.title ?? "", markdown, evalCase.keyword))
   checks.push(lengthCheck("excerpt-length", "excerpt", article.excerpt ?? "", EXCERPT_BOUNDS))
+
+  const dashes = plain.match(/[\u2013\u2014]/g)?.length ?? 0
+  checks.push({
+    id: "no-dashes",
+    status: dashes === 0 ? "pass" : "warn",
+    detail: dashes === 0 ? "tanpa tanda pisah panjang/pendek" : `${dashes} tanda pisah (— / –) di naskah`,
+  })
 
   const expectedLang = evalCase.language.toLowerCase().slice(0, 2)
   const detected = detectLanguage(plain)

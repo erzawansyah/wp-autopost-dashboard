@@ -9,6 +9,7 @@ import { serverEnv } from "@/lib/env/server"
 import { getUserDecryptedKeys } from "@/lib/settings/user-keys"
 import {
   fetchWordPressCategories,
+  fetchWordPressPostBySlug,
   fetchWordPressPostRawContent,
   fetchWordPressUsers,
   searchWordPressPosts,
@@ -18,6 +19,7 @@ import {
 import { insertInternalLink, type InsertInternalLinkResult } from "@/lib/wordpress/internal-link"
 import { ApiError, badRequest, conflict, notFound, throwIfDbError, unprocessable, upstreamFailed } from "@/server/http/errors"
 import { CreateAuthorBodySchema } from "@/lib/validation/sites"
+import { stripToPlainText } from "@/lib/wordpress/plain-text"
 import type { LinkAnalyzeInput, WpToolPromptInput } from "@/lib/validation/tools"
 import type { LinkApplyInput } from "@/server/validation/tools"
 import type {
@@ -135,10 +137,12 @@ export async function suggestCategories(
 
     const promptConfig = loadSectionedPrompt("wp-tools-categories-suggest.md")
     const analysis = await callLlmJson<{ suggestions?: unknown }>(llm, {
-      systemPrompt: renderPrompt(promptConfig.systemPrompt, {
-        existingCategories: JSON.stringify(existingCategories, null, 2),
+      systemPrompt: promptConfig.systemPrompt,
+      // Nama/slug kategori dapat ditulis pihak lain: hanya di blok data bertag pada pesan pengguna.
+      userPrompt: renderPrompt(promptConfig.userPromptTemplate, {
+        existingCategories: toUntrustedPromptJson(existingCategories),
+        userPrompt: input.prompt,
       }),
-      userPrompt: renderPrompt(promptConfig.userPromptTemplate, { userPrompt: input.prompt }),
       jsonSchema: promptConfig.outputSchema,
       runName: "Panitera WP Tools: categories/suggest",
       tags: ["wp_tools", "panitera"],
@@ -268,6 +272,25 @@ export async function analyzeInternalLinks(
   return withUserLlm(userId, signal, (llm) => recommendInternalLinks(llm, site, input, signal))
 }
 
+/** Slug artikel dari segmen path terakhir URL (`/2026/10/judul-artikel/` → `judul-artikel`). */
+function slugFromUrl(url: string): string | null {
+  const path = normalizedPath(url)
+  const slug = path?.split("/").pop()
+  return slug ? decodeURIComponent(slug) : null
+}
+
+/** Artikel baru di situs pengguna (judul & konten) untuk konteks ekstraksi topik; `null` bila tidak ditemukan. */
+async function findNewArticle(
+  site: SiteCredentials,
+  articleUrl: string,
+  signal: AbortSignal | undefined
+): Promise<WPPostSummary | null> {
+  const slug = slugFromUrl(articleUrl)
+  if (!slug) return null
+  const res = await fetchWordPressPostBySlug({ ...site, slug, signal })
+  return res.ok && res.post ? res.post : null
+}
+
 async function recommendInternalLinks(
   llm: LlmGateway,
   site: SiteCredentials,
@@ -276,15 +299,19 @@ async function recommendInternalLinks(
 ): Promise<InternalLinkAnalysis> {
   const articleUrl = input.newArticleUrl
   const targetKeyword = input.targetKeyword || ""
+  const newArticle = await findNewArticle(site, articleUrl, signal)
 
-  // Tahap AI 1: ringkasan topik & query pencarian WP REST API
+  // Tahap AI 1: ringkasan topik & query pencarian WP REST API (dari judul & cuplikan artikel baru bila ditemukan)
   const extractPrompt = loadSectionedPrompt("wp-tools-link-extract.md")
   const extracted = await callLlmJson<{ topicSummary?: unknown; searchQueries?: unknown }>(llm, {
     systemPrompt: extractPrompt.systemPrompt,
     userPrompt: renderPrompt(extractPrompt.userPromptTemplate, {
       cleanUrl: articleUrl,
-      targetKeyword: targetKeyword || "-",
-      extraInstructions: input.extraInstructions || "-",
+      articleContext: newArticle
+        ? toUntrustedPromptJson({ title: stripToPlainText(newArticle.title), excerpt: toPlainExcerpt(newArticle.content) })
+        : "",
+      targetKeyword,
+      extraInstructions: input.extraInstructions || "",
     }),
     jsonSchema: extractPrompt.outputSchema,
     runName: "Panitera WP Tools: link-building/extract",
@@ -330,15 +357,14 @@ async function recommendInternalLinks(
       targetKeyword: targetKeyword || topicSummary,
     }),
     userPrompt: renderPrompt(recommendPrompt.userPromptTemplate, {
-      candidatesJson: JSON.stringify(
+      // Naskah artikel lama dapat ditulis pihak lain: hanya di blok data bertag (href tetap divalidasi saat apply).
+      candidatesJson: toUntrustedPromptJson(
         candidatePosts.map((post) => ({
           postId: post.id,
-          postTitle: post.title,
+          postTitle: stripToPlainText(post.title),
           postLink: post.link,
           sampleExcerpt: toPlainExcerpt(post.content),
-        })),
-        null,
-        2
+        }))
       ),
       cleanUrl: articleUrl,
     }),

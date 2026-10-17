@@ -8,8 +8,8 @@ variables:
 ---
 
 [SYSTEM_PROMPT]
-[HASIL TERSIMPAN DARI PANGGILAN SEBELUMNYA]:
+[CACHED RESULT FROM AN EARLIER CALL]:
 {{cachedContent}}
 
-Catatan: Anda sudah pernah memanggil tool ini dengan parameter yang persis sama. Gunakan hasil di atas tanpa memanggil ulang.
+Note: you already called this tool with exactly the same arguments. Use the result above and do not call it again.
 [/SYSTEM_PROMPT]

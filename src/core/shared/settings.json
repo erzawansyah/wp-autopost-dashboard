@@ -7,7 +7,7 @@
     "minWordCount": 600,
     "perTool": {
       "web_search": 6,
-      "web_reader": 4,
+      "web_reader": 6,
       "image_search": 4,
       "upload_media": 4,
       "set_featured_image": 2,
@@ -21,7 +21,7 @@
     "minWordCount": 800,
     "perTool": {
       "web_search": 8,
-      "web_reader": 6,
+      "web_reader": 9,
       "image_search": 5,
       "upload_media": 5,
       "set_featured_image": 3,
@@ -39,9 +39,28 @@
     "maxWordCount": 5000,
     "defaultPerToolLimit": 10
   },
+  "articleOutput": {
+    "$description": "Aturan field keluaran agen penulis {title, excerpt, body} (src/core/writer/runtime/article-validation.ts). Pelanggaran dikembalikan ke agen untuk diperbaiki paling banyak maxCorrectionRounds kali; setelah itu naskah diterima apa adanya dan pelanggarannya dicatat. Eval writer memakai batas yang sama.",
+    "maxCorrectionRounds": 2,
+    "titleMinChars": 10,
+    "titleMaxChars": 60,
+    "excerptMinChars": 120,
+    "excerptMaxChars": 160,
+    "minH2Sections": 5,
+    "minWordRatio": 0.75,
+    "bounds": {
+      "maxCorrectionRounds": 5,
+      "minTitleChars": 1,
+      "maxTitleChars": 200,
+      "minExcerptChars": 1,
+      "maxExcerptChars": 1000,
+      "maxH2Sections": 20,
+      "maxWordRatio": 1
+    }
+  },
   "ai": {
     "$description": "Default gateway LLM per run (src/core/shared/llm/gateway.ts): model cadangan, retry transien, dan parameter panggilan. Setiap nilai di-clamp ke ai.bounds.",
-    "fallbackModels": ["openai/gpt-4o-mini", "google/gemini-2.5-flash"],
+    "fallbackModels": ["openai/gpt-4o-mini", "meta-llama/llama-3.3-70b-instruct"],
     "maxRetries": 2,
     "agentTemperature": 0.95,
     "agentMaxTokens": 16384,

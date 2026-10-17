@@ -25,8 +25,18 @@ import { buildSystemPrompt, buildUserPrompt } from "./prompt-builder";
 import { buildWriterAgent } from "./build-agent";
 import { executeSingleFinalizeCall } from "./finalize";
 import { postprocessArticle } from "./postprocess";
-import { unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
-import { extractArticleJsonFromText, ArticleOutput } from "./output-schema";
+import { cleanMarkdown, unescapeLiteralNewlines } from "../../shared/formatters/markdown-cleaner";
+import { countWords, markdownToPlainText } from "@/core/shared/formatters/article-metrics";
+import {
+  assembleAgentOutputText,
+  detectRefusal,
+  extractArticleJsonFromText,
+  finalizeArticleFields,
+  trimCutOffTail,
+  ArticleOutput,
+} from "./output-schema";
+import { createArticleSubmission, readArticleFields, type SubmittedArticle } from "./article-submission";
+import type { ArticleFields } from "./article-validation";
 import { preResolveTaxonomyAndAuthor, type PreResolvedContext } from "./pre-resolve";
 import { resolveWriterReasoningEffort, writerModelCandidates } from "./resolve-model";
 import {
@@ -44,7 +54,6 @@ import {
   type GenerationCheckpointOptions,
   type IgnoredCheckpointReason,
 } from "./checkpoints";
-import { getLanguageDisplayName } from "@/lib/constants/languages";
 import "../tools"; // Pastikan seluruh tool terdaftar ke registry
 
 export interface RunAgentOptions {
@@ -142,6 +151,24 @@ async function persistCheckpoint(
   }
 }
 
+/** Field naskah terstruktur → bentuk naskah runtime (`body` = `markdownContent`). */
+function fieldsToArticleOutput(fields: ArticleFields): Partial<ArticleOutput> & { markdownContent: string } {
+  return { title: fields.title, excerpt: fields.excerpt, markdownContent: fields.body };
+}
+
+/** Penyerahan terakhir yang belum diterima; draf dari argumen terpotong dipangkas ke blok utuh terakhir. */
+function submissionToArticleOutput(submitted: SubmittedArticle): Partial<ArticleOutput> & { markdownContent: string } {
+  const body = submitted.cutOff ? trimCutOffTail(submitted.fields.body) : submitted.fields.body;
+  return fieldsToArticleOutput({ ...submitted.fields, body });
+}
+
+/** Pesan dari model (bukan pesan pengguna/tool). Objek tanpa `getType` (mis. mock) dianggap pesan model. */
+function isAiMessage(message: unknown): message is { content: unknown } {
+  if (typeof message !== "object" || message === null) return false;
+  const getType = (message as { getType?: unknown }).getType;
+  return typeof getType !== "function" || getType.call(message) === "ai";
+}
+
 interface CompleteArticleParams {
   request: WriterRequest;
   keyword: string;
@@ -160,11 +187,11 @@ function completeArticle(params: CompleteArticleParams): RunAgentResult {
   const { request, keyword, rawOutput, preResolved, recorder, stopReason } = params;
 
   // Postprocessing ke Native WordPress Gutenberg Blocks (Global & Tersembunyi dari User)
+  const fields = finalizeArticleFields(rawOutput, { title: request.content.title, keyword });
   const generatedArticle = postprocessArticle({
-    rawTitle:
-      rawOutput.title || request.content.title || `Panduan Lengkap ${keyword}`,
-    rawExcerpt: rawOutput.excerpt || `Ulasan lengkap mengenai ${keyword}.`,
-    rawMarkdown: rawOutput.markdownContent,
+    rawTitle: fields.title,
+    rawExcerpt: fields.excerpt,
+    rawMarkdown: fields.markdownContent,
   });
 
   // Taksonomi, author, & media: pilihan pengguna → hasil Pre-Flight Resolver / tool `set_featured_image`.
@@ -404,6 +431,24 @@ export async function runAgentWriter(
     error,
   });
 
+  /** Penolakan topik terlarang (guardrail aturan 14): gagal permanen, tanpa finalize call maupun retry. */
+  const refusalFailure = (reason: string, node: string): RunAgentResult => {
+    recorder.recordEvent({
+      kind: "summary",
+      status: "error",
+      durationMs: 1,
+      summary: `Agent menolak topik: ${reason.slice(0, 200)}`,
+    });
+    return failure("failed_content_refused", {
+      code: "CONTENT_REFUSED",
+      message: reason
+        ? `Topik ditolak oleh agent karena melanggar aturan konten: ${reason.slice(0, 300)}`
+        : "Topik ditolak oleh agent karena melanggar aturan konten.",
+      node,
+      retryable: false,
+    });
+  };
+
   try {
     if (!gateway.hasKey) {
       recorder.recordEvent({
@@ -490,6 +535,7 @@ export async function runAgentWriter(
     }
 
     const systemPrompt = buildSystemPrompt(profile.workflowPrompt, {
+      languageCode: language,
       siteName,
       siteUrl,
       authorName: preResolved.author?.name,
@@ -498,13 +544,14 @@ export async function runAgentWriter(
         preResolved.categoryNames.length > 0
           ? preResolved.categoryNames.join(", ")
           : undefined,
-      language: getLanguageDisplayName(language),
     });
     const userPromptText = buildUserPrompt({
       keyword,
       title: request.content.title,
       language,
       wordCountTarget: targetWordCount,
+      siteName,
+      siteUrl,
       brief: request.content.brief,
       author: preResolved.author
         ? { name: preResolved.author.name, bio: preResolved.author.bio }
@@ -518,10 +565,17 @@ export async function runAgentWriter(
           ? preResolved.tagNames.join(", ")
           : undefined,
       customInstructions: request.customInstructions,
-      hasTools: activeTools.length > 0,
+      toolNames: activeTools.map((tool) => tool.name),
     });
 
-    // 6. Bangun Writer Agent
+    // 6. Bangun Writer Agent. Naskah diserahkan sebagai field terstruktur {title, excerpt, body} lewat tool
+    //    `extract-article`; pelanggaran aturan field dikembalikan ke agen untuk dikoreksi (article-submission.ts).
+    const submission = createArticleSubmission({
+      recorder,
+      targetWordCount,
+      requiredTitle: request.content.title,
+      language,
+    });
     let agent: Awaited<ReturnType<typeof buildWriterAgent>>;
     try {
       agent = await buildWriterAgent({
@@ -531,6 +585,7 @@ export async function runAgentWriter(
         systemPrompt,
         limits,
         recorder,
+        submission,
         skills: profile.skills,
         userId: runUserId,
       });
@@ -594,9 +649,8 @@ export async function runAgentWriter(
 
       clearTimeout(timer);
 
-      // Ambil pesan terakhir dan ekstrak teks secara bersih (menghindari double JSON stringify)
+      // Teks pesan diekstrak secara bersih (menghindari double JSON stringify)
       const messages = agentResult.messages || [];
-      const lastMsg = messages[messages.length - 1];
 
       const extractRawMessageText = (content: unknown): string => {
         if (typeof content === "string") return content;
@@ -620,20 +674,48 @@ export async function runAgentWriter(
         return "";
       };
 
-      const rawText = extractRawMessageText(lastMsg?.content);
       // Anggaran panggilan model run habis (guards.ts): pesan terakhir adalah pemberitahuan sistem.
-      if (recorder.getEvents().some((event) => event.tool === "model_call_limit")) {
-        stopReason = "limit_reached";
-      }
+      const modelBudgetExhausted = recorder
+        .getEvents()
+        .some((event) => event.tool === "model_call_limit");
+      if (modelBudgetExhausted) stopReason = "limit_reached";
 
-      rawOutput = extractArticleJsonFromText(rawText);
-      if (!rawOutput?.markdownContent && rawText.length > 200) {
-        rawOutput = {
-          title: request.content.title || `Panduan Lengkap ${keyword}`,
-          excerpt: `Ulasan terpercaya mengenai ${keyword}.`,
+      // Penolakan topik terlarang (guardrail aturan 14) lewat field title: gagal permanen tanpa finalize/retry.
+      const submittedRefusal = submission.refusal();
+      if (submittedRefusal !== null) return refusalFailure(submittedRefusal, "agent_loop");
+
+      // 8a. Naskah terstruktur yang diterima validator (atau diterima apa adanya setelah batas koreksi).
+      const structured = readArticleFields(
+        (agentResult as { structuredResponse?: unknown }).structuredResponse,
+      );
+      const salvaged = submission.lastSubmission();
+      if (structured) {
+        rawOutput = fieldsToArticleOutput(structured);
+        if (salvaged && salvaged.issues.length > 0) stopReason = "completed_with_output_violations";
+      } else if (salvaged && salvaged.fields.body.trim()) {
+        // 8b. Loop berhenti sebelum naskah diterima (anggaran habis / argumen rusak): pakai penyerahan terakhir.
+        rawOutput = submissionToArticleOutput(salvaged);
+        if (salvaged.issues.length > 0 && stopReason === "completed") stopReason = "completed_with_output_violations";
+      } else {
+        // 8c. Jalur teks (model tidak memanggil `extract-article`): naskah dapat terbagi ke beberapa pesan AI di
+        //     sela panggilan tool, disambung mulai pesan terakhir yang memuat baris TITLE.
+        const lastText = extractRawMessageText(messages[messages.length - 1]?.content);
+        const rawText = modelBudgetExhausted
+          ? lastText
+          : assembleAgentOutputText(
+              messages
+                .filter((message) => isAiMessage(message))
+                .map((message) => extractRawMessageText(message.content)),
+            ) || lastText;
+
+        const refusal = detectRefusal(lastText);
+        if (refusal !== null) return refusalFailure(refusal, "agent_loop");
+
+        rawOutput = extractArticleJsonFromText(rawText);
+        if (!rawOutput?.markdownContent && rawText.length > 200) {
           // Pulihkan literal "\n" tanpa menyentuh isi blok kode
-          markdownContent: unescapeLiteralNewlines(rawText),
-        };
+          rawOutput = { markdownContent: unescapeLiteralNewlines(rawText) };
+        }
       }
     } catch (invokeErr: unknown) {
       clearTimeout(timer);
@@ -671,11 +753,18 @@ export async function runAgentWriter(
           retryable: false,
         });
       }
+
+      // Loop terhenti (timeout/batas langkah) setelah agen menyerahkan naskah atau menolak topik.
+      const interruptedRefusal = submission.refusal();
+      if (interruptedRefusal !== null) return refusalFailure(interruptedRefusal, "agent_loop");
+      const salvaged = submission.lastSubmission();
+      if (salvaged && salvaged.fields.body.trim()) rawOutput = submissionToArticleOutput(salvaged);
     }
 
     // 9. Evaluasi Kelengkapan Naskah & Trigger Single Finalize Call jika diperlukan
+    // Diukur pada bentuk terbit (`cleanMarkdown`), sama dengan validator: pembungkus ```markdown bukan blok kode.
     const rawWords = rawOutput?.markdownContent
-      ? rawOutput.markdownContent.split(/\s+/).filter(Boolean).length
+      ? countWords(markdownToPlainText(cleanMarkdown(rawOutput.markdownContent, rawOutput.title)), language)
       : 0;
 
     const needsFinalize =
@@ -692,6 +781,7 @@ export async function runAgentWriter(
         gateway,
         systemPrompt,
         keyword,
+        title: request.content.title,
         language,
         targetWordCount,
         brief: request.content.brief,
@@ -704,8 +794,9 @@ export async function runAgentWriter(
         signal: abortSignal,
       });
 
-      if (finalizeResult && finalizeResult.markdownContent) {
-        rawOutput = finalizeResult;
+      if (finalizeResult?.kind === "refused") return refusalFailure(finalizeResult.reason, "finalize");
+      if (finalizeResult?.kind === "article" && finalizeResult.article.markdownContent) {
+        rawOutput = finalizeResult.article;
         stopReason =
           stopReason === "completed"
             ? "finalized_after_short_draft"

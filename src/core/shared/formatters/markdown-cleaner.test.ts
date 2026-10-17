@@ -113,7 +113,24 @@ describe("cleanMarkdown — heading generik, bernomor, kesimpulan", () => {
     ["## 2.1. Asal-Usul Kopi", "## Asal-Usul Kopi"],
     ["## 2024 adalah tahun kopi", "## 2024 adalah tahun kopi"],
   ])("%s → %s", (heading, expected) => {
-    expect(cleanMarkdown(`Pembuka.\n\n${heading}\n\nIsi.`)).toBe(`Pembuka.\n\n${expected}\n\nIsi.`)
+    // Subbab H2 lain hadir agar heading H3/H4 tidak dinaikkan levelnya.
+    expect(cleanMarkdown(`Pembuka.\n\n## Konteks\n\nIsi.\n\n${heading}\n\nIsi.`)).toBe(
+      `Pembuka.\n\n## Konteks\n\nIsi.\n\n${expected}\n\nIsi.`
+    )
+  })
+
+  it("naskah tanpa satu pun H2 (subbab ditulis ###) dinaikkan satu level; naskah ber-H2 tidak diubah", () => {
+    expect(cleanMarkdown("Pembuka.\n\n### Satu\n\nIsi.\n\n#### Rinci\n\nIsi.\n\n### Dua\n\nIsi.")).toBe(
+      "Pembuka.\n\n## Satu\n\nIsi.\n\n### Rinci\n\nIsi.\n\n## Dua\n\nIsi."
+    )
+    expect(cleanMarkdown("# Judul\n\nPembuka.\n\n### Satu\n\nIsi.", "Judul")).toBe("Pembuka.\n\n## Satu\n\nIsi.")
+    expect(cleanMarkdown("Pembuka.\n\n## Satu\n\n### Sub\n\nIsi.")).toBe("Pembuka.\n\n## Satu\n\n### Sub\n\nIsi.")
+  })
+
+  it("tag <br> di teks & sel tabel diganti spasi; di kode tetap", () => {
+    expect(cleanMarkdown("Baris<br>baru dan `a<br>b`.\n\n| A | B |\n| --- | --- |\n| x<br/>y | z <BR /> w |")).toBe(
+      "Baris baru dan `a<br>b`.\n\n| A | B |\n| --- | --- |\n| x y | z w |"
+    )
   })
 })
 

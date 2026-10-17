@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { AIMessage } from "@langchain/core/messages"
 import { tool } from "@langchain/core/tools"
 import { OpenRouterError } from "@langchain/openrouter"
 import { z } from "zod"
@@ -104,7 +105,7 @@ describe("runAgentWriter + gateway LLM", () => {
         throw new OpenRouterError("Service unavailable", 503)
       },
     })
-    mocks.finalize.mockResolvedValue({ title: "Kopi Arabika", excerpt: "Ringkas.", markdownContent: LONG_ARTICLE })
+    mocks.finalize.mockResolvedValue({ kind: "article", article: { title: "Kopi Arabika", excerpt: "Ringkas.", markdownContent: LONG_ARTICLE } })
 
     const result = await runAgentWriter({ request, profile, userKeys, abortSignal: external.signal })
 
@@ -143,7 +144,7 @@ describe("runAgentWriter + gateway LLM", () => {
         return { messages: [{ content: "PEMBERITAHUAN SISTEM: batas habis." }] }
       },
     }))
-    mocks.finalize.mockResolvedValue({ title: "Kopi Arabika", excerpt: "Ringkas.", markdownContent: LONG_ARTICLE })
+    mocks.finalize.mockResolvedValue({ kind: "article", article: { title: "Kopi Arabika", excerpt: "Ringkas.", markdownContent: LONG_ARTICLE } })
 
     const result = await runAgentWriter({ request, profile, userKeys })
 
@@ -644,5 +645,224 @@ describe("runAgentWriter — prioritas model (Lab & antrean, resolve-model.ts)",
     })
 
     expect(result.model).toBe("acme/default-akun")
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Kontrak keluaran naskah (TITLE/EXCERPT, judul, penolakan)
+// ---------------------------------------------------------------------------
+
+const PARAGRAPH = "Harga arabika Gayo naik tajam musim ini karena panen turun di dataran tinggi Aceh Tengah. "
+
+function agentReplies(text: string) {
+  mocks.buildWriterAgent.mockResolvedValue({ invoke: async () => ({ messages: [{ content: text }] }) })
+}
+
+describe("runAgentWriter — kontrak keluaran naskah", () => {
+  it("system & user prompt memakai paket gaya bahasa artikel, daftar tool aktif, dan format TITLE/EXCERPT", async () => {
+    agentReplies(`TITLE: Kopi Gayo\nEXCERPT: Ringkasan.\n---\n${LONG_ARTICLE}`)
+    await runAgentWriter({ request: WriterRequestSchema.parse({ content: { keyword: "kopi", language: "en" } }), profile, userKeys })
+
+    const { systemPrompt } = mocks.buildWriterAgent.mock.calls[0][0] as { systemPrompt: string }
+    expect(systemPrompt).toContain("# WRITER GUARDRAILS")
+    expect(systemPrompt).toContain("# WRITING STYLE: ENGLISH")
+    expect(systemPrompt).toContain("Tulis artikel informatif.")
+    expect(systemPrompt).not.toMatch(/\{\{\s*\w+\s*\}\}/)
+  })
+
+  it("naskah dibuka paragraf tanpa header: H2 pertama tetap subbab, bukan judul; excerpt dari pembuka", async () => {
+    const body = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(20)}\n\n## Siapa yang Terdampak?\n\n${PARAGRAPH.repeat(20)}`
+    agentReplies(body)
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result.success).toBe(true)
+    expect(result.article?.title).toBe("kopi arabika")
+    expect(result.article?.subheadings).toEqual(expect.arrayContaining(["Mengapa Harga Melonjak", "Siapa yang Terdampak?"]))
+    expect(result.article?.excerpt).toContain("Harga arabika Gayo naik tajam")
+  })
+
+  it("judul wajib dari pengguna mengalahkan judul TITLE dari model", async () => {
+    agentReplies(`TITLE: Judul Model\nEXCERPT: Ringkasan kopi.\n---\n${LONG_ARTICLE}`)
+    const titled = WriterRequestSchema.parse({ content: { keyword: "kopi arabika", title: "Judul Pengguna" } })
+
+    const result = await runAgentWriter({ request: titled, profile, userKeys })
+
+    expect(result.article?.title).toBe("Judul Pengguna")
+    expect(result.article?.excerpt).toBe("Ringkasan kopi.")
+  })
+
+  it("naskah terbagi di sela panggilan tool disambung utuh (bukan hanya pesan AI terakhir)", async () => {
+    const opening = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(15)}`
+    const rest = `## Siapa yang Terdampak?\n\n${PARAGRAPH.repeat(15)}`
+    mocks.buildWriterAgent.mockResolvedValue({
+      invoke: async () => ({
+        messages: [
+          { content: `TITLE: Harga Arabika Gayo Melonjak\nEXCERPT: Ringkasan harga.\n---\n${opening}` },
+          { content: "hasil image_search", getType: () => "tool" },
+          { content: rest },
+        ],
+      }),
+    })
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result.article?.title).toBe("Harga Arabika Gayo Melonjak")
+    expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak", "Siapa yang Terdampak?"])
+    expect(result.article?.markdownContent).not.toContain("hasil image_search")
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it("naskah terstruktur dari extract-article dipakai apa adanya (tanpa mengurai teks pesan)", async () => {
+    const body = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(15)}\n\n## Siapa yang Terdampak?\n\n${PARAGRAPH.repeat(15)}`
+    mocks.buildWriterAgent.mockResolvedValue({
+      invoke: async () => ({
+        messages: [{ content: "Returning structured response" }],
+        structuredResponse: { title: "Harga Gayo Melonjak", excerpt: "Ringkasan harga kopi Gayo.", body },
+      }),
+    })
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({ success: true, stopReason: "completed" })
+    expect(result.article?.title).toBe("Harga Gayo Melonjak")
+    expect(result.article?.excerpt).toBe("Ringkasan harga kopi Gayo.")
+    expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak", "Siapa yang Terdampak?"])
+    expect(mocks.finalize).not.toHaveBeenCalled()
+    const built = mocks.buildWriterAgent.mock.calls[0][0] as { submission: { responseFormat: Array<{ name: string }>; reservedModelCalls: number } }
+    expect(built.submission.responseFormat.map((strategy) => strategy.name)).toEqual(["extract-article"])
+    expect(built.submission.reservedModelCalls).toBeGreaterThan(0)
+  })
+
+  /** Agen tiruan yang memanggil `parse` strategi extract-article seperti LangChain, lalu berakhir dengan pesan. */
+  function agentSubmits(submissions: Array<Record<string, unknown>>, finalMessage: string, structured?: boolean) {
+    mocks.buildWriterAgent.mockImplementation(async ({ submission }: { submission: { responseFormat: Array<{ parse: (args: Record<string, unknown>) => unknown }> } }) => ({
+      invoke: async () => {
+        let accepted: unknown
+        for (const args of submissions) {
+          try {
+            accepted = submission.responseFormat[0].parse(args)
+          } catch {
+            accepted = undefined
+          }
+        }
+        return { messages: [{ content: finalMessage }], ...(structured && accepted ? { structuredResponse: accepted } : {}) }
+      },
+    }))
+  }
+
+  it("penolakan lewat title REFUSED: di extract-article → gagal permanen tanpa finalize", async () => {
+    agentSubmits([{ title: "REFUSED: memfasilitasi penipuan", excerpt: "", body: "" }], "Article submitted.", true)
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({ success: false, stopReason: "failed_content_refused", error: { code: "CONTENT_REFUSED" } })
+    expect(result.error?.message).toContain("memfasilitasi penipuan")
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it("loop berhenti sebelum naskah diterima (anggaran habis) → penyerahan terakhir dipakai, bukan finalize", async () => {
+    // > 0,6 × minWordCount profil (600) kata: cukup panjang sehingga finalize tidak diperlukan.
+    const body = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(30)}`
+    agentSubmits([{ title: "Harga Gayo Melonjak", excerpt: "pendek", body }], "Batas panggilan model habis.")
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result.success).toBe(true)
+    expect(result.article?.title).toBe("Harga Gayo Melonjak")
+    expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak"])
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it("body terstruktur dibungkus ```markdown dihitung pada bentuk terbit → tidak memicu finalize", async () => {
+    const body = `\`\`\`markdown\n${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(30)}\n\`\`\``
+    mocks.buildWriterAgent.mockResolvedValue({
+      invoke: async () => ({
+        messages: [{ content: "Article submitted." }],
+        structuredResponse: { title: "Harga Gayo Melonjak", excerpt: "Ringkasan harga kopi Gayo.", body },
+      }),
+    })
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({ success: true, stopReason: "completed" })
+    expect(result.article?.markdownContent).not.toContain("```")
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it("draf dari argumen extract-article terpotong → dipangkas ke blok utuh terakhir dan ditandai pelanggaran", async () => {
+    const body = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(30)}\n\n## Siapa yang Terdampak\n\nPetani kecil di Bener Mer`
+    const rawArgs = `{"title":"Harga Gayo Melonjak","excerpt":"Ringkas.","body":"${body.replace(/\n/g, "\\n")}`
+    mocks.buildWriterAgent.mockImplementation(
+      async ({ submission }: { submission: { middleware: { wrapModelCall?: (request: unknown, handler: () => Promise<unknown>) => Promise<unknown> } } }) => ({
+        invoke: async () => {
+          const cutOff = new AIMessage({
+            content: "",
+            invalid_tool_calls: [{ id: "x1", name: "extract-article", args: rawArgs, error: "JSON tidak lengkap", type: "invalid_tool_call" }],
+            response_metadata: { finish_reason: "length" },
+          })
+          for (let attempt = 0; attempt < 3; attempt++) {
+            await submission.middleware.wrapModelCall?.({ responseFormat: {} }, async () => cutOff)
+          }
+          return { messages: [cutOff] }
+        },
+      })
+    )
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({ success: true, stopReason: "completed_with_output_violations" })
+    expect(result.article?.markdownContent).not.toContain("Bener Mer")
+    expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak"])
+    expect(mocks.finalize).not.toHaveBeenCalled()
+  })
+
+  it("draf dari JSON utuh beresape rusak (tidak terpotong) dipakai utuh, tanpa pemangkasan", async () => {
+    const body = `${PARAGRAPH.repeat(3)}\n\n## Mengapa Harga Melonjak\n\n${PARAGRAPH.repeat(30)} Lihat C:\\Data.\n\n## Tips Memilih Biji\n\n- Pilih biji yang baru dipanggang\n- Giling sesaat sebelum diseduh`
+    const rawArgs = `{"title":"Harga Gayo Melonjak","excerpt":"Ringkas.","body":"${body.replace(/\n/g, "\\n")}"}`
+    mocks.buildWriterAgent.mockImplementation(
+      async ({ submission }: { submission: { middleware: { wrapModelCall?: (request: unknown, handler: () => Promise<unknown>) => Promise<unknown> } } }) => ({
+        invoke: async () => {
+          const badEscape = new AIMessage({
+            content: "",
+            invalid_tool_calls: [{ id: "x1", name: "extract-article", args: rawArgs, error: "Bad escaped character", type: "invalid_tool_call" }],
+            response_metadata: { finish_reason: "stop" },
+          })
+          for (let attempt = 0; attempt < 3; attempt++) {
+            await submission.middleware.wrapModelCall?.({ responseFormat: {} }, async () => badEscape)
+          }
+          return { messages: [badEscape] }
+        },
+      })
+    )
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({ success: true, stopReason: "completed_with_output_violations" })
+    expect(result.article?.subheadings).toEqual(["Mengapa Harga Melonjak", "Tips Memilih Biji"])
+    expect(result.article?.markdownContent).toContain("Giling sesaat sebelum diseduh")
+  })
+
+  it("penolakan finalize call (title REFUSED:) → gagal permanen CONTENT_REFUSED", async () => {
+    agentReplies("pendek")
+    mocks.finalize.mockResolvedValue({ kind: "refused", reason: "Konten berbahaya." })
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({ success: false, error: { code: "CONTENT_REFUSED", node: "finalize", retryable: false } })
+  })
+
+  it("penolakan topik (REFUSED:) → gagal permanen tanpa finalize call", async () => {
+    agentReplies("REFUSED: Topik ini memfasilitasi penipuan.")
+
+    const result = await runAgentWriter({ request, profile, userKeys })
+
+    expect(result).toMatchObject({
+      success: false,
+      stopReason: "failed_content_refused",
+      error: { code: "CONTENT_REFUSED", retryable: false },
+    })
+    expect(result.error?.message).toContain("memfasilitasi penipuan")
+    expect(mocks.finalize).not.toHaveBeenCalled()
   })
 })

@@ -1,0 +1,15 @@
+# GOLDEN prompt "system-writer-layout" · versi 3ff8c2b12eb0
+# Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
+
+===== [SYSTEM_PROMPT] dirender =====
+‹isi system-guardrail.md›
+
+---
+
+‹isi system-style-*.md sesuai bahasa artikel›
+
+---
+
+# AGENT WORKFLOW (from the Agent Profile; the rules above take precedence)
+
+‹workflow Agent Profile›

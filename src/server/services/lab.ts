@@ -11,7 +11,7 @@ import { readToolArtifact } from "@/core/writer/tools/tool-response"
 import { failureFromError, toolFailure, type ToolFailure } from "@/core/shared/tools/contract"
 import { searchRoyaltyFreeImages, type ImageSearchProvider } from "@/core/shared/tools/image-search"
 import { getKeywordSuggestions } from "@/core/shared/tools/keyword-suggestions"
-import { readWebContent } from "@/core/shared/tools/web-reader"
+import { READ_LENGTH_BOUNDS, READ_ORIGINS, READ_UNIT_LABELS_ID, READ_UNITS, readWebContent } from "@/core/shared/tools/web-reader"
 import { webSearch, type WebSearchProvider } from "@/core/shared/tools/web-search"
 import { publishPostToWordPress } from "@/core/shared/tools/wordpress-publisher"
 import { hasLabAccess } from "@/lib/constants/auth"
@@ -360,14 +360,25 @@ async function executeLabTool(
 
   if (toolId === "web_reader") {
     const url = text(input, "url")
-    const outcome = await readWebContent({ url, maxLength: positiveInt(input, "maxLength", 2500, 20_000), signal })
+    const unit = oneOf(text(input, "unit"), READ_UNITS, "words")
+    const bounds = READ_LENGTH_BOUNDS[unit]
+    const outcome = await readWebContent({
+      url,
+      range: {
+        unit,
+        from: oneOf(text(input, "from"), READ_ORIGINS, "start"),
+        offset: Math.max(0, Math.round(Number(input.offset)) || 0),
+        length: positiveInt(input, "length", bounds.default, bounds.max),
+      },
+      signal,
+    })
     if (!outcome.ok) return labToolFailure(outcome, elapsed())
     const output = outcome.data
     return {
       ok: true,
       result: output,
       output,
-      summary: `Membaca ${output.wordCount} kata dari ${output.title || url}`,
+      summary: `Membaca ${output.range.first}-${output.range.last} dari ${output.range.total} ${READ_UNIT_LABELS_ID[unit]} (${output.wordCount} kata total) dari ${output.title || url}`,
       durationMs: elapsed(),
     }
   }

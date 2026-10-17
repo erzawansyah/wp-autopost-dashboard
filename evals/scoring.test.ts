@@ -2,14 +2,11 @@ import { describe, expect, it } from "vitest"
 import type { WriterResult } from "@/core/writer/types/contracts"
 import {
   EvalCaseSchema,
-  countMarkdownHeadings,
-  countWords,
   detectLanguage,
   findByline,
-  findRawHtmlInMarkdown,
   findUnsafeHtml,
-  markdownToPlainText,
   scoreWriterResult,
+  titleSourceCheck,
   validateGutenbergBlocks,
   type CheckStatus,
 } from "./scoring"
@@ -73,30 +70,12 @@ const statuses = (r: WriterResult): Record<string, CheckStatus> =>
   Object.fromEntries(scoreWriterResult(evalCase, r).checks.map((c) => [c.id, c.status]))
 
 describe("utilitas teks", () => {
-  it("markdownToPlainText & countWords mengabaikan sintaks Markdown, gambar, dan URL tautan", () => {
-    const md = "## Judul Subbab\n\n- butir **tebal** dan [tautan](https://contoh.id/a-b)\n\n![alt gambar](https://x.id/a.jpg)\n\n```\nkode diabaikan\n```"
-    expect(countWords(markdownToPlainText(md))).toBe(6)
-    expect(countWords("Ibu-ibu membeli 3 kg beras")).toBe(5)
-  })
-
-  it("countMarkdownHeadings memisahkan level", () => {
-    const md = "# H1\n## H2 a\n### H3\n## H2 b\n####### bukan\n##tanpa-spasi"
-    expect(countMarkdownHeadings(md, 1)).toBe(1)
-    expect(countMarkdownHeadings(md, 2)).toBe(2)
-    expect(countMarkdownHeadings(md, 3)).toBe(1)
-  })
-
   it("findByline menangkap label penulis pendek, bukan kalimat biasa", () => {
     expect(findByline("Pembuka.\n  Penulis:  Rina Pratama\nIsi")).toBe("Penulis:  Rina Pratama")
     expect(findByline("Ditulis oleh Tim Redaksi")).toBe("Ditulis oleh Tim Redaksi")
     expect(findByline("Oleh: Budi")).toBe("Oleh: Budi")
     expect(findByline("Oleh karena itu, kopi perlu dibatasi.")).toBeNull()
     expect(findByline(`Ditulis oleh banyak peneliti, ${"kalimat panjang ".repeat(8)}`)).toBeNull()
-  })
-
-  it("findRawHtmlInMarkdown mengabaikan kode inline & blok kode", () => {
-    expect(findRawHtmlInMarkdown("Teks <b>tebal</b> dan <br/>")).toEqual(["<b>", "</b>", "<br/>"])
-    expect(findRawHtmlInMarkdown("Pakai `<div>` atau\n```html\n<p>x</p>\n```\n3 < 5 > 2")).toEqual([])
   })
 
   it("findUnsafeHtml mendeteksi script, event handler, dan URL javascript:", () => {
@@ -188,7 +167,9 @@ describe("scoreWriterResult", () => {
       "html-safe": "fail",
       "gutenberg-blocks": "fail",
       "title-length": "fail",
+      "title-source": "pass",
       "excerpt-length": "fail",
+      "no-dashes": "pass",
       language: "fail",
     })
   })
@@ -212,7 +193,18 @@ describe("scoreWriterResult", () => {
     const score = scoreWriterResult(evalCase, result({ article: longTitle }))
     expect(score.checks.find((c) => c.id === "title-length")?.status).toBe("warn")
     expect(score.passed).toBe(true)
-    expect(score.score).toBe(Math.round((11.5 / 12) * 1000) / 1000)
+    expect(score.score).toBe(Math.round((13.5 / 14) * 1000) / 1000)
+  })
+
+  it("judul hasil curian subbab gagal, judul = kata kunci warn; tanda pisah warn", () => {
+    const md = "Pembuka.\n\n## Mengapa Kopi Hitam Menyehatkan\n\nIsi.\n\n### Detail Kafein ##\n\nIsi."
+    expect(titleSourceCheck("Mengapa kopi hitam  menyehatkan", md, "kopi").status).toBe("fail")
+    expect(titleSourceCheck("Detail Kafein", md, "kopi").status).toBe("fail")
+    expect(titleSourceCheck("Manfaat Kopi Hitam", md, "manfaat kopi hitam").status).toBe("warn")
+    expect(titleSourceCheck("Kopi Hitam untuk Pekerja Kantoran", md, "manfaat kopi hitam").status).toBe("pass")
+
+    const dashed = { ...article(), markdownContent: `${article().markdownContent}\n\nKopi — minuman pagi.` }
+    expect(statuses(result({ article: dashed }))["no-dashes"]).toBe("warn")
   })
 })
 

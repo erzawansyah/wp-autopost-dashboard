@@ -38,13 +38,13 @@ function messageText(message: ToolMessage): string {
 
 /** Pemberitahuan panggilan yang diblokir guard (prompt `system-tool-guard-blocked.md`). */
 function renderBlockedNotice(reason: string, target: string): string {
-  const template = loadPrompt("system-tool-guard-blocked.md", "PERINGATAN: {{reason}} Selesaikan naskah dengan data yang ada.", "system")
+  const template = loadPrompt("system-tool-guard-blocked.md", "WARNING: {{reason}} Finish the article with the data you already have.", "system")
   return renderPrompt(template, { reason, target })
 }
 
 /** Balasan panggilan identik yang di-deduplikasi (prompt `system-tool-guard-deduped.md`). */
 function renderDedupedNotice(cachedContent: string): string {
-  const template = loadPrompt("system-tool-guard-deduped.md", "[HASIL TERSIMPAN]: {{cachedContent}}", "system")
+  const template = loadPrompt("system-tool-guard-deduped.md", "[CACHED RESULT]: {{cachedContent}}", "system")
   return renderPrompt(template, { cachedContent })
 }
 
@@ -128,7 +128,7 @@ export function createLoopGuardMiddleware(
       if (maxToolCalls > 0 && totalToolCalls >= maxToolCalls) {
         return rejectCall(
           toolFailure("quota_exceeded", `Batas total panggilan tool sistem (${maxToolCalls} kali) telah tercapai.`),
-          "tool apa pun",
+          "any tool except `extract-article`",
           "blocked",
           `Tool '${toolName}' diblokir: batas total tool calls (${maxToolCalls}) tercapai`
         )
