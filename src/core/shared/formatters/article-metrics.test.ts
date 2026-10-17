@@ -3,6 +3,8 @@ import {
   codePointLength,
   countMarkdownHeadings,
   countWords,
+  detectLanguage,
+  detectShortTextLanguage,
   findRawHtmlInMarkdown,
   markdownSubheadings,
   markdownToPlainText,
@@ -63,5 +65,21 @@ describe("article-metrics", () => {
   it("codePointLength menghitung emoji sebagai satu karakter", () => {
     expect(codePointLength("Kopi ☕️")).toBe(7)
     expect(codePointLength("😀😀")).toBe(2)
+  })
+
+  it("detectLanguage membedakan Indonesia, Inggris, dan teks terlalu pendek", () => {
+    const id = "Harga kopi yang naik membuat banyak kedai di kota ini harus mencari cara agar tetap bertahan. "
+    const en = "The price of coffee has risen, and many cafes in the city have to find a way to keep their doors open. "
+    expect(detectLanguage(id.repeat(3)).lang).toBe("id")
+    expect(detectLanguage(en.repeat(3)).lang).toBe("en")
+    expect(detectLanguage("Kopi hitam enak.").lang).toBe("unknown")
+    expect(detectLanguage(id, 10).lang).toBe("id")
+  })
+
+  it("detectShortTextLanguage hanya pasti bila kata fungsinya dari satu bahasa", () => {
+    expect(detectShortTextLanguage("Masa Probation: Hak Pekerja yang Wajib Anda Pahami")).toBe("id")
+    expect(detectShortTextLanguage("Offering Letter: What to Check Before You Sign")).toBe("en")
+    expect(detectShortTextLanguage("Walk In Interview: Cara Datang dan Lolos Seleksi")).toBe("unknown")
+    expect(detectShortTextLanguage("Monstera Deliciosa")).toBe("unknown")
   })
 })

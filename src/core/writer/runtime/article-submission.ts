@@ -7,6 +7,7 @@ import {
 } from "langchain"
 import { AIMessage, ToolMessage, type InvalidToolCall, type ToolCall } from "@langchain/core/messages"
 import { Command } from "@langchain/langgraph"
+import { getLanguageDisplayName } from "@/lib/constants/languages"
 import { loadPrompt, renderPrompt } from "@/core/shared/prompts/loader"
 import { ARTICLE_OUTPUT_RULES, validateArticleFields, type ArticleFields, type ArticleValidationContext } from "./article-validation"
 import { detectRefusal, extractArticleJsonFromText } from "./output-schema"
@@ -157,6 +158,7 @@ export function createArticleSubmission(options: ArticleSubmissionOptions): Arti
       issues: issues.map((issue) => `- ${issue}`).join("\n"),
       // Penyerahan ganda baru dihitung `acceptDuplicateSubmission` setelah pesan ini dibuat.
       attemptsLeft: Math.max(0, attemptsLeft() - (multiple ? 1 : 0)),
+      language: getLanguageDisplayName(options.language),
     })
   }
 

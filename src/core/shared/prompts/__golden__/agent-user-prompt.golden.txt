@@ -1,4 +1,4 @@
-# GOLDEN prompt "agent-user-prompt" · versi 15da6e849df6
+# GOLDEN prompt "agent-user-prompt" · versi 4571bf0aabdf
 # Dibuat golden.test.ts dengan __golden__/sample-variables.json — jangan diedit manual (UPDATE_GOLDEN=1 npx vitest run src/core/shared/prompts/golden.test.ts).
 
 ===== [USER_PROMPT] dirender =====
@@ -6,7 +6,7 @@ Write a complete, publication-ready article for the brief below. Empty fields me
 
 ARTICLE BRIEF
 - Topic / main keyword: "manfaat kopi hitam tanpa gula untuk kesehatan"
-- Article language: Bahasa Indonesia (write the title, excerpt, body, alt text, and captions in this language)
+- Article language: Bahasa Indonesia. Write the title, excerpt, body, alt text, and captions in Bahasa Indonesia, even when the keyword, publication, category, tags, or notes below are in another language: they describe the topic and context, not the language of the article.
 - Minimum length: 1200 words
 - Publication: Kopi Nusantara https://kopinusantara.example
 - Required title (if set, use it exactly as the title field; if empty, write your own): Manfaat Kopi Hitam Tanpa Gula bagi Pekerja Kantoran
