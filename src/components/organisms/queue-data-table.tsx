@@ -430,7 +430,7 @@ export function QueueDataTable({
                         <EmptyState
                           icon={Inbox}
                           title="Belum ada artikel di antrean"
-                          description="Buat artikel lewat Tulis Cepat, Tulis Massal, atau Tulis Terstruktur."
+                          description="Buat artikel lewat Tulis Cepat, Tulis Massal, Tulis Niche, atau Tulis Terstruktur."
                         />
                       ))
                     : (

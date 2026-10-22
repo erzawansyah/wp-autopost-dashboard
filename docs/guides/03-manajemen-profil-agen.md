@@ -1,6 +1,6 @@
 # Agent Profile & Skill Registry
 
-Setiap artikel ditulis oleh sebuah **Agent Profile**: resep agen penulis yang menentukan mode agen, tools riset yang boleh dipakai, instruksi alur kerja, dan batas eksekusi. Agent Profile dipilih di Tulis Cepat, Tulis Massal, dan Tulis Terstruktur.
+Setiap artikel ditulis oleh sebuah **Agent Profile**: resep agen penulis yang menentukan mode agen, tools riset yang boleh dipakai, instruksi alur kerja, dan batas eksekusi. Agent Profile dipilih di Tulis Cepat, Tulis Massal, Tulis Niche, dan Tulis Terstruktur.
 
 ---
 

@@ -3,6 +3,7 @@ import {
   CreateBatchBodySchema,
   KeywordBatchFormSchema,
   localDateTimeToIso,
+  NicheBatchFormSchema,
   parseKeywordLines,
   StructuredBatchFormSchema,
   toCreateBatchBody,
@@ -113,6 +114,23 @@ describe("form Tulis Massal & Terstruktur", () => {
     const result = CreateBatchBodySchema.safeParse(body)
     expect(result.success).toBe(false)
     expect(result.error?.issues[0].path).toEqual(["items", 0, "focus"])
+  })
+
+  it("form Tulis Niche: niche & jumlah artikel wajib dalam batas; body lolos skema route", () => {
+    const messages = (input: Record<string, unknown>) =>
+      Object.fromEntries((NicheBatchFormSchema.safeParse({ ...settings, ...input }).error?.issues ?? []).map((i) => [i.path.join("."), i.message]))
+    expect(messages({ niche: " a ", articleCount: 0 })).toEqual({
+      niche: "Isi niche minimal 3 karakter.",
+      articleCount: "Minimal 1 artikel.",
+    })
+    expect(messages({ niche: "kopi", articleCount: 51 })).toEqual({ articleCount: "Maksimal 50 artikel per batch." })
+    expect(messages({ niche: "kopi", articleCount: Number.NaN })).toHaveProperty("articleCount")
+
+    const values = NicheBatchFormSchema.parse({ ...settings, niche: "  kopi manual brew ", articleCount: 12 })
+    const body = toCreateBatchBody(values, { niche: values.niche, articleCount: values.articleCount })
+    expect(body).toMatchObject({ niche: "kopi manual brew", articleCount: 12, siteId: SITE_ID })
+    expect(body).not.toHaveProperty("keywords")
+    expect(CreateBatchBodySchema.safeParse(body).success).toBe(true)
   })
 
   it("localDateTimeToIso: kosong tetap kosong, tidak valid diteruskan", () => {

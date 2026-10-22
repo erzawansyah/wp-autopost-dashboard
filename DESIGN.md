@@ -245,11 +245,14 @@ Ukuran arbitrer `text-[Npx]` dilarang (cek audit `arbitrary-text-size`). Pemetaa
 
 - **Tulis Cepat** (`/posts/new`): satu kata kunci → satu item antrean; status publikasi lewat `PublishStatusSwitcher`.
 - **Tulis Massal** (`/queue`): daftar kata kunci per baris → satu batch.
+- **Tulis Niche** (`/write/niche`, organism `niche-writer/niche-writer-form.tsx`): niche + jumlah artikel → satu batch
+  `niche_auto`; callout `Alert variant="ai"` menjelaskan kata kunci disusun AI di antrean. Item yang belum direncanakan
+  tampil "Menunggu kata kunci dari AI" (judul) / "disusun AI" (topik) lewat `displayKeyword()` (`lib/queue/table-model.ts`).
 - **Tulis Terstruktur** (`/write/structured`): tempel CSV/TSV/Excel + pemetaan kolom interaktif (`BatchColumnMapper`, parser
   `universal-batch-parser`).
-- Ketiganya memakai kerangka `WriterFormCard`; form batch berbagi `writer-fields` dengan strategi eksekusi & jadwal
+- Keempatnya memakai kerangka `WriterFormCard`; form batch berbagi `writer-fields` dengan strategi eksekusi & jadwal
   (`ScheduleStrategyPicker`: langsung vs. bertahap, pola interval atau tanggal acak, status di WordPress).
-- Niche Auto-Ideation dan sumber eksternal (URL/RSS) belum diimplementasikan (Modul 3, lihat PRD).
+- Smart Content Recycling dan sumber eksternal (URL/RSS) belum diimplementasikan (lihat PRD §8).
 
 ### C. Badge State Antrean
 

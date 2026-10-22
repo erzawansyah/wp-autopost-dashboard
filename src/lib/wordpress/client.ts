@@ -864,6 +864,51 @@ async function queryWordPressPosts(
 }
 
 /**
+ * Judul post terbaru (terbit, terjadwal, dan draf; maks. `perPage` ≤ 100) apa adanya dari WordPress (`title.rendered`,
+ * dapat memuat entitas HTML). Akun tanpa hak membaca draf ditolak WordPress (HTTP 400) → diulang hanya post terbit.
+ */
+export async function fetchWordPressPostTitles(
+  params: WordPressPostQueryParams & { perPage?: number }
+): Promise<{ ok: boolean; titles?: string[]; error?: string }> {
+  const { valid, normalizedUrl, error } = normalizeAndValidateWpUrl(params.baseUrl)
+  if (!valid || !normalizedUrl) {
+    return { ok: false, error: error || "Alamat website WordPress tidak valid." }
+  }
+  const perPage = Math.min(Math.max(Math.floor(params.perPage ?? 100), 1), 100)
+
+  try {
+    let res: Response | null = null
+    for (const status of ["publish,future,draft", "publish"]) {
+      res = await wpFetch(
+        `${normalizedUrl}/wp-json/wp/v2/posts?per_page=${perPage}&status=${status}&orderby=date&_fields=id,title`,
+        {
+          headers: {
+            Authorization: makeAuthHeader(params.username, params.applicationPassword),
+            "User-Agent": WP_USER_AGENT,
+            Accept: "application/json",
+          },
+          signal: params.signal,
+        },
+        { timeoutMs: 12_000 }
+      )
+      if (res.status !== 400) break
+    }
+    if (!res?.ok) {
+      return { ok: false, error: `Gagal mengambil judul artikel WordPress (HTTP ${res?.status ?? 0}).` }
+    }
+
+    const data = await res.json()
+    if (!Array.isArray(data)) {
+      return { ok: false, error: "Format respons artikel WordPress tidak dikenali." }
+    }
+    const titles = data.map((p) => (typeof p?.title?.rendered === "string" ? p.title.rendered : "")).filter(Boolean)
+    return { ok: true, titles }
+  } catch (err: unknown) {
+    return { ok: false, error: describeWpNetworkError(err, "Gangguan koneksi ke WordPress") }
+  }
+}
+
+/**
  * Mencari postingan artikel WordPress berdasarkan search query
  */
 export async function searchWordPressPosts(

@@ -1,14 +1,15 @@
-# Tulis Cepat, Tulis Massal & Penjadwalan
+# Tulis Cepat, Tulis Massal, Tulis Niche & Penjadwalan
 
-Panitera menyediakan tiga cara membuat artikel. Ketiganya hanya mencatat artikel ke antrean; penulisan dan pengiriman ke WordPress dikerjakan di latar belakang, jadi halaman boleh ditutup setelah mengirim.
+Panitera menyediakan empat cara membuat artikel. Semuanya hanya mencatat artikel ke antrean; penulisan dan pengiriman ke WordPress dikerjakan di latar belakang, jadi halaman boleh ditutup setelah mengirim.
 
 | Menu | Untuk | Jumlah |
 | :--- | :--- | :--- |
 | **Tulis Cepat** (`/posts/new`) | Satu artikel dari satu topik | 1 artikel |
 | **Tulis Massal** (`/queue`) | Daftar kata kunci, satu baris satu artikel | Maks. 50 per batch |
+| **Tulis Niche** (`/write/niche`) | Satu niche; kata kunci tiap artikel disusun AI | Maks. 50 per batch |
 | **Tulis Terstruktur** (`/write/structured`) | Data tabel dengan kolom judul, LSI, fokus, dan tag | Maks. 50 baris per batch |
 
-Ketiga formulir memiliki tab **Wajib** dan **Lanjutan**. Angka di tab **Lanjutan** menunjukkan jumlah opsi lanjutan yang sudah diisi. Pastikan kunci OpenRouter sudah tersimpan di [Pusat Kunci API](/settings/keys); tanpa kunci, artikel akan berstatus **Gagal Tulis**.
+Keempat formulir memiliki tab **Wajib** dan **Lanjutan**. Angka di tab **Lanjutan** menunjukkan jumlah opsi lanjutan yang sudah diisi. Pastikan kunci OpenRouter sudah tersimpan di [Pusat Kunci API](/settings/keys); tanpa kunci, artikel akan berstatus **Gagal Tulis**.
 
 ---
 
@@ -36,7 +37,7 @@ Klik **Tulis & simpan ke draf** (atau **Tulis & langsung terbitkan**). Setelah m
 
 1. Pilih **Website WordPress target**, **Agent Profile**, dan **Bahasa artikel**.
 2. Isi **Daftar kata kunci target (1 baris = 1 kata kunci)**. Penghitung menampilkan jumlah kata kunci (maks. 50); baris kosong diabaikan, dan tombol **Hapus N duplikat** muncul bila ada baris ganda.
-3. Atur **Strategi jadwal tayang** (lihat bagian 4) dan periksa **Pratinjau jadwal tayang**.
+3. Atur **Strategi jadwal tayang** (lihat bagian 5) dan periksa **Pratinjau jadwal tayang**.
 4. Opsional di tab **Lanjutan**: **Nama batch** (kosong = nama otomatis dari kata kunci pertama), **Kategori WordPress (seluruh batch)**, **Tag WordPress (seluruh batch)**, dan **Instruksi khusus / sudut pandang penulis**.
 5. Klik **Tulis N artikel sekarang** (eksekusi langsung) atau **Jadwalkan N artikel bertahap**.
 
@@ -44,7 +45,28 @@ Setelah banner **Batch berhasil masuk antrean**, Anda dibawa ke halaman Antrean 
 
 ---
 
-## 3. Tulis Terstruktur
+## 3. Tulis Niche
+
+Gunakan menu ini bila Anda belum punya daftar kata kunci: cukup tentukan niche dan jumlah artikel, AI yang menyusun kata kuncinya.
+
+1. Pilih **Website WordPress target**, **Agent Profile**, dan **Bahasa artikel**.
+2. Isi **Niche / topik besar** (maks. 300 karakter), misalnya "perawatan tanaman hias indoor untuk pemula di apartemen". Makin spesifik niche, makin terarah kata kuncinya.
+3. Isi **Jumlah artikel** (1–50, bawaan 10).
+4. Atur **Strategi jadwal tayang** (lihat bagian 5). Pratinjau jadwal menampilkan slot per artikel karena kata kuncinya belum ada.
+5. Opsional di tab **Lanjutan**: **Nama batch** (kosong = "Niche: <niche> (N artikel)"), kategori & tag seluruh batch, dan **Instruksi khusus / sudut pandang penulis**. Instruksi khusus juga dipakai AI saat menyusun kata kunci, misalnya "sasar pemula dengan budget terbatas".
+6. Klik **Susun & tulis N artikel sekarang** atau **Jadwalkan N artikel bertahap**.
+
+Batch dan seluruh artikelnya langsung tercatat di antrean dengan judul **Menunggu kata kunci dari AI**. Saat artikel pertama diproses, AI menyusun **seluruh** kata kunci batch sekaligus:
+
+- membaca hingga 100 judul artikel terbaru di website (terbit, terjadwal, dan draf) serta kata kunci artikel lain di antrean website yang sama, agar topik tidak dobel;
+- memakai saran pencarian (autocomplete) untuk niche tersebut sebagai gambaran permintaan pencarian nyata;
+- menyebar kata kunci ke sub-topik dan niat pencarian yang berbeda, dalam bahasa artikel.
+
+Daftar kata kunci langsung tampil di Antrean. Rencana tersimpan per batch, jadi **Tulis ulang** atau percobaan ulang tidak menyusun kata kunci baru. Ringkasan rencana (seluruh kata kunci, alasan sebaran, biaya) tercatat di **Log aktivitas** artikel yang menyusunnya. Bila penyusunan gagal (mis. kunci OpenRouter belum diisi atau layanan AI sedang gangguan), artikel itu berstatus gagal atau dicoba ulang otomatis seperti kegagalan penulisan biasa; artikel lain di batch akan mencoba menyusun saat gilirannya.
+
+---
+
+## 4. Tulis Terstruktur
 
 Gunakan menu ini bila setiap artikel butuh data berbeda, misalnya judul spesifik atau kata kunci sekunder.
 
@@ -73,9 +95,9 @@ Tips data:
 
 ---
 
-## 4. Strategi Jadwal Tayang (Drip-Feed)
+## 5. Strategi Jadwal Tayang (Drip-Feed)
 
-Tulis Massal dan Tulis Terstruktur memakai panel **Strategi jadwal tayang** yang sama.
+Tulis Massal, Tulis Niche, dan Tulis Terstruktur memakai panel **Strategi jadwal tayang** yang sama.
 
 **Eksekusi langsung (tulis semua sekarang)** — sakelar **Langsung/Bertahap**:
 

@@ -236,7 +236,7 @@ export function WriterBriefField({
   )
 }
 
-/** Nama batch opsional (form Tulis Massal & Tulis Terstruktur). */
+/** Nama batch opsional (form Tulis Massal, Tulis Niche & Tulis Terstruktur). */
 export function BatchNameField({ disabled, hint, placeholder }: { disabled: boolean; hint: string; placeholder: string }) {
   const { control } = useFormContext<{ batchName: string }>()
   return (

@@ -34,6 +34,8 @@ const PostItemChangeSchema = z.object({
   id: z.string().min(1),
   batch_id: nullableText,
   state: PostItemStateSchema.optional(),
+  /** Kata kunci item Tulis Niche terisi saat rencana AI tersimpan (migrasi `*_niche_keyword_plan.sql`). */
+  target_keyword: z.string().optional(),
   title: nullableText,
   wp_target_status: z.enum(["publish", "future", "draft"]).optional(),
   wp_post_id: z.number().nullable().optional(),

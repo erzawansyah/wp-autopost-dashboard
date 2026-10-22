@@ -9,7 +9,7 @@ Versi saat ini: `0.3.1` (branch `main`, tag `v0.3.1`; versi sebelumnya: tag `v0.
 ## Fitur Utama
 
 - **Koneksi WordPress tanpa plugin**: otorisasi Application Password satu klik (atau input manual), status koneksi per website yang diperbarui dari request nyata (**Cek ulang koneksi**, **Sambungkan ulang**), batas request paralel per website, kredensial terenkripsi AES-256-GCM.
-- **Tiga cara menulis**: **Tulis Cepat** (satu artikel), **Tulis Massal** (daftar kata kunci, maks. 50 per batch), dan **Tulis Terstruktur** (CSV/TSV/tempel spreadsheet dengan kolom judul, LSI, fokus, tag).
+- **Empat cara menulis**: **Tulis Cepat** (satu artikel), **Tulis Massal** (daftar kata kunci, maks. 50 per batch), **Tulis Niche** (niche + jumlah artikel; kata kunci disusun AI di antrean dari judul situs & saran pencarian), dan **Tulis Terstruktur** (CSV/TSV/tempel spreadsheet dengan kolom judul, LSI, fokus, tag).
 - **Penjadwalan drip-feed**: eksekusi langsung atau bertahap, pola interval atau tanggal acak dengan variasi menit; artikel masa depan dikirim sebagai `future` ke WordPress.
 - **Antrean 9-state berbasis database**: runner antrean tertanam dengan klaim atomik + lease, retry otomatis terbatas, kirim ulang hemat biaya tanpa LLM, anti-posting ganda, dan status live lewat Supabase Realtime privat (dengan polling cadangan).
 - **Agent Profile Runtime**: mode Standard (`createAgent`) atau Deep (Deep Agents + `SKILL.md`), 6 Universal Tools riset/visual, Pre-Flight Resolver taksonomi & author, guard anti-loop, serializer Markdown → Gutenberg.

@@ -32,13 +32,29 @@ function collectBatchItems(body: CreateBatchBody): BatchItemInput[] {
   return (body.keywords ?? []).map((keyword) => ({ keyword: keyword.trim() })).filter((item) => item.keyword.length > 0)
 }
 
+/**
+ * Tulis Niche (`niche` + `articleCount`): item berkata kunci kosong, disusun AI di antrean sebelum artikel pertama
+ * ditulis. Tidak boleh dicampur dengan `keywords`/`items`.
+ */
+function collectNicheItems(body: CreateBatchBody): { niche: string; items: BatchItemInput[] } | null {
+  if (!body.niche && !body.articleCount) return null
+  if (!body.niche || !body.articleCount) {
+    throw badRequest("Tulis Niche membutuhkan niche dan jumlah artikel.")
+  }
+  if ((body.keywords?.length ?? 0) > 0 || (body.items?.length ?? 0) > 0) {
+    throw badRequest("Pilih salah satu: niche (kata kunci disusun AI) atau daftar kata kunci.")
+  }
+  return { niche: body.niche, items: Array.from({ length: body.articleCount }, () => ({ keyword: "" })) }
+}
+
 // POST /api/batches — buat batch + seluruh item `queued_input`, lalu bangunkan runner antrean.
-// Skema membatasi `keywords`/`items` ke `MAX_BATCH_ITEMS` baris (sama dengan form); alasan batas body ada di
-// `MAX_BATCH_BODY_BYTES`.
+// Skema membatasi `keywords`/`items`/`articleCount` ke `MAX_BATCH_ITEMS` baris (sama dengan form); alasan batas body
+// ada di `MAX_BATCH_BODY_BYTES`.
 export const POST = defineRoute(
   { auth: "user", body: CreateBatchRouteBodySchema, rateLimit: RATE_LIMITS.enqueue, maxBodyBytes: MAX_BATCH_BODY_BYTES },
   async ({ supabase, user, body }) => {
-    const items = collectBatchItems(body)
+    const niche = collectNicheItems(body)
+    const items = niche?.items ?? collectBatchItems(body)
     if (items.length === 0) {
       throw badRequest("Daftar kata kunci tidak boleh kosong. Masukkan minimal 1 kata kunci atau topik.")
     }
@@ -48,6 +64,7 @@ export const POST = defineRoute(
       siteId: body.siteId,
       batchName: body.batchName,
       items,
+      niche: niche?.niche,
       executionMode: body.executionMode,
       scheduleMode: body.scheduleMode,
       randomConfig: body.randomConfig,

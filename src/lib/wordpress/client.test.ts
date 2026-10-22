@@ -8,6 +8,7 @@ import {
   describeWpNetworkError,
   fetchWordPressCategories,
   fetchWordPressPostRawContent,
+  fetchWordPressPostTitles,
   fetchWordPressUsers,
   isValidWpPostId,
   normalizeAndValidateWpUrl,
@@ -284,6 +285,13 @@ describe("operasi konten & taksonomi WordPress", () => {
           return json(200, [{ id: 8, name: "Tips &amp; Trik", slug: "tips-trik", count: 1, parent: 0 }])
         }
         if (path === "/wp-json/wp/v2/posts") return json(201, { id: 77, link: "https://contoh.test/?p=77", status: "draft" })
+        if (path.startsWith("/wp-json/wp/v2/posts?per_page=")) {
+          // Akun tanpa hak membaca draf: WordPress menolak status selain publish (rest_invalid_param).
+          if (path.includes("draft") && req.headers.authorization === `Basic ${Buffer.from("penulis:p").toString("base64")}`) {
+            return json(400, { code: "rest_invalid_param" })
+          }
+          return json(200, [{ id: 1, title: { rendered: "Cara Seduh Kopi &#8211; V60" } }, { id: 2, title: { rendered: "" } }])
+        }
         if (path.startsWith("/wp-json/wp/v2/posts/42?")) {
           return json(200, { id: 42, content: { raw: "<!-- wp:paragraph -->\n<p>x</p>\n<!-- /wp:paragraph -->", rendered: "<p>x</p>" } })
         }
@@ -374,6 +382,29 @@ describe("operasi konten & taksonomi WordPress", () => {
     expect(requests[0].path).toBe(
       "/wp-json/wp/v2/users?per_page=100&_fields=id,name,slug,description,avatar_urls&has_published_posts=true&who=authors"
     )
+  })
+
+  it("judul post terbaru: terbit, terjadwal & draf; judul kosong dibuang", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
+
+    const result = await fetchWordPressPostTitles({ ...creds, perPage: 500 })
+
+    expect(result).toEqual({ ok: true, titles: ["Cara Seduh Kopi &#8211; V60"] })
+    expect(requests.map((r) => r.path)).toEqual([
+      "/wp-json/wp/v2/posts?per_page=100&status=publish,future,draft&orderby=date&_fields=id,title",
+    ])
+  })
+
+  it("judul post: akun tanpa hak membaca draf (HTTP 400) → diulang hanya post terbit", async () => {
+    vi.stubEnv("ALLOW_PRIVATE_NETWORK_FETCH", "true")
+
+    const result = await fetchWordPressPostTitles({ ...creds, username: "penulis", perPage: 50 })
+
+    expect(result).toMatchObject({ ok: true, titles: ["Cara Seduh Kopi &#8211; V60"] })
+    expect(requests.map((r) => r.path)).toEqual([
+      "/wp-json/wp/v2/posts?per_page=50&status=publish,future,draft&orderby=date&_fields=id,title",
+      "/wp-json/wp/v2/posts?per_page=50&status=publish&orderby=date&_fields=id,title",
+    ])
   })
 
   it("pencarian kategori (situs > 100 kategori): teks di-encode di query `search`", async () => {

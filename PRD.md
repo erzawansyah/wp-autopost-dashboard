@@ -60,6 +60,7 @@
 | Menu Utama | Antrean | `/queue/items` | |
 | Penerbitan Konten | Tulis Cepat | `/posts/new` | |
 | Penerbitan Konten | Tulis Massal | `/queue` | Badge "Batch" |
+| Penerbitan Konten | Tulis Niche | `/write/niche` | Badge "AI" |
 | Penerbitan Konten | Tulis Terstruktur | `/write/structured` | Badge "CSV" |
 | Alat & Konfigurasi | WP Tools | `/tools` | |
 | Alat & Konfigurasi | Profil Agen | `/agents` | |
@@ -86,6 +87,7 @@ Navbar atas: breadcrumb, tombol tema terang/gelap, dan menu akun (**Kelola Websi
 /posts/new                 Tulis Cepat
 /posts/[id]                Detail artikel (status, ringkasan run, log, naskah)
 /queue                     Tulis Massal
+/write/niche               Tulis Niche
 /write/structured          Tulis Terstruktur
 /tools                     Hub WP Tools
 /tools/link-building       Link Building (?site=<uuid>)
@@ -144,23 +146,31 @@ Pengalihan lama
 ### 4.5 Tulis Massal (`/queue`)
 
 - Daftar kata kunci, satu baris satu artikel, maksimal 50 unik per batch (duplikat dapat dihapus sekali klik).
-- Pengaturan batch: website, Agent Profile, bahasa, strategi jadwal (§4.7), dan opsi lanjutan (nama batch, kategori & tag seluruh batch, instruksi khusus).
+- Pengaturan batch: website, Agent Profile, bahasa, strategi jadwal (§4.8), dan opsi lanjutan (nama batch, kategori & tag seluruh batch, instruksi khusus).
 - `POST /api/batches` membuat `content_batches` + seluruh `post_items` (`queued_input`, `scheduled_for` per slot), lalu klien dibawa ke `/queue/items?batchId=…`.
 
-### 4.6 Tulis Terstruktur (`/write/structured`)
+### 4.6 Tulis Niche (`/write/niche`)
+
+- Input wajib: website, Agent Profile, bahasa, **niche** (3–300 karakter), dan **jumlah artikel** (1–50, bawaan 10); tanpa daftar kata kunci. Strategi jadwal (§4.8) dan opsi lanjutan sama dengan Tulis Massal; instruksi khusus batch juga dipakai saat menyusun kata kunci.
+- `POST /api/batches` (`niche` + `articleCount`, tidak boleh dicampur `keywords`/`items`) membuat `content_batches` `source_type = 'niche_auto'` (`ai_config.niche`, `niche_article_count`) + N `post_items` `queued_input` ber-`target_keyword` kosong dan `source_payload.keyword_source = 'niche_auto'` + `slot_index`. Nama batch bawaan: "Niche: <niche> (N artikel)". UI menampilkan item ini sebagai **Menunggu kata kunci dari AI** (topik **disusun AI**).
+- **Rencana kata kunci (sekali per batch)**: klaim pertama yang menemukan kata kunci kosong menyusun seluruh N kata kunci sebelum Pre-Flight Resolver: judul ≤ 100 post terbaru di WordPress (terbit/terjadwal/draf; akun tanpa hak draf → hanya terbit) + kata kunci/judul ≤ 200 item antrean lain di situs yang sama (agar topik tidak dobel) + saran autocomplete niche (`keyword_suggestions`) dikirim sebagai blok data tidak tepercaya ke LLM (`system-niche-keyword-plan.md`, model penulisan item, BYOK). Keluaran disaring (teks polos ≤ 300 karakter, unik, tidak sama dengan judul/kata kunci yang ada); kekurangan diminta sekali lagi (maks. 2 panggilan), tetap kurang → kegagalan sementara.
+- Rencana disimpan lewat RPC `assign_niche_keywords` (dipagari token klaim; penulis pertama menang) ke `ai_config.niche_keywords` dan sekaligus mengisi `target_keyword` semua item batch yang masih kosong (Broadcast live ke Antrean). Klaim berikutnya, **Tulis ulang**, dan retry memakai rencana tersimpan tanpa LLM. Token & biaya penyusunan masuk metrik run item yang menyusunnya; log aktivitas (`niche_keywords`) memuat seluruh kata kunci, alasan sebaran, dan sumber data.
+- Kegagalan penyusunan mengikuti kebijakan retry generasi: kunci ditolak/kuota/request tidak valid → `failed_generation` permanen; gangguan sementara (5xx, timeout, keluaran tidak valid, kata kunci kurang) → antre ulang dengan backoff. Item lain batch mencoba menyusun saat gilirannya.
+
+### 4.7 Tulis Terstruktur (`/write/structured`)
 
 - Input: tempel teks (CSV/TSV/sel spreadsheet) atau unggah `.csv`/`.tsv`/`.txt` (tidak membaca `.xlsx` langsung). Pemisah (tab, `,`, `;`, `|`) dideteksi otomatis dari konsistensi jumlah kolom per baris (baris header berbobot ganda), bukan jumlah karakter; sel boleh diapit kutip ganda (`"a, b"`); header opsional.
 - Pemetaan kolom: kata kunci utama, judul, LSI, fokus/brief, kategori, tag, atau abaikan; pratinjau data per baris. Maksimal 50 baris; batas tiap kolom divalidasi per nomor baris sebelum dikirim.
 - Per baris: judul spesifik (kosong = dibuat AI), LSI (beberapa item dalam satu sel dipisah `|`, `,`, atau `;`) + fokus digabung ke instruksi khusus artikel, tag baris digabung dengan tag default. Kategori per baris dicocokkan Pre-Flight Resolver ke kategori yang sudah ada di situs (nama/slug, tanpa membedakan huruf besar/kecil) dan mengalahkan kategori default batch; tidak ditemukan → kategori default batch, lalu pilihan AI, dengan peringatan di log aktivitas (kategori baru tidak pernah dibuat otomatis). Item yang dibuat sebelum perbaikan ini (termasuk oleh versi lama) diisi ulang migrasi `20261018090000` agar kategori barisnya ikut dipakai.
 
-### 4.7 Strategi Jadwal Tayang (Drip-Feed)
+### 4.8 Strategi Jadwal Tayang (Drip-Feed)
 
 - **Eksekusi**: `immediate` (bawaan; semua item segera ditulis) atau `scheduled_drip` (item diklaim runner 10 menit sebelum `scheduled_for`).
 - **Pola**: **Pola Interval** (waktu mulai + jeda 1–720 jam, bawaan 12; variasi acak ±5–10 menit mulai item kedua — arah maju/mundur acak, tidak pernah 0) atau **Tanggal Acak** (rentang dibagi rata per item, titik acak di setiap bagian, variasi −7…+7 menit). Pratinjau slot (WIB) dihitung di klien; server menghitung ulang saat batch dibuat.
 - **Status di WordPress**: **Langsung Terbit** (bawaan batch) dikirim sebagai `future` bila slot masih di masa depan sehingga WordPress (WP-Cron) yang menayangkannya, atau `publish` bila slot sudah lewat; **Simpan Draf** dikirim sebagai `draft`.
 - Tidak ada halaman kalender terpisah; artikel terjadwal dipantau di Antrean (filter **Terjadwal**, kolom **Waktu & Publikasi**).
 
-### 4.8 Antrean & Batch (`/queue/items`, `/batches`)
+### 4.9 Antrean & Batch (`/queue/items`, `/batches`)
 
 - Tabel TanStack (100 item terbaru): pencarian, filter batch/website/kelompok status (**Semua**, **Dalam Proses**, **Terbit di Web**, **Draf di Web**, **Terjadwal**, **Gagal**), **Kelompokkan per batch** dengan progres, seleksi + aksi massal (**Proses ulang**, **Hapus**).
 - **Pembaruan live**: Supabase Realtime Broadcast **privat** per pengguna (topik `user:<uid>:queue` untuk status item dan `user:<uid>:post:<id>` untuk log baru; join diotorisasi policy `realtime.messages`). Bila kanal tidak tersambung, klien jatuh ke polling dengan backoff 5 → 60 detik yang berhenti saat tidak ada item aktif. Indikator: **Live**, **Menyambungkan…**, **Pembaruan berkala**.
@@ -168,14 +178,14 @@ Pengalihan lama
 - Hapus artikel/batch/riwayat Tulis Cepat hanya di Panitera; post WordPress tidak tersentuh.
 - **Daftar Batch**: nama, website, strategi jadwal, kemajuan (item sukses / total), status (**Berjalan** → **Selesai** saat semua item berada di state akhir dan minimal satu sukses, atau **Gagal** bila semua item gagal; status akhir menyesuaikan bila item diproses ulang).
 
-### 4.9 Detail Artikel (`/posts/[id]`)
+### 4.10 Detail Artikel (`/posts/[id]`)
 
 - Header live (judul terisi saat naskah selesai), aksi ulang sesuai state, **Buka di WordPress**.
 - **Status pengerjaan** 4 tahap + kendala terakhir; pemberitahuan jadwal percobaan berikutnya (`next_attempt_at`).
 - Ringkasan run: biaya (USD), token, panggilan LLM, jumlah percobaan, rincian run terakhir per model (termasuk fallback), checkpoint tersimpan.
 - Tab **Log aktivitas** (input/output JSON per langkah) dan **Naskah artikel** (**Baca naskah** tersanitasi DOMPurify, **Kode Gutenberg**, **Instruksi khusus**).
 
-### 4.10 Agent Profile Runtime & Studio (`/agents`)
+### 4.11 Agent Profile Runtime & Studio (`/agents`)
 
 - Preset bawaan (baca-saja, dapat dikloning): **Quick Writer** (standard, tanpa tools, default), **Research & Media Writer** (standard, 6 tools), **Deep Research Specialist** (deep, 6 tools + skill `anti-ai-editor`).
 - Profil kustom: nama, deskripsi, mode `standard` (LangChain `createAgent`) atau `deep` (Deep Agents + skill `SKILL.md`), workflow prompt (Raw/Pratinjau), tools yang diizinkan (dengan status **Siap**/**Perlu konfigurasi**), skill (mode Deep), temperatur, dan batas eksekusi (model calls, tool calls, timeout, minimal kata) yang selalu dijepit ke batas sistem. Satu profil dapat dijadikan default. Hapus = arsip (antrean lama tetap dapat diproses).
@@ -183,12 +193,12 @@ Pengalihan lama
 - **6 Universal Tools** (riset & visual saja): `keyword_suggestions`, `web_search`, `web_reader` (membaca per rentang kata/baris/karakter dari awal atau akhir halaman, satu sumber boleh dibaca berkali-kali), `image_search`, `set_featured_image`, `upload_media`.
 - Pipeline penulisan: Pre-Flight Resolver (author persona tanpa akun admin teknis selama ada persona lain, kategori dari yang ada, tag dicocokkan/dibuat) → agen menyerahkan `{title, excerpt, body}` lewat `extract-article`; pelanggaran aturan field dikembalikan ke agen untuk dikoreksi (maks. 2 putaran) → pembersih anti-slop & normalisasi heading → serializer Markdown → Gutenberg berbasis AST (escape penuh, `[` dinetralkan) → kirim ke WordPress. Guard anti-loop: deduplikasi panggilan identik, circuit breaker tool, kuota global & per-tool, satu kali finalize darurat. Checkpoint `pre_resolve`/`draft` memungkinkan resume tanpa LLM.
 
-### 4.11 Skill Registry (`/skills`)
+### 4.12 Skill Registry (`/skills`)
 
 - Skill sistem (mis. `anti-ai-editor`) baca-saja; skill kustom per akun dapat dibuat (form atau unggah `.md`, termasuk frontmatter `name:`), diedit (slug tetap), dan dihapus.
 - Skill hanya dimuat oleh Agent Profile mode Deep yang mencentangnya.
 
-### 4.12 WP Tools (`/tools`)
+### 4.13 WP Tools (`/tools`)
 
 Semua tool memakai pemilih website di `PageHeader`, butuh website tersambung, dan memakai kunci OpenRouter pengguna untuk analisis AI.
 
@@ -196,22 +206,22 @@ Semua tool memakai pemilih website di `PageHeader`, butuh website tersambung, da
 - **Author Creator** (`/tools/authors`): AI merancang 2–3 persona E-E-A-T → **Setujui & Buat di WordPress** / **Tolak** / **Setujui semua**; persona dengan email kosong, tidak valid, atau di luar domain website ditandai **Perlu ditinjau** dan tidak ikut massal. Tab manual: peran author/editor/contributor (tanpa administrator).
 - **Kategori Creator** (`/tools/categories`): AI merancang 3–6 kategori non-overlapping dengan slug & deskripsi SEO → setujui per item atau massal. Tab manual: satu kategori (dengan induk) atau masal (maks. 50 per kirim).
 
-### 4.13 Laboratorium (`/lab`)
+### 4.14 Laboratorium (`/lab`)
 
 - Hanya untuk akun dengan Developer Mode (`/settings/profile`); dicek di layout server, halaman, dan setiap route `/api/lab/**`.
 - Tab **Tools**: jalankan tiap Universal Tool + **WordPress Publisher (Direct Test)** (bawaan draft). Tab **Agent Profile**: run penuh dengan website target atau mode simulasi; hasil berupa naskah, blok Gutenberg, dan telemetri (diredaksi). Run Agent Profile tidak membuat post di WordPress.
 
-### 4.14 Pengaturan (`/settings/*`)
+### 4.15 Pengaturan (`/settings/*`)
 
 - **Pusat Kunci API & Model AI** (`/settings/keys`): kunci OpenRouter (wajib), model default (katalog OpenRouter yang mendukung tool calling atau ID kustom), tingkat penalaran (**Ikuti Agent Profile** = bawaan tiap preset; Low/Medium/High berlaku untuk semua Agent Profile termasuk preset, kecuali per item API `reasoningEffort`), mode mesin pencari (Auto Cascade, Tavily, Brave, SerpAPI, SearXNG, Bing Web, Wikipedia), kunci Tavily/Brave/SerpAPI/Pexafy/LangSmith + nama proyek LangSmith. Status kunci hanya **Tersimpan terenkripsi** / **Belum diatur**; uji kunci, hapus kunci dengan konfirmasi; form rahasia `method=post` dan tombol simpan aktif setelah hydrate.
 - **Profil & Preferensi Akun** (`/settings/profile`): identitas tenant, **Keamanan Akun** (ganti kata sandi, §4.1; form `method=post`, aktif setelah hydrate), dan Developer Mode. Pemberitahuan otomatis hanya lewat webhook.
 - **Integrasi Webhook** (`/settings/webhooks`): tambah (secret kustom ≥ 16 karakter atau otomatis; ditampilkan sekali), ubah nama/URL/event, aktif/nonaktif, **Tes Ping**, hapus. Event: `post.published`, `post.scheduled`, `post.draft_saved`, `post.failed`, `batch.completed` (semua item batch selesai, minimal satu sukses), `batch.failed` (semua item batch gagal); tepat satu event batch per batch, tidak dikirim ulang oleh **Tulis ulang**/**Kirim ulang** setelah batch selesai. Pengiriman: JSON `{ id, event, timestamp, data }`, header `X-Panitera-Timestamp`, `X-Panitera-Signature: sha256=HMAC(secret, "timestamp.body")`, `X-Webhook-Event`; via `safeFetch`, tanpa redirect, timeout 6 detik, tanpa pengiriman ulang. URL wajib publik (HTTPS di production).
 
-### 4.15 Dokumentasi In-App (`/docs`)
+### 4.16 Dokumentasi In-App (`/docs`)
 
 - Reader server-side untuk `docs/guides/0N-<slug>.md` (urut nomor; judul dari heading `#`), pencarian judul/isi, navigasi sebelumnya/berikutnya, salin Markdown. Markdown dirender tanpa HTML mentah; tautan disaring.
 
-### 4.16 Pipeline Pencarian & Media
+### 4.17 Pipeline Pencarian & Media
 
 - `web_search` mode Auto: Tavily → Brave → SerpAPI (bila tenant punya kunci) → SearXNG (instance pengguna atau internal `http://searxng-internal:8080`) → scraper Bing → Wikipedia.
 - `image_search` mode Auto: Pexafy (BYOK) → Bing Image API (hanya bila operator mengizinkan kunci platform) → SearXNG Images → scraper Bing (Creative Commons) → katalog kurasi; lebar minimal 1280 px dengan verifikasi URL gambar.
@@ -276,7 +286,7 @@ Aturan keandalan:
 | Fase 4 — Frontend | Selesai | Route group, RSC + organism klien, Realtime privat, header keamanan, e2e (ADR-065). |
 | Fase 5 — Dokumentasi & deploy | Berjalan | Sinkronisasi PRD/README/panduan; runbook deploy Docker Compose/VPS dan upgrade dari versi lama. |
 
-Prasyarat rilis produksi: baseline migrasi dibandingkan dengan production (`supabase db diff`) sebelum `db push`, lalu deploy mengikuti [panduan deploy & operasi](docs/deploy/docker-compose-vps.md) dan, untuk instalasi lama, [runbook upgrade ke v2](docs/deploy/upgrade-ke-v2.md). Fase produk berikutnya setelah v2: **Modul Niche Auto-Genesis & Smart Content Recycling** (disepakati dengan pengguna lebih dulu).
+Prasyarat rilis produksi: baseline migrasi dibandingkan dengan production (`supabase db diff`) sebelum `db push`, lalu deploy mengikuti [panduan deploy & operasi](docs/deploy/docker-compose-vps.md) dan, untuk instalasi lama, [runbook upgrade ke v2](docs/deploy/upgrade-ke-v2.md). Fase produk berikutnya setelah v2: **Modul Niche Auto-Genesis & Smart Content Recycling** (disepakati dengan pengguna lebih dulu); bagian Niche Auto-Genesis tersedia sebagai **Tulis Niche** (§4.6, belum dirilis dalam tag versi).
 
 ---
 

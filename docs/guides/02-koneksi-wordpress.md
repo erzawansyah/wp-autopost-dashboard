@@ -66,7 +66,7 @@ Setiap website memiliki badge status koneksi:
 - Status diperbarui otomatis setiap kali antrean mengirim artikel ke website, dan setiap kali Anda menekan **Cek ulang koneksi**.
 - **Cek ulang koneksi** tersedia di header halaman kelola website dan di menu titik tiga tabel website. Panitera menguji Application Password tersimpan, menampilkan hasilnya, lalu memperbarui badge dan waktu **Terakhir dicek**. Hasil yang tidak menunjukkan kondisi koneksi (misalnya REST API mengembalikan 404) hanya ditampilkan sebagai pesan tanpa mengubah status.
 - Bila status bukan **Tersambung**, tabel website menampilkan tautan **Cara memperbaiki** di bawah badge. Tautan ini membuka halaman kelola website yang berisi panel petunjuk sesuai statusnya.
-- Website berstatus **Kredensial ditolak** disembunyikan dari pilihan website pada Tulis Cepat, Tulis Massal, Tulis Terstruktur, dan WP Tools sampai disambungkan ulang. Website berstatus **Dibatasi WordPress** atau **Tidak terjangkau** tetap dapat dipilih (statusnya ditampilkan di samping nama) karena kondisinya biasanya sementara. Artikel yang gagal terkirim selama gangguan dapat dikirim ulang dari halaman Antrean tanpa menulis ulang naskah.
+- Website berstatus **Kredensial ditolak** disembunyikan dari pilihan website pada Tulis Cepat, Tulis Massal, Tulis Niche, Tulis Terstruktur, dan WP Tools sampai disambungkan ulang. Website berstatus **Dibatasi WordPress** atau **Tidak terjangkau** tetap dapat dipilih (statusnya ditampilkan di samping nama) karena kondisinya biasanya sementara. Artikel yang gagal terkirim selama gangguan dapat dikirim ulang dari halaman Antrean tanpa menulis ulang naskah.
 
 ### Memperbarui Application Password (Sambungkan ulang)
 

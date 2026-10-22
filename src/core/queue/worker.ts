@@ -38,6 +38,13 @@ import {
   saveGenerationCheckpoint,
 } from "@/core/queue/checkpoints"
 import type { ClaimedQueueItem } from "@/core/queue/leases"
+import {
+  NicheKeywordError,
+  isPendingNicheKeyword,
+  resolveNicheKeyword,
+  type NicheKeywordRequest,
+  type NicheKeywordResult,
+} from "@/core/queue/niche-keywords"
 import { finalStateForStatus, inferRecordedFinalState } from "@/core/queue/final-state"
 import type { StaleRecoverableState } from "@/core/queue/stale-recovery"
 import {
@@ -531,6 +538,76 @@ async function abandonLostClaim(
 }
 
 /**
+ * Item Tulis Niche tanpa kata kunci: ambil dari rencana batch atau susun rencana baru (`niche-keywords.ts`), lalu
+ * catat ke log. Kegagalan diselesaikan seperti kegagalan generasi (antre ulang dengan backoff / `failed_generation`);
+ * klaim yang hilang/dicabut hanya dicatat (state milik klaim lain atau pelepasan runner).
+ */
+async function preparePendingNicheKeyword(
+  supabase: QueueDbClient,
+  claim: ActiveClaim,
+  request: NicheKeywordRequest
+): Promise<{ keyword: string } | { result: ProcessPostItemResult }> {
+  const startedAt = Date.now()
+  let outcome: NicheKeywordResult
+  try {
+    outcome = await resolveNicheKeyword(supabase, request)
+  } catch (err: unknown) {
+    const abortCode = claimAbortCode(request.signal)
+    if (abortCode) {
+      const message = `Penyusunan kata kunci niche dihentikan: ${describeClaimAbort(abortCode)}`
+      await insertLog(supabase, {
+        postItemId: claim.id,
+        userId: claim.userId,
+        step: "niche_keywords",
+        level: "warn",
+        message: `[Queue Worker] ${message}`,
+        details: { reason: abortCode },
+      })
+      return { result: { success: false, postId: claim.id, error: message } }
+    }
+    const message = err instanceof Error ? err.message : String(err)
+    const decision = await settleFailure(supabase, claim, {
+      stage: "generation",
+      failure: err instanceof NicheKeywordError ? err.failure : classifyThrownError(err),
+      message: `Gagal menyusun kata kunci niche: ${message}`,
+      step: "niche_keywords",
+    })
+    return { result: { success: false, postId: claim.id, state: decision.state, error: message, willRetry: decision.willRetry } }
+  }
+
+  if (outcome.status === "claim_lost") {
+    const message = "Rencana kata kunci tidak disimpan: item sudah tidak dipegang worker ini."
+    console.warn(`[worker] ${message} (post_item ${claim.id})`)
+    return { result: { success: false, postId: claim.id, error: message } }
+  }
+
+  const { keyword, slot, total, plan } = outcome
+  const position = `artikel #${slot + 1} dari ${total}`
+  const usage = request.usage.snapshot()
+  await insertLog(supabase, {
+    postItemId: claim.id,
+    userId: claim.userId,
+    step: "niche_keywords",
+    level: "info",
+    message: !plan
+      ? `[Kata Kunci Niche] Memakai rencana batch: "${keyword}" (${position}).`
+      : plan.adoptedExisting
+        ? `[Kata Kunci Niche] Rencana batch sudah disimpan proses lain lebih dulu; memakai "${keyword}" (${position}).`
+        : `[Kata Kunci Niche] AI menyusun ${total} kata kunci untuk niche "${plan.niche}". Artikel ini: "${keyword}" (${position}).`,
+    details: {
+      input: plan ? { niche: plan.niche, language: request.language, model: request.model, sources: plan.sources } : { slot },
+      output: plan
+        ? { keyword, keywords: plan.keywords, rationale: plan.rationale || undefined, llmCalls: plan.llmCalls }
+        : { keyword },
+      tokens: plan ? usage.totalTokens : undefined,
+      costUsd: plan ? usage.costUsd : undefined,
+      durationMs: Date.now() - startedAt,
+    },
+  })
+  return { keyword }
+}
+
+/**
  * Proses satu item yang sudah diklaim runner. Tidak pernah melempar: crash dicatat ke item
  * (fail-safe) dan dilaporkan sebagai `success: false`.
  */
@@ -637,7 +714,8 @@ async function executePostItem(
   const hasStoredArticle = Boolean(post.content_html && post.content_html.trim().length > 0 && post.title)
   const isRetrySync = hasStoredArticle
   const stage: QueueStage = isRetrySync ? "sync" : "generation"
-  const keyword: string = post.target_keyword
+  // Item Tulis Niche: kosong sampai rencana kata kunci batch tersedia (diisi sebelum generasi).
+  let keyword: string = post.target_keyword
 
   if (claim.state === "syncing_to_wp" && !hasStoredArticle) {
     await settleFailure(supabase, claim, {
@@ -758,6 +836,34 @@ async function executePostItem(
       userDefaultModel: userKeys.defaultAiModel,
     })
 
+    const promptTracker = createPromptVersionTracker()
+    // Ledger milik worker: token & biaya tetap tercatat walau writer melempar exception.
+    const usageLedger = new LlmUsageLedger()
+
+    // Tulis Niche: kata kunci disusun AI untuk seluruh batch (sekali jalan) sebelum naskah pertama ditulis.
+    if (isPendingNicheKeyword(post.target_keyword, payloadMeta)) {
+      const prepared = await promptTracker.run(() =>
+        preparePendingNicheKeyword(supabase, claim, {
+          claim,
+          slotIndex: payloadMeta.slot_index,
+          site: {
+            id: site.id,
+            siteName: site.site_name,
+            baseUrl: site.base_url,
+            username: site.wp_username,
+            applicationPassword: plainPassword,
+          },
+          language,
+          model: aiModel,
+          userKeys,
+          usage: usageLedger,
+          signal: context.signal,
+        })
+      )
+      if ("result" in prepared) return prepared.result
+      keyword = prepared.keyword
+    }
+
     // Checkpoint langkah generasi dari percobaan sebelumnya (retry otomatis, auto-healing, shutdown,
     // "Tulis ulang"/"Jalankan sekarang"): writer melanjutkan dari langkah valid terakhir tanpa LLM ulang.
     const storedCheckpoints = await loadGenerationCheckpoints(supabase, claim)
@@ -859,9 +965,6 @@ async function executePostItem(
     // tidak akan pernah disimpan run ini.
     const runController = new AbortController()
     const claimSignal = AbortSignal.any([context.signal, runController.signal])
-    const promptTracker = createPromptVersionTracker()
-    // Ledger milik worker: token & biaya tetap tercatat walau writer melempar exception.
-    const usageLedger = new LlmUsageLedger()
     let draftSaved = false
     const onCheckpoint = async (checkpoint: GenerationCheckpoint): Promise<boolean> => {
       const saved = await saveGenerationCheckpoint(supabase, claim, checkpoint, promptTracker.versions())

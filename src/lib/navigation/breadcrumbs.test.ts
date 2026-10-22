@@ -81,6 +81,7 @@ describe("getBreadcrumbs", () => {
   it("rute penerbitan & WP Tools memakai label Indonesia tanpa segmen pengalih", () => {
     expect(labels("/posts/new")).toEqual(["Dashboard", "Tulis Cepat"])
     expect(labels("/write/structured")).toEqual(["Dashboard", "Tulis Terstruktur"])
+    expect(labels("/write/niche")).toEqual(["Dashboard", "Tulis Niche"])
     expect(getBreadcrumbs("/tools/link-building")).toEqual([
       { label: "Dashboard", href: "/" },
       { label: "WP Tools", href: "/tools" },

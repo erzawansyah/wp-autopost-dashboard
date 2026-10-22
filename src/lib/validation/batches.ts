@@ -11,14 +11,21 @@ import {
 
 /**
  * Skema murni domain batch (`POST /api/batches`) — dipakai bersama route API dan form Tulis Massal /
- * Tulis Terstruktur. Kompatibilitas payload lama (field legacy pemetaan profil) ditambahkan di route.
+ * Tulis Niche / Tulis Terstruktur. Kompatibilitas payload lama (field legacy pemetaan profil) ditambahkan di route.
  */
 
 /**
- * Batas baris per batch (PRD §4.5–4.6) — satu sumber untuk form Tulis Massal/Terstruktur dan skema `POST /api/batches`.
+ * Batas baris per batch (PRD §4.5–4.7) — satu sumber untuk form Tulis Massal/Terstruktur dan skema `POST /api/batches`.
  */
 export const MAX_BATCH_ITEMS = 50
 export const BATCH_KEYWORD_MAX = 300
+
+/**
+ * Tulis Niche: batch `content_batches.source_type = 'niche_auto'` yang itemnya dicatat dengan `target_keyword` kosong
+ * + `source_payload.keyword_source = NICHE_KEYWORD_SOURCE`; kata kuncinya disusun AI di antrean (`core/queue/niche-keywords.ts`).
+ */
+export const NICHE_KEYWORD_SOURCE = "niche_auto"
+export const NICHE_TEXT_MAX = 300
 const MAX_BATCH_ITEMS_MESSAGE = `Maksimal ${MAX_BATCH_ITEMS} baris per batch. Silakan kurangi baris input Anda.`
 
 /**
@@ -58,10 +65,21 @@ export const InstantScheduleSchema = z.object({
   wpTargetStatus: WpSlotStatusSchema,
 })
 
-/** Body `POST /api/batches`: buat batch + seluruh item `queued_input` (≤ `MAX_BATCH_ITEMS` baris, body ≤ `MAX_BATCH_BODY_BYTES`). */
+/**
+ * Body `POST /api/batches`: buat batch + seluruh item `queued_input` (≤ `MAX_BATCH_ITEMS` baris, body ≤ `MAX_BATCH_BODY_BYTES`).
+ * Sumber item: `items` (Tulis Terstruktur), `keywords` (Tulis Massal), atau `niche` + `articleCount` (Tulis Niche:
+ * kata kunci disusun AI di antrean).
+ */
 export const CreateBatchBodySchema = z.object({
   siteId: UuidSchema,
   batchName: OptionalTextSchema(200),
+  niche: OptionalTextSchema(NICHE_TEXT_MAX),
+  articleCount: z
+    .number()
+    .int("Jumlah artikel harus bilangan bulat.")
+    .min(1, "Minimal 1 artikel.")
+    .max(MAX_BATCH_ITEMS, `Maksimal ${MAX_BATCH_ITEMS} artikel per batch.`)
+    .nullish(),
   keywords: z
     .array(z.string().max(BATCH_KEYWORD_MAX, `Maksimal ${BATCH_KEYWORD_MAX} karakter.`))
     .max(MAX_BATCH_ITEMS, MAX_BATCH_ITEMS_MESSAGE)
@@ -88,7 +106,7 @@ export const CreateBatchBodySchema = z.object({
 export type CreateBatchBody = z.input<typeof CreateBatchBodySchema>
 
 // ---------------------------------------------------------------------------
-// Form Tulis Massal & Tulis Terstruktur
+// Form Tulis Massal, Tulis Niche & Tulis Terstruktur
 // ---------------------------------------------------------------------------
 
 /** Strategi jadwal tayang (molekul `ScheduleStrategyPicker`). Tanggal = nilai `datetime-local` browser. */
@@ -148,6 +166,22 @@ export const KeywordBatchFormSchema = BatchSettingsFormSchema.extend({
 export type KeywordBatchFormInput = z.input<typeof KeywordBatchFormSchema>
 export type KeywordBatchFormValues = z.output<typeof KeywordBatchFormSchema>
 
+/** Form Tulis Niche: niche + jumlah artikel (tanpa daftar kata kunci; kata kunci disusun AI di antrean). */
+export const NicheBatchFormSchema = BatchSettingsFormSchema.extend({
+  niche: z
+    .string()
+    .trim()
+    .min(3, "Isi niche minimal 3 karakter.")
+    .max(NICHE_TEXT_MAX, `Maksimal ${NICHE_TEXT_MAX} karakter.`),
+  articleCount: z
+    .number({ error: "Isi jumlah artikel." })
+    .int("Jumlah artikel harus bilangan bulat.")
+    .min(1, "Minimal 1 artikel.")
+    .max(MAX_BATCH_ITEMS, `Maksimal ${MAX_BATCH_ITEMS} artikel per batch.`),
+})
+export type NicheBatchFormInput = z.input<typeof NicheBatchFormSchema>
+export type NicheBatchFormValues = z.output<typeof NicheBatchFormSchema>
+
 /** Form Tulis Terstruktur: teks tabel mentah (CSV/TSV/tempel Excel); jumlah baris dicek setelah diurai. */
 export const StructuredBatchFormSchema = BatchSettingsFormSchema.extend({
   rawText: z.string().refine((text) => text.trim().length > 0, {
@@ -171,10 +205,10 @@ export function localDateTimeToIso(value: string): string {
   return Number.isNaN(date.getTime()) ? trimmed : date.toISOString()
 }
 
-/** Nilai pengaturan form + sumber baris (kata kunci atau baris terstruktur) → body `POST /api/batches`. */
+/** Nilai pengaturan form + sumber item (kata kunci, baris terstruktur, atau niche) → body `POST /api/batches`. */
 export function toCreateBatchBody(
   settings: BatchSettingsFormValues,
-  source: { keywords: string[] } | { items: BatchItemInput[] }
+  source: { keywords: string[] } | { items: BatchItemInput[] } | { niche: string; articleCount: number }
 ): CreateBatchBody {
   const { strategy } = settings
   return {

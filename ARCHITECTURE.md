@@ -72,7 +72,8 @@ src/
 │   │   ├── lab/                 # layout (gerbang Developer Mode di server), page (?tab=tools|agent)
 │   │   ├── posts/               # page (→ /), new/ (Tulis Cepat), [id]/ (detail, log live, metrik run)
 │   │   ├── queue/               # page (Tulis Massal), items/ (tabel antrean)
-│   │   ├── scheduled/ · write/  # redirect → /queue · redirect → /posts/new; write/structured/ (Tulis Terstruktur)
+│   │   ├── scheduled/ · write/  # redirect → /queue · redirect → /posts/new; write/niche/ (Tulis Niche),
+│   │   │                        #   write/structured/ (Tulis Terstruktur)
 │   │   ├── settings/            # page (hub), keys/ (BYOK), ai/, webhooks/, profile/ (preferensi, Developer Mode, Keamanan Akun)
 │   │   ├── sites/               # daftar + sambungkan (?auth_status=), [id]/ (cek & sambungkan ulang koneksi, pengaturan,
 │   │   │                        #   kategori, author, hapus)
@@ -96,7 +97,8 @@ src/
 ├── core/                        # Domain murni
 │   ├── queue/                   # worker.ts (jalur eksekusi satu klaim), leases.ts (RPC klaim/heartbeat, pelepasan & pemulihan),
 │   │                            #   retry-policy.ts, stale-recovery.ts, final-state.ts, manual-actions.ts, checkpoints.ts,
-│   │                            #   agent-runs.ts, claim-abort.ts, batch-progress.ts, cron-auth.ts
+│   │                            #   agent-runs.ts, claim-abort.ts, batch-progress.ts, cron-auth.ts,
+│   │                            #   niche-keywords.ts (rencana kata kunci batch Tulis Niche)
 │   ├── shared/
 │   │   ├── llm/                 # gateway.ts (BYOK, retry, fallback model, completeJson), errors.ts, usage.ts (ledger token & biaya)
 │   │   ├── tools/               # Implementasi tool + contract.ts (ToolOutcome): web-search, web-reader, image-search,
@@ -225,9 +227,9 @@ erDiagram
         uuid user_id FK "UNIQUE (id, user_id)"
         uuid wp_site_id FK "(wp_site_id, user_id) -> wp_sites"
         text name
-        text source_type "csv_keywords | niche_auto | external_url | manual (kode menulis manual)"
+        text source_type "csv_keywords | niche_auto | external_url | manual (kode menulis manual & niche_auto)"
         text execution_mode "immediate | scheduled_drip | wp_future (kode menulis 2 pertama)"
-        jsonb ai_config "agentProfileRef, engine (lama), aiModel, reasoningEffort, language, category_ids, category_names, tags"
+        jsonb ai_config "agentProfileRef, engine (lama), aiModel, reasoningEffort, language, category_ids, category_names, tags; niche_auto: niche, niche_article_count, niche_keywords (rencana)"
         jsonb schedule_config "executionMode, mode, random/interval/instantConfig"
         text status "draft | running | paused | completed | failed"
         int total_items
@@ -373,6 +375,7 @@ Semua fungsi memakai `search_path = ''` dan `EXECUTE` dicabut dari `public`, `an
 | `claim_post_items(p_worker, p_limit, p_lease_seconds, p_user_id?)` | `service_role` (runner) | Klaim atomik item jatuh tempo: `queued_input → generating_content`, `ready_to_sync → syncing_to_wp`; `pg_advisory_xact_lock` + `FOR UPDATE SKIP LOCKED`; `locked_by = p_worker || ':' || 32 hex acak` (token unik per klaim), `locked_until = now + lease`; batas slot per situs & urutan round-robin antar-tenant (§4.3). |
 | `extend_post_item_lease(p_id, p_worker, p_lease_seconds)` | `service_role` | Heartbeat: perpanjang lease hanya bila `locked_by = p_worker` (token klaim) dan item masih in-flight; mengembalikan `boolean`. |
 | `save_generation_checkpoint(p_post_item_id, p_lease_token, p_step, p_schema_version, p_data, p_prompt_versions?)` | `service_role` | Upsert checkpoint hanya bila item masih dipegang token itu dalam `generating_content` (baris dikunci `FOR SHARE`); pemilik diambil dari item; `false` = klaim sudah berpindah. |
+| `assign_niche_keywords(p_post_item_id, p_lease_token, p_keywords)` | `service_role` | Rencana kata kunci batch Tulis Niche (§4.1): hanya bila item masih dipegang token itu dalam `generating_content` dan batch-nya `niche_auto` milik pemilik item. Baris batch dikunci `FOR UPDATE`; rencana pertama yang tersimpan (`ai_config.niche_keywords`) menang dan dikembalikan ke pemanggil berikutnya. Saat menyimpan, `target_keyword` kosong setiap item batch diisi sesuai `source_payload.slot_index`. `NULL` = klaim sudah berpindah/batch tidak cocok; masukan divalidasi (1–100 kata kunci, 1–300 karakter). |
 | `broadcast_post_item_update`, `broadcast_post_items_inserted`, `broadcast_post_items_deleted`, `broadcast_execution_log` | trigger (`SECURITY DEFINER`) | Kirim Broadcast Realtime privat (§3.5). |
 | `set_updated_at` | trigger | `updated_at = now()`. |
 
@@ -386,7 +389,7 @@ trigger yang memanggil `realtime.send(payload, event, topic, private => true)` d
 
 | Topik | Event | Pemicu |
 | :--- | :--- | :--- |
-| `user:<user_id>:queue` | `post_item` | AFTER UPDATE per baris, hanya bila kolom tampilan berubah (`state`, `title`, `batch_id`, `wp_target_status`, `wp_post_*`, `scheduled_for`, `next_attempt_at`, `retry_count`, `last_error`); heartbeat/lease tidak dibroadcast |
+| `user:<user_id>:queue` | `post_item` | AFTER UPDATE per baris, hanya bila kolom tampilan berubah (`state`, `target_keyword` — ditambahkan migrasi `20261022115445` —, `title`, `batch_id`, `wp_target_status`, `wp_post_*`, `scheduled_for`, `next_attempt_at`, `retry_count`, `last_error`); heartbeat/lease tidak dibroadcast |
 | `user:<user_id>:queue` | `post_items_inserted` / `post_items_deleted` | per statement per pemilik (jumlah; ID terhapus maks 500) |
 | `user:<user_id>:post:<post_item_id>` | `execution_log` | log baru; `details` > 32 KiB tidak dikirim (`details_truncated`) |
 
@@ -408,11 +411,13 @@ Klien: §11.5.
 | `20261017100000_realtime_broadcast.sql` | Keluarkan dari publication, trigger Broadcast privat, policy `realtime.messages` |
 | `20261018090000_backfill_requested_category_names.sql` | Data: salin kategori baris lama (`categories`) ke `source_payload.requested_category_names` untuk item batch yang masih akan di-pre-resolve |
 | `20261018100000_converge_legacy_columns.sql` | Konvergensi production lama: default & NOT NULL 50 kolom bawaan (NULL diisi default), hapus trigger `handle_updated_at()` duplikat `set_updated_at` |
+| `20261019090000_align_anti_ai_editor_skill.sql` | Skill sistem `anti-ai-editor` (alur audit, ADR-069) |
+| `20261022115445_niche_keyword_plan.sql` | RPC `assign_niche_keywords` (Tulis Niche); trigger Broadcast `post_item` ikut mengirim `target_keyword` (hanya bila skema Realtime ada) |
 
 - `supabase/seed.sql`: data contoh non-produksi (dijalankan `db reset`; `db push` hanya dengan `--include-seed`). Skill sistem
   `anti-ai-editor` disisipkan/diselaraskan migrasi `20261019090000_align_anti_ai_editor_skill.sql`.
 - `supabase/tests/` (PGlite, tanpa Docker; `npm run db:test`, juga ikut `npm test`): `rls`, `constraints`, `queue`,
-  `queue-hardening`, `generation-checkpoints`, `realtime-broadcast`, `migrations` (idempotensi & konvergensi dari skema lama
+  `queue-hardening`, `generation-checkpoints`, `niche-keywords`, `realtime-broadcast`, `migrations` (idempotensi & konvergensi dari skema lama
   `fixtures/legacy-adhoc-schema.sql`); helper `helpers/test-db.ts` + prelude Supabase.
 - Alur kerja & template: skill [`panitera-db-migration`](.claude/skills/panitera-db-migration/SKILL.md). Skema hanya berubah
   lewat berkas migrasi (bukan SQL editor/skrip Management API). Sebelum `db push` pertama ke production: query pre-flight +
@@ -424,7 +429,7 @@ Klien: §11.5.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> queued_input: Tulis Cepat / batch (INSERT sesi pengguna)
+    [*] --> queued_input: Tulis Cepat / batch / Tulis Niche (INSERT sesi pengguna)
     queued_input --> generating_content: claim_post_items (lease)
     generating_content --> syncing_to_wp: naskah + media tersimpan (transisi berpagar, klaim yang sama)
     generating_content --> queued_input: gagal sementara / lease kedaluwarsa (backoff)
@@ -461,6 +466,19 @@ input): satu item (Tulis Cepat, `batch_id = null`) atau satu `content_batches` +
 per batch — `MAX_BATCH_ITEMS` di `src/lib/validation/batches.ts`, dipakai form dan skema route, jadwal dari `src/lib/scheduler/date-calculator.ts`: `random`/`interval`/`instant`), plus log langkah `queue`. Konfigurasi
 AI (Agent Profile, model, bahasa, kategori) disalin ke `source_payload` / `ai_config`. Route lalu memanggil
 `nudgeQueueRunner()`; respons tidak menunggu pemrosesan.
+
+**Tulis Niche** (`niche` + `articleCount`): batch `source_type = 'niche_auto'` (`ai_config.niche`, `niche_article_count`) dengan
+N item ber-`target_keyword` kosong + `source_payload.keyword_source = 'niche_auto'` dan `slot_index`. Kata kunci disusun di
+worker, bukan di request: klaim generasi yang menemukan kata kunci kosong (`isPendingNicheKeyword`) memanggil
+`resolveNicheKeyword()` (`src/core/queue/niche-keywords.ts`) setelah model penulisan diresolusi dan sebelum checkpoint/writer.
+Bila `ai_config.niche_keywords` sudah ada, kata kunci slot diambil tanpa LLM. Bila belum, data pendukung dikumpulkan
+best-effort — judul ≤ 100 post WordPress (`fetchWordPressPostTitles`: publish/future/draft, turun ke publish bila HTTP 400),
+kata kunci & judul ≤ 200 item lain situs yang sama, saran autocomplete niche (`getKeywordSuggestions`) — lalu LLM
+(`system-niche-keyword-plan.md`, gateway BYOK dengan model & ledger run item, blok `<data_site>` tidak tepercaya) menyusun
+N kata kunci; keluaran disaring `selectNicheKeywords` (teks polos ≤ 300, unik, bukan judul/kata kunci yang ada), kekurangan
+diminta sekali lagi. Rencana disimpan RPC `assign_niche_keywords` (§3.4; penulis pertama menang, item lain batch ikut terisi
+dan dibroadcast). Kegagalan → `settleFailure` tahap generasi (`NicheKeywordError.failure`: auth/kuota/bad_request permanen,
+lainnya sementara); pembatalan klaim hanya dicatat. Log langkah `niche_keywords` memuat rencana, alasan, sumber, token & biaya.
 
 ### 4.2 Runner (`src/server/queue/`)
 
@@ -740,6 +758,9 @@ Susunan prompt penulis (ADR-069) — instruksi berbahasa Inggris, naskah selalu 
   finalize maupun retry.
 - **Gambar**: agen hanya menyematkan URL dari `image_search`/`upload_media` run ini (`![alt](url "caption")`); auto-media pipeline
   menyalinnya ke Media Library saat sinkronisasi, jadi `upload_media` opsional.
+- **Rencana kata kunci Tulis Niche** (`system-niche-keyword-plan.md`, §4.1): niche, bahasa, jumlah, situs, dan brief batch di
+  pesan pengguna; judul situs, kata kunci antrean, dan saran autocomplete hanya di blok `<data_site>` ter-escape; keluaran
+  JSON `{keywords, rationale?}` (alasan berbahasa Indonesia untuk log).
 - WP Tools & resolver menerima data WordPress hanya di blok bertag ter-escape (`<data_wordpress>`, `<kategori_terdaftar>`,
   `<author_terdaftar>`, `<artikel_baru>`, `<artikel_lama>`); field yang tampil di dasbor (`rationale`, `relevanceReason`) diminta
   dalam bahasa Indonesia. Link-extract membaca judul & cuplikan artikel baru via slug URL (`fetchWordPressPostBySlug`).
@@ -848,7 +869,7 @@ Semua route di `src/app/api/**/route.ts` memakai `defineRoute` (`src/server/http
 | `/api/auth/me` | GET | public | `{ user: { id, email, createdAt } \| null }` |
 | `/api/auth/signout` | POST | public | Akhiri sesi (fallback signout lokal) |
 | `/api/auth/password` | POST | user · credentialChange | Ganti kata sandi: verifikasi kata sandi lama, ganti, keluarkan sesi lain (§10); salah → 400 dengan `issues` field |
-| `/api/batches` | GET, POST, DELETE | user · enqueue (POST, body ≤ 2 MB) | Daftar batch + grup virtual `quick-writer`; buat batch (maks 50 baris, `MAX_BATCH_ITEMS` bersama form & skema) lalu bangunkan runner; DELETE `?id=` hapus batch beserta itemnya (`quick-writer` = semua item Tulis Cepat) |
+| `/api/batches` | GET, POST, DELETE | user · enqueue (POST, body ≤ 2 MB) | Daftar batch + grup virtual `quick-writer`; buat batch (maks 50 baris, `MAX_BATCH_ITEMS` bersama form & skema; atau Tulis Niche `niche` + `articleCount` 1–50, tidak boleh dicampur `keywords`/`items`) lalu bangunkan runner; DELETE `?id=` hapus batch beserta itemnya (`quick-writer` = semua item Tulis Cepat) |
 | `/api/health` | GET | none | `{ status, version, uptime, timestamp }` untuk HEALTHCHECK |
 | `/api/lab/registry` | GET | user + Developer Mode | `{ sites, tools, profiles }` untuk Lab |
 | `/api/lab/run` | POST | user + Developer Mode · llm | Uji tool (termasuk `wordpress_publisher`, default draft) atau Agent Profile; kegagalan eksekusi = 200 `ok:false`; output diredaksi; putus koneksi membatalkan run |
