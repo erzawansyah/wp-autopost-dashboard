@@ -26,7 +26,7 @@ interface WriterFormCardProps {
 }
 
 /**
- * Kerangka form penulis (Tulis Cepat / Tulis Massal / Tulis Terstruktur): kartu dengan tab "Wajib" vs
+ * Kerangka form penulis (Tulis Cepat / Tulis Massal / Tulis Niche / Tulis Terstruktur): kartu dengan tab "Wajib" vs
  * "Lanjutan" (badge jumlah opsi lanjutan terisi), satu `<form noValidate>`, dan footer aksi.
  * Field tab yang tidak aktif tetap tersimpan di react-hook-form (tidak di-unregister).
  */

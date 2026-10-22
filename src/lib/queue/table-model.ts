@@ -38,6 +38,14 @@ export function batchIdOf(item: Pick<QueueTableItem, "batchId">): string {
   return item.batchId || QUICK_WRITER_BATCH_ID
 }
 
+/** Judul item Tulis Niche sebelum rencana kata kunci AI tersimpan (`target_keyword` masih kosong). */
+export const PENDING_KEYWORD_TITLE = "Menunggu kata kunci dari AI"
+
+/** Kata kunci tampilan; item Tulis Niche yang belum direncanakan (kosong) → "disusun AI". */
+export function displayKeyword(keyword: string | null | undefined): string {
+  return keyword?.trim() || "disusun AI"
+}
+
 /** `https://blog.com/` → `blog.com`. */
 export function formatSiteDomain(baseUrl: string | null | undefined): string {
   if (!baseUrl) return "-"
@@ -76,8 +84,8 @@ export function toQueueTableItem(item: QueueItem | PostListItem): QueueTableItem
   const batchId = item.batch_id ?? QUICK_WRITER_BATCH_ID
   return {
     id: item.id,
-    title: item.title || item.target_keyword,
-    targetKeyword: item.target_keyword,
+    title: item.title || item.target_keyword || PENDING_KEYWORD_TITLE,
+    targetKeyword: displayKeyword(item.target_keyword),
     siteName: item.wp_sites?.site_name || "WordPress",
     siteDomain: formatSiteDomain(item.wp_sites?.base_url),
     categories: extractCategoryNames("categories" in item ? item.categories : null, payload),

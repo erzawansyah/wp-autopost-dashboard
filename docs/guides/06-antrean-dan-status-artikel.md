@@ -1,6 +1,6 @@
 # Antrean, Status & Kirim Ulang
 
-Semua artikel dari Tulis Cepat, Tulis Massal, dan Tulis Terstruktur masuk ke antrean yang tersimpan di database. Runner antrean di server mengambil artikel satu per satu, menulisnya dengan Agent Profile, lalu mengirimnya ke WordPress. Panduan ini menjelaskan cara memantau dan menangani artikel di antrean.
+Semua artikel dari Tulis Cepat, Tulis Massal, Tulis Niche, dan Tulis Terstruktur masuk ke antrean yang tersimpan di database. Runner antrean di server mengambil artikel satu per satu, menulisnya dengan Agent Profile, lalu mengirimnya ke WordPress. Panduan ini menjelaskan cara memantau dan menangani artikel di antrean.
 
 ---
 
@@ -12,6 +12,7 @@ Menu **Antrean** menampilkan 100 artikel terbaru beserta statusnya.
 - **Pencarian**: cari berdasarkan judul, topik, kategori, batch, atau domain.
 - **Filter**: **Semua batch** (pilih satu batch atau grup Tulis Cepat), **Semua website**, dan tombol status **Semua**, **Dalam Proses**, **Terbit di Web**, **Draf di Web**, **Terjadwal**, **Gagal**.
 - **Kelompokkan per batch**: menampilkan artikel per batch dengan progres **selesai/total**. Artikel Tulis Cepat dikelompokkan ke grup **Tulis Cepat (Quick Writer)**.
+- Artikel **Tulis Niche** yang kata kuncinya belum disusun AI berjudul **Menunggu kata kunci dari AI** dengan topik **disusun AI**; kata kuncinya muncul begitu artikel pertama batch mulai diproses.
 - **Kolom**: **Judul & Topik**, **Website Tujuan**, **Status**, **Waktu & Publikasi** (mis. **Rencana Tayang**, **Terjadwal di WP**, **Draf di WP**, **Terbit di Web**, atau **Gagal Diproses**), dan **Kategori**.
 - **Aksi massal**: centang beberapa artikel untuk **Proses ulang N artikel** atau **Hapus N artikel**.
 

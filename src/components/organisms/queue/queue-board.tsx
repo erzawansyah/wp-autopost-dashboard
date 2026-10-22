@@ -250,7 +250,7 @@ export function QueueBoard({ userId, batchId, initialItems, initialBatches }: Qu
           <EmptyState
             icon={Inbox}
             title={batchId ? "Batch ini belum memiliki artikel" : "Belum ada antrean artikel"}
-            description="Buat artikel di menu Tulis Cepat, Tulis Massal, atau Tulis Terstruktur."
+            description="Buat artikel di menu Tulis Cepat, Tulis Massal, Tulis Niche, atau Tulis Terstruktur."
           >
             <Button asChild size="sm" className="gap-1.5">
               <Link href="/posts/new">

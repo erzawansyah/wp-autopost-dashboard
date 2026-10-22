@@ -42,6 +42,7 @@ const mocks = vi.hoisted(() => ({
   dispatchWebhookEvent: vi.fn(),
   fetchWordPressCategories: vi.fn(),
   beginWordPressRequest: vi.fn(),
+  resolveNicheKeyword: vi.fn(),
 }))
 
 function createFakeSupabase() {
@@ -112,6 +113,10 @@ vi.mock("@/core/writer/runtime/telemetry", () => ({}))
 vi.mock("@/lib/settings/user-keys", () => ({ getUserDecryptedKeys: mocks.getUserDecryptedKeys }))
 vi.mock("@/lib/webhooks/dispatcher", () => ({ dispatchWebhookEvent: mocks.dispatchWebhookEvent }))
 vi.mock("@/lib/wordpress/client", () => ({ fetchWordPressCategories: mocks.fetchWordPressCategories }))
+vi.mock("@/core/queue/niche-keywords", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/core/queue/niche-keywords")>()),
+  resolveNicheKeyword: mocks.resolveNicheKeyword,
+}))
 
 const OWNER = "user-owner"
 const OTHER = "user-other"
@@ -260,6 +265,7 @@ beforeEach(() => {
     mocks.dispatchWebhookEvent,
     mocks.fetchWordPressCategories,
     mocks.beginWordPressRequest,
+    mocks.resolveNicheKeyword,
   ]) {
     fn.mockReset()
   }
@@ -1594,5 +1600,109 @@ describe("runClaimedPostItem — kategori per baris & prioritas model", () => {
     expect(mocks.run.mock.calls[0][0].model).toBe(expected)
     const runInsert = recordedOps().find((op) => op.table === "agent_runs" && op.action === "insert")
     expect(runInsert?.payload?.profile_snapshot).toMatchObject({ model: expected })
+  })
+})
+
+describe("runClaimedPostItem — kata kunci Tulis Niche", () => {
+  const NICHE_PAYLOAD = { keyword_source: "niche_auto", slot_index: 1, language: "en" }
+  const nichePost = (overrides: Record<string, unknown> = {}) =>
+    basePost({ batch_id: "batch-1", target_keyword: "", source_payload: NICHE_PAYLOAD, ...overrides })
+  const nicheClaim = () => claimed({ batchId: "batch-1", keyword: "" })
+
+  function nicheLogs(): RecordedOp[] {
+    return recordedOps().filter((op) => op.table === "execution_logs" && op.payload?.step === "niche_keywords")
+  }
+
+  it("menyusun rencana sebelum writer; writer menulis kata kunci hasil rencana dan log mencatat rencana", async () => {
+    setResolver(defaultResolver(nichePost()))
+    mocks.getUserDecryptedKeys.mockResolvedValue({ openrouterKey: "sk-or", defaultAiModel: "acme/default-akun" })
+    mocks.resolveNicheKeyword.mockResolvedValue({
+      status: "ready",
+      keyword: "rasio kopi french press",
+      slot: 1,
+      total: 3,
+      plan: {
+        niche: "kopi manual brew",
+        keywords: ["a", "rasio kopi french press", "c"],
+        rationale: "Sebaran topik.",
+        adoptedExisting: false,
+        sources: { existingTitles: 2, plannedKeywords: 0, searchSuggestions: 5 },
+        llmCalls: 1,
+      },
+    })
+    mocks.run.mockResolvedValue({ success: false, error: { code: "X", message: "berhenti", retryable: false } })
+
+    await run(nicheClaim())
+
+    const [request] = mocks.resolveNicheKeyword.mock.calls[0].slice(1) as [Record<string, unknown>]
+    expect(request).toMatchObject({
+      claim: { id: "post-1", userId: OWNER, batchId: "batch-1", leaseToken: TOKEN },
+      slotIndex: 1,
+      language: "en",
+      model: "acme/default-akun",
+      site: { id: "site-1", siteName: "Situs", baseUrl: "https://contoh.test", applicationPassword: "app-password-plain" },
+    })
+    expect(request.signal).toBeInstanceOf(AbortSignal)
+    expect(mocks.run.mock.calls[0][0].content.keyword).toBe("rasio kopi french press")
+    const [log] = nicheLogs()
+    expect(log.payload).toMatchObject({ level: "info", user_id: OWNER, post_item_id: "post-1" })
+    expect(String(log.payload?.message)).toMatch(/AI menyusun 3 kata kunci untuk niche "kopi manual brew"/)
+    expect(log.payload?.details).toMatchObject({ output: { keyword: "rasio kopi french press", keywords: ["a", "rasio kopi french press", "c"] } })
+  })
+
+  it("item yang sudah berkata kunci (atau bukan Tulis Niche) tidak menyusun rencana", async () => {
+    for (const post of [nichePost({ target_keyword: "sudah ada" }), basePost({ target_keyword: "" })]) {
+      mocks.ops.length = 0
+      mocks.run.mockReset().mockResolvedValue({ success: false, error: { code: "X", message: "berhenti", retryable: false } })
+      setResolver(defaultResolver(post))
+
+      await run(nicheClaim())
+
+      expect(mocks.resolveNicheKeyword).not.toHaveBeenCalled()
+      expect(mocks.run).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it.each([
+    ["sementara (LLM 503)", "transient", { state: "queued_input", retry_count: 1 }],
+    ["permanen (kunci ditolak)", "permanent", { state: "failed_generation", retry_count: 0 }],
+  ])("kegagalan %s → diselesaikan seperti kegagalan generasi, writer tidak dipanggil", async (_label, failure, expected) => {
+    const { NicheKeywordError } = await import("@/core/queue/niche-keywords")
+    setResolver(defaultResolver(nichePost()))
+    mocks.resolveNicheKeyword.mockRejectedValue(new NicheKeywordError("AI gagal", failure as "transient" | "permanent"))
+
+    const result = await run(nicheClaim())
+
+    expect(result).toMatchObject({ success: false, state: expected.state })
+    expect(mocks.run).not.toHaveBeenCalled()
+    const settled = settledFailure()
+    expect(settled?.payload).toMatchObject(expected)
+    expect(String(settled?.payload?.last_error)).toMatch(/^Gagal menyusun kata kunci niche: AI gagal/)
+    expect(isFencedByClaim(settled)).toBe(true)
+  })
+
+  it("klaim hilang saat rencana disimpan → berhenti tanpa menulis state", async () => {
+    setResolver(defaultResolver(nichePost()))
+    mocks.resolveNicheKeyword.mockResolvedValue({ status: "claim_lost" })
+
+    const result = await run(nicheClaim())
+
+    expect(result.success).toBe(false)
+    expect(mocks.run).not.toHaveBeenCalled()
+    expect(postItemUpdates()).toHaveLength(0)
+  })
+
+  it("lease hilang saat menyusun → hanya log peringatan, tanpa menulis state", async () => {
+    setResolver(defaultResolver(nichePost()))
+    mocks.resolveNicheKeyword.mockImplementation(async () => {
+      claimController.abort(new ClaimAbortedError("lease_lost"))
+      throw new DOMException("dibatalkan", "AbortError")
+    })
+
+    const result = await run(nicheClaim())
+
+    expect(result.success).toBe(false)
+    expect(postItemUpdates()).toHaveLength(0)
+    expect(nicheLogs()[0]?.payload).toMatchObject({ level: "warn", details: { reason: "lease_lost" } })
   })
 })

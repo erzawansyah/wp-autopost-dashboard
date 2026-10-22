@@ -1,5 +1,5 @@
 /**
- * Opsi form penulis (Tulis Cepat / Tulis Massal / Tulis Terstruktur) yang disiapkan page RSC lalu dioper ke
+ * Opsi form penulis (Tulis Cepat / Tulis Massal / Tulis Niche / Tulis Terstruktur) yang disiapkan page RSC lalu dioper ke
  * organism client — modul murni (aman diimpor server & client).
  */
 

@@ -48,6 +48,11 @@
   "byPrompt": {
     "system-resolve-taxonomy-author": {
       "language": "English (US/UK)"
+    },
+    "system-niche-keyword-plan": {
+      "niche": "kopi manual brew untuk pemula di rumah",
+      "count": "13",
+      "siteData": "{\n  \"existingTitles\": [\n    \"Cara Menyeduh Kopi V60 untuk Pemula\",\n    \"5 Grinder Kopi Manual Terbaik\"\n  ],\n  \"plannedKeywords\": [\n    \"perbedaan kopi arabika dan robusta\"\n  ],\n  \"searchSuggestions\": [\n    \"kopi manual brew alat\",\n    \"kopi manual brew rasio\"\n  ]\n}"
     }
   }
 }

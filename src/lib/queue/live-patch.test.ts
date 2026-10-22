@@ -59,6 +59,7 @@ describe("parsePostItemChange", () => {
       id: "a",
       state: "ready_to_sync",
     })
+    expect(parsePostItemChange({ id: "a", target_keyword: "kopi susu" })).toEqual({ id: "a", target_keyword: "kopi susu" })
     expect(parsePostItemChange({ id: "a", state: "unknown_state" })).toBeNull()
     expect(parsePostItemChange({ state: "ready_to_sync" })).toBeNull()
     expect(parsePostItemChange(null)).toBeNull()
@@ -88,8 +89,8 @@ describe("applyPostItemChange", () => {
 describe("detail artikel", () => {
   it("menambal state detail; item lain diabaikan", () => {
     const current = detail()
-    const patched = applyPostDetailChange(current, { id: "a", state: "ready_to_sync", title: "Kopi Enak" })
-    expect(patched?.post).toMatchObject({ state: "ready_to_sync", title: "Kopi Enak" })
+    const patched = applyPostDetailChange(current, { id: "a", state: "ready_to_sync", title: "Kopi Enak", target_keyword: "kopi enak" })
+    expect(patched?.post).toMatchObject({ state: "ready_to_sync", title: "Kopi Enak", target_keyword: "kopi enak" })
     expect(applyPostDetailChange(current, { id: "zzz", state: "failed_sync" })).toBe(current)
   })
 

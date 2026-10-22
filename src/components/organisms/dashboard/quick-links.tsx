@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { Bot, Layers, ListChecks, PenLine, TableProperties, Wrench, type LucideIcon } from "lucide-react"
+import { Bot, Layers, ListChecks, PenLine, Sprout, TableProperties, Wrench, type LucideIcon } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/atoms/card"
 
 interface QuickLink {
@@ -13,6 +13,7 @@ interface QuickLink {
 const QUICK_LINKS: QuickLink[] = [
   { href: "/posts/new", title: "Tulis Cepat", description: "Satu artikel dari satu kata kunci.", icon: PenLine },
   { href: "/queue", title: "Tulis Massal", description: "Banyak kata kunci sekaligus, terjadwal.", icon: Layers },
+  { href: "/write/niche", title: "Tulis Niche", description: "Satu niche, kata kunci disusun AI.", icon: Sprout },
   { href: "/write/structured", title: "Tulis Terstruktur", description: "Impor CSV dengan kolom lengkap.", icon: TableProperties },
   { href: "/queue/items", title: "Antrean", description: "Pantau, kirim ulang, atau hapus item.", icon: ListChecks },
   { href: "/tools", title: "WP Tools", description: "Kategori, author, dan tautan internal.", icon: Wrench },

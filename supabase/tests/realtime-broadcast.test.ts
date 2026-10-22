@@ -4,7 +4,8 @@
  * - tanpa skema Realtime Supabase (prelude PGlite / Postgres polos) trigger, fungsi, dan policy dilewati;
  * - dengan skema Realtime (simulasi minimal `realtime.messages`, `realtime.topic()`, `realtime.send()`):
  *   trigger mengirim payload ringkas ke topik privat pemilik, heartbeat tidak dibroadcast, dan policy
- *   `realtime.messages` hanya mengizinkan join topik `user:<auth.uid()>:…`.
+ *   `realtime.messages` hanya mengizinkan join topik `user:<auth.uid()>:…`;
+ * - migrasi `*_niche_keyword_plan.sql` menambahkan `target_keyword` ke payload & pemicu trigger item.
  */
 import type { PGlite } from "@electric-sql/pglite"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -20,6 +21,7 @@ import {
 
 const PUBLICATION_MIGRATION = readMigration("_realtime_publication.sql")
 const BROADCAST_MIGRATION = readMigration("_realtime_broadcast.sql")
+const NICHE_KEYWORD_MIGRATION = readMigration("_niche_keyword_plan.sql")
 const TRIGGERS = [
   "broadcast_post_item_update",
   "broadcast_post_items_inserted",
@@ -290,5 +292,46 @@ describe("dengan skema Realtime (simulasi)", () => {
       return result.rows.map((row) => row.extension)
     })
     expect(visible).not.toContain("presence")
+  })
+})
+
+describe("migrasi rencana kata kunci niche (skema Realtime simulasi)", () => {
+  let tenant: TenantFixture
+
+  beforeAll(async () => {
+    await runSqlFile(db, NICHE_KEYWORD_MIGRATION)
+    await runSqlFile(db, NICHE_KEYWORD_MIGRATION)
+    tenant = await seedTenant(db, "rt-niche")
+  })
+
+  beforeEach(async () => {
+    await db.exec("delete from realtime.messages")
+  })
+
+  it("trigger tetap terpasang sekali; fungsi SECURITY DEFINER tanpa EXECUTE untuk role API", async () => {
+    expect(await installedTriggers()).toEqual([...TRIGGERS].sort())
+    for (const role of ["anon", "authenticated"]) {
+      const result = await db.query<{ allowed: boolean }>(
+        "select has_function_privilege($1, 'public.broadcast_post_item_update()', 'EXECUTE') as allowed",
+        [role]
+      )
+      expect(result.rows[0].allowed).toBe(false)
+    }
+  })
+
+  it("perubahan target_keyword saja dibroadcast dengan kata kunci baru", async () => {
+    await db.query("update public.post_items set target_keyword = 'kopi arabika' where id = $1", [tenant.postId])
+
+    const result = await db.query<MessageRow>("select topic, event, private, payload from realtime.messages order by id")
+    expect(result.rows).toHaveLength(1)
+    const [message] = result.rows
+    expect(message).toMatchObject({ topic: `user:${tenant.userId}:queue`, event: "post_item", private: true })
+    expect(message.payload.record).toMatchObject({ id: tenant.postId, target_keyword: "kopi arabika" })
+  })
+
+  it("heartbeat tetap tidak dibroadcast", async () => {
+    await db.query("update public.post_items set updated_at = now() where id = $1", [tenant.postId])
+    const result = await db.query("select 1 from realtime.messages")
+    expect(result.rows).toEqual([])
   })
 })

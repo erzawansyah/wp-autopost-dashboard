@@ -27,6 +27,7 @@ export const DASHBOARD_ROUTE_CRUMBS: Readonly<Record<string, RouteCrumb>> = {
   "/posts/[id]": { label: "Detail Artikel", parent: "/queue/items" },
   "/posts/new": { label: "Tulis Cepat" },
   "/queue": { label: "Tulis Massal" },
+  "/write/niche": { label: "Tulis Niche" },
   "/write/structured": { label: "Tulis Terstruktur" },
   "/tools": { label: "WP Tools" },
   "/tools/link-building": { label: "Link Building", parent: "/tools" },

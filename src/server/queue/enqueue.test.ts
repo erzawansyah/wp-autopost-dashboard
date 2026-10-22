@@ -158,6 +158,44 @@ describe("createBatch", () => {
     expect((rows[1].source_payload as Record<string, unknown>).requested_category_names).toBeUndefined()
   })
 
+  it("Tulis Niche: batch niche_auto + item berkata kunci kosong bertanda keyword_source per slot", async () => {
+    const result = await createBatch(fakeSupabase(), USER, {
+      ...base,
+      items: [{ keyword: "" }, { keyword: "" }, { keyword: "" }],
+      niche: "kopi manual brew",
+    })
+
+    expect(result.batch.totalItems).toBe(3)
+    const batchInsert = calls.find((call) => call.table === "content_batches" && call.action === "insert")
+    expect(batchInsert?.payload).toMatchObject({
+      name: "Niche: kopi manual brew (3 artikel)",
+      source_type: "niche_auto",
+      total_items: 3,
+      ai_config: { ...AI, niche: "kopi manual brew", niche_article_count: 3 },
+    })
+    const rows = calls.find((call) => call.table === "post_items" && call.action === "insert")?.payload as Array<
+      Record<string, unknown>
+    >
+    expect(rows.map((row) => [row.target_keyword, (row.source_payload as Record<string, unknown>).slot_index])).toEqual([
+      ["", 0],
+      ["", 1],
+      ["", 2],
+    ])
+    expect(rows[0]).toMatchObject({ state: "queued_input", source_payload: { keyword_source: "niche_auto" } })
+  })
+
+  it("batch biasa: source_type manual tanpa penanda Tulis Niche", async () => {
+    await createBatch(fakeSupabase(), USER, base)
+
+    const batchInsert = calls.find((call) => call.table === "content_batches" && call.action === "insert")
+    expect(batchInsert?.payload).toMatchObject({ source_type: "manual" })
+    expect((batchInsert?.payload as { ai_config: Record<string, unknown> }).ai_config).not.toHaveProperty("niche")
+    const rows = calls.find((call) => call.table === "post_items" && call.action === "insert")?.payload as Array<
+      Record<string, unknown>
+    >
+    expect((rows[0].source_payload as Record<string, unknown>).keyword_source).toBeUndefined()
+  })
+
   it("penyisipan item gagal → batch kosong dihapus lagi dan galat DB dipetakan", async () => {
     itemsInsertError = { code: "23514", message: "check violation" }
 

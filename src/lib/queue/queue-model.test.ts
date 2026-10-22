@@ -113,6 +113,13 @@ describe("table-model", () => {
     expect(row.batchName).toBe("Batch Kopi")
   })
 
+  it("item Tulis Niche sebelum rencana kata kunci (kata kunci kosong) → judul & topik penanda AI", () => {
+    const row = toQueueTableItem(queueItem({ target_keyword: "" }))
+    expect(row.title).toBe("Menunggu kata kunci dari AI")
+    expect(row.targetKeyword).toBe("disusun AI")
+    expect(toQueueTableItem(queueItem({ target_keyword: "kopi susu" })).targetKeyword).toBe("kopi susu")
+  })
+
   it("kategori: ID numerik lama diabaikan, cadangan dari source_payload", () => {
     expect(extractCategoryNames(["12", "Resep"], null)).toEqual(["Resep"])
     expect(extractCategoryNames([3, 4], { category_names: ["Minuman", " "] })).toEqual(["Minuman"])

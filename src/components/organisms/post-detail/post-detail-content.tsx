@@ -7,6 +7,7 @@ import { Button } from "@/components/atoms/button"
 import { Card, CardContent, CardHeader } from "@/components/atoms/card"
 import { Skeleton } from "@/components/atoms/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/atoms/tabs"
+import { displayKeyword, PENDING_KEYWORD_TITLE } from "@/lib/queue/table-model"
 import { useSanitizedHtml } from "@/lib/sanitize-html"
 import { notify } from "@/lib/ui/notify"
 import type { PostDetail } from "@/types/posts"
@@ -58,7 +59,7 @@ export function PostDetailContent({
           <div className="flex flex-col justify-between gap-3 border-b border-border/60 pb-4 sm:flex-row sm:items-center">
             <div className="flex min-w-0 flex-col gap-1">
               <span className="font-mono text-2xs font-semibold tracking-wider text-muted-foreground uppercase">Judul artikel</span>
-              <h2 className="text-lg leading-snug font-bold text-foreground sm:text-xl">{post.title || post.target_keyword}</h2>
+              <h2 className="text-lg leading-snug font-bold text-foreground sm:text-xl">{post.title || post.target_keyword || PENDING_KEYWORD_TITLE}</h2>
             </div>
             {post.wp_post_url && (
               <Button asChild size="xs" className="shrink-0 gap-1.5">
@@ -72,7 +73,7 @@ export function PostDetailContent({
 
           <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             <span>
-              Kata kunci: <strong className="text-foreground">{post.target_keyword}</strong>
+              Kata kunci: <strong className="text-foreground">{displayKeyword(post.target_keyword)}</strong>
             </span>
             {wordCount > 0 && (
               <>

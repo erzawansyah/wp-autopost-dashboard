@@ -8,6 +8,7 @@ import {
   type ScheduledSlot,
   type ScheduleMode,
 } from "@/lib/scheduler/date-calculator"
+import { NICHE_KEYWORD_SOURCE } from "@/lib/validation/batches"
 import { notFound, throwIfDbError } from "@/server/http/errors"
 
 /**
@@ -102,6 +103,11 @@ export interface CreateBatchInput {
   siteId: string
   batchName?: string
   items: BatchItemInput[]
+  /**
+   * Tulis Niche: batch `niche_auto` dengan item berkata kunci kosong (`keyword: ""`); rencana kata kunci disusun AI
+   * di antrean (`core/queue/niche-keywords.ts`).
+   */
+  niche?: string
   executionMode: "immediate" | "scheduled_drip"
   scheduleMode: ScheduleMode
   randomConfig?: RandomScheduleConfig
@@ -154,8 +160,11 @@ export async function createBatch(
     instantConfig: input.instantConfig,
   })
 
-  const defaultBatchName =
-    keywords.length === 1 ? `Batch: ${keywords[0]}` : `Batch: ${keywords[0]} (+${keywords.length - 1} topik)`
+  const defaultBatchName = input.niche
+    ? `Niche: ${input.niche} (${keywords.length} artikel)`
+    : keywords.length === 1
+      ? `Batch: ${keywords[0]}`
+      : `Batch: ${keywords[0]} (+${keywords.length - 1} topik)`
 
   const { data: batch, error: batchError } = await supabase
     .from("content_batches")
@@ -163,7 +172,7 @@ export async function createBatch(
       user_id: userId,
       wp_site_id: site.id,
       name: input.batchName || defaultBatchName,
-      source_type: "manual",
+      source_type: input.niche ? NICHE_KEYWORD_SOURCE : "manual",
       execution_mode: input.executionMode,
       schedule_config: {
         executionMode: input.executionMode,
@@ -177,6 +186,8 @@ export async function createBatch(
         category_ids: input.categoryIds,
         category_names: input.categoryNames,
         tags: input.tags,
+        // Rencana kata kunci (`niche_keywords`) ditambahkan RPC `assign_niche_keywords` saat artikel pertama diproses.
+        ...(input.niche ? { niche: input.niche, niche_article_count: keywords.length } : {}),
       },
       custom_instructions_override: input.customBrief || null,
       status: "running",
@@ -213,6 +224,8 @@ export async function createBatch(
         // `category_ids`. Kategori baru tidak pernah dibuat otomatis.
         requested_category_names: item.category ? [item.category] : undefined,
         batch_name: batch.name,
+        // Kata kunci kosong + penanda ini = menunggu rencana kata kunci AI (diisi per `slot_index`).
+        keyword_source: input.niche ? NICHE_KEYWORD_SOURCE : undefined,
         schedule_mode: input.scheduleMode,
         execution_mode: input.executionMode,
         slot_index: idx,

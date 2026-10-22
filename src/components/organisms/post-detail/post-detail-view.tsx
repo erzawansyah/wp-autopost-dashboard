@@ -20,7 +20,7 @@ import { usePostDetailLive } from "@/lib/hooks/use-post-detail-live"
 import { PollBackoff } from "@/lib/queue/poll-backoff"
 import { getQueueRetryAction, RETRY_ACTION_COPY, type QueueRetryAction } from "@/lib/queue/retry-actions"
 import { isInFlightState } from "@/lib/queue/states"
-import { formatSiteDomain } from "@/lib/queue/table-model"
+import { displayKeyword, formatSiteDomain, PENDING_KEYWORD_TITLE } from "@/lib/queue/table-model"
 import { formatIndonesianDateTime } from "@/lib/scheduler/date-calculator"
 import type { PostDetailResponse } from "@/types/posts"
 
@@ -62,8 +62,8 @@ export function PostDetailView({ initialData }: { initialData: PostDetailRespons
   return (
     <>
       <PageHeader
-        title={post.title || post.target_keyword}
-        description={`Topik: ${post.target_keyword} • ${site?.site_name || "WordPress"} (${formatSiteDomain(site?.base_url)})`}
+        title={post.title || post.target_keyword || PENDING_KEYWORD_TITLE}
+        description={`Topik: ${displayKeyword(post.target_keyword)} • ${site?.site_name || "WordPress"} (${formatSiteDomain(site?.base_url)})`}
         icon={FileText}
         backHref="/"
         backLabel="Kembali ke Dashboard"

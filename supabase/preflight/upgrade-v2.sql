@@ -345,7 +345,8 @@ as $fn$
     ('20261017100000'),
     ('20261018090000'),
     ('20261018100000'),
-    ('20261019090000')
+    ('20261019090000'),
+    ('20261022115445')
 $fn$;
 
 
@@ -473,7 +474,7 @@ begin
     from pg_proc as p
     where p.pronamespace = 'public'::regnamespace
       and p.proname in ('set_updated_at', 'claim_post_items', 'extend_post_item_lease', 'save_generation_checkpoint',
-                        'broadcast_post_item_update', 'broadcast_post_items_inserted',
+                        'assign_niche_keywords', 'broadcast_post_item_update', 'broadcast_post_items_inserted',
                         'broadcast_post_items_deleted', 'broadcast_execution_log')
   ) as o
   where not pg_has_role(current_user, o.pemilik_oid, 'MEMBER');

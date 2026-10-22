@@ -37,6 +37,7 @@ Sidebar kiri dibagi menjadi tiga kelompok.
 | Menu Utama | **Antrean** | Status setiap artikel, jadwal tayang, dan aksi kirim ulang. |
 | Penerbitan Konten | **Tulis Cepat** | Satu artikel dari satu topik. |
 | Penerbitan Konten | **Tulis Massal** | Banyak kata kunci sekaligus (maks. 50 per batch), langsung atau bertahap. |
+| Penerbitan Konten | **Tulis Niche** | Banyak artikel dari satu niche (maks. 50 per batch); kata kuncinya disusun AI. |
 | Penerbitan Konten | **Tulis Terstruktur** | Impor data tabel (CSV/TSV/tempel dari spreadsheet) dengan kolom judul, LSI, fokus, dan tag. |
 | Alat & Konfigurasi | **WP Tools** | Asisten AI untuk tautan internal, persona author, dan kategori. |
 | Alat & Konfigurasi | **Profil Agen** | Membuat dan mengatur Agent Profile. |
@@ -65,7 +66,7 @@ Setelah mengirim Tulis Cepat, Anda diarahkan ke Dashboard dengan banner **Artike
 
 - [Menghubungkan Website WordPress](/docs?doc=02-koneksi-wordpress)
 - [Agent Profile & Skill Registry](/docs?doc=03-manajemen-profil-agen)
-- [Tulis Cepat, Tulis Massal & Penjadwalan](/docs?doc=04-penerbitan-dan-penjadwalan)
+- [Tulis Cepat, Tulis Massal, Tulis Niche & Penjadwalan](/docs?doc=04-penerbitan-dan-penjadwalan)
 - [WP Tools](/docs?doc=05-wp-tools-dan-utilitas)
 - [Antrean, Status & Kirim Ulang](/docs?doc=06-antrean-dan-status-artikel)
 - [Pengaturan, Kunci API & Webhook](/docs?doc=07-pengaturan-kunci-api-dan-webhook)

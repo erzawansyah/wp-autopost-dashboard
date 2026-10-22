@@ -163,6 +163,37 @@ describe("POST /api/batches", () => {
   })
 })
 
+describe("POST /api/batches — Tulis Niche", () => {
+  it("niche + jumlah artikel → item berkata kunci kosong sebanyak jumlah artikel, niche diteruskan ke service", async () => {
+    const res = await POST(
+      post({ siteId: SITE_ID, niche: "  kopi manual brew  ", articleCount: 3, agentProfileRef: "preset:quick-writer", language: "en" }),
+      ctx
+    )
+
+    expect(res.status).toBe(200)
+    const input = mocks.createBatch.mock.calls[0][2]
+    expect(input).toMatchObject({
+      niche: "kopi manual brew",
+      items: [{ keyword: "" }, { keyword: "" }, { keyword: "" }],
+      aiConfig: { agentProfileRef: "preset:quick-writer", language: "en" },
+    })
+    expect(mocks.nudgeQueueRunner).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ["niche tanpa jumlah artikel", { niche: "kopi" }, 400],
+    ["jumlah artikel tanpa niche", { articleCount: 3 }, 400],
+    ["dicampur daftar kata kunci", { niche: "kopi", articleCount: 2, keywords: ["teh"] }, 400],
+    ["jumlah artikel melebihi batas", { niche: "kopi", articleCount: MAX_BATCH_ITEMS + 1 }, 400],
+    ["jumlah artikel pecahan", { niche: "kopi", articleCount: 1.5 }, 400],
+    ["niche terlalu panjang", { niche: "k".repeat(301), articleCount: 1 }, 400],
+  ])("%s → %i tanpa membuat batch", async (_label, body, status) => {
+    const res = await POST(post({ siteId: SITE_ID, ...body }), ctx)
+    expect(res.status).toBe(status)
+    expect(mocks.createBatch).not.toHaveBeenCalled()
+  })
+})
+
 describe("DELETE /api/batches", () => {
   it("menghapus item batch lebih dulu lalu batch-nya, selalu difilter pemilik", async () => {
     const res = await DELETE(new Request(`http://localhost/api/batches?id=${BATCH_ID}`, { method: "DELETE" }), ctx)
